@@ -3,12 +3,10 @@ services:
     image: postgres:16
     container_name: fullstack_starter_db
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: app
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
+    env_file:
+      - .env
     ports:
-      - "5432:5432"
+      - "${CONTAINER_PORT}:${DATABASE_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
