@@ -10,7 +10,7 @@ type ButtonProps<T extends ButtonTypeEnum> = T extends "link" ? {
     as?: T;
 };  
 
-export default function Button(props: ButtonProps<ButtonTypeEnum>) {
+export default function Button({...props}: ButtonProps<ButtonTypeEnum>) {
   const buttonType = props.as === "submit" ? "submit" : "button";
   if (props.as === "link") {
     return (
