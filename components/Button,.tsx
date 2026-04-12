@@ -10,19 +10,19 @@ type ButtonProps<T extends ButtonTypeEnum> = T extends "link" ? {
     as?: T;
 };  
 
-export default function Button({ text , as}: ButtonProps<ButtonTypeEnum>) {
-  const buttonType = as === "submit" ? "submit" : "button";
-  if (as === "link") {
+export default function Button(props: ButtonProps<ButtonTypeEnum>) {
+  const buttonType = props.as === "submit" ? "submit" : "button";
+  if (props.as === "link") {
     return (
-      <Link href="#" className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-        {text}
+      <Link href={props.href} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        {props.text}
       </Link>
     );
   }
   
   return (
     <button type={buttonType} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-      {text}
+      {props.text}
     </button>
   );
 }
