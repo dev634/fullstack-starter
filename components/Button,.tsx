@@ -17,7 +17,7 @@ export default function Button(props: ButtonProps<ButtonTypeEnum>) {
     return (
       <Link
         href={props.href || ""}
-        className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        className="block w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center text-decoration-none"
       >
         {props.text}
       </Link>
@@ -27,7 +27,7 @@ export default function Button(props: ButtonProps<ButtonTypeEnum>) {
   return (
     <button
       type={buttonType}
-      className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+      className="block w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center text-decoration-none"
     >
       {props.text}
     </button>

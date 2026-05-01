@@ -29,8 +29,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Navbar links={[
-          { href: "/", display: "Home" },
+        <Navbar brand={{
+          href: "/",
+          display: "Fullstack Starter"
+        }} links={[
           { href: "/clients", display: "Clients" }
         ]} />
         {children}
