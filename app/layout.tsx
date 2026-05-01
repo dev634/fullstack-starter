@@ -28,7 +28,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="flex flex-col">
+      <body className="flex flex-col h-dvh overflow-y-hidden">
         <Navbar brand={{
           href: "/",
           display: "Fullstack Starter"

@@ -2,6 +2,7 @@
 import { addClient } from "@/actions/clients/clients";
 import { useEffect, useActionState, useState } from 'react';
 import Form from 'next/form';
+import { redirect } from 'next/navigation';
 
 type AddClientFormState = {
   type: "success" | "error" | null;
@@ -25,7 +26,8 @@ export default function AddClientForm() {
       const timer = setTimeout(() => { 
         setIsVisible(false);
       }, 2000);
-      return () => clearTimeout(timer);
+      clearTimeout(timer);
+      return redirect("/clients");
     }
   }, [state]);
 
@@ -38,7 +40,7 @@ export default function AddClientForm() {
       <input type="text" name="address" placeholder="Address" className="w-full mb-7 p-2 border rounded text-black bg-white" />
       <input type="text" name="city" placeholder="City" className="w-full mb-7 p-2 border rounded text-black bg-white" />
       <input type="text" name="zipCode" placeholder="Zip code" className="w-full mb-7 p-2 border rounded text-black bg-white" />
-      <input type="text" name="country" placeholder="Country" className="w-full mb-7 p-2 border rounded text-black bg-white" />
+      <input type="text" name="country" placeholder="Country" className="w-full mb-10 p-2 border rounded text-black bg-white" />
       {isVisible && <p className={`text-center ${state.type === "success" ? "text-green-500" : "text-red-500"} mb-6`} aria-live="polite">
         {state.message}
       </p>}

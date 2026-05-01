@@ -12,7 +12,7 @@ type LinkProps = {
 
 export default function Navbar({ brand, links }: NavbarProps) {
   return (
-      <nav className="flex justify-center bg-gray-800 text-white py-4 px-6">
+      <nav className="flex justify-center bg-gray-800 text-white py-4 px-6 mb-6">
         <div className="flex justify-between items-center w-full">
           <Link href={brand.href} className="text-lg font-bold">
             {brand.display}

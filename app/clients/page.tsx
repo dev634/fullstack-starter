@@ -10,10 +10,10 @@ export default async function ClientsPage() {
   });
 
   return (
-      <main className="flex justify-center min-h-screen py-8 px-6">
-        <div className="container space-y-4 py-8">
+      <main className="flex justify-center px-6">
+        <div className="container space-y-4">
           <Title title="Clients" />
-          <ul className="mb-8 space-y-6">
+          <ul className="mb-8 space-y-6 overflow-y-scroll h-[60vh]">
             {clients.map((client) => (
                 <li key={client.id} className="flex border rounded cursor-pointer hover:bg-gray-100 hover:text-gray-700">
                   <Link href={`/clients/${client.id}`} className="px-8 py-4 w-full text-lg font-semibold">
