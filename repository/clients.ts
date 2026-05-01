@@ -1,20 +1,8 @@
 import { prisma } from "@/lib/prisma";
-
-type Client = {
-    id: number;
-    firstName: string;
-    lastName: string;
-    email: string;
-    companyName: string;
-    address: string;
-    city: string;
-    zipCode: string;
-    country: string;
-}
+import type { Client } from "@/app/generated/prisma/client";
 
 
-
-export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}:Client){
+export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">)      {
     const clients = await prisma.client.create({
         data: {
             firstName,
@@ -31,9 +19,9 @@ export async function create({firstName, lastName, email, companyName, address, 
     return clients;
 }
 
-export async function findAll(ordeyBy: "companyName" | "firstName" = "companyName") {
+export async function findAll(orderBy: keyof Client) {
     const clients = await prisma.client.findMany({
-        orderBy: { [ordeyBy]: "asc" },
+        orderBy: { [orderBy]: "asc" },
     });
     await prisma.$disconnect();
     return clients;
