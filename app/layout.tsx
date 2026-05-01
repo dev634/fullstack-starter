@@ -26,11 +26,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <Navbar links={[
-          { href: "/", display: "Home" },
+      <body className="flex flex-col h-dvh overflow-y-hidden">
+        <Navbar brand={{
+          href: "/",
+          display: "Fullstack Starter"
+        }} links={[
           { href: "/clients", display: "Clients" }
         ]} />
         {children}
