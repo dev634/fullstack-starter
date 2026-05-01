@@ -1,22 +1,30 @@
 import { prisma } from "@/lib/prisma";
-import type { Client } from "@/app/generated/prisma/client";
+import { type Client } from "@/app/generated/prisma/client";
 
 
-export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">)      {
-    const clients = await prisma.client.create({
-        data: {
-            firstName,
-            lastName,
-            email,
-            companyName,
-            address,
-            city,
-            zipCode,
-            country
-        }
-    });
-    await prisma.$disconnect();
-    return clients;
+export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">) {
+    try {
+        const clients = await prisma.client.create({
+            data: {
+                firstName,
+                lastName,
+                email,
+                companyName,
+                address,
+                city,
+                zipCode,
+                country
+            }
+        });
+        return clients;
+    } catch (error) {
+      throw {
+        type: "error",
+        message: "Database Error creating client."
+       }
+    } finally { 
+        await prisma.$disconnect();
+    }
 }
 
 export async function findAll(orderBy: keyof Client) {
