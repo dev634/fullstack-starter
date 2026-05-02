@@ -15,6 +15,7 @@ export async function addClient(prevState: any, formData: FormData) {
             message: client.message
         };
     } catch (error) {
+        console.log(error);
         return {
             ...prevState,
             type: "error",

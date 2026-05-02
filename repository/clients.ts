@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { type Client } from "@/app/generated/prisma/client";
+import { GetClientsByOrder } from "@/service/clients";
 
 
 export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">) {
@@ -27,12 +28,19 @@ export async function create({firstName, lastName, email, companyName, address, 
     }
 }
 
-export async function findAll(orderBy: keyof Client) {
-    const clients = await prisma.client.findMany({
-        orderBy: { [orderBy]: "asc" },
-    });
-    await prisma.$disconnect();
-    return clients;
+export async function findAll(orderBy: GetClientsByOrder) {
+    try {
+        const clients = await prisma.client.findMany({orderBy: orderBy || { id: "asc" }});
+        return clients;
+    } catch (error) {
+        console.log("Repository findAll error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching clients."
+           }
+    }finally{
+        await prisma.$disconnect();
+    }
 }
 
 export async function findById(id: number) {

@@ -1,14 +1,11 @@
 import Button from "@/components/Button,";
 import Title from "@/components/Title";
-import { prisma } from "@/lib/prisma";
+import { findAll } from "@/repository/clients";
 
 import Link from "next/link";
 
 export default async function ClientsPage() {
-  const clients = await prisma.client.findMany({
-    orderBy: { companyName: "asc" },
-  });
-
+  const clients = await findAll({ firstName: "asc" });
   return (
       <main className="flex justify-center px-6">
         <div className="container space-y-4">
@@ -26,6 +23,5 @@ export default async function ClientsPage() {
           <Button text="Add Client" as="link" href="/clients/add" />
         </div>
       </main>
-
   );
 }
