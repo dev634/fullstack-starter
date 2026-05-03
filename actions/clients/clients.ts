@@ -1,6 +1,6 @@
 "use server"
 import {createClient} from "@/service/clients";
-import {formDataToObject, deleteFormDataEntries} from "@/lib/helpers" ;
+import {formDataToObject} from "@/lib/helpers" ;
 import { CreateClientInput } from "@/schemas/client";
 
 
@@ -21,11 +21,12 @@ export async function addClient(prevState: any, formData: FormData) {
                 ...prevState,
                 ...error
             }
-        }        
+        }
+
         return {
             ...prevState,
             type: "error",
-            message: error.message 
+            message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error adding client."
         };
     }
 }
