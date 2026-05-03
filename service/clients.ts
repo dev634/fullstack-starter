@@ -3,6 +3,8 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { create, findAll } from "@/repository/clients";
 import { CreateClientInput, createClientSchema } from "@/schemas/client";
 
+
+
 type OneKeyOnly<T> = {
   [K in keyof T]: {
     [P in K]: T[P]
@@ -22,20 +24,31 @@ export async function createClient(data: CreateClientInput) {
     
         if (!parsedData.success) {
             throw {
-                type: "validation_error",
-                message: makeObjectFromZodError(parsedData.error)
+                type: "zodError",
+                message: "Validation error. Please check your input and try again.",
+                fieldsForm: makeObjectFromZodError(parsedData.error)
             };
         }
     
         const client = await create(parsedData.data);
-        console.log(client)
         return {
             type: "success",
             message: `Client added successfully!`
         }
+
     } catch (error) {
+        console.log(error)
         if(error instanceof Prisma.PrismaClientKnownRequestError ) {
-            console.log("Database error");
+            if(error.code === "P2002") {
+                throw {
+                    type: "error",
+                    message: "A client with this email already exists. Please use a different email."
+                }
+            }
+        }
+
+        if (error && typeof error === "object" && "type" in error && (error.type === "zodError" || error.type === "databaseError")) {
+            throw error;
         }
 
         throw {
@@ -50,7 +63,6 @@ export async function getClients(orderBy: GetClientsByOrder) {
         const clients = await findAll(orderBy);
         return clients;
     } catch (error) {
-        console.log(error);
         throw {
             type: "error",
             message: "Server error fetching clients."

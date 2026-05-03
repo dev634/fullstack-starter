@@ -1,3 +1,5 @@
+import { createClientSchema } from "@/schemas/client";
+
 export function formDataToObject(formData: FormData): Record<string, string> {
     const obj: Record<string, string> = {};
     for (const [key, value] of formData.entries()) {
@@ -9,5 +11,7 @@ export function formDataToObject(formData: FormData): Record<string, string> {
 }
 
 export function deleteFormDataEntries(formData: FormData, keys: string[]) {
-    keys.forEach(key => formData.delete(key));
+    keys.forEach(key => {
+        formData.delete(key);
+    });
 }

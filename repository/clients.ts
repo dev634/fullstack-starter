@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { type Client } from "@/app/generated/prisma/client";
+import { type Client, Prisma } from "@/app/generated/prisma/client";
 import { GetClientsByOrder } from "@/service/clients";
+
 
 
 export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">) {
@@ -19,10 +20,19 @@ export async function create({firstName, lastName, email, companyName, address, 
         });
         return clients;
     } catch (error) {
-      throw {
-        type: "error",
-        message: "Database Error creating client."
-       }
+        if(error instanceof Prisma.PrismaClientKnownRequestError ) {
+            if (error.code === "P2002") {
+                throw {
+                    type: "databaseError",
+                    message: "A client with this email already exists. Please use a different email."
+                }
+            }
+        }
+        
+        throw {
+            type: "error",
+            message: "Database Error creating client."
+        };
     } finally { 
         await prisma.$disconnect();
     }

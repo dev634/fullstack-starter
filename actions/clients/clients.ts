@@ -15,13 +15,17 @@ export async function addClient(prevState: any, formData: FormData) {
             message: client.message
         };
     } catch (error) {
-        console.log(error);
+        
+        if(error && typeof error === "object" && Object.keys(error).includes("type") && Object.keys(error).includes("message") && (error as any).type === "zodError") {
+            return {
+                ...prevState,
+                ...error
+            }
+        }        
         return {
             ...prevState,
             type: "error",
-            message: "Error adding client."
+            message: error.message 
         };
-    }finally {
-        deleteFormDataEntries(formData, Object.keys(clientDatas));
     }
 }
