@@ -34,6 +34,14 @@ export async function addClient(prevState: any, formData: FormData) {
 
 export async function getClient(id: number) {
     try {
+
+        if (isNaN(id)) {           
+            throw {
+                type: "error",
+                message: "Invalid client ID."
+            }
+        }
+
         const client = await findById(id);
         return {
             type: "success",
@@ -47,3 +55,4 @@ export async function getClient(id: number) {
         };
     }
 }
+
