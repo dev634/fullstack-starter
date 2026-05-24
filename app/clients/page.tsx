@@ -10,6 +10,7 @@ export default async function ClientsPage() {
       <main className="flex justify-center px-6">
         <div className="container space-y-4">
           <Title title="Clients" />
+          {clients.length ?
           <ul className="mb-8 space-y-6 overflow-y-scroll h-[60vh]">
             {clients.map((client) => (
                 <li key={client.id} className="flex border rounded cursor-pointer hover:bg-gray-100 hover:text-gray-700">
@@ -20,6 +21,9 @@ export default async function ClientsPage() {
                 </li>
             ))}
           </ul>
+          :
+          <p>No clients found.</p>
+          }
           <Button text="Add Client" as="link" href="/clients/add" />
         </div>
       </main>

@@ -54,11 +54,23 @@ export async function findAll(orderBy: GetClientsByOrder) {
 }
 
 export async function findById(id: number) {
-    const client = await prisma.client.findUnique({
-        where: { id },
-    });
-    await prisma.$disconnect();
-    return client;
+    try{
+        const client = await prisma.client.findUnique({
+             where: { id },
+        });
+        return client;
+    }catch(error){
+        console.log("Repository findById error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching client."
+           }
+    }finally{
+        await prisma.$disconnect();
+    }
+
+    
+    
 }
 
 export async function update(id: number, data: Partial<Client>) {

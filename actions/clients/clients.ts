@@ -2,6 +2,7 @@
 import {createClient} from "@/service/clients";
 import {formDataToObject} from "@/lib/helpers" ;
 import { CreateClientInput } from "@/schemas/client";
+import { findById } from "@/repository/clients";
 
 
 export async function addClient(prevState: any, formData: FormData) {
@@ -27,6 +28,22 @@ export async function addClient(prevState: any, formData: FormData) {
             ...prevState,
             type: "error",
             message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error adding client."
+        };
+    }
+}
+
+export async function getClient(id: number) {
+    try {
+        const client = await findById(id);
+        return {
+            type: "success",
+            data: client
+        };
+    } catch (error) {
+        console.log("Action getClient error:", error);
+        return {
+            type: "error",
+            message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error fetching client."
         };
     }
 }
