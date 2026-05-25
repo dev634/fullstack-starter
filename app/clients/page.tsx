@@ -1,7 +1,7 @@
 import Button from "@/components/Button,";
 import Title from "@/components/Title";
 import { findAll } from "@/repository/clients";
-
+import { PencilIcon, TrashIcon } from "@heroicons/react/16/solid";
 import Link from "next/link";
 
 export default async function ClientsPage() {
@@ -13,8 +13,8 @@ export default async function ClientsPage() {
           {clients.length ?
           <ul className="mb-8 space-y-6 overflow-y-scroll h-[60vh]">
             {clients.map((client) => (
-                <li key={client.id} className="flex border rounded cursor-pointer hover:bg-gray-100 hover:text-gray-700">
-                  <Link href={`/clients/${client.id}`} className="px-8 py-4 w-full text-lg font-semibold">
+                <li key={client.id} className="px-5 py-4 flex border rounded cursor-pointer hover:bg-gray-100 hover:text-gray-700">
+                  <Link href={`/clients/${client.id}`} className="w-full text-lg font-semibold">
                    <p>{client.firstName} {client.lastName ? ` ${client.lastName}` : ""}</p>
                    <p>{client.companyName}</p>
                   </Link>

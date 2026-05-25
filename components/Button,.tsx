@@ -6,19 +6,21 @@ type ButtonProps<T extends ButtonTypeEnum> = T extends "link"
       text: string;
       href: string;
       as?: T;
+      classes?: string;
     }
   : {
+      classes: string;
       text: string;
       as?: T;
     };
 export default function Button(props: ButtonProps<ButtonTypeEnum>) {
   const buttonType = props.as === "submit" ? "submit" : "button";
+  const defaultClasses = "block w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center text-decoration-none"
   if (props.as === "link") {
     return (
       <Link
         href={props.href || ""}
-        className="block w-full px-4 py-3 bg-blue-500 text-white 
-        rounded hover:bg-blue-600 text-center text-decoration-none"
+        className={props.classes ? props.classes : defaultClasses}
       >
         {props.text}
       </Link>
@@ -28,8 +30,7 @@ export default function Button(props: ButtonProps<ButtonTypeEnum>) {
   return (
     <button
       type={buttonType}
-      className="block w-full px-4 py-3 bg-blue-500 text-white 
-      rounded hover:bg-blue-600 text-center text-decoration-none"
+      className={props.classes ? props.classes : defaultClasses}
     >
       {props.text}
     </button>

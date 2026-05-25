@@ -1,5 +1,7 @@
 import { getClient } from '@/actions/clients/clients';
+import Button from '@/components/Button,';
 import Title from '@/components/Title';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 type PageProps = {
@@ -32,13 +34,16 @@ export default async function ClientPage({ params }: PageProps) {
   }
   
   return ( 
-    <main className="flex flex-col justify-start items-center h-dvh overflow-y-auto pb-8">
-      <Title title="Client Detail" />
+    <main className="flex flex-col justify-center items-center h-dvh overflow-y-auto pb-8">
+      <Title title={`${client.data?.firstName} ${client.data?.lastName}`} />
       <p className='mb-2'>{client.data?.companyName}</p>
-      <p className='mb-2'>{client.data?.firstName} {client.data?.lastName}</p>
       <p className='mb-2'>{client.data?.email}</p>
       <p className='mb-2'>{client.data?.address}</p>
-      <p className='mb-2'>{client.data?.city}, {client.data?.zipCode}, {client.data?.country}</p>
+      <p className='mb-8'>{client.data?.city}, {client.data?.zipCode}, {client.data?.country}</p>
+      <div className="flex w-80 justify-around">
+        <Link className='w-30 bg-blue-400 px-4 py-2 rounded text-center hover:bg-blue-500' href={`/clients/${id}/edit`}>Modifier</Link>
+        <Button classes="w-30 text-center bg-red-400 rounded cursor-pointer hover:bg-red-500" as="button" text="Supprimer"/>
+      </div>
     </main>
   )
 }
