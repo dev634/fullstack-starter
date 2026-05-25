@@ -73,13 +73,22 @@ export async function findById(id: number) {
     
 }
 
-export async function update(id: number, data: Partial<Client>) {
-    const client = await prisma.client.update({
-        where: { id },
-        data,
-    });
-    await prisma.$disconnect();
-    return client;
+export async function update(data: Client) {
+    try{
+        const client = await prisma.client.update({
+            where:  {id: data.id} ,
+            data,
+        });
+        return client;
+    }catch(error){
+        console.log("Repository update error:", error);
+        throw {
+            type: "error",
+            message: "Database Error update client"
+        }
+    }finally{
+        await prisma.$disconnect();
+    }
 }
 
 export async function remove(id: number) {

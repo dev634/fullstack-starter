@@ -1,8 +1,8 @@
 "use server"
 import {createClient} from "@/service/clients";
 import {formDataToObject} from "@/lib/helpers" ;
-import { CreateClientInput } from "@/schemas/client";
-import { findById } from "@/repository/clients";
+import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
+import { findById, update } from "@/repository/clients";
 
 
 export async function addClient(prevState: any, formData: FormData) {
@@ -52,6 +52,27 @@ export async function getClient(id: number) {
         return {
             type: "error",
             message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error fetching client."
+        };
+    }
+}
+
+export async function updateClient(prevState: any, formData: FormData){
+    const clientDatas = formDataToObject(formData) as UpdateClientInput;
+    const id = parseInt(clientDatas.id.toString(), 10)
+    try {
+        if(isNaN(id)){
+            throw {
+                type: "error",
+                message: "Invalid client ID"
+            }
+        }
+        const client = await update(clientDatas);
+        return client;
+    }catch(error){
+        console.log("Action updateClient error:", error);
+        return {
+            type: "error",
+            message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error adding client."
         };
     }
 }

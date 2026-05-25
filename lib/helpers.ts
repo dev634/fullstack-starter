@@ -1,7 +1,7 @@
 import { createClientSchema } from "@/schemas/client";
 
-export function formDataToObject(formData: FormData): Record<string, string> {
-    const obj: Record<string, string> = {};
+export function formDataToObject(formData: FormData): Record<string, string | number> {
+    const obj: Record<string, string | number> = {};
     for (const [key, value] of formData.entries()) {
         if (typeof value === "string") {
             obj[key] = value;
