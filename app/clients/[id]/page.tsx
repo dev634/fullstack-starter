@@ -2,7 +2,6 @@ import { getClient } from '@/actions/clients/clients';
 import Button from '@/components/Button,';
 import Title from '@/components/Title';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 
 type PageProps = {
   params: Promise<{
