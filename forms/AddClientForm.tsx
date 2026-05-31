@@ -4,6 +4,7 @@ import { useEffect, useActionState, useState } from 'react';
 import { Client } from "@/app/generated/prisma/client";
 import { Input } from "@/components/Inputs";
 import { Toast } from "@/components/Toast";
+import {useRouter} from "next/navigation";
 
 
 type AddClientFormState =
@@ -18,6 +19,7 @@ const initialState: AddClientFormState = {
 }
 
 export default function AddClientForm() {
+  const router = useRouter();
   const [state, formAction, isPending] = useActionState<AddClientFormState, FormData>(
     addClient,
     initialState
@@ -35,11 +37,11 @@ export default function AddClientForm() {
   const [feedback, setFeedback] = useState<AddClientFormState>(initialState);
 
   useEffect(() => {
-    console.log(state)
     if (state.type !== null) {
       setFeedback(state);
       const timer = setTimeout(() => {
         setFeedback(initialState);// Reset form by changing its key
+        router.push("/clients"); // Redirect to clients list after adding a client
       }, 3000);
       return () => clearTimeout(timer);
     }
