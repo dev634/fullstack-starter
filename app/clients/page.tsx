@@ -13,8 +13,8 @@ export default async function ClientsPage() {
           {clients.length ?
           <ul className="mb-8 space-y-6 overflow-y-scroll h-[60vh]">
             {clients.map((client) => (
-                <li key={client.id} className="px-5 py-4 flex border rounded cursor-pointer hover:bg-gray-100 hover:text-gray-700">
-                  <Link href={`/clients/${client.id}`} className="w-full text-lg font-semibold">
+                <li key={client.id} className="flex border rounded hover:bg-gray-100 hover:text-gray-700">
+                  <Link href={`/clients/${client.id}`} className="px-5 py-4 w-full text-lg font-semibold cursor-pointer ">
                    <p>{client.firstName} {client.lastName ? ` ${client.lastName}` : ""}</p>
                    <p>{client.companyName}</p>
                   </Link>
@@ -22,7 +22,9 @@ export default async function ClientsPage() {
             ))}
           </ul>
           :
-          <p className="text-gray-500">No clients found.</p>
+          <div className="mb-8 h-[60vh] flex flex-col justify-center items-center">
+            <p className="text-gray-500">No clients found.</p>
+          </div>
           }
           <Button text="Add Client" as="link" href="/clients/add" />
         </div>
