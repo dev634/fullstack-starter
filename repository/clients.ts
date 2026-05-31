@@ -92,9 +92,17 @@ export async function update(data: Client) {
 }
 
 export async function remove(id: number) {
+    try{
     const client = await prisma.client.delete({
         where: { id },
     });
     await prisma.$disconnect();
     return client;
+    }catch(error){
+        console.log("Repository delete error:", error);
+        throw {
+            type: "error",
+            message: "Database Error deleting client"
+        }
+    }
 }   

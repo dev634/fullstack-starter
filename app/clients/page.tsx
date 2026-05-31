@@ -1,4 +1,4 @@
-import Button from "@/components/Button,";
+import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { findAll } from "@/repository/clients";
 import { PencilIcon, TrashIcon } from "@heroicons/react/16/solid";
@@ -22,7 +22,7 @@ export default async function ClientsPage() {
             ))}
           </ul>
           :
-          <p>No clients found.</p>
+          <p className="text-gray-500">No clients found.</p>
           }
           <Button text="Add Client" as="link" href="/clients/add" />
         </div>

@@ -2,7 +2,7 @@
 import {createClient} from "@/service/clients";
 import {formDataToObject} from "@/lib/helpers" ;
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
-import { findById, update } from "@/repository/clients";
+import { findById, remove, update } from "@/repository/clients";
 
 
 export async function addClient(prevState: any, formData: FormData) {
@@ -77,3 +77,21 @@ export async function updateClient(prevState: any, formData: FormData){
     }
 }
 
+export async function deleteClient(id: number) {
+    try {
+        if(isNaN(id)){
+            throw {
+                type: "error",
+                message: "Invalid client ID"
+            }
+        }
+        const client = await remove(id);
+        return client;
+    }catch(error){
+        console.log("Action deleteClient error:", error);
+        return {
+            type: "error",
+            message: error && typeof error === "object" && "message" in error ? (error as any).message : "Server error deleting client."
+        };
+    }
+}
