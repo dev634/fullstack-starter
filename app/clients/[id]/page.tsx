@@ -28,7 +28,7 @@ export default async function ClientPage({ params }: PageProps) {
   if(isEmpty){
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto py-8">
             <Title title="Client Detail" />
-            <p>This client doesn't exists ...</p>
+            <p>This client doesn&apos;t exist ...</p>
           </main>
   }
   

@@ -1,0 +1,38 @@
+# Production stack for the VPS.
+# Usage on the server:
+#   docker compose -f docker-compose.prod.yml pull web
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# The `web` service is only published on 127.0.0.1 — put your existing
+# reverse proxy (nginx / Caddy / Traefik) in front of it.
+
+services:
+  db:
+    image: postgres:16
+    container_name: fullstack_starter_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: ghcr.io/dev634/fullstack-starter:latest
+    container_name: fullstack_starter_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Exposed only to localhost; your reverse proxy forwards to this port.
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
