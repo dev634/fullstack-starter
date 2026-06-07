@@ -11,7 +11,7 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 async function main() {
   const alice = await prisma.client.upsert({
-    where: { email: "alice@prisma.io" },
+    where: { email: "alice@sunrisecorp.com" },
     update: {},
     create: {
       email: "alice@sunrisecorp.com",
@@ -25,7 +25,7 @@ async function main() {
     },
   });
     const bob = await prisma.client.upsert({
-    where: { email: "bob@prisma.io" },
+    where: { email: "bob@sunrisecorp.com" },
     update: {},
     create: {
       email: "bob@sunrisecorp.com",
