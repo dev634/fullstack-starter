@@ -1,40 +1,32 @@
 'use client'
-import { addClient } from "@/actions/clients/clients";
+import { updateClient } from "@/actions/clients/clients";
 import { useEffect, useActionState, useState } from 'react';
 import { Client } from "@/app/generated/prisma/client";
-import { Input } from "@/components/Inputs";
+import { ClientFields } from "@/forms/ClientFields";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
 
 
-type AddClientFormState =
-  | { type: "success"; message: string }
-  | { type: "error"; message: string }
-  | { type: "zodError"; message: string; fieldsForm: Partial<Omit<Client, "id">>}
-  | { type: null; message: string };
+type UpdateClientFormState = {
+  type: "error" | "success" | "zodError" | null;
+  message: string;
+  fieldsForm?: Partial<Omit<Client, "id">>;
+};
 
-const initialState: AddClientFormState = {
+const initialState: UpdateClientFormState = {
   type: null,
   message: "",
 }
 
-export default function AddClientForm() {
+export default function UpdateClientForm({ client }: { client: Client }) {
   const router = useRouter();
-  const [state, formAction, isPending] = useActionState<AddClientFormState, FormData>(
-    addClient,
+  // adapter to ensure the action returns UpdateClientFormState (correct union types)
+  const [state, formAction, isPending] = useActionState<UpdateClientFormState, FormData>(
+    updateClient,
     initialState
   );
-  const [values, setValues] = useState<Omit<Client, "id">>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    companyName: "",
-    address: "",
-    country: "",
-    city: "",
-    zipCode: ""
-  });
-  const [feedback, setFeedback] = useState<AddClientFormState>(initialState);
+  const [values, setValues] = useState<Client>(client);
+  const [feedback, setFeedback] = useState<UpdateClientFormState>(initialState);
 
   useEffect(() => {
     if (state.type !== null) {
@@ -55,62 +47,11 @@ export default function AddClientForm() {
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
       <Toast type={feedback.type} message={feedback.message} />
-      <Input
-        label="Firstname"
-        name="firstName"
+      <input type="hidden" name="id" value={values.id} />
+      <ClientFields
+        values={values}
         onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.firstName}
-      />
-      <Input
-        label="Lastname"
-        name="lastName"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.lastName}
-      />
-      <Input
-        label="Email"
-        name="email"
-        type="email"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.email}
-      />
-      <Input
-        label="Company Name"
-        name="companyName"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.companyName}
-      />
-      <Input
-        label="Address"
-        name="address"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.address}
-      />
-      <Input
-        label="Country"
-        name="country"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.country}
-      />
-      <Input
-        label="City"
-        name="city"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.city}
-      />
-      <Input
-        label="Zip Code"
-        name="zipCode"
-        onChange={handleChange}
-        error={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
-        value={values.zipCode}
+        errors={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
       />
       <button
         type="submit"
@@ -120,7 +61,7 @@ export default function AddClientForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Add Client
+        Update Client
       </button>
     </form>
   );

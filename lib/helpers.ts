@@ -15,3 +15,9 @@ export function deleteFormDataEntries(formData: FormData, keys: string[]) {
         formData.delete(key);
     });
 }
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+    return error && typeof error === "object" && "message" in error
+        ? String((error as { message: unknown }).message)
+        : fallback;
+}
