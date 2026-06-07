@@ -42,6 +42,13 @@ GHCR authentication (push from CI and pull on the VPS) uses the built-in
 
 ### One-time VPS setup
 
+Steps 1–3 below can be automated with the bootstrap script
+([`scripts/vps-bootstrap.sh`](scripts/vps-bootstrap.sh)), run once as root:
+
+```bash
+APP_DIR=/opt/fullstack-starter bash scripts/vps-bootstrap.sh
+```
+
 1. Install Docker Engine + the Compose plugin.
 2. Create the app folder (matching `VPS_APP_DIR`) and add the deploy key to
    `~/.ssh/authorized_keys`.
