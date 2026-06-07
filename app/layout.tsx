@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import LogoutButton from "@/components/LogoutButton";
@@ -37,15 +36,7 @@ export default async function RootLayout({
         <Navbar
           brand={{ href: "/", display: "Fullstack Starter" }}
           links={session ? [{ href: "/clients", display: "Clients" }] : []}
-          action={
-            session ? (
-              <LogoutButton />
-            ) : (
-              <Link href="/login" className="hover:text-gray-400">
-                Login
-              </Link>
-            )
-          }
+          action={session ? <LogoutButton /> : undefined}
         />
         {children}
       </body>

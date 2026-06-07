@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
+import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 
 type NavbarProps = {
     brand: LinkProps
@@ -12,21 +16,61 @@ type LinkProps = {
 }
 
 export default function Navbar({ brand, links, action }: NavbarProps) {
+  const [open, setOpen] = useState(false);
+
+  // Only render navigation controls when there is something to show
+  // (e.g. once the user is logged in). Otherwise just the brand is shown.
+  const hasMenu = links.length > 0 || action != null;
+
   return (
-      <nav className="flex justify-center bg-gray-800 text-white py-4 px-6 mb-6">
+      <nav className="relative bg-gray-800 text-white py-4 px-6 mb-6">
         <div className="flex justify-between items-center w-full">
-          <Link href={brand.href} className="text-lg font-bold">
+          <Link href={brand.href} className="text-lg font-bold" onClick={() => setOpen(false)}>
             {brand.display}
           </Link>
-          <div className="flex items-center space-x-4">
+
+          {hasMenu && (
+            <>
+              {/* Desktop menu */}
+              <div className="hidden md:flex items-center space-x-4">
+                {links.map((link) => (
+                  <Link key={link.href} href={link.href} className="hover:text-gray-400">
+                    {link.display}
+                  </Link>
+                    ))}
+                {action}
+              </div>
+
+              {/* Mobile hamburger button (square with 3 bars) */}
+              <button
+                type="button"
+                aria-label="Toggle menu"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="md:hidden flex items-center justify-center w-10 h-10 rounded border border-white/30 hover:bg-white/10 cursor-pointer"
+              >
+                {open ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Mobile dropdown menu */}
+        {hasMenu && open && (
+          <div className="md:hidden absolute left-0 right-0 top-full z-50 flex flex-col space-y-3 bg-gray-800 px-6 py-4 border-t border-white/10">
             {links.map((link) => (
-              <Link key={link.href} href={link.href} className="hover:text-gray-400">
+              <Link
+                key={link.href}
+                href={link.href}
+                className="hover:text-gray-400"
+                onClick={() => setOpen(false)}
+              >
                 {link.display}
               </Link>
-                ))}
+            ))}
             {action}
-            </div>
-        </div>
+          </div>
+        )}
       </nav>
     );
 }
