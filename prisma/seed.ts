@@ -1,4 +1,5 @@
 import "dotenv/config";
+import bcrypt from "bcryptjs";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/app/generated/prisma/client";
@@ -37,7 +38,18 @@ async function main() {
       zipCode: "10001",
     },
   });
-  console.log({ alice, bob});
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@example.com" },
+    update: {},
+    create: {
+      email: "admin@example.com",
+      name: "Admin",
+      // Default dev password: "password123" — change it in real environments.
+      password: await bcrypt.hash("password123", 10),
+    },
+  });
+
+  console.log({ alice, bob, admin });
 }
 
 main()
