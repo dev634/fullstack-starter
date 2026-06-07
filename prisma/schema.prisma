@@ -20,7 +20,15 @@ model Client {
   address String
   zipCode String
   city String
-  country String 
+  country String
   email String  @unique
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
 }
 

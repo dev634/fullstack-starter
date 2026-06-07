@@ -3,6 +3,7 @@ import Link from "next/link";
 type NavbarProps = {
     brand: LinkProps
     links: LinkProps[];
+    action?: React.ReactNode;
 }
 
 type LinkProps = {
@@ -10,21 +11,21 @@ type LinkProps = {
     display: string;
 }
 
-export default function Navbar({ brand, links }: NavbarProps) {
+export default function Navbar({ brand, links, action }: NavbarProps) {
   return (
       <nav className="flex justify-center bg-gray-800 text-white py-4 px-6 mb-6">
         <div className="flex justify-between items-center w-full">
           <Link href={brand.href} className="text-lg font-bold">
             {brand.display}
           </Link>
-          <div className="space-x-4">
-            {!links.length && <span>No links available</span>}
-            {links.map((link) => ( 
+          <div className="flex items-center space-x-4">
+            {links.map((link) => (
               <Link key={link.href} href={link.href} className="hover:text-gray-400">
                 {link.display}
               </Link>
                 ))}
-            </div> 
+            {action}
+            </div>
         </div>
       </nav>
     );
