@@ -80,7 +80,7 @@ export async function updateClient(
         message: "Invalid client ID",
       };
     }
-    const client = await update(clientDatas);
+    const client = await update({ ...clientDatas, id });
     revalidatePath("/clients");
     revalidatePath(`/clients/${id}`);
     return {

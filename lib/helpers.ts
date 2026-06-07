@@ -1,6 +1,9 @@
 export function formDataToObject(formData: FormData): Record<string, string | number> {
     const obj: Record<string, string | number> = {};
     for (const [key, value] of formData.entries()) {
+        // Skip React Server Action internal fields ($ACTION_REF_1, $ACTION_KEY, ...)
+        // that get injected into the submitted FormData.
+        if (key.startsWith("$")) continue;
         if (typeof value === "string") {
             obj[key] = value;
         }
