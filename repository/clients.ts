@@ -64,11 +64,11 @@ export async function findById(id: number) {
     }
 }
 
-export async function update(data: Client) {
+export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country }: Client) {
     try{
         const client = await prisma.client.update({
-            where:  {id: data.id} ,
-            data,
+            where: { id },
+            data: { firstName, lastName, email, companyName, address, city, zipCode, country },
         });
         return client;
     }catch(error){
