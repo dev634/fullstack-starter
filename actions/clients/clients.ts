@@ -4,8 +4,12 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, remove, update } from "@/repository/clients";
 import { revalidatePath } from "next/cache";
+import type { ClientActionState } from "@/types/client";
 
-export async function addClient(prevState: any, formData: FormData) {
+export async function addClient(
+  prevState: ClientActionState,
+  formData: FormData
+): Promise<ClientActionState> {
   const clientDatas = formDataToObject(formData) as CreateClientInput;
 
   try {
@@ -21,7 +25,7 @@ export async function addClient(prevState: any, formData: FormData) {
       typeof error === "object" &&
       Object.keys(error).includes("type") &&
       Object.keys(error).includes("message") &&
-      (error as any).type === "zodError"
+      (error as { type?: unknown }).type === "zodError"
     ) {
       return {
         ...prevState,
@@ -60,16 +64,10 @@ export async function getClient(id: number) {
   }
 }
 
-type UpdateClientState = {
-  type: "error" | "success" | "zodError" | null;
-  message: string;
-  data?: unknown;
-};
-
 export async function updateClient(
-  prevState: any,
+  prevState: ClientActionState,
   formData: FormData
-): Promise<UpdateClientState> {
+): Promise<ClientActionState> {
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
   try {
     if (!clientDatas.id) {

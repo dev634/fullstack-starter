@@ -5,22 +5,16 @@ import { Client } from "@/app/generated/prisma/client";
 import { ClientFields } from "@/forms/ClientFields";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
+import type { ClientActionState } from "@/types/client";
 
-
-type AddClientFormState =
-  | { type: "success"; message: string }
-  | { type: "error"; message: string }
-  | { type: "zodError"; message: string; fieldsForm: Partial<Omit<Client, "id">>}
-  | { type: null; message: string };
-
-const initialState: AddClientFormState = {
+const initialState: ClientActionState = {
   type: null,
   message: "",
 }
 
 export default function AddClientForm() {
   const router = useRouter();
-  const [state, formAction, isPending] = useActionState<AddClientFormState, FormData>(
+  const [state, formAction, isPending] = useActionState<ClientActionState, FormData>(
     addClient,
     initialState
   );
@@ -34,18 +28,15 @@ export default function AddClientForm() {
     city: "",
     zipCode: ""
   });
-  const [feedback, setFeedback] = useState<AddClientFormState>(initialState);
 
   useEffect(() => {
-    if (state.type !== null) {
-      setFeedback(state);
-      const timer = setTimeout(() => {
-        setFeedback(initialState);// Reset form by changing its key
-        router.push("/clients"); // Redirect to clients list after adding a client
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [state]);
+    if (state.type === null) return;
+    // Show the result for 3s, then redirect to the clients list.
+    const timer = setTimeout(() => {
+      router.push("/clients");
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [state, router]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
@@ -54,11 +45,11 @@ export default function AddClientForm() {
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={feedback.type} message={feedback.message} />
+      <Toast type={state.type} message={state.message} />
       <ClientFields
         values={values}
         onChange={handleChange}
-        errors={feedback.type === "zodError" ? feedback.fieldsForm : undefined}
+        errors={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <button
         type="submit"
