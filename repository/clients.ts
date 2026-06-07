@@ -33,8 +33,6 @@ export async function create({firstName, lastName, email, companyName, address, 
             type: "error",
             message: "Database Error creating client."
         };
-    } finally { 
-        await prisma.$disconnect();
     }
 }
 
@@ -48,8 +46,6 @@ export async function findAll(orderBy: GetClientsByOrder) {
             type: "error",
             message: "Database Error fetching clients."
            }
-    }finally{
-        await prisma.$disconnect();
     }
 }
 
@@ -65,12 +61,7 @@ export async function findById(id: number) {
             type: "error",
             message: "Database Error fetching client."
            }
-    }finally{
-        await prisma.$disconnect();
     }
-
-    
-    
 }
 
 export async function update(data: Client) {
@@ -86,8 +77,6 @@ export async function update(data: Client) {
             type: "error",
             message: "Database Error update client"
         }
-    }finally{
-        await prisma.$disconnect();
     }
 }
 
@@ -96,7 +85,6 @@ export async function remove(id: number) {
     const client = await prisma.client.delete({
         where: { id },
     });
-    await prisma.$disconnect();
     return client;
     }catch(error){
         console.log("Repository delete error:", error);
