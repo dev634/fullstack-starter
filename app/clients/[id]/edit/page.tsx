@@ -25,7 +25,7 @@ export default async function EditPage({ params }: PageProps){
     if(isEmpty){
         return <main className="flex flex-col justify-center items-center h-dvh overflow-y-auto pb-8">
                     <Title title="Edit page"/>
-                    <p>This client doesn't exists ...</p>
+                    <p>This client does not exist ...</p>
                </main>
     }
 
