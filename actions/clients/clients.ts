@@ -14,6 +14,7 @@ export async function addClient(
 
   try {
     const client = await createClient({ ...clientDatas });
+    revalidatePath("/clients");
     return {
       ...prevState,
       type: "success",
@@ -106,6 +107,7 @@ export async function deleteClient(id: number) {
       };
     }
     const client = await remove(id);
+    revalidatePath("/clients");
     return client;
   } catch (error) {
     console.log("Action deleteClient error:", error);
