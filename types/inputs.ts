@@ -7,4 +7,6 @@ export type InputProps = {
     error?: Record<string, string>;
     value?: string;
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    /** Span both columns when rendered inside a 2-column grid. */
+    fullWidth?: boolean;
 }

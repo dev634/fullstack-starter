@@ -3,6 +3,7 @@ import { updateClient } from "@/actions/clients/clients";
 import { useEffect, useActionState, useState } from 'react';
 import { Client } from "@/app/generated/prisma/client";
 import { ClientFields } from "@/forms/ClientFields";
+import { PhotoUpload } from "@/components/PhotoUpload";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
 import type { ClientActionState } from "@/types/client";
@@ -38,6 +39,7 @@ export default function UpdateClientForm({ client }: { client: Client }) {
     <form action={formAction} className="w-full bg-transparent rounded shadow">
       <Toast type={state.type} message={state.message} />
       <input type="hidden" name="id" value={values.id} />
+      <PhotoUpload />
       <ClientFields
         values={values}
         onChange={handleChange}

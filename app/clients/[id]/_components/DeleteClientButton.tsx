@@ -1,8 +1,8 @@
 "use client";
 
 import { deleteClient } from "@/actions/clients/clients";
-import Button from "@/components/Button";
 import Modal from "@/components/Modal";
+import { TrashIcon } from "@heroicons/react/24/outline";
 import {useRouter} from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -72,11 +72,13 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
   }
 
   return (
-    <Button
-      as="button"
-      text="Supprimer"
-      classes="w-30 text-center bg-red-400 rounded cursor-pointer hover:bg-red-500 px-4 py-2"
+    <button
+      type="button"
       onClick={handleDelete}
-    />
+      className="inline-flex items-center gap-1.5 rounded border border-red-500/40 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 cursor-pointer"
+    >
+      <TrashIcon className="h-4 w-4" />
+      Supprimer
+    </button>
   );
 }
