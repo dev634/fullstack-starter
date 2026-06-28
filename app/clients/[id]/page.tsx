@@ -1,6 +1,7 @@
 import { getClient } from '@/actions/clients/clients';
 import Title from '@/components/Title';
 import Link from 'next/link';
+import { UserCircleIcon } from '@heroicons/react/24/solid';
 import DeleteClientButton from './_components/DeleteClientButton';
 
 type PageProps = {
@@ -34,6 +35,9 @@ export default async function ClientPage({ params }: PageProps) {
   
   return ( 
     <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
+      <div className="w-28 h-28 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center mb-4">
+        <UserCircleIcon className="w-28 h-28 text-gray-400" />
+      </div>
       <Title title={`${client.data?.firstName} ${client.data?.lastName}`} />
       <p className='mb-2'>{client.data?.companyName}</p>
       <p className='mb-2'>{client.data?.email}</p>
