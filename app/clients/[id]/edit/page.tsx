@@ -30,7 +30,7 @@ export default async function EditPage({ params }: PageProps){
     }
 
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto px-6 py-8">
-                <div className="w-full max-w-md">
+                <div className="w-full max-w-2xl">
                     <Title title="Edit page"/>
                     <UpdateClientForm client={client.data!} />
                 </div>

@@ -2,14 +2,14 @@
 import { InputProps } from '@/types/inputs';
 
 
-export function Input({label, name, type = "text", error, value, onChange}:InputProps) {
+export function Input({label, name, type = "text", error, value, onChange, fullWidth}:InputProps) {
     return (
-        <div key={name} className="mb-7">
+        <div key={name} className={`mb-7${fullWidth ? " sm:col-span-2" : ""}`}>
             <input
                 type={type}
                 name={name}
                 placeholder={label}
-                className="w-full mb-2 p-2 border rounded text-black bg-white"
+                className="w-full mb-2 p-2 rounded border border-gray-700 bg-gray-800 text-gray-100 placeholder-gray-500"
                 value={value}
                 onChange={onChange}
             />
