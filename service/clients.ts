@@ -30,7 +30,7 @@ export async function createClient(data: CreateClientInput) {
             };
         }
     
-        const client = await create(parsedData.data);
+        await create(parsedData.data);
         return {
             type: "success",
             message: `Client added successfully!`
@@ -62,7 +62,7 @@ export async function getClients(orderBy: GetClientsByOrder) {
     try {
         const clients = await findAll(orderBy);
         return clients;
-    } catch (error) {
+    } catch {
         throw {
             type: "error",
             message: "Server error fetching clients."

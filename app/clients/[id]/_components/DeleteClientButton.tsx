@@ -12,14 +12,16 @@ type DeleteClientButtonProps = {
 
 export default function DeleteClientButton({ clientId }: DeleteClientButtonProps) {
   const [openModal, setOpenModal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  async function handleDelete() {
-    setOpenModal(true);  
-    // Optionally, you can add a callback here to refresh the client list or navigate away after deletion// This will refresh the clients list page after deletion
+  function handleDelete() {
+    setError(null);
+    setOpenModal(true);
   }
-  
+
   function handleClose() {
+    setError(null);
     setOpenModal(false);
   }
 
@@ -40,12 +42,19 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
     }, [openModal]);
 
    async function handleConfirmDelete() {
+        setError(null);
         try {
-            await deleteClient(clientId);
+            const result = await deleteClient(clientId);
+            // `deleteClient` resolves with an error object instead of throwing
+            // when the deletion fails, so surface it instead of redirecting.
+            if (result && typeof result === "object" && "type" in result && result.type === "error") {
+                setError(typeof result.message === "string" ? result.message : "Erreur lors de la suppression.");
+                return;
+            }
             router.push("/clients"); // Redirect to clients list after deletion
         } catch (error) {
             console.error("Error deleting client:", error);
-            // Optionally, you can show an error message to the user here
+            setError("Erreur lors de la suppression. Veuillez réessayer.");
         }
     }
 
@@ -54,6 +63,7 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
     return <Modal
       title="Confirmer la suppression"
       text="Etes vous sure de vouloir supprimer ce client ? Cette action est irreversible."
+      error={error ?? undefined}
       textForCancel="Annuler"
       textForConfirm="Supprimer"
       onClose={handleClose}

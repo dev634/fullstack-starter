@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 
@@ -17,13 +17,26 @@ type LinkProps = {
 
 export default function Navbar({ brand, links, action }: NavbarProps) {
   const [open, setOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
   // Only render navigation controls when there is something to show
   // (e.g. once the user is logged in). Otherwise just the brand is shown.
   const hasMenu = links.length > 0 || action != null;
 
+  // Close the mobile menu when clicking anywhere outside the navbar.
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (navRef.current && !navRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
   return (
-      <nav className="relative bg-gray-800 text-white py-4 px-6 mb-6">
+      <nav ref={navRef} className="relative bg-gray-800 text-white py-4 px-6 mb-6">
         <div className="flex justify-between items-center w-full">
           <Link href={brand.href} className="text-lg font-bold" onClick={() => setOpen(false)}>
             {brand.display}
