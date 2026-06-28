@@ -4,7 +4,7 @@ import { GetClientsByOrder } from "@/service/clients";
 
 
 
-export async function create({firstName, lastName, email, companyName, address, city, zipCode, country}: Omit<Client, "id">) {
+export async function create({firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl}: Omit<Client, "id">) {
     try {
         const clients = await prisma.client.create({
             data: {
@@ -15,7 +15,8 @@ export async function create({firstName, lastName, email, companyName, address, 
                 address,
                 city,
                 zipCode,
-                country
+                country,
+                photoUrl
             }
         });
         return clients;
@@ -64,11 +65,16 @@ export async function findById(id: number) {
     }
 }
 
-export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country }: Client) {
+export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl }: Omit<Client, "photoUrl"> & { photoUrl?: string | null }) {
     try{
         const client = await prisma.client.update({
             where: { id },
-            data: { firstName, lastName, email, companyName, address, city, zipCode, country },
+            data: {
+                firstName, lastName, email, companyName, address, city, zipCode, country,
+                // Only touch the photo when a new one was provided, so editing
+                // other fields doesn't wipe an existing photo.
+                ...(photoUrl !== undefined ? { photoUrl } : {}),
+            },
         });
         return client;
     }catch(error){

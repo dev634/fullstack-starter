@@ -1,6 +1,7 @@
 "use server";
 import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
+import { uploadClientPhoto } from "@/lib/cloudinary";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, remove, update } from "@/repository/clients";
 import { revalidatePath } from "next/cache";
@@ -13,7 +14,8 @@ export async function addClient(
   const clientDatas = formDataToObject(formData) as CreateClientInput;
 
   try {
-    const client = await createClient({ ...clientDatas });
+    const photoUrl = await extractPhotoUrl(formData);
+    const client = await createClient({ ...clientDatas, photoUrl });
     revalidatePath("/clients");
     return {
       ...prevState,
@@ -81,7 +83,9 @@ export async function updateClient(
         message: "Invalid client ID",
       };
     }
-    const client = await update({ ...clientDatas, id });
+    // Only upload (and overwrite) the photo when a new file was picked.
+    const photoUrl = await extractPhotoUrl(formData);
+    const client = await update({ ...clientDatas, id, photoUrl });
     revalidatePath("/clients");
     revalidatePath(`/clients/${id}`);
     return {
@@ -96,6 +100,19 @@ export async function updateClient(
       message: getErrorMessage(error, "Server error updating client."),
     };
   }
+}
+
+/**
+ * Pull the uploaded "photo" file out of the form and push it to Cloudinary.
+ * Returns the resulting URL, or `undefined` when no new file was provided
+ * (so callers can leave an existing photo untouched).
+ */
+async function extractPhotoUrl(formData: FormData): Promise<string | undefined> {
+  const file = formData.get("photo");
+  if (file instanceof File && file.size > 0) {
+    return uploadClientPhoto(file);
+  }
+  return undefined;
 }
 
 export async function deleteClient(id: number) {

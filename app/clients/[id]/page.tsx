@@ -1,5 +1,6 @@
 import { getClient } from '@/actions/clients/clients';
 import Title from '@/components/Title';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   EnvelopeIcon,
@@ -51,9 +52,19 @@ export default async function ClientPage({ params }: PageProps) {
 
         {/* Header */}
         <div className="flex items-center gap-4 border-b border-gray-700 px-6 py-5">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-lg font-semibold text-blue-300">
-            {initials}
-          </div>
+          {data.photoUrl ? (
+            <Image
+              src={data.photoUrl}
+              alt={`${data.firstName} ${data.lastName}`}
+              width={56}
+              height={56}
+              className="h-14 w-14 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-lg font-semibold text-blue-300">
+              {initials}
+            </div>
+          )}
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">{data.firstName} {data.lastName}</h1>
             {data.companyName && (

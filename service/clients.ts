@@ -18,10 +18,10 @@ type OneKeyOnly<T> = {
 type OrderEnum = "asc" | "desc";
 export type GetClientsByOrder = OneKeyOnly<Record<keyof CreateClientInput, OrderEnum>>
 
-export async function createClient(data: CreateClientInput) {
+export async function createClient(data: CreateClientInput & { photoUrl?: string | null }) {
     try {
         const parsedData = createClientSchema.safeParse(data);
-    
+
         if (!parsedData.success) {
             throw {
                 type: "zodError",
@@ -29,8 +29,8 @@ export async function createClient(data: CreateClientInput) {
                 fieldsForm: makeObjectFromZodError(parsedData.error)
             };
         }
-    
-        await create(parsedData.data);
+
+        await create({ ...parsedData.data, photoUrl: data.photoUrl ?? null });
         return {
             type: "success",
             message: `Client added successfully!`
