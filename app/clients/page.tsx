@@ -1,7 +1,6 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { findAll } from "@/repository/clients";
-import { PencilIcon, TrashIcon } from "@heroicons/react/16/solid";
 import Link from "next/link";
 
 export default async function ClientsPage() {
