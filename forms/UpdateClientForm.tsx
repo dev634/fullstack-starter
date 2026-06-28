@@ -39,7 +39,7 @@ export default function UpdateClientForm({ client }: { client: Client }) {
     <form action={formAction} className="w-full bg-transparent rounded shadow">
       <Toast type={state.type} message={state.message} />
       <input type="hidden" name="id" value={values.id} />
-      <PhotoUpload />
+      <PhotoUpload defaultUrl={values.photoUrl} />
       <ClientFields
         values={values}
         onChange={handleChange}

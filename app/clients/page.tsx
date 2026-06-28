@@ -1,6 +1,7 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { findAll } from "@/repository/clients";
+import Image from "next/image";
 import Link from "next/link";
 
 export default async function ClientsPage() {
@@ -28,9 +29,19 @@ export default async function ClientsPage() {
                     href={`/clients/${client.id}`}
                     className="flex h-full items-center gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4 text-gray-100 transition-colors hover:bg-gray-700"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/20 font-semibold text-blue-300">
-                      {initials}
-                    </span>
+                    {client.photoUrl ? (
+                      <Image
+                        src={client.photoUrl}
+                        alt={`${client.firstName} ${client.lastName}`}
+                        width={48}
+                        height={48}
+                        className="h-12 w-12 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/20 font-semibold text-blue-300">
+                        {initials}
+                      </span>
+                    )}
                     <span className="min-w-0">
                       <span className="block truncate font-semibold">
                         {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
