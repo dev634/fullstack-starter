@@ -50,13 +50,13 @@ export default function ClientsGrid({ clients }: { clients: ClientCard[] }) {
   return (
     <div className="space-y-4">
       {selected.size > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2">
-          <span className="text-sm text-gray-300">{selected.size} sélectionné(s)</span>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2">
+          <span className="text-sm text-gray-600 dark:text-gray-300">{selected.size} sélectionné(s)</span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setSelected(new Set())}
-              className="rounded border border-gray-600 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer"
+              className="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
             >
               Annuler
             </button>
@@ -83,8 +83,8 @@ export default function ClientsGrid({ clients }: { clients: ClientCard[] }) {
             />
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-gray-800 p-4 pr-9 text-gray-100 transition-colors hover:bg-gray-700 ${
-                selected.has(client.id) ? "border-blue-500" : "border-gray-700"
+              className={`flex h-full items-center gap-4 rounded-lg border bg-white dark:bg-gray-800 p-4 pr-9 text-gray-900 dark:text-gray-100 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                selected.has(client.id) ? "border-blue-500" : "border-gray-200 dark:border-gray-700"
               }`}
             >
               <ClientAvatar
@@ -100,7 +100,7 @@ export default function ClientsGrid({ clients }: { clients: ClientCard[] }) {
                   </span>
                   <StatusBadge status={client.status} />
                 </span>
-                <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
+                <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</span>
               </span>
             </Link>
           </li>

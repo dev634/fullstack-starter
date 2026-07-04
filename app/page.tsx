@@ -5,10 +5,10 @@ import StatusBadge from "@/components/StatusBadge";
 import { UsersIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 
 const METRICS: { key: "total" | "PROSPECT" | "CLIENT" | "INACTIVE"; label: string; className: string }[] = [
-  { key: "total", label: "Total clients", className: "text-gray-100" },
+  { key: "total", label: "Total clients", className: "text-gray-900 dark:text-gray-100" },
   { key: "PROSPECT", label: "Prospects", className: "text-amber-300" },
   { key: "CLIENT", label: "Clients", className: "text-green-300" },
-  { key: "INACTIVE", label: "Inactifs", className: "text-gray-400" },
+  { key: "INACTIVE", label: "Inactifs", className: "text-gray-500 dark:text-gray-400" },
 ];
 
 export default async function HomePage() {
@@ -32,8 +32,8 @@ export default async function HomePage() {
         {/* Metric cards */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {METRICS.map((m) => (
-            <div key={m.key} className="rounded-xl border border-gray-700 bg-gray-800 p-5">
-              <p className="text-sm text-gray-400">{m.label}</p>
+            <div key={m.key} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
+              <p className="text-sm text-gray-500 dark:text-gray-400">{m.label}</p>
               <p className={`mt-1 text-3xl font-semibold ${m.className}`}>{values[m.key] ?? 0}</p>
             </div>
           ))}
@@ -43,18 +43,18 @@ export default async function HomePage() {
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Ajoutés récemment</h2>
-            <Link href="/clients" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200">
+            <Link href="/clients" className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
               Tout voir <ArrowRightIcon className="h-4 w-4" />
             </Link>
           </div>
 
           {recent.length ? (
-            <ul className="divide-y divide-gray-700 overflow-hidden rounded-xl border border-gray-700 bg-gray-800">
+            <ul className="divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               {recent.map((client) => (
                 <li key={client.id}>
                   <Link
                     href={`/clients/${client.id}`}
-                    className="flex items-center gap-4 px-4 py-3 text-gray-100 transition-colors hover:bg-gray-700"
+                    className="flex items-center gap-4 px-4 py-3 text-gray-900 dark:text-gray-100 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     <ClientAvatar
                       photoUrl={client.photoUrl}
@@ -67,14 +67,14 @@ export default async function HomePage() {
                         <span className="truncate font-medium">{client.firstName} {client.lastName}</span>
                         <StatusBadge status={client.status} />
                       </span>
-                      <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
+                      <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</span>
                     </span>
                   </Link>
                 </li>
               ))}
             </ul>
           ) : (
-            <div className="rounded-xl border border-gray-700 bg-gray-800 px-4 py-8 text-center text-gray-400">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
               Aucun client pour le moment.
             </div>
           )}
