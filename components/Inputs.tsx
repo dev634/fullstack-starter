@@ -5,7 +5,9 @@ import { InputProps } from '@/types/inputs';
 export function Input({label, name, type = "text", error, value, onChange, fullWidth}:InputProps) {
     return (
         <div key={name} className={`mb-7${fullWidth ? " sm:col-span-2" : ""}`}>
+            <label htmlFor={name} className="sr-only">{label}</label>
             <input
+                id={name}
                 type={type}
                 name={name}
                 placeholder={label}
