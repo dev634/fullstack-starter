@@ -1,4 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
+import { publicIdFromUrl } from "./cloudinary-url";
+
+// Re-export the pure URL helpers so existing server imports keep working.
+export { publicIdFromUrl, optimizedClientPhoto } from "./cloudinary-url";
 
 // The SDK reads credentials from the CLOUDINARY_URL env var
 // (cloudinary://<api_key>:<api_secret>@<cloud_name>). We only force
@@ -48,14 +52,6 @@ export async function uploadClientPhoto(file: File): Promise<string> {
 }
 
 /**
- * Extract the Cloudinary public id (e.g. "clients/abcd") from a delivery URL.
- */
-export function publicIdFromUrl(url: string): string | null {
-  const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+$/);
-  return match ? match[1] : null;
-}
-
-/**
  * Best-effort deletion of a previously uploaded photo. Never throws so it
  * can't break the surrounding mutation if the asset is already gone.
  */
@@ -70,17 +66,4 @@ export async function destroyClientPhoto(
   } catch (error) {
     console.error("Cloudinary destroy failed:", error);
   }
-}
-
-/**
- * Rewrite a Cloudinary URL to deliver an optimized, square, face-aware
- * avatar crop (auto format + quality). Falls back to the original URL for
- * non-Cloudinary inputs.
- */
-export function optimizedClientPhoto(url: string, size = 112): string {
-  const marker = "/upload/";
-  const i = url.indexOf(marker);
-  if (i === -1) return url;
-  const transform = `f_auto,q_auto,c_fill,g_face,w_${size},h_${size}/`;
-  return url.slice(0, i + marker.length) + transform + url.slice(i + marker.length);
 }
