@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
+import ThemeToggle from "@/components/ThemeToggle";
 
 type NavbarProps = {
     brand: LinkProps
@@ -42,30 +43,34 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
             {brand.display}
           </Link>
 
-          {hasMenu && (
-            <>
-              {/* Desktop menu */}
-              <div className="hidden md:flex items-center space-x-4">
-                {links.map((link) => (
-                  <Link key={link.href} href={link.href} className="hover:text-gray-400">
-                    {link.display}
-                  </Link>
-                    ))}
-                {action}
-              </div>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
 
-              {/* Mobile hamburger button (square with 3 bars) */}
-              <button
-                type="button"
-                aria-label="Toggle menu"
-                aria-expanded={open}
-                onClick={() => setOpen((v) => !v)}
-                className="md:hidden flex items-center justify-center w-10 h-10 rounded border border-white/30 hover:bg-white/10 cursor-pointer"
-              >
-                {open ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
-              </button>
-            </>
-          )}
+            {hasMenu && (
+              <>
+                {/* Desktop menu */}
+                <div className="hidden md:flex items-center space-x-4">
+                  {links.map((link) => (
+                    <Link key={link.href} href={link.href} className="hover:text-gray-400">
+                      {link.display}
+                    </Link>
+                      ))}
+                  {action}
+                </div>
+
+                {/* Mobile hamburger button (square with 3 bars) */}
+                <button
+                  type="button"
+                  aria-label="Toggle menu"
+                  aria-expanded={open}
+                  onClick={() => setOpen((v) => !v)}
+                  className="md:hidden flex items-center justify-center w-10 h-10 rounded border border-white/30 hover:bg-white/10 cursor-pointer"
+                >
+                  {open ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Mobile dropdown menu */}

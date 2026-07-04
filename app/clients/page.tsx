@@ -57,7 +57,7 @@ export default async function ClientsPage({
           <div className="flex items-center gap-2">
             <a
               href={exportHref}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-700 px-3 py-2 text-sm text-gray-200 no-underline hover:bg-gray-800"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               <ArrowDownTrayIcon className="h-4 w-4" />
               Export CSV
@@ -80,7 +80,7 @@ export default async function ClientsPage({
             {totalPages > 1 && (
               <nav className="flex items-center justify-center gap-4 pt-2" aria-label="Pagination">
                 <PageLink href={pageHref(page - 1)} disabled={page <= 1} label="Précédent" />
-                <span className="text-sm text-gray-400">Page {page} / {totalPages}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Page {page} / {totalPages}</span>
                 <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label="Suivant" />
               </nav>
             )}
@@ -88,10 +88,10 @@ export default async function ClientsPage({
         ) : (
           <div className="flex h-[45vh] flex-col items-center justify-center gap-4">
             {q ? (
-              <p className="text-gray-400">Aucun client ne correspond à « {q} ».</p>
+              <p className="text-gray-500 dark:text-gray-400">Aucun client ne correspond à « {q} ».</p>
             ) : (
               <>
-                <p className="text-gray-400">Aucun client pour le moment.</p>
+                <p className="text-gray-500 dark:text-gray-400">Aucun client pour le moment.</p>
                 <Button
                   text="Ajouter un client"
                   as="link"
@@ -110,7 +110,7 @@ export default async function ClientsPage({
 function PageLink({ href, disabled, label }: { href: string; disabled: boolean; label: string }) {
   if (disabled) {
     return (
-      <span className="cursor-not-allowed rounded border border-gray-800 px-3 py-1.5 text-sm text-gray-600">
+      <span className="cursor-not-allowed rounded border border-gray-200 dark:border-gray-800 px-3 py-1.5 text-sm text-gray-400 dark:text-gray-600">
         {label}
       </span>
     );
@@ -118,7 +118,7 @@ function PageLink({ href, disabled, label }: { href: string; disabled: boolean; 
   return (
     <Link
       href={href}
-      className="rounded border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700"
+      className="rounded border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
     >
       {label}
     </Link>

@@ -45,12 +45,12 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
 
   return (
     <div className="mb-7 flex flex-col items-center gap-3">
-      <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center">
+      <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="Aperçu de la photo" className="w-full h-full object-cover" />
         ) : (
-          <UserCircleIcon className="w-24 h-24 text-gray-500" />
+          <UserCircleIcon className="w-24 h-24 text-gray-400 dark:text-gray-500" />
         )}
       </div>
 
@@ -69,7 +69,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="px-4 py-2 bg-gray-700 text-gray-100 rounded hover:bg-gray-600 cursor-pointer"
+          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
         >
           {preview ? "Changer la photo" : "Ajouter une photo"}
         </button>

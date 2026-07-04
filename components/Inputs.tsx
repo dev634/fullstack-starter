@@ -11,7 +11,7 @@ export function Input({label, name, type = "text", error, value, onChange, fullW
                 type={type}
                 name={name}
                 placeholder={label}
-                className="w-full mb-2 p-2 rounded border border-gray-700 bg-gray-800 text-gray-100 placeholder-gray-500"
+                className="w-full mb-2 p-2 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500"
                 value={value}
                 onChange={onChange}
             />

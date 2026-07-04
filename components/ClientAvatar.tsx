@@ -35,7 +35,7 @@ export default function ClientAvatar({
     return (
       <span
         style={box}
-        className={`flex shrink-0 items-center justify-center rounded-full bg-blue-500/20 font-semibold text-blue-300 ${className}`}
+        className={`flex shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20 font-semibold text-blue-700 dark:text-blue-300 ${className}`}
       >
         {initials}
       </span>

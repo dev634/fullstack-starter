@@ -47,14 +47,14 @@ export default function ClientsToolbar() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <div className="relative flex-1">
-        <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
+        <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
         <input
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Rechercher un client…"
           aria-label="Rechercher un client"
-          className="w-full rounded border border-gray-700 bg-gray-800 py-2 pl-10 pr-3 text-gray-100 placeholder-gray-500"
+          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-2 pl-10 pr-3 text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
       </div>
 
@@ -63,7 +63,7 @@ export default function ClientsToolbar() {
           value={sort}
           onChange={(e) => push({ sort: e.target.value })}
           aria-label="Trier par"
-          className="rounded border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100"
+          className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-gray-100"
         >
           {SORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -73,7 +73,7 @@ export default function ClientsToolbar() {
           type="button"
           onClick={() => push({ dir: dir === "asc" ? "desc" : "asc" })}
           aria-label={dir === "asc" ? "Tri croissant" : "Tri décroissant"}
-          className="rounded border border-gray-700 bg-gray-800 p-2 text-gray-300 hover:bg-gray-700 cursor-pointer"
+          className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
         >
           {dir === "asc" ? <BarsArrowUpIcon className="h-5 w-5" /> : <BarsArrowDownIcon className="h-5 w-5" />}
         </button>

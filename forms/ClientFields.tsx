@@ -48,13 +48,13 @@ export function ClientFields({ values, onChange, errors }: ClientFieldsProps) {
       ))}
 
       <div className="mb-7 sm:col-span-2">
-        <label htmlFor="status" className="mb-2 block text-sm text-gray-400">Statut</label>
+        <label htmlFor="status" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">Statut</label>
         <select
           id="status"
           name="status"
           value={values.status}
           onChange={onChange}
-          className="w-full rounded border border-gray-700 bg-gray-800 p-2 text-gray-100"
+          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
