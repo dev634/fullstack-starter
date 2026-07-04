@@ -4,6 +4,29 @@ import { GetClientsByOrder } from "@/service/clients";
 
 
 
+/**
+ * Aggregate figures for the home dashboard: total, per-status counts and the
+ * most recently added clients (id desc, since there is no createdAt column).
+ */
+export async function getDashboardStats() {
+    try {
+        const [total, grouped, recent] = await Promise.all([
+            prisma.client.count(),
+            prisma.client.groupBy({ by: ["status"], _count: { _all: true } }),
+            prisma.client.findMany({ orderBy: { id: "desc" }, take: 5 }),
+        ]);
+        const byStatus: Record<string, number> = { PROSPECT: 0, CLIENT: 0, INACTIVE: 0 };
+        for (const g of grouped) byStatus[g.status] = g._count._all;
+        return { total, byStatus, recent };
+    } catch (error) {
+        console.log("Repository getDashboardStats error:", error);
+        throw {
+            type: "error",
+            message: "Database Error loading dashboard.",
+        };
+    }
+}
+
 export async function create({firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id">) {
     try {
         const clients = await prisma.client.create({
