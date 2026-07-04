@@ -75,7 +75,7 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
     <button
       type="button"
       onClick={handleDelete}
-      className="inline-flex items-center gap-1.5 rounded border border-red-500/40 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 cursor-pointer"
+      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-red-500/40 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 cursor-pointer sm:flex-none"
     >
       <TrashIcon className="h-4 w-4" />
       Supprimer

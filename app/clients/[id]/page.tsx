@@ -51,7 +51,7 @@ export default async function ClientPage({ params }: PageProps) {
       <div className="w-full max-w-xl mx-auto overflow-hidden rounded-xl border border-gray-700 bg-gray-800 text-gray-100 shadow-sm">
 
         {/* Header */}
-        <div className="flex items-center gap-4 border-b border-gray-700 px-6 py-5">
+        <div className="flex items-center gap-4 border-b border-gray-700 px-4 py-5 sm:px-6">
           {data.photoUrl ? (
             <Image
               src={data.photoUrl}
@@ -77,29 +77,29 @@ export default async function ClientPage({ params }: PageProps) {
         </div>
 
         {/* Details */}
-        <dl className="px-6 py-2">
+        <dl className="px-4 py-2 sm:px-6">
           <div className="flex items-center gap-3 border-b border-gray-700 py-3">
             <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-500" />
-            <dt className="w-24 shrink-0 text-sm text-gray-400">Email</dt>
-            <dd className="min-w-0 truncate text-sm text-blue-400">{data.email || "—"}</dd>
+            <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Email</dt>
+            <dd className="min-w-0 break-all text-sm text-blue-400">{data.email || "—"}</dd>
           </div>
           <div className="flex items-center gap-3 border-b border-gray-700 py-3">
             <MapPinIcon className="h-5 w-5 shrink-0 text-gray-500" />
-            <dt className="w-24 shrink-0 text-sm text-gray-400">Adresse</dt>
-            <dd className="min-w-0 truncate text-sm">{data.address || "—"}</dd>
+            <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Adresse</dt>
+            <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
           </div>
           <div className="flex items-center gap-3 py-3">
             <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-500" />
-            <dt className="w-24 shrink-0 text-sm text-gray-400">Localité</dt>
-            <dd className="min-w-0 truncate text-sm">{locality || "—"}</dd>
+            <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Localité</dt>
+            <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>
           </div>
         </dl>
 
         {/* Actions */}
-        <div className="flex items-center gap-2.5 border-t border-gray-700 bg-gray-900 px-6 py-4">
+        <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-700 bg-gray-900 px-4 py-4 sm:px-6">
           <Link
             href={`/clients/${id}/edit`}
-            className="inline-flex items-center gap-1.5 rounded border border-gray-600 bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-600"
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-600 bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-600 sm:flex-none"
           >
             <PencilSquareIcon className="h-4 w-4" />
             Modifier
@@ -107,7 +107,7 @@ export default async function ClientPage({ params }: PageProps) {
           <DeleteClientButton clientId={data.id} />
           <Link
             href="/clients"
-            className="ml-auto inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200"
+            className="inline-flex w-full items-center justify-center gap-1 text-sm text-gray-400 hover:text-gray-200 sm:ml-auto sm:w-auto"
           >
             <ArrowLeftIcon className="h-4 w-4" />
             Retour
