@@ -2,6 +2,7 @@ import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
 import ClientAvatar from "@/components/ClientAvatar";
+import StatusBadge from "@/components/StatusBadge";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import Link from "next/link";
 
@@ -72,9 +73,12 @@ export default async function ClientsPage({
                       lastName={client.lastName}
                       size={48}
                     />
-                    <span className="min-w-0">
-                      <span className="block truncate font-semibold">
-                        {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-semibold">
+                          {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
+                        </span>
+                        <StatusBadge status={client.status} />
                       </span>
                       <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
                     </span>
