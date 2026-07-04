@@ -1,12 +1,15 @@
 import { getClient } from '@/actions/clients/clients';
 import Title from '@/components/Title';
 import ClientAvatar from '@/components/ClientAvatar';
+import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import {
   EnvelopeIcon,
   MapPinIcon,
   GlobeAltIcon,
   BuildingOffice2Icon,
+  PhoneIcon,
+  LinkIcon,
   PencilSquareIcon,
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
@@ -43,6 +46,9 @@ export default async function ClientPage({ params }: PageProps) {
 
   const data = client.data!;
   const locality = [data.city, data.zipCode, data.country].filter(Boolean).join(", ");
+  const websiteHref = data.website
+    ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
+    : null;
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -58,7 +64,10 @@ export default async function ClientPage({ params }: PageProps) {
             className="text-lg"
           />
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">{data.firstName} {data.lastName}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-xl font-semibold">{data.firstName} {data.lastName}</h1>
+              <StatusBadge status={data.status} />
+            </div>
             {data.companyName && (
               <p className="mt-0.5 flex items-center gap-1.5 text-sm text-gray-400">
                 <BuildingOffice2Icon className="h-4 w-4" />
@@ -70,17 +79,35 @@ export default async function ClientPage({ params }: PageProps) {
 
         {/* Details */}
         <dl className="px-4 py-2 sm:px-6">
-          <div className="flex items-center gap-3 border-b border-gray-700 py-3">
+          <div className="flex items-center gap-3 border-b border-gray-700 py-3 last:border-b-0">
             <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Email</dt>
             <dd className="min-w-0 break-all text-sm text-blue-400">{data.email || "—"}</dd>
           </div>
-          <div className="flex items-center gap-3 border-b border-gray-700 py-3">
+          {data.phone && (
+            <div className="flex items-center gap-3 border-b border-gray-700 py-3 last:border-b-0">
+              <PhoneIcon className="h-5 w-5 shrink-0 text-gray-500" />
+              <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Téléphone</dt>
+              <dd className="min-w-0 break-all text-sm">{data.phone}</dd>
+            </div>
+          )}
+          {websiteHref && (
+            <div className="flex items-center gap-3 border-b border-gray-700 py-3 last:border-b-0">
+              <LinkIcon className="h-5 w-5 shrink-0 text-gray-500" />
+              <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Site web</dt>
+              <dd className="min-w-0 break-all text-sm">
+                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                  {data.website}
+                </a>
+              </dd>
+            </div>
+          )}
+          <div className="flex items-center gap-3 border-b border-gray-700 py-3 last:border-b-0">
             <MapPinIcon className="h-5 w-5 shrink-0 text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Adresse</dt>
             <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
           </div>
-          <div className="flex items-center gap-3 py-3">
+          <div className="flex items-center gap-3 border-b border-gray-700 py-3 last:border-b-0">
             <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-400 sm:w-24">Localité</dt>
             <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>

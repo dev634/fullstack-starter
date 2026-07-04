@@ -30,7 +30,12 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
             };
         }
 
-        await create({ ...parsedData.data, photoUrl: data.photoUrl ?? null });
+        await create({
+            ...parsedData.data,
+            phone: parsedData.data.phone || null,
+            website: parsedData.data.website || null,
+            photoUrl: data.photoUrl ?? null,
+        });
         return {
             type: "success",
             message: `Client added successfully!`

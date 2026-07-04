@@ -100,7 +100,13 @@ export async function updateClient(
     if (uploadedUrl) photoUrl = uploadedUrl;
     else if (removePhoto) photoUrl = null;
 
-    const client = await update({ ...clientDatas, id, photoUrl });
+    const client = await update({
+      ...clientDatas,
+      id,
+      phone: clientDatas.phone || null,
+      website: clientDatas.website || null,
+      photoUrl,
+    });
 
     // Drop the previous asset once it has been replaced or removed.
     if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {

@@ -30,7 +30,7 @@ export default function UpdateClientForm({ client }: { client: Client }) {
     return () => clearTimeout(timer);
   }, [state, router]);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
     setValues(prev => ({ ...prev, [name]: value }));
   }

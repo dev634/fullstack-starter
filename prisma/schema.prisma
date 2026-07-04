@@ -12,6 +12,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ClientStatus {
+  PROSPECT
+  CLIENT
+  INACTIVE
+}
+
 model Client {
   id Int @id @default(autoincrement())
   companyName String
@@ -23,6 +29,9 @@ model Client {
   country String
   email String  @unique
   photoUrl String?
+  phone String?
+  website String?
+  status ClientStatus @default(PROSPECT)
 }
 
 model User {

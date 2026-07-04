@@ -27,7 +27,10 @@ export default function AddClientForm() {
     address: "",
     country: "",
     city: "",
-    zipCode: ""
+    zipCode: "",
+    phone: "",
+    website: "",
+    status: "PROSPECT"
   });
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function AddClientForm() {
     return () => clearTimeout(timer);
   }, [state, router]);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
     setValues(prev => ({ ...prev, [name]: value }));
   }
