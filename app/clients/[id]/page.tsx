@@ -10,6 +10,7 @@ import {
   PencilSquareIcon,
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
+import { optimizedClientPhoto } from '@/lib/cloudinary';
 import DeleteClientButton from './_components/DeleteClientButton';
 
 type PageProps = {
@@ -54,7 +55,7 @@ export default async function ClientPage({ params }: PageProps) {
         <div className="flex items-center gap-4 border-b border-gray-700 px-4 py-5 sm:px-6">
           {data.photoUrl ? (
             <Image
-              src={data.photoUrl}
+              src={optimizedClientPhoto(data.photoUrl, 112)}
               alt={`${data.firstName} ${data.lastName}`}
               width={56}
               height={56}

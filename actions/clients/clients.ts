@@ -1,7 +1,8 @@
 "use server";
 import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
-import { uploadClientPhoto } from "@/lib/cloudinary";
+import { uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
+import { auth } from "@/lib/auth";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, remove, update } from "@/repository/clients";
 import { revalidatePath } from "next/cache";
@@ -11,6 +12,9 @@ export async function addClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
+  const unauthorized = await requireSession();
+  if (unauthorized) return { ...prevState, ...unauthorized };
+
   const clientDatas = formDataToObject(formData) as CreateClientInput;
 
   try {
@@ -71,6 +75,9 @@ export async function updateClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
+  const unauthorized = await requireSession();
+  if (unauthorized) return { ...prevState, ...unauthorized };
+
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
   try {
     if (!clientDatas.id) {
@@ -83,9 +90,23 @@ export async function updateClient(
         message: "Invalid client ID",
       };
     }
-    // Only upload (and overwrite) the photo when a new file was picked.
-    const photoUrl = await extractPhotoUrl(formData);
+
+    const existing = await findById(id);
+    // Resolve the new photo state: a freshly uploaded file wins; otherwise an
+    // explicit removal sets it to null; otherwise leave the existing one.
+    const uploadedUrl = await extractPhotoUrl(formData);
+    const removePhoto = formData.get("removePhoto") === "true";
+    let photoUrl: string | null | undefined = undefined;
+    if (uploadedUrl) photoUrl = uploadedUrl;
+    else if (removePhoto) photoUrl = null;
+
     const client = await update({ ...clientDatas, id, photoUrl });
+
+    // Drop the previous asset once it has been replaced or removed.
+    if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {
+      await destroyClientPhoto(existing.photoUrl);
+    }
+
     revalidatePath("/clients");
     revalidatePath(`/clients/${id}`);
     return {
@@ -115,7 +136,23 @@ async function extractPhotoUrl(formData: FormData): Promise<string | undefined> 
   return undefined;
 }
 
+/**
+ * Guard mutations behind an authenticated session. Returns an error payload
+ * when there is no session, or `null` when the caller may proceed. Server
+ * actions are callable directly, so page-level middleware isn't enough.
+ */
+async function requireSession(): Promise<{ type: "error"; message: string } | null> {
+  const session = await auth();
+  if (!session) {
+    return { type: "error", message: "Unauthorized. Please sign in." };
+  }
+  return null;
+}
+
 export async function deleteClient(id: number) {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     if (isNaN(id)) {
       throw {
@@ -123,7 +160,10 @@ export async function deleteClient(id: number) {
         message: "Invalid client ID",
       };
     }
+    const existing = await findById(id);
     const client = await remove(id);
+    // Clean up the client's photo from Cloudinary after a successful delete.
+    await destroyClientPhoto(existing?.photoUrl);
     revalidatePath("/clients");
     return client;
   } catch (error) {
