@@ -37,6 +37,60 @@ export async function create({firstName, lastName, email, companyName, address, 
     }
 }
 
+export type ClientSortField = "firstName" | "lastName" | "companyName" | "email";
+
+type SearchArgs = {
+  q?: string;
+  sortField?: ClientSortField;
+  dir?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+};
+
+/**
+ * Paginated, filterable client listing. `q` matches (case-insensitively)
+ * against name, company and email. Returns the page of rows and the total
+ * count for pagination.
+ */
+export async function search({
+  q = "",
+  sortField = "firstName",
+  dir = "asc",
+  page = 1,
+  pageSize = 9,
+}: SearchArgs) {
+  const term = q.trim();
+  const where: Prisma.ClientWhereInput = term
+    ? {
+        OR: [
+          { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          { email: { contains: term, mode: Prisma.QueryMode.insensitive } },
+        ],
+      }
+    : {};
+
+  try {
+    const [clients, total] = await Promise.all([
+      prisma.client.findMany({
+        where,
+        orderBy: { [sortField]: dir } as Prisma.ClientOrderByWithRelationInput,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.client.count({ where }),
+    ]);
+    return { clients, total };
+  } catch (error) {
+    console.log("Repository search error:", error);
+    throw {
+      type: "error",
+      message: "Database Error searching clients.",
+    };
+  }
+}
+
 export async function findAll(orderBy: GetClientsByOrder) {
     try {
         const clients = await prisma.client.findMany({orderBy: orderBy || { id: "asc" }});
