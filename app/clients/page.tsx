@@ -1,9 +1,8 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
-import { optimizedClientPhoto } from "@/lib/cloudinary";
+import ClientAvatar from "@/components/ClientAvatar";
 import ClientsToolbar from "./_components/ClientsToolbar";
-import Image from "next/image";
 import Link from "next/link";
 
 const PAGE_SIZE = 9;
@@ -61,38 +60,27 @@ export default async function ClientsPage({
         {clients.length ? (
           <>
             <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clients.map((client) => {
-                const initials =
-                  `${client.firstName?.[0] ?? ""}${client.lastName?.[0] ?? ""}`.toUpperCase() || "?";
-                return (
-                  <li key={client.id}>
-                    <Link
-                      href={`/clients/${client.id}`}
-                      className="flex h-full items-center gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4 text-gray-100 transition-colors hover:bg-gray-700"
-                    >
-                      {client.photoUrl ? (
-                        <Image
-                          src={optimizedClientPhoto(client.photoUrl, 96)}
-                          alt={`${client.firstName} ${client.lastName}`}
-                          width={48}
-                          height={48}
-                          className="h-12 w-12 shrink-0 rounded-full object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-500/20 font-semibold text-blue-300">
-                          {initials}
-                        </span>
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold">
-                          {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
-                        </span>
-                        <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
+              {clients.map((client) => (
+                <li key={client.id}>
+                  <Link
+                    href={`/clients/${client.id}`}
+                    className="flex h-full items-center gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4 text-gray-100 transition-colors hover:bg-gray-700"
+                  >
+                    <ClientAvatar
+                      photoUrl={client.photoUrl}
+                      firstName={client.firstName}
+                      lastName={client.lastName}
+                      size={48}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">
+                        {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
                       </span>
-                    </Link>
-                  </li>
-                );
-              })}
+                      <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
             </ul>
 
             {totalPages > 1 && (

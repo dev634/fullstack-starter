@@ -1,6 +1,6 @@
 import { getClient } from '@/actions/clients/clients';
 import Title from '@/components/Title';
-import Image from 'next/image';
+import ClientAvatar from '@/components/ClientAvatar';
 import Link from 'next/link';
 import {
   EnvelopeIcon,
@@ -10,7 +10,6 @@ import {
   PencilSquareIcon,
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
-import { optimizedClientPhoto } from '@/lib/cloudinary';
 import DeleteClientButton from './_components/DeleteClientButton';
 
 type PageProps = {
@@ -43,8 +42,6 @@ export default async function ClientPage({ params }: PageProps) {
   }
 
   const data = client.data!;
-  const initials =
-    `${data.firstName?.[0] ?? ""}${data.lastName?.[0] ?? ""}`.toUpperCase() || "?";
   const locality = [data.city, data.zipCode, data.country].filter(Boolean).join(", ");
 
   return (
@@ -53,19 +50,13 @@ export default async function ClientPage({ params }: PageProps) {
 
         {/* Header */}
         <div className="flex items-center gap-4 border-b border-gray-700 px-4 py-5 sm:px-6">
-          {data.photoUrl ? (
-            <Image
-              src={optimizedClientPhoto(data.photoUrl, 112)}
-              alt={`${data.firstName} ${data.lastName}`}
-              width={56}
-              height={56}
-              className="h-14 w-14 shrink-0 rounded-full object-cover"
-            />
-          ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-lg font-semibold text-blue-300">
-              {initials}
-            </div>
-          )}
+          <ClientAvatar
+            photoUrl={data.photoUrl}
+            firstName={data.firstName}
+            lastName={data.lastName}
+            size={56}
+            className="text-lg"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">{data.firstName} {data.lastName}</h1>
             {data.companyName && (
