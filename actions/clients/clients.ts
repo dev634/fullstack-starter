@@ -180,3 +180,32 @@ export async function deleteClient(id: number) {
     };
   }
 }
+
+/**
+ * Delete several clients at once (bulk selection). Cleans up each client's
+ * Cloudinary photo. Returns a success/error payload for the caller.
+ */
+export async function deleteClients(ids: number[]) {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+
+  try {
+    const valid = ids.filter((id) => Number.isInteger(id) && id > 0);
+    if (valid.length === 0) {
+      return { type: "error" as const, message: "No client selected." };
+    }
+    for (const id of valid) {
+      const existing = await findById(id);
+      await remove(id);
+      await destroyClientPhoto(existing?.photoUrl);
+    }
+    revalidatePath("/clients");
+    return { type: "success" as const, message: `${valid.length} client(s) deleted.` };
+  } catch (error) {
+    console.log("Action deleteClients error:", error);
+    return {
+      type: "error" as const,
+      message: getErrorMessage(error, "Server error deleting clients."),
+    };
+  }
+}

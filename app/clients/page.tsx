@@ -1,9 +1,9 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
-import ClientAvatar from "@/components/ClientAvatar";
-import StatusBadge from "@/components/StatusBadge";
+import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 
 const PAGE_SIZE = 9;
@@ -32,60 +32,50 @@ export default async function ClientsPage({
   const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Build a page href that keeps the current search/sort.
-  function pageHref(p: number) {
+  // Shared query string for the current search/sort (used by pager + export).
+  function baseParams() {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (sortField !== "firstName") params.set("sort", sortField);
     if (dir !== "asc") params.set("dir", dir);
+    return params;
+  }
+  function pageHref(p: number) {
+    const params = baseParams();
     if (p > 1) params.set("page", String(p));
     const qs = params.toString();
     return qs ? `/clients?${qs}` : "/clients";
   }
+  const exportQs = baseParams().toString();
+  const exportHref = exportQs ? `/clients/export?${exportQs}` : "/clients/export";
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
           <Title title="Clients" />
-          <Button
-            text="Add Client"
-            as="link"
-            href="/clients/add"
-            classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
-          />
+          <div className="flex items-center gap-2">
+            <a
+              href={exportHref}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-700 px-3 py-2 text-sm text-gray-200 no-underline hover:bg-gray-800"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              Export CSV
+            </a>
+            <Button
+              text="Add Client"
+              as="link"
+              href="/clients/add"
+              classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+            />
+          </div>
         </div>
 
         <ClientsToolbar />
 
         {clients.length ? (
           <>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clients.map((client) => (
-                <li key={client.id}>
-                  <Link
-                    href={`/clients/${client.id}`}
-                    className="flex h-full items-center gap-4 rounded-lg border border-gray-700 bg-gray-800 p-4 text-gray-100 transition-colors hover:bg-gray-700"
-                  >
-                    <ClientAvatar
-                      photoUrl={client.photoUrl}
-                      firstName={client.firstName}
-                      lastName={client.lastName}
-                      size={48}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate font-semibold">
-                          {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
-                        </span>
-                        <StatusBadge status={client.status} />
-                      </span>
-                      <span className="block truncate text-sm text-gray-400">{client.companyName}</span>
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <ClientsGrid clients={clients} />
 
             {totalPages > 1 && (
               <nav className="flex items-center justify-center gap-4 pt-2" aria-label="Pagination">
