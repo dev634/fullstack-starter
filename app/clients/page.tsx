@@ -1,6 +1,7 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { findAll } from "@/repository/clients";
+import { optimizedClientPhoto } from "@/lib/cloudinary";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -31,7 +32,7 @@ export default async function ClientsPage() {
                   >
                     {client.photoUrl ? (
                       <Image
-                        src={client.photoUrl}
+                        src={optimizedClientPhoto(client.photoUrl, 96)}
                         alt={`${client.firstName} ${client.lastName}`}
                         width={48}
                         height={48}
