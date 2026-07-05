@@ -1,6 +1,8 @@
 import { getClient } from "@/actions/clients/clients";
+import { auth } from "@/lib/auth";
 import Title from "@/components/Title";
 import UpdateClientForm from "@/forms/UpdateClientForm";
+import { redirect } from "next/navigation";
 
 type PageProps = {
     params: Promise<{
@@ -9,6 +11,11 @@ type PageProps = {
 };
 
 export default async function EditPage({ params }: PageProps){
+    const session = await auth();
+    if (session?.user?.role !== "ADMIN") {
+        redirect("/clients");
+    }
+
     const { id } = await params;
     const clientId = parseInt(id, 10);
     const client = await getClient(clientId);
