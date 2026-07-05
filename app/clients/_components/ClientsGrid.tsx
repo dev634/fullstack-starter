@@ -111,8 +111,8 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
 
       {confirming && (
         <Modal
-          title="Confirmer la suppression"
-          text={`Supprimer ${selected.size} client(s) ? Cette action est irréversible.`}
+          title="Déplacer vers la corbeille"
+          text={`Déplacer ${selected.size} client(s) vers la corbeille ? Tu pourras les restaurer depuis là si besoin.`}
           error={error ?? undefined}
           textForCancel="Annuler"
           textForConfirm={pending ? "Suppression…" : "Supprimer"}

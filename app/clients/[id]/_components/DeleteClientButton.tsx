@@ -61,8 +61,8 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
 
   if(openModal){
     return <Modal
-      title="Confirmer la suppression"
-      text="Etes vous sure de vouloir supprimer ce client ? Cette action est irreversible."
+      title="Déplacer vers la corbeille"
+      text="Ce client sera déplacé vers la corbeille. Tu pourras le restaurer depuis là si besoin."
       error={error ?? undefined}
       textForCancel="Annuler"
       textForConfirm="Supprimer"

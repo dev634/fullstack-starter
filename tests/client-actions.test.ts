@@ -6,7 +6,9 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/service/clients", () => ({ createClient: vi.fn() }));
 vi.mock("@/repository/clients", () => ({
   findById: vi.fn(),
-  remove: vi.fn(),
+  softDelete: vi.fn(),
+  restore: vi.fn(),
+  permanentlyRemove: vi.fn(),
   update: vi.fn(),
 }));
 vi.mock("@/lib/cloudinary", () => ({
@@ -15,15 +17,17 @@ vi.mock("@/lib/cloudinary", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { addClient, deleteClient } from "@/actions/clients/clients";
+import { addClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
-import { findById, remove } from "@/repository/clients";
+import { findById, softDelete, restore, permanentlyRemove } from "@/repository/clients";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
 const findByIdMock = vi.mocked(findById);
-const removeMock = vi.mocked(remove);
+const softDeleteMock = vi.mocked(softDelete);
+const restoreMock = vi.mocked(restore);
+const permanentlyRemoveMock = vi.mocked(permanentlyRemove);
 const initial = { type: null, message: "" } as const;
 
 describe("client action auth guard + delegation", () => {
@@ -55,21 +59,51 @@ describe("client action auth guard + delegation", () => {
     authMock.mockResolvedValue(null as never);
     const res = await deleteClient(1);
     expect((res as { type: string }).type).toBe("error");
-    expect(removeMock).not.toHaveBeenCalled();
+    expect(softDeleteMock).not.toHaveBeenCalled();
   });
 
-  it("deleteClient removes the client when authenticated as ADMIN", async () => {
+  it("deleteClient soft-deletes the client when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
-    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
-    removeMock.mockResolvedValue({ id: 1 } as never);
+    softDeleteMock.mockResolvedValue({ id: 1, deletedAt: new Date() } as never);
     await deleteClient(1);
-    expect(removeMock).toHaveBeenCalledWith(1);
+    expect(softDeleteMock).toHaveBeenCalledWith(1);
   });
 
   it("deleteClient refuses a VIEWER session", async () => {
     authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
     const res = await deleteClient(1);
     expect((res as { type: string }).type).toBe("error");
-    expect(removeMock).not.toHaveBeenCalled();
+    expect(softDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("restoreClient refuses a VIEWER session", async () => {
+    authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
+    const res = await restoreClient(1);
+    expect(res.type).toBe("error");
+    expect(restoreMock).not.toHaveBeenCalled();
+  });
+
+  it("restoreClient restores the client when authenticated as ADMIN", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    restoreMock.mockResolvedValue({ id: 1, deletedAt: null } as never);
+    const res = await restoreClient(1);
+    expect(restoreMock).toHaveBeenCalledWith(1);
+    expect(res.type).toBe("success");
+  });
+
+  it("permanentlyDeleteClient refuses a VIEWER session", async () => {
+    authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(res.type).toBe("error");
+    expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+  });
+
+  it("permanentlyDeleteClient removes the client and its photo when authenticated as ADMIN", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: "https://example.com/x.png" } as never);
+    permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(permanentlyRemoveMock).toHaveBeenCalledWith(1);
+    expect(res.type).toBe("success");
   });
 });

@@ -19,7 +19,7 @@ export default function AddClientForm() {
     addClient,
     initialState
   );
-  const [values, setValues] = useState<Omit<Client, "id" | "photoUrl">>({
+  const [values, setValues] = useState<Omit<Client, "id" | "photoUrl" | "deletedAt">>({
     firstName: "",
     lastName: "",
     email: "",

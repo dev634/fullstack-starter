@@ -11,9 +11,9 @@ import { GetClientsByOrder } from "@/service/clients";
 export async function getDashboardStats() {
     try {
         const [total, grouped, recent] = await Promise.all([
-            prisma.client.count(),
-            prisma.client.groupBy({ by: ["status"], _count: { _all: true } }),
-            prisma.client.findMany({ orderBy: { id: "desc" }, take: 5 }),
+            prisma.client.count({ where: { deletedAt: null } }),
+            prisma.client.groupBy({ by: ["status"], where: { deletedAt: null }, _count: { _all: true } }),
+            prisma.client.findMany({ where: { deletedAt: null }, orderBy: { id: "desc" }, take: 5 }),
         ]);
         const byStatus: Record<string, number> = { PROSPECT: 0, CLIENT: 0, INACTIVE: 0 };
         for (const g of grouped) byStatus[g.status] = g._count._all;
@@ -27,7 +27,7 @@ export async function getDashboardStats() {
     }
 }
 
-export async function create({firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id">) {
+export async function create({firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id" | "deletedAt">) {
     try {
         const clients = await prisma.client.create({
             data: {
@@ -86,16 +86,19 @@ export async function search({
   pageSize = 9,
 }: SearchArgs) {
   const term = q.trim();
-  const where: Prisma.ClientWhereInput = term
-    ? {
-        OR: [
-          { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } },
-          { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } },
-          { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } },
-          { email: { contains: term, mode: Prisma.QueryMode.insensitive } },
-        ],
-      }
-    : {};
+  const where: Prisma.ClientWhereInput = {
+    deletedAt: null,
+    ...(term
+      ? {
+          OR: [
+            { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+            { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+            { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } },
+            { email: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          ],
+        }
+      : {}),
+  };
 
   try {
     const [clients, total] = await Promise.all([
@@ -119,13 +122,33 @@ export async function search({
 
 export async function findAll(orderBy: GetClientsByOrder) {
     try {
-        const clients = await prisma.client.findMany({orderBy: orderBy || { id: "asc" }});
+        const clients = await prisma.client.findMany({
+            where: { deletedAt: null },
+            orderBy: orderBy || { id: "asc" },
+        });
         return clients;
     } catch (error) {
         console.log("Repository findAll error:", error);
         throw {
             type: "error",
             message: "Database Error fetching clients."
+           }
+    }
+}
+
+/** Soft-deleted clients (trash), most recently deleted first. */
+export async function findTrashed() {
+    try {
+        const clients = await prisma.client.findMany({
+            where: { deletedAt: { not: null } },
+            orderBy: { deletedAt: "desc" },
+        });
+        return clients;
+    } catch (error) {
+        console.log("Repository findTrashed error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching trashed clients."
            }
     }
 }
@@ -145,7 +168,7 @@ export async function findById(id: number) {
     }
 }
 
-export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: Omit<Client, "photoUrl"> & { photoUrl?: string | null }) {
+export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: Omit<Client, "photoUrl" | "deletedAt"> & { photoUrl?: string | null }) {
     try{
         const client = await prisma.client.update({
             where: { id },
@@ -167,17 +190,52 @@ export async function update({ id, firstName, lastName, email, companyName, addr
     }
 }
 
-export async function remove(id: number) {
+/** Move a client to the trash (reversible). */
+export async function softDelete(id: number) {
+    try{
+    const client = await prisma.client.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+    });
+    return client;
+    }catch(error){
+        console.log("Repository softDelete error:", error);
+        throw {
+            type: "error",
+            message: "Database Error deleting client"
+        }
+    }
+}
+
+/** Bring a trashed client back into the normal listings. */
+export async function restore(id: number) {
+    try{
+    const client = await prisma.client.update({
+        where: { id },
+        data: { deletedAt: null },
+    });
+    return client;
+    }catch(error){
+        console.log("Repository restore error:", error);
+        throw {
+            type: "error",
+            message: "Database Error restoring client"
+        }
+    }
+}
+
+/** Permanently remove a client (only meant to be called from the trash). */
+export async function permanentlyRemove(id: number) {
     try{
     const client = await prisma.client.delete({
         where: { id },
     });
     return client;
     }catch(error){
-        console.log("Repository delete error:", error);
+        console.log("Repository permanentlyRemove error:", error);
         throw {
             type: "error",
             message: "Database Error deleting client"
         }
     }
-}   
+}
