@@ -15,12 +15,14 @@ vi.mock("@/lib/cloudinary", () => ({
   uploadClientPhoto: vi.fn(),
   destroyClientPhoto: vi.fn(),
 }));
+vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { addClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { findById, softDelete, restore, permanentlyRemove } from "@/repository/clients";
+import { logActivity } from "@/repository/activity";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
@@ -28,6 +30,7 @@ const findByIdMock = vi.mocked(findById);
 const softDeleteMock = vi.mocked(softDelete);
 const restoreMock = vi.mocked(restore);
 const permanentlyRemoveMock = vi.mocked(permanentlyRemove);
+const logActivityMock = vi.mocked(logActivity);
 const initial = { type: null, message: "" } as const;
 
 describe("client action auth guard + delegation", () => {
@@ -41,11 +44,14 @@ describe("client action auth guard + delegation", () => {
   });
 
   it("addClient delegates to the service when authenticated as ADMIN", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
-    createClientMock.mockResolvedValue({ type: "success", message: "ok" } as never);
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", data: { id: 42 } } as never);
     const res = await addClient(initial, new FormData());
     expect(createClientMock).toHaveBeenCalledTimes(1);
     expect(res.type).toBe("success");
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "CREATED", clientId: 42, actorEmail: "admin@example.com" })
+    );
   });
 
   it("addClient refuses a VIEWER session", async () => {
@@ -63,10 +69,14 @@ describe("client action auth guard + delegation", () => {
   });
 
   it("deleteClient soft-deletes the client when authenticated as ADMIN", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, firstName: "Alice", lastName: "Smith" } as never);
     softDeleteMock.mockResolvedValue({ id: 1, deletedAt: new Date() } as never);
     await deleteClient(1);
     expect(softDeleteMock).toHaveBeenCalledWith(1);
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "DELETED", clientId: 1, clientName: "Alice Smith" })
+    );
   });
 
   it("deleteClient refuses a VIEWER session", async () => {
@@ -84,11 +94,14 @@ describe("client action auth guard + delegation", () => {
   });
 
   it("restoreClient restores the client when authenticated as ADMIN", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
-    restoreMock.mockResolvedValue({ id: 1, deletedAt: null } as never);
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    restoreMock.mockResolvedValue({ id: 1, deletedAt: null, firstName: "Alice", lastName: "Smith" } as never);
     const res = await restoreClient(1);
     expect(restoreMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "RESTORED", clientId: 1 })
+    );
   });
 
   it("permanentlyDeleteClient refuses a VIEWER session", async () => {
@@ -99,11 +112,19 @@ describe("client action auth guard + delegation", () => {
   });
 
   it("permanentlyDeleteClient removes the client and its photo when authenticated as ADMIN", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
-    findByIdMock.mockResolvedValue({ id: 1, photoUrl: "https://example.com/x.png" } as never);
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({
+      id: 1,
+      photoUrl: "https://example.com/x.png",
+      firstName: "Alice",
+      lastName: "Smith",
+    } as never);
     permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
     const res = await permanentlyDeleteClient(1);
     expect(permanentlyRemoveMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PERMANENTLY_DELETED", clientId: 1 })
+    );
   });
 });
