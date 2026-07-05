@@ -73,6 +73,10 @@ AUTH_TRUST_HOST=true
 # RESEND_API_KEY=re_your_api_key
 # EMAIL_FROM=onboarding@resend.dev
 
+# Optional: server-side error tracking (Sentry). Leave unset to disable.
+# Free tier at https://sentry.io.
+# SENTRY_DSN=https://your_key@o0.ingest.sentry.io/0
+
 NODE_ENV=production
 EOF
   $SUDO chmod 600 "$ENV_FILE"
