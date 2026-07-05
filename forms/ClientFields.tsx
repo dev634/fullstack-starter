@@ -7,16 +7,16 @@ const CLIENT_FIELDS: {
   type?: "text" | "email";
   fullWidth?: boolean;
 }[] = [
-  { label: "Firstname", name: "firstName" },
-  { label: "Lastname", name: "lastName" },
+  { label: "Prénom", name: "firstName" },
+  { label: "Nom", name: "lastName" },
   { label: "Email", name: "email", type: "email", fullWidth: true },
-  { label: "Company Name", name: "companyName", fullWidth: true },
-  { label: "Phone", name: "phone" },
-  { label: "Website", name: "website" },
-  { label: "Address", name: "address", fullWidth: true },
-  { label: "Country", name: "country" },
-  { label: "City", name: "city" },
-  { label: "Zip Code", name: "zipCode" },
+  { label: "Société", name: "companyName", fullWidth: true },
+  { label: "Téléphone", name: "phone" },
+  { label: "Site web", name: "website" },
+  { label: "Adresse", name: "address", fullWidth: true },
+  { label: "Pays", name: "country" },
+  { label: "Ville", name: "city" },
+  { label: "Code postal", name: "zipCode" },
 ];
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [

@@ -56,7 +56,7 @@ describe("requestPasswordReset", () => {
     expect(sendEmailMock).toHaveBeenCalledTimes(1);
     expect(sendEmailMock.mock.calls[0][1]).toMatch(/\/reset-password\?token=.+/);
     expect(res.type).toBe("success");
-    expect(res.message).toMatch(/if an account exists/i);
+    expect(res.message).toMatch(/si un compte existe/i);
   });
 
   it("returns the same generic message when the account doesn't exist (no enumeration)", async () => {
@@ -65,7 +65,7 @@ describe("requestPasswordReset", () => {
     expect(createResetTokenMock).not.toHaveBeenCalled();
     expect(sendEmailMock).not.toHaveBeenCalled();
     expect(res.type).toBe("success");
-    expect(res.message).toMatch(/if an account exists/i);
+    expect(res.message).toMatch(/si un compte existe/i);
   });
 
   it("stops sending new emails past the rate limit for the same address", async () => {

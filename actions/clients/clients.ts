@@ -141,7 +141,7 @@ export async function updateClient(
     revalidatePath(`/clients/${id}`);
     return {
       type: "success",
-      message: "Client updated successfully.",
+      message: "Client mis à jour avec succès.",
       data: client,
     };
   } catch (error) {
@@ -402,8 +402,8 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
     type: created > 0 ? "success" : "error",
     message:
       errors.length === 0
-        ? `${created} client(s) imported.`
-        : `${created} client(s) imported, ${errors.length} row(s) failed.`,
+        ? `${created} client(s) importé(s).`
+        : `${created} client(s) importé(s), ${errors.length} ligne(s) en échec.`,
     created,
     total: records.length,
     errors,

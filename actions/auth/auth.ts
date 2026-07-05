@@ -40,7 +40,7 @@ export async function login(
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
+      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
       fieldsForm: makeObjectFromZodError(parsed.error),
     };
   }
@@ -52,7 +52,7 @@ export async function login(
     return {
       ...prevState,
       type: "error",
-      message: `Too many attempts. Try again in ${Math.ceil(rl.retryAfterMs / 60000)} min.`,
+      message: `Trop de tentatives. Réessaie dans ${Math.ceil(rl.retryAfterMs / 60000)} min.`,
     };
   }
 
@@ -70,7 +70,7 @@ export async function login(
       return {
         ...prevState,
         type: "error",
-        message: "Invalid email or password.",
+        message: "Email ou mot de passe invalide.",
       };
     }
     throw error;
@@ -95,7 +95,7 @@ async function getBaseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-const RESET_REQUESTED_MESSAGE = "If an account exists for this email, a reset link has been sent.";
+const RESET_REQUESTED_MESSAGE = "Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.";
 
 /**
  * Request a password reset link. Always resolves with the same generic
@@ -112,7 +112,7 @@ export async function requestPasswordReset(
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
+      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
       fieldsForm: makeObjectFromZodError(parsed.error),
     };
   }
@@ -147,7 +147,7 @@ export async function resetPassword(
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
+      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
       fieldsForm: makeObjectFromZodError(parsed.error),
     };
   }
@@ -157,7 +157,7 @@ export async function resetPassword(
     return {
       ...prevState,
       type: "error",
-      message: "This reset link is invalid or has expired.",
+      message: "Ce lien de réinitialisation est invalide ou a expiré.",
     };
   }
 
@@ -165,7 +165,7 @@ export async function resetPassword(
   await updatePassword(record.userId, hashed);
   await markResetTokenUsed(record.id);
 
-  return { ...prevState, type: "success", message: "Password updated. You can now sign in." };
+  return { ...prevState, type: "success", message: "Mot de passe mis à jour. Tu peux maintenant te connecter." };
 }
 
 export async function logout() {

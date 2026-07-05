@@ -35,7 +35,7 @@ export default function LoginForm() {
         error={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <Input
-        label="Password"
+        label="Mot de passe"
         name="password"
         type="password"
         value={values.password}
@@ -50,7 +50,7 @@ export default function LoginForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Sign in
+        Se connecter
       </button>
       <Link
         href="/forgot-password"

@@ -32,7 +32,7 @@ export default async function ClientPage({ params }: PageProps) {
   if(isError){
     return (
     <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto py-8">
-      <Title title="Client Detail" />
+      <Title title="Détail du client" />
       <p className="text-red-500">{client.message}</p>
     </main>
     )
@@ -40,8 +40,8 @@ export default async function ClientPage({ params }: PageProps) {
 
   if(isEmpty){
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto py-8">
-            <Title title="Client Detail" />
-            <p>This client doesn&apos;t exist ...</p>
+            <Title title="Détail du client" />
+            <p>Ce client n&apos;existe pas...</p>
           </main>
   }
 

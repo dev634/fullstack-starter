@@ -94,7 +94,7 @@ export default async function ClientsPage({
             )}
             {canEdit && (
               <Button
-                text="Add Client"
+                text="Ajouter un client"
                 as="link"
                 href="/clients/add"
                 classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"

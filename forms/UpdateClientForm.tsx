@@ -53,7 +53,7 @@ export default function UpdateClientForm({ client }: { client: Client }) {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Update Client
+        Modifier le client
       </button>
     </form>
   );
