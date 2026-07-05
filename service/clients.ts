@@ -38,7 +38,7 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
         });
         return {
             type: "success",
-            message: `Client added successfully!`,
+            message: `Client ajouté avec succès !`,
             data: created,
         }
 

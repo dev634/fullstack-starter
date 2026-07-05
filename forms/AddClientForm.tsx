@@ -64,7 +64,7 @@ export default function AddClientForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Add Client
+        Ajouter le client
       </button>
     </form>
   );
