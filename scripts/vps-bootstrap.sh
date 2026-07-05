@@ -62,10 +62,17 @@ DATABASE_URL=postgresql://app:${POSTGRES_PASSWORD}@db:5432/app?schema=public
 AUTH_SECRET=${AUTH_SECRET}
 AUTH_TRUST_HOST=true
 # AUTH_URL=https://your-domain.com
+
+# Required only if you use the client photo upload feature.
+# Get this from your Cloudinary dashboard -> "API Environment variable".
+# CLOUDINARY_URL=cloudinary://your_api_key:your_api_secret@your_cloud_name
+
 NODE_ENV=production
 EOF
   $SUDO chmod 600 "$ENV_FILE"
   echo "✓ .env created (POSTGRES_PASSWORD and AUTH_SECRET generated)"
+  echo "  ⚠ Edit $ENV_FILE to set AUTH_URL (your real domain) and, if you use client"
+  echo "    photo upload, CLOUDINARY_URL — a typo in AUTH_URL breaks auth redirects silently."
 fi
 
 echo
