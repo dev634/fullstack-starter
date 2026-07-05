@@ -3,7 +3,7 @@ import { Input } from "@/components/Inputs";
 
 const CLIENT_FIELDS: {
   label: string;
-  name: keyof Omit<Client, "id" | "photoUrl" | "status">;
+  name: keyof Omit<Client, "id" | "photoUrl" | "status" | "deletedAt">;
   type?: "text" | "email";
   fullWidth?: boolean;
 }[] = [
@@ -26,7 +26,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 ];
 
 type ClientFieldsProps = {
-  values: Omit<Client, "id" | "photoUrl">;
+  values: Omit<Client, "id" | "photoUrl" | "deletedAt">;
   onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
   errors?: Record<string, string>;
 };

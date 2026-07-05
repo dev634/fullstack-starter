@@ -32,6 +32,7 @@ model Client {
   phone String?
   website String?
   status ClientStatus @default(PROSPECT)
+  deletedAt DateTime?
 }
 
 enum Role {
