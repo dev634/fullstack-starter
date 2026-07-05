@@ -60,3 +60,23 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 }
 
+enum ActivityAction {
+  CREATED
+  UPDATED
+  DELETED
+  RESTORED
+  PERMANENTLY_DELETED
+  IMPORTED
+}
+
+// No FK to Client: entries must survive a permanent deletion, so the client
+// name is stored as a snapshot rather than joined at read time.
+model ActivityLog {
+  id         Int            @id @default(autoincrement())
+  action     ActivityAction
+  clientId   Int?
+  clientName String
+  actorEmail String
+  createdAt  DateTime       @default(now())
+}
+

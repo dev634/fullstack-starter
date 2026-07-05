@@ -2,14 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/service/clients", () => ({ createClient: vi.fn() }));
+vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { importClients } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
+import { logActivity } from "@/repository/activity";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
+const logActivityMock = vi.mocked(logActivity);
 
 const HEADER =
   '"Firstname","Lastname","Email","Company","Phone","Website","Status","Address","City","Zip Code","Country"';
@@ -63,6 +66,9 @@ describe("importClients", () => {
     expect(res.total).toBe(2);
     expect(res.errors).toHaveLength(0);
     expect(res.type).toBe("success");
+    expect(logActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "IMPORTED", clientId: null })
+    );
   });
 
   it("keeps processing after a row fails and reports it with its row number", async () => {

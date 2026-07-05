@@ -3,6 +3,7 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
 import { auth } from "@/lib/auth";
+import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { parseCsvRecords, CLIENT_CSV_COLUMNS } from "@/lib/csv";
@@ -17,14 +18,20 @@ export async function addClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return { ...prevState, ...unauthorized };
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const clientDatas = formDataToObject(formData) as CreateClientInput;
 
   try {
     const photoUrl = await extractPhotoUrl(formData);
     const client = await createClient({ ...clientDatas, photoUrl });
+    await logActivity({
+      action: "CREATED",
+      clientId: client.data?.id ?? null,
+      clientName: `${clientDatas.firstName} ${clientDatas.lastName}`,
+      actorEmail: roleCheck.email,
+    });
     revalidatePath("/clients");
     return {
       ...prevState,
@@ -85,8 +92,8 @@ export async function updateClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return { ...prevState, ...unauthorized };
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
   try {
@@ -122,6 +129,13 @@ export async function updateClient(
     if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {
       await destroyClientPhoto(existing.photoUrl);
     }
+
+    await logActivity({
+      action: "UPDATED",
+      clientId: id,
+      clientName: `${clientDatas.firstName} ${clientDatas.lastName}`,
+      actorEmail: roleCheck.email,
+    });
 
     revalidatePath("/clients");
     revalidatePath(`/clients/${id}`);
@@ -165,19 +179,24 @@ async function requireSession(): Promise<{ type: "error"; message: string } | nu
   return null;
 }
 
+type RoleCheckResult =
+  | { error: { type: "error"; message: string }; email?: undefined }
+  | { error: null; email: string };
+
 /**
  * Guard mutations behind a minimum role. VIEWER accounts can read but not
- * create/edit/delete clients.
+ * create/edit/delete clients. On success, also returns the actor's email
+ * for the activity log.
  */
-async function requireRole(role: "ADMIN"): Promise<{ type: "error"; message: string } | null> {
+async function requireRole(role: "ADMIN"): Promise<RoleCheckResult> {
   const session = await auth();
   if (!session) {
-    return { type: "error", message: "Unauthorized. Please sign in." };
+    return { error: { type: "error", message: "Unauthorized. Please sign in." } };
   }
   if (session.user?.role !== role) {
-    return { type: "error", message: "Forbidden. Your role does not allow this action." };
+    return { error: { type: "error", message: "Forbidden. Your role does not allow this action." } };
   }
-  return null;
+  return { error: null, email: session.user?.email ?? "unknown" };
 }
 
 /**
@@ -185,8 +204,8 @@ async function requireRole(role: "ADMIN"): Promise<{ type: "error"; message: str
  * restore doesn't lose it — it's only cleaned up on permanent deletion.
  */
 export async function deleteClient(id: number) {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
 
   try {
     if (isNaN(id)) {
@@ -195,7 +214,14 @@ export async function deleteClient(id: number) {
         message: "Invalid client ID",
       };
     }
+    const existing = await findById(id);
     const client = await softDelete(id);
+    await logActivity({
+      action: "DELETED",
+      clientId: id,
+      clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+      actorEmail: roleCheck.email,
+    });
     revalidatePath("/clients");
     return client;
   } catch (error) {
@@ -212,8 +238,8 @@ export async function deleteClient(id: number) {
  * success/error payload for the caller.
  */
 export async function deleteClients(ids: number[]) {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
 
   try {
     const valid = ids.filter((id) => Number.isInteger(id) && id > 0);
@@ -221,7 +247,14 @@ export async function deleteClients(ids: number[]) {
       return { type: "error" as const, message: "No client selected." };
     }
     for (const id of valid) {
+      const existing = await findById(id);
       await softDelete(id);
+      await logActivity({
+        action: "DELETED",
+        clientId: id,
+        clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+        actorEmail: roleCheck.email,
+      });
     }
     revalidatePath("/clients");
     return { type: "success" as const, message: `${valid.length} client(s) deleted.` };
@@ -236,14 +269,20 @@ export async function deleteClients(ids: number[]) {
 
 /** Bring a trashed client back into the normal listings. */
 export async function restoreClient(id: number) {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
 
   try {
     if (isNaN(id)) {
       throw { type: "error", message: "Invalid client ID" };
     }
     const client = await restore(id);
+    await logActivity({
+      action: "RESTORED",
+      clientId: id,
+      clientName: `${client.firstName} ${client.lastName}`,
+      actorEmail: roleCheck.email,
+    });
     revalidatePath("/clients");
     revalidatePath("/clients/trash");
     return { type: "success" as const, message: "Client restored.", data: client };
@@ -261,8 +300,8 @@ export async function restoreClient(id: number) {
  * Cloudinary photo, since there is no longer any way to restore it.
  */
 export async function permanentlyDeleteClient(id: number) {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
 
   try {
     if (isNaN(id)) {
@@ -271,6 +310,12 @@ export async function permanentlyDeleteClient(id: number) {
     const existing = await findById(id);
     const client = await permanentlyRemove(id);
     await destroyClientPhoto(existing?.photoUrl);
+    await logActivity({
+      action: "PERMANENTLY_DELETED",
+      clientId: id,
+      clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+      actorEmail: roleCheck.email,
+    });
     revalidatePath("/clients/trash");
     return { type: "success" as const, message: "Client permanently deleted.", data: client };
   } catch (error) {
@@ -298,9 +343,9 @@ export type ImportResult = {
  * rest of the batch.
  */
 export async function importClients(formData: FormData): Promise<ImportResult> {
-  const unauthorized = await requireRole("ADMIN");
-  if (unauthorized) {
-    return { type: "error", message: unauthorized.message, created: 0, total: 0, errors: [] };
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) {
+    return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
   }
 
   const file = formData.get("file");
@@ -343,7 +388,15 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
     }
   }
 
-  if (created > 0) revalidatePath("/clients");
+  if (created > 0) {
+    await logActivity({
+      action: "IMPORTED",
+      clientId: null,
+      clientName: `${created} client(s) via CSV import`,
+      actorEmail: roleCheck.email,
+    });
+    revalidatePath("/clients");
+  }
 
   return {
     type: created > 0 ? "success" : "error",
