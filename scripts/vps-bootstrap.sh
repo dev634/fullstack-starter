@@ -67,12 +67,19 @@ AUTH_TRUST_HOST=true
 # Get this from your Cloudinary dashboard -> "API Environment variable".
 # CLOUDINARY_URL=cloudinary://your_api_key:your_api_secret@your_cloud_name
 
+# Required for password-reset emails to actually be delivered (otherwise
+# reset links are only logged to the container's console). Get a key at
+# https://resend.com (free tier).
+# RESEND_API_KEY=re_your_api_key
+# EMAIL_FROM=onboarding@resend.dev
+
 NODE_ENV=production
 EOF
   $SUDO chmod 600 "$ENV_FILE"
   echo "✓ .env created (POSTGRES_PASSWORD and AUTH_SECRET generated)"
   echo "  ⚠ Edit $ENV_FILE to set AUTH_URL (your real domain) and, if you use client"
   echo "    photo upload, CLOUDINARY_URL — a typo in AUTH_URL breaks auth redirects silently."
+  echo "  ⚠ Set RESEND_API_KEY too if you want password-reset emails actually sent."
 fi
 
 echo

@@ -140,6 +140,12 @@ AUTH_URL=https://ton-domaine.com
 # Nécessaire uniquement si tu utilises l'upload de photo client.
 # Dashboard Cloudinary → "API Environment variable".
 CLOUDINARY_URL=cloudinary://TON_API_KEY:TON_API_SECRET@TON_CLOUD_NAME
+
+# Nécessaire pour que les emails de réinitialisation de mot de passe soient
+# réellement envoyés (sinon le lien n'apparaît que dans les logs du conteneur).
+# Clé gratuite sur https://resend.com.
+RESEND_API_KEY=re_TON_API_KEY
+EMAIL_FROM=onboarding@resend.dev
 ```
 
 > ⚠️ **Relis bien ton domaine avant de sauvegarder** — une simple faute de frappe ici
@@ -463,6 +469,10 @@ docker compose -f docker-compose.prod.yml up -d
 - **Erreur `Must supply api_key` lors de l'ajout d'une photo client** → la variable
   `CLOUDINARY_URL` est absente ou vide dans le `.env` du VPS (elle n'est pas générée automatiquement
   par le script de bootstrap). Ajoute-la (section 3) puis recrée le conteneur.
+- **Les liens de réinitialisation de mot de passe n'arrivent jamais par email** → `RESEND_API_KEY`
+  n'est pas configurée : le lien est simplement journalisé dans les logs du conteneur
+  (`docker compose logs web`) au lieu d'être envoyé. Ajoute la clé (section 3) puis recrée le
+  conteneur.
 - **Erreur `Cannot find module './app/generated/prisma/client'`** lors d'un script `node` manuel →
   le client Prisma généré par ce projet est du **TypeScript source** (générateur `prisma-client`),
   pas du JS compilé ; il ne peut pas être `require()`-é directement par `node` en dehors du build

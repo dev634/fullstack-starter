@@ -1,13 +1,33 @@
 "use server";
+import { randomBytes } from "crypto";
+import bcrypt from "bcryptjs";
+import { headers } from "next/headers";
 import { AuthError } from "next-auth";
 import { signIn, signOut } from "@/lib/auth";
 import { formDataToObject } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit";
-import { loginSchema, type LoginInput } from "@/schemas/auth";
+import { sendPasswordResetEmail } from "@/lib/email";
+import {
+  loginSchema,
+  requestResetSchema,
+  resetPasswordSchema,
+  type LoginInput,
+  type RequestResetInput,
+  type ResetPasswordInput,
+} from "@/schemas/auth";
+import {
+  findByEmail,
+  createResetToken,
+  findValidResetToken,
+  markResetTokenUsed,
+  updatePassword,
+} from "@/repository/users";
 import type { AuthActionState } from "@/types/auth";
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 };
+const RESET_REQUEST_LIMIT = { limit: 3, windowMs: 15 * 60 * 1000 };
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 export async function login(
   prevState: AuthActionState,
@@ -60,6 +80,92 @@ export async function login(
   // caller ever passes redirect:false.
   clearRateLimit(rlKey);
   return prevState;
+}
+
+/**
+ * Public base URL used to build the reset link. Prefers the pinned
+ * AUTH_URL (set in production, see docs/deploy-hostinger.md); falls back to
+ * the incoming request's forwarded host for local dev.
+ */
+async function getBaseUrl(): Promise<string> {
+  if (process.env.AUTH_URL) return process.env.AUTH_URL.replace(/\/$/, "");
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
+}
+
+const RESET_REQUESTED_MESSAGE = "If an account exists for this email, a reset link has been sent.";
+
+/**
+ * Request a password reset link. Always resolves with the same generic
+ * message regardless of whether the email exists or was rate-limited, so a
+ * caller can't use this to enumerate accounts.
+ */
+export async function requestPasswordReset(
+  prevState: AuthActionState,
+  formData: FormData
+): Promise<AuthActionState> {
+  const data = formDataToObject(formData) as RequestResetInput;
+  const parsed = requestResetSchema.safeParse(data);
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: "Validation error. Please check your input and try again.",
+      fieldsForm: makeObjectFromZodError(parsed.error),
+    };
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const rlKey = `reset:${email}`;
+  const rl = isRateLimited(rlKey, RESET_REQUEST_LIMIT);
+
+  if (!rl.limited) {
+    registerFailure(rlKey, RESET_REQUEST_LIMIT);
+    const user = await findByEmail(email);
+    if (user) {
+      const token = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+      await createResetToken(user.id, token, expiresAt);
+      const resetUrl = `${await getBaseUrl()}/reset-password?token=${token}`;
+      await sendPasswordResetEmail(user.email, resetUrl);
+    }
+  }
+
+  return { ...prevState, type: "success", message: RESET_REQUESTED_MESSAGE };
+}
+
+/** Consume a reset token and set the new password. */
+export async function resetPassword(
+  prevState: AuthActionState,
+  formData: FormData
+): Promise<AuthActionState> {
+  const data = formDataToObject(formData) as ResetPasswordInput;
+  const parsed = resetPasswordSchema.safeParse(data);
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: "Validation error. Please check your input and try again.",
+      fieldsForm: makeObjectFromZodError(parsed.error),
+    };
+  }
+
+  const record = await findValidResetToken(parsed.data.token);
+  if (!record) {
+    return {
+      ...prevState,
+      type: "error",
+      message: "This reset link is invalid or has expired.",
+    };
+  }
+
+  const hashed = await bcrypt.hash(parsed.data.password, 10);
+  await updatePassword(record.userId, hashed);
+  await markResetTokenUsed(record.id);
+
+  return { ...prevState, type: "success", message: "Password updated. You can now sign in." };
 }
 
 export async function logout() {
