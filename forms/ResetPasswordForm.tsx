@@ -1,7 +1,7 @@
 "use client";
-import { useActionState, useState } from "react";
-import Link from "next/link";
-import { login } from "@/actions/auth/auth";
+import { useEffect, useActionState } from "react";
+import { useRouter } from "next/navigation";
+import { resetPassword } from "@/actions/auth/auth";
 import { Input } from "@/components/Inputs";
 import { Toast } from "@/components/Toast";
 import type { AuthActionState } from "@/types/auth";
@@ -11,35 +11,33 @@ const initialState: AuthActionState = {
   message: "",
 };
 
-export default function LoginForm() {
+export default function ResetPasswordForm({ token }: { token: string }) {
+  const router = useRouter();
   const [state, formAction, isPending] = useActionState<AuthActionState, FormData>(
-    login,
+    resetPassword,
     initialState
   );
-  const [values, setValues] = useState({ email: "", password: "" });
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const { name, value } = e.target;
-    setValues((prev) => ({ ...prev, [name]: value }));
-  }
+  useEffect(() => {
+    if (state.type !== "success") return;
+    const timer = setTimeout(() => router.push("/login"), 2000);
+    return () => clearTimeout(timer);
+  }, [state, router]);
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
       <Toast type={state.type} message={state.message} />
+      <input type="hidden" name="token" value={token} />
       <Input
-        label="Email"
-        name="email"
-        type="email"
-        value={values.email}
-        onChange={handleChange}
+        label="Nouveau mot de passe"
+        name="password"
+        type="password"
         error={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <Input
-        label="Password"
-        name="password"
+        label="Confirmer le mot de passe"
+        name="confirmPassword"
         type="password"
-        value={values.password}
-        onChange={handleChange}
         error={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <button
@@ -50,14 +48,8 @@ export default function LoginForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Sign in
+        Réinitialiser le mot de passe
       </button>
-      <Link
-        href="/forgot-password"
-        className="mt-4 block text-center text-sm text-gray-500 dark:text-gray-400 hover:underline"
-      >
-        Mot de passe oublié ?
-      </Link>
     </form>
   );
 }
