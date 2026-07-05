@@ -4,7 +4,7 @@ import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
-import { ArrowDownTrayIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 
 const PAGE_SIZE = 9;
@@ -65,6 +65,15 @@ export default async function ClientsPage({
               <ArrowDownTrayIcon className="h-4 w-4" />
               Export CSV
             </a>
+            {canEdit && (
+              <Link
+                href="/clients/import"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <ArrowUpTrayIcon className="h-4 w-4" />
+                Importer
+              </Link>
+            )}
             {canEdit && (
               <Link
                 href="/clients/trash"
