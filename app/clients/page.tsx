@@ -1,6 +1,7 @@
 import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
+import { auth } from "@/lib/auth";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
@@ -31,6 +32,8 @@ export default async function ClientsPage({
 
   const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const session = await auth();
+  const canEdit = session?.user?.role === "ADMIN";
 
   // Shared query string for the current search/sort (used by pager + export).
   function baseParams() {
@@ -62,12 +65,14 @@ export default async function ClientsPage({
               <ArrowDownTrayIcon className="h-4 w-4" />
               Export CSV
             </a>
-            <Button
-              text="Add Client"
-              as="link"
-              href="/clients/add"
-              classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
-            />
+            {canEdit && (
+              <Button
+                text="Add Client"
+                as="link"
+                href="/clients/add"
+                classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+              />
+            )}
           </div>
         </div>
 
@@ -75,7 +80,7 @@ export default async function ClientsPage({
 
         {clients.length ? (
           <>
-            <ClientsGrid clients={clients} />
+            <ClientsGrid clients={clients} canEdit={canEdit} />
 
             {totalPages > 1 && (
               <nav className="flex items-center justify-center gap-4 pt-2" aria-label="Pagination">
@@ -92,12 +97,14 @@ export default async function ClientsPage({
             ) : (
               <>
                 <p className="text-gray-500 dark:text-gray-400">Aucun client pour le moment.</p>
-                <Button
-                  text="Ajouter un client"
-                  as="link"
-                  href="/clients/add"
-                  classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
-                />
+                {canEdit && (
+                  <Button
+                    text="Ajouter un client"
+                    as="link"
+                    href="/clients/add"
+                    classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+                  />
+                )}
               </>
             )}
           </div>

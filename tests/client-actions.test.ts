@@ -36,12 +36,19 @@ describe("client action auth guard + delegation", () => {
     expect(createClientMock).not.toHaveBeenCalled();
   });
 
-  it("addClient delegates to the service when authenticated", async () => {
-    authMock.mockResolvedValue({ user: {} } as never);
+  it("addClient delegates to the service when authenticated as ADMIN", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
     createClientMock.mockResolvedValue({ type: "success", message: "ok" } as never);
     const res = await addClient(initial, new FormData());
     expect(createClientMock).toHaveBeenCalledTimes(1);
     expect(res.type).toBe("success");
+  });
+
+  it("addClient refuses a VIEWER session", async () => {
+    authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
+    const res = await addClient(initial, new FormData());
+    expect(res.type).toBe("error");
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 
   it("deleteClient refuses without a session", async () => {
@@ -51,11 +58,18 @@ describe("client action auth guard + delegation", () => {
     expect(removeMock).not.toHaveBeenCalled();
   });
 
-  it("deleteClient removes the client when authenticated", async () => {
-    authMock.mockResolvedValue({ user: {} } as never);
+  it("deleteClient removes the client when authenticated as ADMIN", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
     findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
     removeMock.mockResolvedValue({ id: 1 } as never);
     await deleteClient(1);
     expect(removeMock).toHaveBeenCalledWith(1);
+  });
+
+  it("deleteClient refuses a VIEWER session", async () => {
+    authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
+    const res = await deleteClient(1);
+    expect((res as { type: string }).type).toBe("error");
+    expect(removeMock).not.toHaveBeenCalled();
   });
 });

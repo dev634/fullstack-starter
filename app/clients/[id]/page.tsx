@@ -1,4 +1,5 @@
 import { getClient } from '@/actions/clients/clients';
+import { auth } from '@/lib/auth';
 import Title from '@/components/Title';
 import ClientAvatar from '@/components/ClientAvatar';
 import StatusBadge from '@/components/StatusBadge';
@@ -49,6 +50,8 @@ export default async function ClientPage({ params }: PageProps) {
   const websiteHref = data.website
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
     : null;
+  const session = await auth();
+  const canEdit = session?.user?.role === "ADMIN";
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -116,14 +119,16 @@ export default async function ClientPage({ params }: PageProps) {
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-4 sm:px-6">
-          <Link
-            href={`/clients/${id}/edit`}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 sm:flex-none"
-          >
-            <PencilSquareIcon className="h-4 w-4" />
-            Modifier
-          </Link>
-          <DeleteClientButton clientId={data.id} />
+          {canEdit && (
+            <Link
+              href={`/clients/${id}/edit`}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 sm:flex-none"
+            >
+              <PencilSquareIcon className="h-4 w-4" />
+              Modifier
+            </Link>
+          )}
+          {canEdit && <DeleteClientButton clientId={data.id} />}
           <Link
             href="/clients"
             className="inline-flex w-full items-center justify-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 sm:ml-auto sm:w-auto"

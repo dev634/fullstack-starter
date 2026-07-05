@@ -28,5 +28,6 @@ export async function verifyCredentials(data: LoginInput) {
         id: String(user.id),
         email: user.email,
         name: user.name,
+        role: user.role,
     };
 }

@@ -12,7 +12,7 @@ export async function addClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireRole("ADMIN");
   if (unauthorized) return { ...prevState, ...unauthorized };
 
   const clientDatas = formDataToObject(formData) as CreateClientInput;
@@ -49,6 +49,9 @@ export async function addClient(
 }
 
 export async function getClient(id: number) {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+
   try {
     if (isNaN(id)) {
       throw {
@@ -75,7 +78,7 @@ export async function updateClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireRole("ADMIN");
   if (unauthorized) return { ...prevState, ...unauthorized };
 
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
@@ -143,7 +146,7 @@ async function extractPhotoUrl(formData: FormData): Promise<string | undefined> 
 }
 
 /**
- * Guard mutations behind an authenticated session. Returns an error payload
+ * Guard actions behind an authenticated session. Returns an error payload
  * when there is no session, or `null` when the caller may proceed. Server
  * actions are callable directly, so page-level middleware isn't enough.
  */
@@ -155,8 +158,23 @@ async function requireSession(): Promise<{ type: "error"; message: string } | nu
   return null;
 }
 
+/**
+ * Guard mutations behind a minimum role. VIEWER accounts can read but not
+ * create/edit/delete clients.
+ */
+async function requireRole(role: "ADMIN"): Promise<{ type: "error"; message: string } | null> {
+  const session = await auth();
+  if (!session) {
+    return { type: "error", message: "Unauthorized. Please sign in." };
+  }
+  if (session.user?.role !== role) {
+    return { type: "error", message: "Forbidden. Your role does not allow this action." };
+  }
+  return null;
+}
+
 export async function deleteClient(id: number) {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireRole("ADMIN");
   if (unauthorized) return unauthorized;
 
   try {
@@ -186,7 +204,7 @@ export async function deleteClient(id: number) {
  * Cloudinary photo. Returns a success/error payload for the caller.
  */
 export async function deleteClients(ids: number[]) {
-  const unauthorized = await requireSession();
+  const unauthorized = await requireRole("ADMIN");
   if (unauthorized) return unauthorized;
 
   try {

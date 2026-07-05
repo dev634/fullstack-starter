@@ -44,12 +44,24 @@ async function main() {
     create: {
       email: "admin@example.com",
       name: "Admin",
+      role: "ADMIN",
+      // Default dev password: "password123" — change it in real environments.
+      password: await bcrypt.hash("password123", 10),
+    },
+  });
+  const viewer = await prisma.user.upsert({
+    where: { email: "viewer@example.com" },
+    update: {},
+    create: {
+      email: "viewer@example.com",
+      name: "Viewer",
+      role: "VIEWER",
       // Default dev password: "password123" — change it in real environments.
       password: await bcrypt.hash("password123", 10),
     },
   });
 
-  console.log({ alice, bob, admin });
+  console.log({ alice, bob, admin, viewer });
 }
 
 main()
