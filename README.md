@@ -15,6 +15,11 @@ npm run dev
 
 Dev admin account (from the seed): `admin@example.com` / `password123`.
 
+## Deploying to production
+
+Step-by-step guide for a Hostinger VPS (or any Ubuntu/Debian VPS): see
+[`docs/deploy-hostinger.md`](docs/deploy-hostinger.md).
+
 ## CI/CD
 
 Two GitHub Actions workflows:
