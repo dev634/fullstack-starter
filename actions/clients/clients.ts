@@ -5,8 +5,13 @@ import { uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
 import { auth } from "@/lib/auth";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
+import { parseCsvRecords, CLIENT_CSV_COLUMNS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import type { ClientActionState } from "@/types/client";
+
+const HEADER_TO_FIELD: Record<string, string> = Object.fromEntries(
+  CLIENT_CSV_COLUMNS.map((c) => [c.header, c.key])
+);
 
 export async function addClient(
   prevState: ClientActionState,
@@ -275,4 +280,79 @@ export async function permanentlyDeleteClient(id: number) {
       message: getErrorMessage(error, "Server error permanently deleting client."),
     };
   }
+}
+
+export type ImportRowError = { row: number; email?: string; message: string };
+export type ImportResult = {
+  type: "success" | "error";
+  message: string;
+  created: number;
+  total: number;
+  errors: ImportRowError[];
+};
+
+/**
+ * Bulk-create clients from a CSV file (same column headers as
+ * /clients/export, so an exported file can be edited and re-imported).
+ * Every row is validated independently — one bad row doesn't abort the
+ * rest of the batch.
+ */
+export async function importClients(formData: FormData): Promise<ImportResult> {
+  const unauthorized = await requireRole("ADMIN");
+  if (unauthorized) {
+    return { type: "error", message: unauthorized.message, created: 0, total: 0, errors: [] };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { type: "error", message: "Please choose a CSV file.", created: 0, total: 0, errors: [] };
+  }
+
+  const text = await file.text();
+  const records = parseCsvRecords(text);
+  if (records.length === 0) {
+    return { type: "error", message: "The file is empty or has no data rows.", created: 0, total: 0, errors: [] };
+  }
+
+  let created = 0;
+  const errors: ImportRowError[] = [];
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    const rowNumber = i + 2; // +1 for 0-index, +1 for the header row
+
+    const data: Record<string, string> = {};
+    for (const [header, value] of Object.entries(record)) {
+      const field = HEADER_TO_FIELD[header];
+      // Blank status is omitted so the schema's default("PROSPECT") applies,
+      // instead of failing enum validation on an empty string.
+      if (field && !(field === "status" && value === "")) {
+        data[field] = value;
+      }
+    }
+
+    try {
+      await createClient(data as unknown as CreateClientInput);
+      created++;
+    } catch (error) {
+      errors.push({
+        row: rowNumber,
+        email: record.Email,
+        message: getErrorMessage(error, "Invalid row."),
+      });
+    }
+  }
+
+  if (created > 0) revalidatePath("/clients");
+
+  return {
+    type: created > 0 ? "success" : "error",
+    message:
+      errors.length === 0
+        ? `${created} client(s) imported.`
+        : `${created} client(s) imported, ${errors.length} row(s) failed.`,
+    created,
+    total: records.length,
+    errors,
+  };
 }
