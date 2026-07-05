@@ -444,6 +444,60 @@ docker compose -f docker-compose.prod.yml up -d
 
 ---
 
+## 10. Sauvegardes automatiques, monitoring et suivi d'erreurs
+
+### Sauvegardes automatiques de la DB
+
+Le repo fournit [`scripts/backup-db.sh`](../scripts/backup-db.sh) : il fait un `pg_dump` compressé
+dans `VPS_APP_DIR/backups/` et supprime automatiquement les sauvegardes de plus de 7 jours.
+
+Installe-le en cron sur le VPS (tous les jours à 3h du matin) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dev634/fullstack-starter/main/scripts/backup-db.sh \
+  -o /opt/fullstack-starter/backup-db.sh
+chmod +x /opt/fullstack-starter/backup-db.sh
+crontab -l 2>/dev/null | { cat; echo "0 3 * * * APP_DIR=/opt/fullstack-starter /opt/fullstack-starter/backup-db.sh >> /opt/fullstack-starter/backup.log 2>&1"; } | crontab -
+```
+
+Pour restaurer une sauvegarde compressée :
+
+```bash
+gunzip -c /opt/fullstack-starter/backups/app-20260101-030000.sql.gz \
+  | docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db psql -U app app
+```
+
+### Health-check + monitoring externe
+
+L'app expose `GET /api/health` (public, pas besoin d'être connecté) — renvoie `200` avec
+`{"status":"ok","db":"ok"}` si la base répond, `503` sinon. Utile pour :
+
+```bash
+curl https://ton-domaine.com/api/health
+```
+
+Branche un moniteur externe gratuit (ex. [UptimeRobot](https://uptimerobot.com)) sur cette URL
+pour être alerté par email/SMS si le site tombe, plutôt que de le découvrir par hasard.
+
+### Suivi d'erreurs (Sentry, optionnel)
+
+Le code intègre déjà le SDK `@sentry/nextjs`, désactivé par défaut (aucune erreur si la clé est
+absente). Pour l'activer :
+
+1. Crée un compte gratuit sur [sentry.io](https://sentry.io) et un projet Next.js.
+2. Copie le DSN fourni.
+3. Ajoute-le au `.env` du VPS :
+   ```dotenv
+   SENTRY_DSN=https://ta_cle@o0.ingest.sentry.io/0
+   ```
+4. Recrée le conteneur (`up -d --force-recreate web`, voir l'encart de la section 3).
+
+Seules les erreurs serveur réellement non gérées (bugs, panne DB, etc.) sont remontées — les
+erreurs métier déjà gérées par les actions (email en doublon, validation...) ne le sont pas,
+puisqu'elles ne remontent jamais jusqu'à ce niveau.
+
+---
+
 ## Dépannage
 
 - **`docker compose` échoue avec "permission denied"** → l'utilisateur `deploy` n'est pas dans le
