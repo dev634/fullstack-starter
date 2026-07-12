@@ -52,7 +52,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
 
         {entries.length ? (
           <>
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-shadow hover:shadow-lg hover:border-gray-400 dark:hover:border-gray-500">
               {entries.map((entry) => {
                 const label = actionLabels[entry.action] ?? entry.action;
                 const className = ACTION_CLASSES[entry.action] ?? "";
