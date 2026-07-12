@@ -68,10 +68,10 @@ export default async function ClientPage({ params }: PageProps) {
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-6">
-      <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
 
         {/* Header */}
-        <div className="flex items-center gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6">
+        <div className="flex items-center gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
           <ClientAvatar
             photoUrl={data.photoUrl}
             firstName={data.firstName}
@@ -95,20 +95,20 @@ export default async function ClientPage({ params }: PageProps) {
 
         {/* Details */}
         <dl className="px-4 py-2 sm:px-6">
-          <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
             <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.email}</dt>
             <dd className="min-w-0 break-all text-sm text-blue-600 dark:text-blue-400">{data.email || "—"}</dd>
           </div>
           {data.phone && (
-            <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+            <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
               <PhoneIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
               <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.phone}</dt>
               <dd className="min-w-0 break-all text-sm">{data.phone}</dd>
             </div>
           )}
           {websiteHref && (
-            <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+            <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
               <LinkIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
               <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.website}</dt>
               <dd className="min-w-0 break-all text-sm">
@@ -118,12 +118,12 @@ export default async function ClientPage({ params }: PageProps) {
               </dd>
             </div>
           )}
-          <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
             <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.address}</dt>
             <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
           </div>
-          <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
             <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.detail.locality}</dt>
             <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>
@@ -131,11 +131,11 @@ export default async function ClientPage({ params }: PageProps) {
         </dl>
 
         {/* Actions */}
-        <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 px-4 py-4 sm:px-6">
           {canEdit && (
             <Link
               href={`/clients/${id}/edit`}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 sm:flex-none"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-600 sm:flex-none"
             >
               <PencilSquareIcon className="h-4 w-4" />
               {t.common.edit}
@@ -154,8 +154,8 @@ export default async function ClientPage({ params }: PageProps) {
       </div>
 
       {/* Projects */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
-        <div className="flex items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6">
+      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <BoltIcon className="h-5 w-5 text-amber-500" />
             {t.clients.detail.projectsHeading}
@@ -172,7 +172,7 @@ export default async function ClientPage({ params }: PageProps) {
         </div>
 
         {projects.length ? (
-          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+          <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {projects.map((project) => (
               <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
                 <Link href={`/clients/${id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
@@ -195,7 +195,7 @@ export default async function ClientPage({ params }: PageProps) {
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/clients/${id}/projects/${project.id}/edit`}
-                      className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
+                      className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600"
                     >
                       <PencilSquareIcon className="h-3.5 w-3.5" />
                       {t.common.edit}

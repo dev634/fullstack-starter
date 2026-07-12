@@ -31,7 +31,7 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
           name="title"
           placeholder={t.tasks.newPlaceholder}
           aria-label={t.tasks.titleLabel}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
         {state.type === "zodError" && state.fieldsForm?.title && (
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.title}</p>
@@ -41,7 +41,7 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
         type="date"
         name="dueDate"
         aria-label={t.tasks.dueDateLabel}
-        className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+        className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
       />
       <button
         type="submit"

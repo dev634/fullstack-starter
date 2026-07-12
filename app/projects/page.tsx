@@ -61,7 +61,7 @@ export default async function ProjectsPage({
 
         {projects.length ? (
           <>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm">
               {projects.map((project) => (
                 <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
                   <Link href={`/clients/${project.client.id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
@@ -84,7 +84,7 @@ export default async function ProjectsPage({
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/clients/${project.client.id}/projects/${project.id}/edit`}
-                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
+                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600"
                       >
                         <PencilSquareIcon className="h-3.5 w-3.5" />
                         {t.common.edit}
@@ -138,7 +138,7 @@ function PageLink({ href, disabled, label }: { href: string; disabled: boolean; 
   return (
     <Link
       href={href}
-      className="rounded border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
     >
       {label}
     </Link>

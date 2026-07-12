@@ -53,13 +53,13 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
   return (
     <div className="space-y-4">
       {canEdit && selected.size > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-2">
           <span className="text-sm text-gray-600 dark:text-gray-300">{format(t.clients.list.selected, { count: selected.size })}</span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setSelected(new Set())}
-              className="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white px-3 py-1.5 text-sm text-gray-600 dark:bg-transparent dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
             >
               {t.common.cancel}
             </button>
@@ -88,8 +88,8 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             )}
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-white dark:bg-gray-800 p-4 text-gray-900 dark:text-gray-100 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
-                selected.has(client.id) ? "border-blue-500" : "border-gray-200 dark:border-gray-700"
+              className={`flex h-full items-center gap-4 rounded-lg border bg-gray-100 dark:bg-gray-800 p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
+                selected.has(client.id) ? "border-blue-500" : "border-gray-300 dark:border-gray-700"
               }`}
             >
               <ClientAvatar

@@ -43,7 +43,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
+        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
       >
         <FolderPlusIcon className="h-3.5 w-3.5" />
         {t.files.newFolder}
@@ -63,7 +63,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
           autoFocus
           placeholder={t.files.folderNameLabel}
           aria-label={t.files.folderNameLabel}
-          className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
         {state.type === "zodError" && state.fieldsForm?.name && (
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>

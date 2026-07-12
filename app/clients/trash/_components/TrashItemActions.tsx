@@ -46,7 +46,7 @@ export default function TrashItemActions({ clientId, name }: { clientId: number;
         type="button"
         onClick={handleRestore}
         disabled={pending}
-        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer disabled:opacity-50"
       >
         <ArrowUturnLeftIcon className="h-4 w-4" />
         {t.clients.trash.restore}

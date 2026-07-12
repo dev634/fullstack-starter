@@ -89,8 +89,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       <div className="w-full max-w-3xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
-          <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+          <div className="border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold">{project.name}</h1>
               <ProjectTypeBadge type={project.type} />
@@ -100,28 +100,28 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
           <dl className="px-4 py-2 sm:px-6">
             {project.power != null && (
-              <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
                 <BoltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
                 <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.power}</dt>
                 <dd className="min-w-0 text-sm">{project.power} kWc</dd>
               </div>
             )}
             {project.budget != null && (
-              <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
                 <CurrencyEuroIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
                 <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.budget}</dt>
                 <dd className="min-w-0 text-sm">{project.budget.toLocaleString(localeTag(locale))} €</dd>
               </div>
             )}
             {project.address && (
-              <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
                 <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
                 <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.address}</dt>
                 <dd className="min-w-0 break-words text-sm">{project.address}</dd>
               </div>
             )}
             {(project.startDate || project.endDate) && (
-              <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
                 <CalendarIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
                 <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.dates}</dt>
                 <dd className="min-w-0 text-sm">
@@ -139,11 +139,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             )}
           </dl>
 
-          <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 px-4 py-4 sm:px-6">
             {canEdit && (
               <Link
                 href={`/clients/${id}/projects/${pid}/edit`}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 sm:flex-none"
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-600 sm:flex-none"
               >
                 <PencilSquareIcon className="h-4 w-4" />
                 {t.common.edit}
@@ -161,8 +161,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
 
         {/* Tasks */}
-        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
-          <div className="flex items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+          <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
               {t.projects.detail.tasksHeading}
@@ -175,7 +175,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </div>
 
           {tasks.length ? (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {tasks.map((task) => (
                 <ProjectTaskRow key={task.id} task={task} clientId={clientId} projectId={pid} canEdit={canEdit} />
               ))}
@@ -187,15 +187,15 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           )}
 
           {canEdit && (
-            <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="border-t border-gray-300 dark:border-gray-700">
               <AddTaskForm clientId={clientId} projectId={pid} />
             </div>
           )}
         </div>
 
         {/* Files */}
-        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <FolderIcon className="h-5 w-5 text-amber-500" />
               {t.projects.detail.filesHeading}
@@ -204,7 +204,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </div>
 
           {/* Breadcrumb */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+          <div className="flex flex-wrap items-center gap-1 border-b border-gray-300 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
             <Link
               href={`/clients/${id}/projects/${pid}`}
               className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
@@ -226,7 +226,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </div>
 
           {subfolders.length || files.length ? (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {subfolders.map((folder) => (
                 <ProjectFolderRow key={`folder-${folder.id}`} folder={folder} clientId={clientId} projectId={pid} canEdit={canEdit} />
               ))}
@@ -241,7 +241,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           )}
 
           {canEdit && (
-            <div className="border-t border-gray-200 dark:border-gray-700">
+            <div className="border-t border-gray-300 dark:border-gray-700">
               <UploadFileForm clientId={clientId} projectId={pid} folderId={currentFolderId} />
             </div>
           )}

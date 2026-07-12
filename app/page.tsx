@@ -35,7 +35,7 @@ export default async function HomePage() {
         {/* Metric cards */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {METRICS.map((m) => (
-            <div key={m.key} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
+            <div key={m.key} className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-5 shadow-sm">
               <p className="text-sm text-gray-500 dark:text-gray-400">{m.label}</p>
               <p className={`mt-1 text-3xl font-semibold ${m.className}`}>{values[m.key] ?? 0}</p>
             </div>
@@ -52,12 +52,12 @@ export default async function HomePage() {
           </div>
 
           {recent.length ? (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm">
               {recent.map((client) => (
                 <li key={client.id}>
                   <Link
                     href={`/clients/${client.id}`}
-                    className="flex items-center gap-4 px-4 py-3 text-gray-900 dark:text-gray-100 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="flex items-center gap-4 px-4 py-3 text-gray-900 dark:text-gray-100 transition-colors hover:bg-gray-200 dark:hover:bg-gray-700"
                   >
                     <ClientAvatar
                       photoUrl={client.photoUrl}
@@ -77,7 +77,7 @@ export default async function HomePage() {
               ))}
             </ul>
           ) : (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
               {t.dashboard.noClientsYet}
             </div>
           )}

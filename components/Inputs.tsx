@@ -21,7 +21,7 @@ export function Input({label, name, type = "text", error, value, onChange, fullW
                     name={name}
                     placeholder={label}
                     step={type === "number" ? (step ?? "any") : undefined}
-                    className={`w-full mb-2 p-2 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500${isPassword ? " pr-10" : ""}`}
+                    className={`w-full mb-2 p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500${isPassword ? " pr-10" : ""}`}
                     value={value}
                     onChange={onChange}
                 />
