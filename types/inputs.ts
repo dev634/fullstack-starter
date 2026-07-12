@@ -9,4 +9,6 @@ export type InputProps = {
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
     /** Span both columns when rendered inside a 2-column grid. */
     fullWidth?: boolean;
+    /** Only meaningful for type="number" — defaults to "any" so decimals are never blocked. */
+    step?: string;
 }

@@ -2,7 +2,7 @@
 import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
-import { auth } from "@/lib/auth";
+import { requireSession, requireRole } from "@/lib/authz";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
@@ -164,39 +164,6 @@ async function extractPhotoUrl(formData: FormData): Promise<string | undefined> 
     return uploadClientPhoto(file);
   }
   return undefined;
-}
-
-/**
- * Guard actions behind an authenticated session. Returns an error payload
- * when there is no session, or `null` when the caller may proceed. Server
- * actions are callable directly, so page-level middleware isn't enough.
- */
-async function requireSession(): Promise<{ type: "error"; message: string } | null> {
-  const session = await auth();
-  if (!session) {
-    return { type: "error", message: "Unauthorized. Please sign in." };
-  }
-  return null;
-}
-
-type RoleCheckResult =
-  | { error: { type: "error"; message: string }; email?: undefined }
-  | { error: null; email: string };
-
-/**
- * Guard mutations behind a minimum role. VIEWER accounts can read but not
- * create/edit/delete clients. On success, also returns the actor's email
- * for the activity log.
- */
-async function requireRole(role: "ADMIN"): Promise<RoleCheckResult> {
-  const session = await auth();
-  if (!session) {
-    return { error: { type: "error", message: "Unauthorized. Please sign in." } };
-  }
-  if (session.user?.role !== role) {
-    return { error: { type: "error", message: "Forbidden. Your role does not allow this action." } };
-  }
-  return { error: null, email: session.user?.email ?? "unknown" };
 }
 
 /**
