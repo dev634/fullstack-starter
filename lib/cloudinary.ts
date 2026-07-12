@@ -67,3 +67,78 @@ export async function destroyClientPhoto(
     console.error("Cloudinary destroy failed:", error);
   }
 }
+
+const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+/**
+ * Cloudinary stores non-image/video uploads (PDFs, docs, ...) under the
+ * "raw" resource type. Destroy calls must pass the matching resource_type
+ * or they silently no-op, so we derive it from the stored mime type.
+ */
+export function resourceTypeFromMime(mimeType: string | null | undefined): "image" | "video" | "raw" {
+  if (mimeType?.startsWith("image/")) return "image";
+  if (mimeType?.startsWith("video/")) return "video";
+  return "raw";
+}
+
+/**
+ * Upload an arbitrary project document (image, PDF, plan, ...) to
+ * Cloudinary under a per-project folder.
+ */
+export async function uploadProjectFile(
+  file: File,
+  projectId: number
+): Promise<{ url: string; publicId: string; size: number; mimeType: string }> {
+  if (file.size > MAX_PROJECT_FILE_BYTES) {
+    throw {
+      type: "error",
+      message: "The file must be 20 MB or smaller.",
+    };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const resourceType = resourceTypeFromMime(file.type);
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        {
+          folder: `projects/${projectId}`,
+          resource_type: resourceType,
+          use_filename: true,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject({
+              type: "error",
+              message: "Failed to upload the file. Please try again.",
+            });
+            return;
+          }
+          resolve({
+            url: result.secure_url,
+            publicId: result.public_id,
+            size: result.bytes,
+            mimeType: file.type || "application/octet-stream",
+          });
+        }
+      )
+      .end(buffer);
+  });
+}
+
+/**
+ * Best-effort deletion of a previously uploaded project file. Never throws
+ * so it can't break the surrounding mutation if the asset is already gone.
+ */
+export async function destroyProjectFile(
+  publicId: string,
+  mimeType: string | null | undefined
+): Promise<void> {
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceTypeFromMime(mimeType) });
+  } catch (error) {
+    console.error("Cloudinary destroy failed:", error);
+  }
+}
