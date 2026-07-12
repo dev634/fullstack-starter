@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import ThemeToggle from "@/components/ThemeToggle";
+import LocaleToggle from "@/components/LocaleToggle";
+import { useTranslation } from "@/components/LocaleProvider";
 
 type NavbarProps = {
     brand: LinkProps
@@ -19,6 +21,7 @@ type LinkProps = {
 export default function Navbar({ brand, links, action }: NavbarProps) {
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
+  const { t } = useTranslation();
 
   // Only render navigation controls when there is something to show
   // (e.g. once the user is logged in). Otherwise just the brand is shown.
@@ -44,6 +47,7 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
           </Link>
 
           <div className="flex items-center gap-3">
+            <LocaleToggle />
             <ThemeToggle />
 
             {hasMenu && (
@@ -61,7 +65,7 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
                 {/* Mobile hamburger button (square with 3 bars) */}
                 <button
                   type="button"
-                  aria-label="Toggle menu"
+                  aria-label={t.nav.toggleMenu}
                   aria-expanded={open}
                   onClick={() => setOpen((v) => !v)}
                   className="md:hidden flex items-center justify-center w-10 h-10 rounded border border-white/30 hover:bg-white/10 cursor-pointer"

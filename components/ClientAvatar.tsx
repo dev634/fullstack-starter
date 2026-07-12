@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { optimizedClientPhoto } from "@/lib/cloudinary-url";
+import { useTranslation } from "@/components/LocaleProvider";
 
 type ClientAvatarProps = {
   photoUrl?: string | null;
@@ -25,6 +26,7 @@ export default function ClientAvatar({
   size,
   className = "",
 }: ClientAvatarProps) {
+  const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
 
   const initials =
@@ -45,7 +47,7 @@ export default function ClientAvatar({
   return (
     <Image
       src={optimizedClientPhoto(photoUrl, size * 2)}
-      alt={`${firstName ?? ""} ${lastName ?? ""}`.trim() || "Client"}
+      alt={`${firstName ?? ""} ${lastName ?? ""}`.trim() || t.clients.list.title}
       width={size}
       height={size}
       onError={() => setFailed(true)}

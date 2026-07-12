@@ -5,12 +5,14 @@ import Modal from "@/components/Modal";
 import { TrashIcon } from "@heroicons/react/24/outline";
 import {useRouter} from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslation } from "@/components/LocaleProvider";
 
 type DeleteClientButtonProps = {
   clientId: number;
 };
 
 export default function DeleteClientButton({ clientId }: DeleteClientButtonProps) {
+  const { t } = useTranslation();
   const [openModal, setOpenModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -48,24 +50,24 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
             // `deleteClient` resolves with an error object instead of throwing
             // when the deletion fails, so surface it instead of redirecting.
             if (result && typeof result === "object" && "type" in result && result.type === "error") {
-                setError(typeof result.message === "string" ? result.message : "Erreur lors de la suppression.");
+                setError(typeof result.message === "string" ? result.message : t.clients.deleteModal.genericError);
                 return;
             }
             router.push("/clients"); // Redirect to clients list after deletion
         } catch (error) {
             console.error("Error deleting client:", error);
-            setError("Erreur lors de la suppression. Veuillez réessayer.");
+            setError(t.clients.deleteModal.retryError);
         }
     }
 
 
   if(openModal){
     return <Modal
-      title="Déplacer vers la corbeille"
-      text="Ce client sera déplacé vers la corbeille. Tu pourras le restaurer depuis là si besoin."
+      title={t.clients.deleteModal.title}
+      text={t.clients.deleteModal.text}
       error={error ?? undefined}
-      textForCancel="Annuler"
-      textForConfirm="Supprimer"
+      textForCancel={t.common.cancel}
+      textForConfirm={t.common.delete}
       onClose={handleClose}
       onConfirm={handleConfirmDelete}
     />
@@ -78,7 +80,7 @@ export default function DeleteClientButton({ clientId }: DeleteClientButtonProps
       className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-red-500/40 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 cursor-pointer sm:flex-none"
     >
       <TrashIcon className="h-4 w-4" />
-      Supprimer
+      {t.common.delete}
     </button>
   );
 }

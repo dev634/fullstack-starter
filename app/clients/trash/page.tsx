@@ -6,6 +6,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import TrashItemActions from "./_components/TrashItemActions";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function TrashPage() {
   const session = await auth();
@@ -14,18 +16,19 @@ export default async function TrashPage() {
   }
 
   const trashed = await findTrashed();
+  const t = getDictionary(await getLocale());
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
-          <Title title="Corbeille" />
+          <Title title={t.clients.trash.title} />
           <Link
             href="/clients"
             className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           >
             <ArrowLeftIcon className="h-4 w-4" />
-            Retour aux clients
+            {t.clients.trash.backToClients}
           </Link>
         </div>
 
@@ -56,7 +59,7 @@ export default async function TrashPage() {
           </ul>
         ) : (
           <div className="flex h-[45vh] flex-col items-center justify-center gap-2">
-            <p className="text-gray-500 dark:text-gray-400">La corbeille est vide.</p>
+            <p className="text-gray-500 dark:text-gray-400">{t.clients.trash.empty}</p>
           </div>
         )}
       </div>

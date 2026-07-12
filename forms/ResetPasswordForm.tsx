@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { resetPassword } from "@/actions/auth/auth";
 import { Input } from "@/components/Inputs";
 import { Toast } from "@/components/Toast";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { AuthActionState } from "@/types/auth";
 
 const initialState: AuthActionState = {
@@ -12,6 +13,7 @@ const initialState: AuthActionState = {
 };
 
 export default function ResetPasswordForm({ token }: { token: string }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<AuthActionState, FormData>(
     resetPassword,
@@ -29,13 +31,13 @@ export default function ResetPasswordForm({ token }: { token: string }) {
       <Toast type={state.type} message={state.message} />
       <input type="hidden" name="token" value={token} />
       <Input
-        label="Nouveau mot de passe"
+        label={t.auth.newPassword}
         name="password"
         type="password"
         error={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <Input
-        label="Confirmer le mot de passe"
+        label={t.auth.confirmPassword}
         name="confirmPassword"
         type="password"
         error={state.type === "zodError" ? state.fieldsForm : undefined}
@@ -48,7 +50,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Réinitialiser le mot de passe
+        {t.auth.resetPassword}
       </button>
     </form>
   );

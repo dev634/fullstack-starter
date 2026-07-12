@@ -7,6 +7,10 @@ import ProjectsToolbar from "./_components/ProjectsToolbar";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { UserIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
+import { localeTag } from "@/lib/i18n/formatDate";
 
 const PAGE_SIZE = 12;
 const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
@@ -35,6 +39,8 @@ export default async function ProjectsPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
   const canEdit = session?.user?.role === "ADMIN";
+  const locale = await getLocale();
+  const t = getDictionary(locale);
 
   function pageHref(p: number) {
     const params = new URLSearchParams();
@@ -49,7 +55,7 @@ export default async function ProjectsPage({
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-6">
-        <Title title="Projets" />
+        <Title title={t.projects.list.title} />
 
         <ProjectsToolbar />
 
@@ -71,7 +77,7 @@ export default async function ProjectsPage({
                         {project.client.companyName ? ` · ${project.client.companyName}` : ""}
                       </span>
                       {project.power != null && <span>{project.power} kWc</span>}
-                      {project.budget != null && <span>{project.budget.toLocaleString("fr-FR")} €</span>}
+                      {project.budget != null && <span>{project.budget.toLocaleString(localeTag(locale))} €</span>}
                     </div>
                   </Link>
                   {canEdit && (
@@ -81,7 +87,7 @@ export default async function ProjectsPage({
                         className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
                       >
                         <PencilSquareIcon className="h-3.5 w-3.5" />
-                        Modifier
+                        {t.common.edit}
                       </Link>
                       <DeleteProjectButton
                         projectId={project.id}
@@ -95,22 +101,22 @@ export default async function ProjectsPage({
             </ul>
 
             {totalPages > 1 && (
-              <nav className="flex items-center justify-center gap-4 pt-2" aria-label="Pagination">
-                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label="Précédent" />
-                <span className="text-sm text-gray-500 dark:text-gray-400">Page {page} / {totalPages}</span>
-                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label="Suivant" />
+              <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
+                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
+                <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
+                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
               </nav>
             )}
           </>
         ) : (
           <div className="flex h-[45vh] flex-col items-center justify-center gap-2">
             {q ? (
-              <p className="text-gray-500 dark:text-gray-400">Aucun projet ne correspond à « {q} ».</p>
+              <p className="text-gray-500 dark:text-gray-400">{format(t.projects.list.noResultsFor, { q })}</p>
             ) : (
               <>
-                <p className="text-gray-500 dark:text-gray-400">Aucun projet pour le moment.</p>
+                <p className="text-gray-500 dark:text-gray-400">{t.projects.list.noProjectsYet}</p>
                 <p className="text-sm text-gray-400 dark:text-gray-500">
-                  Ouvre la fiche d&apos;un client pour lui ajouter un projet.
+                  {t.projects.list.openClientHint}
                 </p>
               </>
             )}

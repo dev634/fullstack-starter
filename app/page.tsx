@@ -3,29 +3,32 @@ import { getDashboardStats } from "@/repository/clients";
 import ClientAvatar from "@/components/ClientAvatar";
 import StatusBadge from "@/components/StatusBadge";
 import { UsersIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
-
-const METRICS: { key: "total" | "PROSPECT" | "CLIENT" | "INACTIVE"; label: string; className: string }[] = [
-  { key: "total", label: "Total clients", className: "text-gray-900 dark:text-gray-100" },
-  { key: "PROSPECT", label: "Prospects", className: "text-amber-300" },
-  { key: "CLIENT", label: "Clients", className: "text-green-300" },
-  { key: "INACTIVE", label: "Inactifs", className: "text-gray-500 dark:text-gray-400" },
-];
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function HomePage() {
   const { total, byStatus, recent } = await getDashboardStats();
   const values: Record<string, number> = { total, ...byStatus };
+  const t = getDictionary(await getLocale());
+
+  const METRICS: { key: "total" | "PROSPECT" | "CLIENT" | "INACTIVE"; label: string; className: string }[] = [
+    { key: "total", label: t.dashboard.totalClients, className: "text-gray-900 dark:text-gray-100" },
+    { key: "PROSPECT", label: t.dashboard.prospects, className: "text-amber-300" },
+    { key: "CLIENT", label: t.dashboard.clients, className: "text-green-300" },
+    { key: "INACTIVE", label: t.dashboard.inactive, className: "text-gray-500 dark:text-gray-400" },
+  ];
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-8">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold">Tableau de bord</h1>
+          <h1 className="text-3xl font-bold">{t.dashboard.title}</h1>
           <Link
             href="/clients"
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-blue-500 px-4 py-2 text-sm text-white no-underline hover:bg-blue-600"
           >
             <UsersIcon className="h-4 w-4" />
-            Voir les clients
+            {t.dashboard.viewClients}
           </Link>
         </div>
 
@@ -42,9 +45,9 @@ export default async function HomePage() {
         {/* Recent clients */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Ajoutés récemment</h2>
+            <h2 className="text-xl font-semibold">{t.dashboard.recentlyAdded}</h2>
             <Link href="/clients" className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-              Tout voir <ArrowRightIcon className="h-4 w-4" />
+              {t.dashboard.viewAll} <ArrowRightIcon className="h-4 w-4" />
             </Link>
           </div>
 
@@ -75,7 +78,7 @@ export default async function HomePage() {
             </ul>
           ) : (
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-              Aucun client pour le moment.
+              {t.dashboard.noClientsYet}
             </div>
           )}
         </section>

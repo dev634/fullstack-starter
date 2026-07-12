@@ -4,6 +4,7 @@ import { useEffect, useActionState, useState } from 'react';
 import { ProjectFields, type ProjectFormValues } from "@/forms/ProjectFields";
 import { Toast } from "@/components/Toast";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectActionState } from "@/types/project";
 import type { Project } from "@/app/generated/prisma/client";
 
@@ -18,6 +19,7 @@ function toDateInputValue(date: Date | null): string {
 }
 
 export default function UpdateProjectForm({ project }: { project: Project }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ProjectActionState, FormData>(
     updateProject,
@@ -66,7 +68,7 @@ export default function UpdateProjectForm({ project }: { project: Project }) {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Modifier le projet
+        {t.projects.editSubmit}
       </button>
     </form>
   );

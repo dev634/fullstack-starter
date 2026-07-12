@@ -4,13 +4,16 @@ import Modal from "@/components/Modal";
 import { DocumentIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectFile } from "@/app/generated/prisma/client";
 
-function formatSize(bytes: number | null): string {
+function formatSize(bytes: number | null, t: Dictionary): string {
   if (bytes == null) return "";
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  if (bytes < 1024) return format(t.files.sizeBytes, { size: bytes });
+  if (bytes < 1024 * 1024) return format(t.files.sizeKB, { size: (bytes / 1024).toFixed(0) });
+  return format(t.files.sizeMB, { size: (bytes / (1024 * 1024)).toFixed(1) });
 }
 
 type ProjectFileRowProps = {
@@ -21,6 +24,7 @@ type ProjectFileRowProps = {
 };
 
 export default function ProjectFileRow({ file, clientId, projectId, canEdit }: ProjectFileRowProps) {
+  const { t } = useTranslation();
   const [openModal, setOpenModal] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +55,13 @@ export default function ProjectFileRow({ file, clientId, projectId, canEdit }: P
         <span className="truncate">{file.name}</span>
       </a>
       {file.size != null && (
-        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{formatSize(file.size)}</span>
+        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{formatSize(file.size, t)}</span>
       )}
       {canEdit && (
         <button
           type="button"
           onClick={() => setOpenModal(true)}
-          aria-label={`Supprimer le fichier ${file.name}`}
+          aria-label={format(t.files.deleteFile, { name: file.name })}
           className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 dark:text-red-400"
         >
           <TrashIcon className="h-4 w-4" />
@@ -65,11 +69,11 @@ export default function ProjectFileRow({ file, clientId, projectId, canEdit }: P
       )}
       {openModal && (
         <Modal
-          title="Supprimer ce fichier"
-          text={`Supprimer « ${file.name} » ? Cette action est irréversible.`}
+          title={t.files.deleteFileTitle}
+          text={format(t.files.deleteFileText, { name: file.name })}
           error={error ?? undefined}
-          textForCancel="Annuler"
-          textForConfirm={pending ? "Suppression…" : "Supprimer"}
+          textForCancel={t.common.cancel}
+          textForConfirm={pending ? t.clients.deleteModal.deleting : t.common.delete}
           onClose={() => !pending && setOpenModal(false)}
           onConfirm={handleConfirmDelete}
         />

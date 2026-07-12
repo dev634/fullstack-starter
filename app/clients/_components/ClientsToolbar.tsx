@@ -3,15 +3,16 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { MagnifyingGlassIcon, BarsArrowUpIcon, BarsArrowDownIcon } from "@heroicons/react/24/outline";
-
-const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "firstName", label: "Prénom" },
-  { value: "lastName", label: "Nom" },
-  { value: "companyName", label: "Société" },
-  { value: "email", label: "Email" },
-];
+import { useTranslation } from "@/components/LocaleProvider";
 
 export default function ClientsToolbar() {
+  const { t } = useTranslation();
+  const SORT_OPTIONS: { value: string; label: string }[] = [
+    { value: "firstName", label: t.clients.toolbar.sortFirstName },
+    { value: "lastName", label: t.clients.toolbar.sortLastName },
+    { value: "companyName", label: t.clients.toolbar.sortCompany },
+    { value: "email", label: t.clients.toolbar.sortEmail },
+  ];
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -52,8 +53,8 @@ export default function ClientsToolbar() {
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Rechercher un client…"
-          aria-label="Rechercher un client"
+          placeholder={t.clients.toolbar.searchPlaceholder}
+          aria-label={t.clients.toolbar.searchLabel}
           className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-2 pl-10 pr-3 text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
       </div>
@@ -62,7 +63,7 @@ export default function ClientsToolbar() {
         <select
           value={sort}
           onChange={(e) => push({ sort: e.target.value })}
-          aria-label="Trier par"
+          aria-label={t.clients.toolbar.sortLabel}
           className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-gray-100"
         >
           {SORT_OPTIONS.map((o) => (
@@ -72,7 +73,7 @@ export default function ClientsToolbar() {
         <button
           type="button"
           onClick={() => push({ dir: dir === "asc" ? "desc" : "asc" })}
-          aria-label={dir === "asc" ? "Tri croissant" : "Tri décroissant"}
+          aria-label={dir === "asc" ? t.clients.toolbar.sortAsc : t.clients.toolbar.sortDesc}
           className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
         >
           {dir === "asc" ? <BarsArrowUpIcon className="h-5 w-5" /> : <BarsArrowDownIcon className="h-5 w-5" />}

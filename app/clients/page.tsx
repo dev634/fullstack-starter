@@ -6,6 +6,9 @@ import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 
 const PAGE_SIZE = 9;
 const SORT_FIELDS: ClientSortField[] = ["firstName", "lastName", "companyName", "email"];
@@ -34,6 +37,7 @@ export default async function ClientsPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
   const canEdit = session?.user?.role === "ADMIN";
+  const t = getDictionary(await getLocale());
 
   // Shared query string for the current search/sort (used by pager + export).
   function baseParams() {
@@ -56,14 +60,14 @@ export default async function ClientsPage({
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
-          <Title title="Clients" />
+          <Title title={t.clients.list.title} />
           <div className="flex items-center gap-2">
             <a
               href={exportHref}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               <ArrowDownTrayIcon className="h-4 w-4" />
-              Export CSV
+              {t.clients.list.exportCsv}
             </a>
             {canEdit && (
               <Link
@@ -71,7 +75,7 @@ export default async function ClientsPage({
                 className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
               >
                 <ArrowUpTrayIcon className="h-4 w-4" />
-                Importer
+                {t.clients.list.import}
               </Link>
             )}
             {canEdit && (
@@ -80,7 +84,7 @@ export default async function ClientsPage({
                 className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
               >
                 <TrashIcon className="h-4 w-4" />
-                Corbeille
+                {t.clients.list.trash}
               </Link>
             )}
             {canEdit && (
@@ -89,12 +93,12 @@ export default async function ClientsPage({
                 className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
               >
                 <ClockIcon className="h-4 w-4" />
-                Activité
+                {t.clients.list.activity}
               </Link>
             )}
             {canEdit && (
               <Button
-                text="Ajouter un client"
+                text={t.clients.list.addClient}
                 as="link"
                 href="/clients/add"
                 classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
@@ -110,23 +114,23 @@ export default async function ClientsPage({
             <ClientsGrid clients={clients} canEdit={canEdit} />
 
             {totalPages > 1 && (
-              <nav className="flex items-center justify-center gap-4 pt-2" aria-label="Pagination">
-                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label="Précédent" />
-                <span className="text-sm text-gray-500 dark:text-gray-400">Page {page} / {totalPages}</span>
-                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label="Suivant" />
+              <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
+                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
+                <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
+                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
               </nav>
             )}
           </>
         ) : (
           <div className="flex h-[45vh] flex-col items-center justify-center gap-4">
             {q ? (
-              <p className="text-gray-500 dark:text-gray-400">Aucun client ne correspond à « {q} ».</p>
+              <p className="text-gray-500 dark:text-gray-400">{format(t.clients.list.noResultsFor, { q })}</p>
             ) : (
               <>
-                <p className="text-gray-500 dark:text-gray-400">Aucun client pour le moment.</p>
+                <p className="text-gray-500 dark:text-gray-400">{t.clients.list.noClientsYet}</p>
                 {canEdit && (
                   <Button
-                    text="Ajouter un client"
+                    text={t.clients.list.addClient}
                     as="link"
                     href="/clients/add"
                     classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"

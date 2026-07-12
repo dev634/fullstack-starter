@@ -4,6 +4,7 @@ import Link from "next/link";
 import { login } from "@/actions/auth/auth";
 import { Input } from "@/components/Inputs";
 import { Toast } from "@/components/Toast";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { AuthActionState } from "@/types/auth";
 
 const initialState: AuthActionState = {
@@ -12,6 +13,7 @@ const initialState: AuthActionState = {
 };
 
 export default function LoginForm() {
+  const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<AuthActionState, FormData>(
     login,
     initialState
@@ -27,7 +29,7 @@ export default function LoginForm() {
     <form action={formAction} className="w-full bg-transparent rounded shadow">
       <Toast type={state.type} message={state.message} />
       <Input
-        label="Email"
+        label={t.auth.email}
         name="email"
         type="email"
         value={values.email}
@@ -35,7 +37,7 @@ export default function LoginForm() {
         error={state.type === "zodError" ? state.fieldsForm : undefined}
       />
       <Input
-        label="Mot de passe"
+        label={t.auth.password}
         name="password"
         type="password"
         value={values.password}
@@ -50,13 +52,13 @@ export default function LoginForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Se connecter
+        {t.auth.signIn}
       </button>
       <Link
         href="/forgot-password"
         className="mt-4 block text-center text-sm text-gray-500 dark:text-gray-400 hover:underline"
       >
-        Mot de passe oublié ?
+        {t.auth.forgotPassword}
       </Link>
     </form>
   );

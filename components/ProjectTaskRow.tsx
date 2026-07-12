@@ -3,6 +3,9 @@ import { toggleTask, deleteTask } from "@/actions/tasks/tasks";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
+import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
+import { localeTag } from "@/lib/i18n/formatDate";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
 type ProjectTaskRowProps = {
@@ -13,6 +16,7 @@ type ProjectTaskRowProps = {
 };
 
 export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: ProjectTaskRowProps) {
+  const { t, locale } = useTranslation();
   const [pending, setPending] = useState(false);
   const router = useRouter();
 
@@ -39,7 +43,7 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
         checked={task.done}
         disabled={!canEdit || pending}
         onChange={handleToggle}
-        aria-label={`Marquer « ${task.title} » comme ${task.done ? "à faire" : "terminée"}`}
+        aria-label={format(task.done ? t.tasks.markUndone : t.tasks.markDone, { title: task.title })}
         className="h-4 w-4 shrink-0 cursor-pointer rounded border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
       />
       <span
@@ -51,7 +55,7 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
       </span>
       {task.dueDate && (
         <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
-          {new Date(task.dueDate).toLocaleDateString("fr-FR")}
+          {new Date(task.dueDate).toLocaleDateString(localeTag(locale))}
         </span>
       )}
       {canEdit && (
@@ -59,7 +63,7 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
           type="button"
           onClick={handleDelete}
           disabled={pending}
-          aria-label={`Supprimer la tâche ${task.title}`}
+          aria-label={format(t.tasks.deleteTask, { title: task.title })}
           className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
         >
           <TrashIcon className="h-4 w-4" />

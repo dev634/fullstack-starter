@@ -4,6 +4,7 @@ import { useEffect, useActionState, useState } from 'react';
 import { ProjectFields, type ProjectFormValues } from "@/forms/ProjectFields";
 import { Toast } from "@/components/Toast";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectActionState } from "@/types/project";
 
 const initialState: ProjectActionState = {
@@ -12,6 +13,7 @@ const initialState: ProjectActionState = {
 }
 
 export default function AddProjectForm({ clientId }: { clientId: number }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ProjectActionState, FormData>(
     addProject,
@@ -59,7 +61,7 @@ export default function AddProjectForm({ clientId }: { clientId: number }) {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Ajouter le projet
+        {t.projects.addSubmit}
       </button>
     </form>
   );
