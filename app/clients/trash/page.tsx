@@ -33,30 +33,32 @@ export default async function TrashPage() {
         </div>
 
         {trashed.length ? (
-          <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-shadow hover:shadow-lg hover:border-gray-400 dark:hover:border-gray-500">
-            {trashed.map((client) => (
-              <li key={client.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <ClientAvatar
-                    photoUrl={client.photoUrl}
-                    firstName={client.firstName}
-                    lastName={client.lastName}
-                    size={40}
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-gray-900 dark:text-gray-100">
-                      {client.firstName} {client.lastName}
-                    </p>
-                    <p className="truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</p>
+          <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
+              {trashed.map((client) => (
+                <li key={client.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <ClientAvatar
+                      photoUrl={client.photoUrl}
+                      firstName={client.firstName}
+                      lastName={client.lastName}
+                      size={40}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-gray-900 dark:text-gray-100">
+                        {client.firstName} {client.lastName}
+                      </p>
+                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</p>
+                    </div>
                   </div>
-                </div>
-                <TrashItemActions
-                  clientId={client.id}
-                  name={`${client.firstName} ${client.lastName}`}
-                />
-              </li>
-            ))}
-          </ul>
+                  <TrashItemActions
+                    clientId={client.id}
+                    name={`${client.firstName} ${client.lastName}`}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : (
           <div className="flex h-[45vh] flex-col items-center justify-center gap-2">
             <p className="text-gray-500 dark:text-gray-400">{t.clients.trash.empty}</p>

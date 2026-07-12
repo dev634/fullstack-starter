@@ -61,7 +61,8 @@ export default async function ProjectsPage({
 
         {projects.length ? (
           <>
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-shadow hover:shadow-lg hover:border-gray-400 dark:hover:border-gray-500">
+            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
               {projects.map((project) => (
                 <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
                   <Link href={`/clients/${project.client.id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
@@ -99,6 +100,7 @@ export default async function ProjectsPage({
                 </li>
               ))}
             </ul>
+            </div>
 
             {totalPages > 1 && (
               <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
