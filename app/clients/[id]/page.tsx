@@ -68,7 +68,7 @@ export default async function ClientPage({ params }: PageProps) {
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-6">
-      <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+      <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
       <div className="overflow-hidden rounded-xl">
 
         {/* Header */}
@@ -156,7 +156,7 @@ export default async function ClientPage({ params }: PageProps) {
       </div>
 
       {/* Projects */}
-      <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+      <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
       <div className="overflow-hidden rounded-xl">
         <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
