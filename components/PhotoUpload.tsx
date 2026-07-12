@@ -71,7 +71,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
+          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded hover:bg-[#d1d5dc] dark:hover:bg-gray-600 cursor-pointer"
         >
           {preview ? t.photoUpload.changePhoto : t.photoUpload.addPhoto}
         </button>

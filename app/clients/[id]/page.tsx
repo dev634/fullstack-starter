@@ -136,7 +136,7 @@ export default async function ClientPage({ params }: PageProps) {
           {canEdit && (
             <Link
               href={`/clients/${id}/edit`}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-600 sm:flex-none"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600 sm:flex-none"
             >
               <PencilSquareIcon className="h-4 w-4" />
               {t.common.edit}
@@ -198,7 +198,7 @@ export default async function ClientPage({ params }: PageProps) {
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/clients/${id}/projects/${project.id}/edit`}
-                      className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600"
+                      className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
                     >
                       <PencilSquareIcon className="h-3.5 w-3.5" />
                       {t.common.edit}

@@ -64,7 +64,7 @@ export default async function ClientsPage({
           <div className="flex items-center gap-2">
             <a
               href={exportHref}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
             >
               <ArrowDownTrayIcon className="h-4 w-4" />
               {t.clients.list.exportCsv}
@@ -72,7 +72,7 @@ export default async function ClientsPage({
             {canEdit && (
               <Link
                 href="/clients/import"
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
               >
                 <ArrowUpTrayIcon className="h-4 w-4" />
                 {t.clients.list.import}
@@ -81,7 +81,7 @@ export default async function ClientsPage({
             {canEdit && (
               <Link
                 href="/clients/trash"
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
               >
                 <TrashIcon className="h-4 w-4" />
                 {t.clients.list.trash}
@@ -90,7 +90,7 @@ export default async function ClientsPage({
             {canEdit && (
               <Link
                 href="/clients/activity"
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
               >
                 <ClockIcon className="h-4 w-4" />
                 {t.clients.list.activity}
@@ -156,7 +156,7 @@ function PageLink({ href, disabled, label }: { href: string; disabled: boolean; 
   return (
     <Link
       href={href}
-      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-[#d1d5dc] dark:hover:bg-gray-700"
     >
       {label}
     </Link>
