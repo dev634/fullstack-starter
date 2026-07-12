@@ -33,7 +33,7 @@ export default async function TrashPage() {
         </div>
 
         {trashed.length ? (
-          <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+          <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
             <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
               {trashed.map((client) => (
                 <li key={client.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
