@@ -7,6 +7,8 @@ import ClientAvatar from "@/components/ClientAvatar";
 import StatusBadge from "@/components/StatusBadge";
 import Modal from "@/components/Modal";
 import { deleteClients } from "@/actions/clients/clients";
+import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 
 type ClientCard = {
   id: number;
@@ -18,6 +20,7 @@ type ClientCard = {
 };
 
 export default function ClientsGrid({ clients, canEdit = true }: { clients: ClientCard[]; canEdit?: boolean }) {
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
@@ -51,21 +54,21 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
     <div className="space-y-4">
       {canEdit && selected.size > 0 && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2">
-          <span className="text-sm text-gray-600 dark:text-gray-300">{selected.size} sélectionné(s)</span>
+          <span className="text-sm text-gray-600 dark:text-gray-300">{format(t.clients.list.selected, { count: selected.size })}</span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setSelected(new Set())}
               className="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
             >
-              Annuler
+              {t.common.cancel}
             </button>
             <button
               type="button"
               onClick={() => setConfirming(true)}
               className="inline-flex items-center gap-1.5 rounded border border-red-500/40 px-3 py-1.5 text-sm font-medium text-red-400 hover:bg-red-500/10 cursor-pointer"
             >
-              Supprimer
+              {t.common.delete}
             </button>
           </div>
         </div>
@@ -79,7 +82,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
                 type="checkbox"
                 checked={selected.has(client.id)}
                 onChange={() => toggle(client.id)}
-                aria-label={`Sélectionner ${client.firstName} ${client.lastName}`}
+                aria-label={format(t.clients.selectClient, { name: `${client.firstName} ${client.lastName}` })}
                 className="absolute right-3 top-3 z-10 h-4 w-4 cursor-pointer accent-blue-500"
               />
             )}
@@ -111,11 +114,11 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
 
       {confirming && (
         <Modal
-          title="Déplacer vers la corbeille"
-          text={`Déplacer ${selected.size} client(s) vers la corbeille ? Tu pourras les restaurer depuis là si besoin.`}
+          title={t.clients.deleteModal.title}
+          text={format(t.clients.deleteModal.bulkText, { count: selected.size })}
           error={error ?? undefined}
-          textForCancel="Annuler"
-          textForConfirm={pending ? "Suppression…" : "Supprimer"}
+          textForCancel={t.common.cancel}
+          textForConfirm={pending ? t.clients.deleteModal.deleting : t.common.delete}
           onClose={() => !pending && setConfirming(false)}
           onConfirm={confirmDelete}
         />

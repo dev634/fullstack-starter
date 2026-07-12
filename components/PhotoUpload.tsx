@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
+import { useTranslation } from "@/components/LocaleProvider";
 
 type PhotoUploadProps = {
   name?: string;
@@ -11,6 +12,7 @@ type PhotoUploadProps = {
 const MAX_BYTES = 5 * 1024 * 1024; // keep in sync with the server-side limit
 
 export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
+  const { t } = useTranslation();
   const [preview, setPreview] = useState<string | null>(defaultUrl ?? null);
   const [removed, setRemoved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,12 +23,12 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setError("Le fichier doit être une image.");
+      setError(t.photoUpload.mustBeImage);
       e.target.value = "";
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError("L'image doit faire 5 Mo maximum.");
+      setError(t.photoUpload.maxSize);
       e.target.value = "";
       return;
     }
@@ -48,7 +50,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
       <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Aperçu de la photo" className="w-full h-full object-cover" />
+          <img src={preview} alt={t.photoUpload.previewAlt} className="w-full h-full object-cover" />
         ) : (
           <UserCircleIcon className="w-24 h-24 text-gray-400 dark:text-gray-500" />
         )}
@@ -71,7 +73,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
           onClick={() => inputRef.current?.click()}
           className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
         >
-          {preview ? "Changer la photo" : "Ajouter une photo"}
+          {preview ? t.photoUpload.changePhoto : t.photoUpload.addPhoto}
         </button>
         {preview && (
           <button
@@ -79,7 +81,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
             onClick={handleRemove}
             className="px-4 py-2 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 cursor-pointer"
           >
-            Retirer
+            {t.photoUpload.remove}
           </button>
         )}
       </div>

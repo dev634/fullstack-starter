@@ -3,14 +3,15 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { MagnifyingGlassIcon, BarsArrowUpIcon, BarsArrowDownIcon } from "@heroicons/react/24/outline";
-
-const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "createdAt", label: "Date de création" },
-  { value: "name", label: "Nom du projet" },
-  { value: "status", label: "Statut" },
-];
+import { useTranslation } from "@/components/LocaleProvider";
 
 export default function ProjectsToolbar() {
+  const { t } = useTranslation();
+  const SORT_OPTIONS: { value: string; label: string }[] = [
+    { value: "createdAt", label: t.projects.list.sortCreatedAt },
+    { value: "name", label: t.projects.list.sortName },
+    { value: "status", label: t.projects.list.sortStatus },
+  ];
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -49,8 +50,8 @@ export default function ProjectsToolbar() {
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Rechercher un projet ou un client…"
-          aria-label="Rechercher un projet"
+          placeholder={t.projects.list.searchPlaceholder}
+          aria-label={t.projects.list.searchLabel}
           className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-2 pl-10 pr-3 text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
       </div>
@@ -59,7 +60,7 @@ export default function ProjectsToolbar() {
         <select
           value={sort}
           onChange={(e) => push({ sort: e.target.value })}
-          aria-label="Trier par"
+          aria-label={t.clients.toolbar.sortLabel}
           className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-gray-100"
         >
           {SORT_OPTIONS.map((o) => (
@@ -69,7 +70,7 @@ export default function ProjectsToolbar() {
         <button
           type="button"
           onClick={() => push({ dir: dir === "asc" ? "desc" : "asc" })}
-          aria-label={dir === "asc" ? "Tri croissant" : "Tri décroissant"}
+          aria-label={dir === "asc" ? t.clients.toolbar.sortAsc : t.clients.toolbar.sortDesc}
           className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
         >
           {dir === "asc" ? <BarsArrowUpIcon className="h-5 w-5" /> : <BarsArrowDownIcon className="h-5 w-5" />}

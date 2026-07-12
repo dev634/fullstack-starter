@@ -6,6 +6,7 @@ import { ClientFields } from "@/forms/ClientFields";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { ClientActionState } from "@/types/client";
 
 const initialState: ClientActionState = {
@@ -14,6 +15,7 @@ const initialState: ClientActionState = {
 }
 
 export default function AddClientForm() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ClientActionState, FormData>(
     addClient,
@@ -64,7 +66,7 @@ export default function AddClientForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Ajouter le client
+        {t.clients.addSubmit}
       </button>
     </form>
   );

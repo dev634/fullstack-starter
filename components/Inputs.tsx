@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { InputProps } from '@/types/inputs';
+import { useTranslation } from '@/components/LocaleProvider';
 
 export function Input({label, name, type = "text", error, value, onChange, fullWidth, step}:InputProps) {
+    const { t } = useTranslation();
     const [showPassword, setShowPassword] = useState(false);
     const isPassword = type === "password";
     const inputType = isPassword && showPassword ? "text" : type;
@@ -27,7 +29,7 @@ export function Input({label, name, type = "text", error, value, onChange, fullW
                     <button
                         type="button"
                         onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                        aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
                         className="absolute right-2 top-1/2 -translate-y-1/2 -mt-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-pointer"
                     >
                         {showPassword ? (

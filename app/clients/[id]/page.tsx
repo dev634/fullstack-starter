@@ -21,6 +21,9 @@ import {
 } from '@heroicons/react/24/outline';
 import DeleteClientButton from './_components/DeleteClientButton';
 import DeleteProjectButton from './_components/DeleteProjectButton';
+import { getLocale } from '@/lib/i18n/getLocale';
+import { getDictionary } from '@/lib/i18n/dictionaries';
+import { localeTag } from '@/lib/i18n/formatDate';
 
 type PageProps = {
   params: Promise<{
@@ -34,11 +37,13 @@ export default async function ClientPage({ params }: PageProps) {
   const client = await getClient(clientId);
   const isError = client.type === "error";
   const isEmpty = client.type === "success" && !client.data
+  const locale = await getLocale();
+  const t = getDictionary(locale);
 
   if(isError){
     return (
     <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto py-8">
-      <Title title="Détail du client" />
+      <Title title={t.clients.detail.title} />
       <p className="text-red-500">{client.message}</p>
     </main>
     )
@@ -46,8 +51,8 @@ export default async function ClientPage({ params }: PageProps) {
 
   if(isEmpty){
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto py-8">
-            <Title title="Détail du client" />
-            <p>Ce client n&apos;existe pas...</p>
+            <Title title={t.clients.detail.title} />
+            <p>{t.clients.detail.notFound}</p>
           </main>
   }
 
@@ -92,20 +97,20 @@ export default async function ClientPage({ params }: PageProps) {
         <dl className="px-4 py-2 sm:px-6">
           <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
             <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">Email</dt>
+            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.email}</dt>
             <dd className="min-w-0 break-all text-sm text-blue-600 dark:text-blue-400">{data.email || "—"}</dd>
           </div>
           {data.phone && (
             <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
               <PhoneIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">Téléphone</dt>
+              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.phone}</dt>
               <dd className="min-w-0 break-all text-sm">{data.phone}</dd>
             </div>
           )}
           {websiteHref && (
             <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
               <LinkIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">Site web</dt>
+              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.website}</dt>
               <dd className="min-w-0 break-all text-sm">
                 <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
                   {data.website}
@@ -115,12 +120,12 @@ export default async function ClientPage({ params }: PageProps) {
           )}
           <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
             <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">Adresse</dt>
+            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.address}</dt>
             <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
           </div>
           <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 py-3 last:border-b-0">
             <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">Localité</dt>
+            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.detail.locality}</dt>
             <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>
           </div>
         </dl>
@@ -133,7 +138,7 @@ export default async function ClientPage({ params }: PageProps) {
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 sm:flex-none"
             >
               <PencilSquareIcon className="h-4 w-4" />
-              Modifier
+              {t.common.edit}
             </Link>
           )}
           {canEdit && <DeleteClientButton clientId={data.id} />}
@@ -142,7 +147,7 @@ export default async function ClientPage({ params }: PageProps) {
             className="inline-flex w-full items-center justify-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 sm:ml-auto sm:w-auto"
           >
             <ArrowLeftIcon className="h-4 w-4" />
-            Retour
+            {t.common.back}
           </Link>
         </div>
 
@@ -153,7 +158,7 @@ export default async function ClientPage({ params }: PageProps) {
         <div className="flex items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <BoltIcon className="h-5 w-5 text-amber-500" />
-            Projets
+            {t.clients.detail.projectsHeading}
           </h2>
           {canEdit && (
             <Link
@@ -161,7 +166,7 @@ export default async function ClientPage({ params }: PageProps) {
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-blue-500 px-3 py-1.5 text-sm text-white hover:bg-blue-600"
             >
               <PlusIcon className="h-4 w-4" />
-              Ajouter un projet
+              {t.clients.detail.addProject}
             </Link>
           )}
         </div>
@@ -179,10 +184,10 @@ export default async function ClientPage({ params }: PageProps) {
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
                     {project.power != null && <span>{project.power} kWc</span>}
                     {project.budget != null && (
-                      <span>{project.budget.toLocaleString("fr-FR")} €</span>
+                      <span>{project.budget.toLocaleString(localeTag(locale))} €</span>
                     )}
                     {project.startDate && (
-                      <span>Début : {new Date(project.startDate).toLocaleDateString("fr-FR")}</span>
+                      <span>{t.projects.list.startPrefix}{new Date(project.startDate).toLocaleDateString(localeTag(locale))}</span>
                     )}
                   </div>
                 </Link>
@@ -193,7 +198,7 @@ export default async function ClientPage({ params }: PageProps) {
                       className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
                     >
                       <PencilSquareIcon className="h-3.5 w-3.5" />
-                      Modifier
+                      {t.common.edit}
                     </Link>
                     <DeleteProjectButton projectId={project.id} clientId={clientId} projectName={project.name} />
                   </div>
@@ -203,7 +208,7 @@ export default async function ClientPage({ params }: PageProps) {
           </ul>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-            Aucun projet pour ce client.
+            {t.clients.detail.noProjects}
           </div>
         )}
       </div>

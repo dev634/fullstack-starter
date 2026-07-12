@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import Title from "@/components/Title";
 import UpdateClientForm from "@/forms/UpdateClientForm";
 import { redirect } from "next/navigation";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 type PageProps = {
     params: Promise<{
@@ -21,24 +23,25 @@ export default async function EditPage({ params }: PageProps){
     const client = await getClient(clientId);
     const isError = client.type === "error";
     const isEmpty = client.type === "success" && !client.data;
+    const t = getDictionary(await getLocale());
 
     if(isError){
         return <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
-                    <Title title="Modifier le client"/>
+                    <Title title={t.clients.editTitle}/>
                     <p className="text-red-500">{client.message}</p>
                </main>
     }
 
     if(isEmpty){
         return <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
-                    <Title title="Modifier le client"/>
-                    <p>Ce client n&apos;existe pas...</p>
+                    <Title title={t.clients.editTitle}/>
+                    <p>{t.clients.detail.notFound}</p>
                </main>
     }
 
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto px-6 py-8">
                 <div className="w-full max-w-2xl">
-                    <Title title="Modifier le client"/>
+                    <Title title={t.clients.editTitle}/>
                     <UpdateClientForm client={client.data!} />
                 </div>
            </main>

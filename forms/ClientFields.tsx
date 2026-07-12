@@ -1,29 +1,6 @@
 import { Client } from "@/app/generated/prisma/client";
 import { Input } from "@/components/Inputs";
-
-const CLIENT_FIELDS: {
-  label: string;
-  name: keyof Omit<Client, "id" | "photoUrl" | "status" | "deletedAt">;
-  type?: "text" | "email";
-  fullWidth?: boolean;
-}[] = [
-  { label: "Prénom", name: "firstName" },
-  { label: "Nom", name: "lastName" },
-  { label: "Email", name: "email", type: "email", fullWidth: true },
-  { label: "Société", name: "companyName", fullWidth: true },
-  { label: "Téléphone", name: "phone" },
-  { label: "Site web", name: "website" },
-  { label: "Adresse", name: "address", fullWidth: true },
-  { label: "Pays", name: "country" },
-  { label: "Ville", name: "city" },
-  { label: "Code postal", name: "zipCode" },
-];
-
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "PROSPECT", label: "Prospect" },
-  { value: "CLIENT", label: "Client" },
-  { value: "INACTIVE", label: "Inactif" },
-];
+import { useTranslation } from "@/components/LocaleProvider";
 
 type ClientFieldsProps = {
   values: Omit<Client, "id" | "photoUrl" | "deletedAt">;
@@ -32,6 +9,32 @@ type ClientFieldsProps = {
 };
 
 export function ClientFields({ values, onChange, errors }: ClientFieldsProps) {
+  const { t } = useTranslation();
+
+  const CLIENT_FIELDS: {
+    label: string;
+    name: keyof Omit<Client, "id" | "photoUrl" | "status" | "deletedAt">;
+    type?: "text" | "email";
+    fullWidth?: boolean;
+  }[] = [
+    { label: t.clients.fields.firstName, name: "firstName" },
+    { label: t.clients.fields.lastName, name: "lastName" },
+    { label: t.clients.fields.email, name: "email", type: "email", fullWidth: true },
+    { label: t.clients.fields.company, name: "companyName", fullWidth: true },
+    { label: t.clients.fields.phone, name: "phone" },
+    { label: t.clients.fields.website, name: "website" },
+    { label: t.clients.fields.address, name: "address", fullWidth: true },
+    { label: t.clients.fields.country, name: "country" },
+    { label: t.clients.fields.city, name: "city" },
+    { label: t.clients.fields.zipCode, name: "zipCode" },
+  ];
+
+  const STATUS_OPTIONS: { value: string; label: string }[] = [
+    { value: "PROSPECT", label: t.clients.status.PROSPECT },
+    { value: "CLIENT", label: t.clients.status.CLIENT },
+    { value: "INACTIVE", label: t.clients.status.INACTIVE },
+  ];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
       {CLIENT_FIELDS.map((field) => (
@@ -48,7 +51,7 @@ export function ClientFields({ values, onChange, errors }: ClientFieldsProps) {
       ))}
 
       <div className="mb-7 sm:col-span-2">
-        <label htmlFor="status" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">Statut</label>
+        <label htmlFor="status" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">{t.clients.fields.status}</label>
         <select
           id="status"
           name="status"

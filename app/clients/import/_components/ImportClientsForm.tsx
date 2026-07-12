@@ -3,10 +3,13 @@
 import { useActionState } from "react";
 import { importClients, type ImportResult } from "@/actions/clients/clients";
 import { ArrowUpTrayIcon } from "@heroicons/react/24/outline";
+import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 
 const initialState: ImportResult = { type: "success", message: "", created: 0, total: 0, errors: [] };
 
 export default function ImportClientsForm() {
+  const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<ImportResult, FormData>(
     async (_prev, formData) => importClients(formData),
     initialState
@@ -17,7 +20,7 @@ export default function ImportClientsForm() {
       <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-6 text-center">
         <ArrowUpTrayIcon className="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
         <label htmlFor="file" className="mt-2 block text-sm text-gray-600 dark:text-gray-300">
-          Choisis un fichier CSV (mêmes colonnes que l&apos;export)
+          {t.clients.import.chooseFile}
         </label>
         <input
           id="file"
@@ -36,7 +39,7 @@ export default function ImportClientsForm() {
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        {isPending ? "Import en cours…" : "Importer"}
+        {isPending ? t.clients.import.importing : t.clients.import.submit}
       </button>
 
       {state.message && (
@@ -52,7 +55,7 @@ export default function ImportClientsForm() {
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {state.errors.map((e, i) => (
                 <li key={i}>
-                  Ligne {e.row}{e.email ? ` (${e.email})` : ""} : {e.message}
+                  {format(t.clients.import.rowLabel, { row: e.row })}{e.email ? ` (${e.email})` : ""} : {e.message}
                 </li>
               ))}
             </ul>

@@ -3,7 +3,10 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import LogoutButton from "@/components/LogoutButton";
+import { LocaleProvider } from "@/components/LocaleProvider";
 import { auth } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,10 +29,12 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const locale = await getLocale();
+  const t = getDictionary(locale);
 
   return (
     <html
-      lang="en"
+      lang={locale}
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
@@ -42,15 +47,17 @@ export default async function RootLayout({
         />
       </head>
       <body className="flex flex-col h-dvh overflow-y-hidden">
-        <Navbar
-          brand={{ href: "/", display: "Fullstack Starter" }}
-          links={session ? [
-            { href: "/clients", display: "Clients" },
-            { href: "/projects", display: "Projets" },
-          ] : []}
-          action={session ? <LogoutButton /> : undefined}
-        />
-        {children}
+        <LocaleProvider locale={locale}>
+          <Navbar
+            brand={{ href: "/", display: t.common.brand }}
+            links={session ? [
+              { href: "/clients", display: t.nav.clients },
+              { href: "/projects", display: t.nav.projects },
+            ] : []}
+            action={session ? <LogoutButton /> : undefined}
+          />
+          {children}
+        </LocaleProvider>
       </body>
     </html>
   );

@@ -5,6 +5,8 @@ import Modal from "@/components/Modal";
 import { FolderIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 import type { ProjectFolder } from "@/app/generated/prisma/client";
 
 type ProjectFolderRowProps = {
@@ -15,6 +17,7 @@ type ProjectFolderRowProps = {
 };
 
 export default function ProjectFolderRow({ folder, clientId, projectId, canEdit }: ProjectFolderRowProps) {
+  const { t } = useTranslation();
   const [openModal, setOpenModal] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +49,7 @@ export default function ProjectFolderRow({ folder, clientId, projectId, canEdit 
         <button
           type="button"
           onClick={() => setOpenModal(true)}
-          aria-label={`Supprimer le dossier ${folder.name}`}
+          aria-label={format(t.files.deleteFolder, { name: folder.name })}
           className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 dark:text-red-400"
         >
           <TrashIcon className="h-4 w-4" />
@@ -54,11 +57,11 @@ export default function ProjectFolderRow({ folder, clientId, projectId, canEdit 
       )}
       {openModal && (
         <Modal
-          title="Supprimer ce dossier"
-          text={`Supprimer « ${folder.name} » et tout son contenu ? Cette action est irréversible.`}
+          title={t.files.deleteFolderTitle}
+          text={format(t.files.deleteFolderText, { name: folder.name })}
           error={error ?? undefined}
-          textForCancel="Annuler"
-          textForConfirm={pending ? "Suppression…" : "Supprimer"}
+          textForCancel={t.common.cancel}
+          textForConfirm={pending ? t.clients.deleteModal.deleting : t.common.delete}
           onClose={() => !pending && setOpenModal(false)}
           onConfirm={handleConfirmDelete}
         />

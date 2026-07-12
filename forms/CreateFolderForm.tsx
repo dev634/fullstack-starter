@@ -2,6 +2,7 @@
 import { addFolder } from "@/actions/projectFiles/projectFiles";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { FolderPlusIcon } from "@heroicons/react/24/outline";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectFileActionState } from "@/types/projectFile";
 
 const initialState: ProjectFileActionState = {
@@ -16,6 +17,7 @@ type CreateFolderFormProps = {
 };
 
 export default function CreateFolderForm({ clientId, projectId, parentId }: CreateFolderFormProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<ProjectFileActionState, FormData>(
     addFolder,
@@ -44,7 +46,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
         className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
       >
         <FolderPlusIcon className="h-3.5 w-3.5" />
-        Nouveau dossier
+        {t.files.newFolder}
       </button>
     );
   }
@@ -59,8 +61,8 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
           type="text"
           name="name"
           autoFocus
-          placeholder="Nom du dossier"
-          aria-label="Nom du dossier"
+          placeholder={t.files.folderNameLabel}
+          aria-label={t.files.folderNameLabel}
           className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
         {state.type === "zodError" && state.fieldsForm?.name && (
@@ -74,14 +76,14 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Créer
+        {t.common.create}
       </button>
       <button
         type="button"
         onClick={() => setOpen(false)}
         className="rounded border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
       >
-        Annuler
+        {t.common.cancel}
       </button>
       {state.type === "error" && (
         <p className="w-full text-xs text-red-500">{state.message}</p>

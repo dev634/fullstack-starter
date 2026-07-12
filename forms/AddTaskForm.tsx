@@ -1,6 +1,7 @@
 'use client'
 import { addTask } from "@/actions/tasks/tasks";
 import { useActionState, useEffect, useRef } from "react";
+import { useTranslation } from "@/components/LocaleProvider";
 import type { TaskActionState } from "@/types/task";
 
 const initialState: TaskActionState = {
@@ -9,6 +10,7 @@ const initialState: TaskActionState = {
 }
 
 export default function AddTaskForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+  const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(
     addTask,
     initialState
@@ -27,8 +29,8 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
         <input
           type="text"
           name="title"
-          placeholder="Nouvelle tâche…"
-          aria-label="Titre de la tâche"
+          placeholder={t.tasks.newPlaceholder}
+          aria-label={t.tasks.titleLabel}
           className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
         />
         {state.type === "zodError" && state.fieldsForm?.title && (
@@ -38,7 +40,7 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
       <input
         type="date"
         name="dueDate"
-        aria-label="Échéance"
+        aria-label={t.tasks.dueDateLabel}
         className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
       />
       <button
@@ -48,7 +50,7 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >
-        Ajouter
+        {t.common.add}
       </button>
       {state.type === "error" && (
         <p className="w-full text-xs text-red-500">{state.message}</p>
