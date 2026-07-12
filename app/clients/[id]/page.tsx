@@ -170,7 +170,7 @@ export default async function ClientPage({ params }: PageProps) {
           <ul className="divide-y divide-gray-200 dark:divide-gray-700">
             {projects.map((project) => (
               <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                <Link href={`/clients/${id}/projects/${project.id}/edit`} className="min-w-0 flex-1 hover:opacity-80">
+                <Link href={`/clients/${id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-medium">{project.name}</span>
                     <ProjectTypeBadge type={project.type} />

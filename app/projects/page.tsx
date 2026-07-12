@@ -58,7 +58,7 @@ export default async function ProjectsPage({
             <ul className="divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               {projects.map((project) => (
                 <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                  <Link href={`/clients/${project.client.id}`} className="min-w-0 flex-1 hover:opacity-80">
+                  <Link href={`/clients/${project.client.id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate font-medium text-gray-900 dark:text-gray-100">{project.name}</span>
                       <ProjectTypeBadge type={project.type} />
