@@ -1,8 +1,10 @@
 import { getClient } from '@/actions/clients/clients';
 import { auth } from '@/lib/auth';
+import { findByClient } from '@/repository/projects';
 import Title from '@/components/Title';
 import ClientAvatar from '@/components/ClientAvatar';
 import StatusBadge from '@/components/StatusBadge';
+import ProjectStatusBadge from '@/components/ProjectStatusBadge';
 import Link from 'next/link';
 import {
   EnvelopeIcon,
@@ -13,8 +15,11 @@ import {
   LinkIcon,
   PencilSquareIcon,
   ArrowLeftIcon,
+  BoltIcon,
+  PlusIcon,
 } from '@heroicons/react/24/outline';
 import DeleteClientButton from './_components/DeleteClientButton';
+import DeleteProjectButton from './_components/DeleteProjectButton';
 
 type PageProps = {
   params: Promise<{
@@ -52,10 +57,12 @@ export default async function ClientPage({ params }: PageProps) {
     : null;
   const session = await auth();
   const canEdit = session?.user?.role === "ADMIN";
+  const projects = await findByClient(clientId);
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
-      <div className="w-full max-w-xl mx-auto overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+      <div className="w-full max-w-3xl mx-auto space-y-6">
+      <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
 
         {/* Header */}
         <div className="flex items-center gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6">
@@ -137,6 +144,67 @@ export default async function ClientPage({ params }: PageProps) {
             Retour
           </Link>
         </div>
+
+      </div>
+
+      {/* Projects */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="flex items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 px-4 py-4 sm:px-6">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <BoltIcon className="h-5 w-5 text-amber-500" />
+            Projets
+          </h2>
+          {canEdit && (
+            <Link
+              href={`/clients/${id}/projects/add`}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-blue-500 px-3 py-1.5 text-sm text-white hover:bg-blue-600"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Ajouter un projet
+            </Link>
+          )}
+        </div>
+
+        {projects.length ? (
+          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            {projects.map((project) => (
+              <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                <Link href={`/clients/${id}/projects/${project.id}/edit`} className="min-w-0 flex-1 hover:opacity-80">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-medium">{project.name}</span>
+                    <ProjectStatusBadge status={project.status} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {project.power != null && <span>{project.power} kWc</span>}
+                    {project.budget != null && (
+                      <span>{project.budget.toLocaleString("fr-FR")} €</span>
+                    )}
+                    {project.startDate && (
+                      <span>Début : {new Date(project.startDate).toLocaleDateString("fr-FR")}</span>
+                    )}
+                  </div>
+                </Link>
+                {canEdit && (
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/clients/${id}/projects/${project.id}/edit`}
+                      className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600"
+                    >
+                      <PencilSquareIcon className="h-3.5 w-3.5" />
+                      Modifier
+                    </Link>
+                    <DeleteProjectButton projectId={project.id} clientId={clientId} projectName={project.name} />
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+            Aucun projet pour ce client.
+          </div>
+        )}
+      </div>
 
       </div>
     </main>

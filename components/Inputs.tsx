@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { InputProps } from '@/types/inputs';
 
-export function Input({label, name, type = "text", error, value, onChange, fullWidth}:InputProps) {
+export function Input({label, name, type = "text", error, value, onChange, fullWidth, step}:InputProps) {
     const [showPassword, setShowPassword] = useState(false);
     const isPassword = type === "password";
     const inputType = isPassword && showPassword ? "text" : type;
@@ -18,6 +18,7 @@ export function Input({label, name, type = "text", error, value, onChange, fullW
                     type={inputType}
                     name={name}
                     placeholder={label}
+                    step={type === "number" ? (step ?? "any") : undefined}
                     className={`w-full mb-2 p-2 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500${isPassword ? " pr-10" : ""}`}
                     value={value}
                     onChange={onChange}
