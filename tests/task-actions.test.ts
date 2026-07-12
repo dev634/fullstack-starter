@@ -11,6 +11,7 @@ vi.mock("@/repository/tasks", () => ({
   findByProject: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addTask, toggleTask, deleteTask } from "@/actions/tasks/tasks";
 import { requireRole } from "@/lib/authz";

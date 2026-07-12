@@ -5,6 +5,8 @@ import { requireRole } from "@/lib/authz";
 import { createTaskSchema } from "@/schemas/task";
 import { create, toggle, remove } from "@/repository/tasks";
 import { revalidatePath } from "next/cache";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { TaskActionState } from "@/types/task";
 
 export async function addTask(
@@ -14,14 +16,15 @@ export async function addTask(
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
+  const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
   const parsed = createTaskSchema.safeParse(raw);
   if (!parsed.success) {
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -35,14 +38,14 @@ export async function addTask(
     return {
       ...prevState,
       type: "success",
-      message: "Task added.",
+      message: t.tasks.messages.added,
       data: task,
     };
   } catch (error) {
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, "Server error adding task."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -56,17 +59,18 @@ export async function toggleTask(id: number, done: boolean, clientId: number, pr
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid task ID" };
+      throw { type: "error", message: t.tasks.messages.invalidId };
     }
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
-    return { type: "success" as const, message: "Task updated.", data: task };
+    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error updating task."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -75,17 +79,18 @@ export async function deleteTask(id: number, clientId: number, projectId: number
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid task ID" };
+      throw { type: "error", message: t.tasks.messages.invalidId };
     }
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
-    return { type: "success" as const, message: "Task deleted.", data: task };
+    return { type: "success" as const, message: t.tasks.messages.deleted, data: task };
   } catch (error) {
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error deleting task."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }

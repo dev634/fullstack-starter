@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Map()) }));
+vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 vi.mock("@/lib/auth", () => ({ signIn: vi.fn(), signOut: vi.fn() }));
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
 vi.mock("@/lib/email", () => ({ sendPasswordResetEmail: vi.fn() }));

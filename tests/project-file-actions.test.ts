@@ -19,6 +19,7 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyProjectFile: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addFolder, uploadFile, deleteFile, deleteFolder } from "@/actions/projectFiles/projectFiles";
 import { requireRole } from "@/lib/authz";

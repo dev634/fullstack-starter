@@ -8,6 +8,9 @@ import { formDataToObject } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit";
 import { sendPasswordResetEmail } from "@/lib/email";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 import {
   loginSchema,
   requestResetSchema,
@@ -33,6 +36,7 @@ export async function login(
   prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
+  const t = getDictionary(await getLocale());
   const credentials = formDataToObject(formData) as LoginInput;
 
   const parsed = loginSchema.safeParse(credentials);
@@ -40,8 +44,8 @@ export async function login(
     return {
       ...prevState,
       type: "zodError",
-      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -52,7 +56,7 @@ export async function login(
     return {
       ...prevState,
       type: "error",
-      message: `Trop de tentatives. Réessaie dans ${Math.ceil(rl.retryAfterMs / 60000)} min.`,
+      message: format(t.auth.tooManyAttempts, { minutes: Math.ceil(rl.retryAfterMs / 60000) }),
     };
   }
 
@@ -70,7 +74,7 @@ export async function login(
       return {
         ...prevState,
         type: "error",
-        message: "Email ou mot de passe invalide.",
+        message: t.auth.invalidCredentials,
       };
     }
     throw error;
@@ -95,8 +99,6 @@ async function getBaseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-const RESET_REQUESTED_MESSAGE = "Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.";
-
 /**
  * Request a password reset link. Always resolves with the same generic
  * message regardless of whether the email exists or was rate-limited, so a
@@ -106,14 +108,15 @@ export async function requestPasswordReset(
   prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
+  const t = getDictionary(await getLocale());
   const data = formDataToObject(formData) as RequestResetInput;
   const parsed = requestResetSchema.safeParse(data);
   if (!parsed.success) {
     return {
       ...prevState,
       type: "zodError",
-      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -133,7 +136,7 @@ export async function requestPasswordReset(
     }
   }
 
-  return { ...prevState, type: "success", message: RESET_REQUESTED_MESSAGE };
+  return { ...prevState, type: "success", message: t.auth.resetLinkSent };
 }
 
 /** Consume a reset token and set the new password. */
@@ -141,14 +144,15 @@ export async function resetPassword(
   prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
+  const t = getDictionary(await getLocale());
   const data = formDataToObject(formData) as ResetPasswordInput;
   const parsed = resetPasswordSchema.safeParse(data);
   if (!parsed.success) {
     return {
       ...prevState,
       type: "zodError",
-      message: "Erreur de validation. Vérifie les informations saisies et réessaie.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -157,7 +161,7 @@ export async function resetPassword(
     return {
       ...prevState,
       type: "error",
-      message: "Ce lien de réinitialisation est invalide ou a expiré.",
+      message: t.auth.resetLinkInvalidOrExpired,
     };
   }
 
@@ -165,7 +169,7 @@ export async function resetPassword(
   await updatePassword(record.userId, hashed);
   await markResetTokenUsed(record.id);
 
-  return { ...prevState, type: "success", message: "Mot de passe mis à jour. Tu peux maintenant te connecter." };
+  return { ...prevState, type: "success", message: t.auth.passwordUpdated };
 }
 
 export async function logout() {

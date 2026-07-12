@@ -17,6 +17,20 @@ const en: Dictionary = {
         loading: "Loading…",
         pagination: "Pagination",
     },
+    errors: {
+        required: "This field is required.",
+        invalidEmail: "Invalid email address.",
+        invalidValue: "Invalid value.",
+        invalid: "Invalid field.",
+        minLength: "Must be at least {min} characters.",
+        passwordMismatch: "Passwords do not match.",
+        notANumber: "Must be a number.",
+        validationError: "Validation error. Please check your input and try again.",
+        unauthorized: "Unauthorized. Please sign in.",
+        forbidden: "Forbidden. Your role does not allow this action.",
+        invalidId: "Invalid ID.",
+        serverError: "Server error. Please try again later.",
+    },
     nav: {
         clients: "Clients",
         projects: "Projects",
@@ -56,6 +70,11 @@ const en: Dictionary = {
         resetPassword: "Reset password",
         showPassword: "Show password",
         hidePassword: "Hide password",
+        invalidCredentials: "Invalid email or password.",
+        tooManyAttempts: "Too many attempts. Try again in {minutes} min.",
+        resetLinkSent: "If an account exists for this email, a reset link has been sent.",
+        resetLinkInvalidOrExpired: "This reset link is invalid or has expired.",
+        passwordUpdated: "Password updated. You can now sign in.",
     },
     photoUpload: {
         mustBeImage: "The file must be an image.",
@@ -160,6 +179,21 @@ const en: Dictionary = {
             submit: "Import",
             rowLabel: "Row {row}",
         },
+        messages: {
+            created: "Client added successfully!",
+            updated: "Client updated successfully.",
+            duplicateEmail: "A client with this email already exists. Please use a different email.",
+            deletedBulk: "{count} client(s) deleted.",
+            noneSelected: "No client selected.",
+            restored: "Client restored.",
+            permanentlyDeleted: "Client permanently deleted.",
+            missingId: "Missing client ID.",
+            chooseCsvFile: "Please choose a CSV file.",
+            emptyCsvFile: "The file is empty or has no data rows.",
+            importedSuccess: "{count} client(s) imported.",
+            importedPartial: "{count} client(s) imported, {errors} row(s) failed.",
+            invalidRow: "Invalid row.",
+        },
     },
     projects: {
         status: {
@@ -222,6 +256,12 @@ const en: Dictionary = {
             deleteAriaLabel: "Delete {name}",
             deleting: "Deleting…",
         },
+        messages: {
+            created: "Project created successfully.",
+            updated: "Project updated successfully.",
+            deleted: "Project deleted.",
+            invalidId: "Invalid project ID.",
+        },
     },
     tasks: {
         newPlaceholder: "New task…",
@@ -230,6 +270,12 @@ const en: Dictionary = {
         markDone: "Mark « {title} » as done",
         markUndone: "Mark « {title} » as not done",
         deleteTask: "Delete task {title}",
+        messages: {
+            added: "Task added.",
+            updated: "Task updated.",
+            deleted: "Task deleted.",
+            invalidId: "Invalid task ID.",
+        },
     },
     files: {
         newFolder: "New folder",
@@ -245,6 +291,17 @@ const en: Dictionary = {
         sizeKB: "{size} KB",
         sizeMB: "{size} MB",
         home: "Root",
+        messages: {
+            folderCreated: "Folder created.",
+            fileUploaded: "File uploaded.",
+            fileDeleted: "File deleted.",
+            folderDeleted: "Folder deleted.",
+            invalidProject: "Invalid project.",
+            chooseFileToUpload: "Please choose a file to upload.",
+            fileNotFound: "File not found.",
+            invalidFolderId: "Invalid folder ID.",
+            invalidFileId: "Invalid file ID.",
+        },
     },
 };
 
