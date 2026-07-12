@@ -2,6 +2,7 @@ import { search, type ProjectSortField } from "@/repository/projects";
 import { auth } from "@/lib/auth";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
+import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectsToolbar from "./_components/ProjectsToolbar";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
@@ -60,6 +61,7 @@ export default async function ProjectsPage({
                   <Link href={`/clients/${project.client.id}`} className="min-w-0 flex-1 hover:opacity-80">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate font-medium text-gray-900 dark:text-gray-100">{project.name}</span>
+                      <ProjectTypeBadge type={project.type} />
                       <ProjectStatusBadge status={project.status} />
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">

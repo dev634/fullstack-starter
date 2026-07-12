@@ -45,11 +45,19 @@ enum ProjectStatus {
   ANNULE         // annulé
 }
 
+enum ProjectType {
+  CENTRALE_AU_SOL
+  OMBRIERE
+  TOITURE
+  AUTRE
+}
+
 model Project {
   id          Int           @id @default(autoincrement())
   client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId    Int
   name        String
+  type        ProjectType   @default(AUTRE)
   status      ProjectStatus @default(ETUDE)
   // Puissance crête en kWc, budget en euros — nullable tant que non chiffrés.
   power       Float?
@@ -61,6 +69,47 @@ model Project {
   notes       String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  tasks       ProjectTask[]
+  folders     ProjectFolder[]
+  files       ProjectFile[]
+}
+
+model ProjectTask {
+  id        Int       @id @default(autoincrement())
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  title     String
+  done      Boolean   @default(false)
+  dueDate   DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// Self-referential tree: a folder can live at the project root (parentId
+// null) or nest inside another folder of the same project.
+model ProjectFolder {
+  id        Int             @id @default(autoincrement())
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  name      String
+  parent    ProjectFolder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId  Int?
+  children  ProjectFolder[] @relation("FolderChildren")
+  files     ProjectFile[]
+  createdAt DateTime        @default(now())
+}
+
+model ProjectFile {
+  id        Int            @id @default(autoincrement())
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  folder    ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId  Int?
+  name      String
+  url       String
+  publicId  String
+  size      Int?
+  mimeType  String?
+  createdAt DateTime       @default(now())
 }
 
 enum Role {
