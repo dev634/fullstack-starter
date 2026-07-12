@@ -33,6 +33,34 @@ model Client {
   website String?
   status ClientStatus @default(PROSPECT)
   deletedAt DateTime?
+  projects Project[]
+}
+
+enum ProjectStatus {
+  ETUDE          // étude / devis en cours
+  SIGNE          // devis signé
+  EN_COURS       // installation en cours
+  RACCORDEMENT   // en attente de raccordement / mise en service
+  TERMINE        // chantier terminé
+  ANNULE         // annulé
+}
+
+model Project {
+  id          Int           @id @default(autoincrement())
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    Int
+  name        String
+  status      ProjectStatus @default(ETUDE)
+  // Puissance crête en kWc, budget en euros — nullable tant que non chiffrés.
+  power       Float?
+  budget      Float?
+  // Adresse du chantier : peut différer de l'adresse de facturation du client.
+  address     String?
+  startDate   DateTime?
+  endDate     DateTime?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
 enum Role {
