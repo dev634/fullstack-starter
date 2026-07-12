@@ -9,6 +9,13 @@ export const projectStatusSchema = z.enum([
     "ANNULE",
 ]);
 
+export const projectTypeSchema = z.enum([
+    "CENTRALE_AU_SOL",
+    "OMBRIERE",
+    "TOITURE",
+    "AUTRE",
+]);
+
 // Numeric/date fields arrive as strings from HTML form inputs — coerce and
 // treat an empty string as "not provided" (optional) rather than a zod error.
 const optionalNumber = z
@@ -25,6 +32,7 @@ const optionalDate = z
 export const createProjectSchema = z.object({
     clientId: z.coerce.number().int().positive(),
     name: z.string().min(1, "Project name is required"),
+    type: projectTypeSchema.default("AUTRE"),
     status: projectStatusSchema.default("ETUDE"),
     power: optionalNumber,
     budget: optionalNumber,

@@ -19,6 +19,7 @@ export default function AddProjectForm({ clientId }: { clientId: number }) {
   );
   const [values, setValues] = useState<ProjectFormValues>({
     name: "",
+    type: "AUTRE",
     status: "ETUDE",
     power: "",
     budget: "",

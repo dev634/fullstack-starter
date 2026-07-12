@@ -2,6 +2,7 @@ import { Input } from "@/components/Inputs";
 
 export type ProjectFormValues = {
   name: string;
+  type: string;
   status: string;
   power: string;
   budget: string;
@@ -10,6 +11,13 @@ export type ProjectFormValues = {
   endDate: string;
   notes: string;
 };
+
+const TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "CENTRALE_AU_SOL", label: "Centrale au sol" },
+  { value: "OMBRIERE", label: "Ombrière" },
+  { value: "TOITURE", label: "Toiture" },
+  { value: "AUTRE", label: "Autre" },
+];
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "ETUDE", label: "Étude" },
@@ -30,6 +38,21 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
       <Input label="Nom du projet" name="name" value={values.name} onChange={onChange} error={errors} fullWidth />
+
+      <div className="mb-7">
+        <label htmlFor="type" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">Type de projet</label>
+        <select
+          id="type"
+          name="type"
+          value={values.type}
+          onChange={onChange}
+          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+        >
+          {TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="mb-7">
         <label htmlFor="status" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">Statut</label>

@@ -1,0 +1,58 @@
+'use client'
+import { addTask } from "@/actions/tasks/tasks";
+import { useActionState, useEffect, useRef } from "react";
+import type { TaskActionState } from "@/types/task";
+
+const initialState: TaskActionState = {
+  type: null,
+  message: "",
+}
+
+export default function AddTaskForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+  const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(
+    addTask,
+    initialState
+  );
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (state.type === "success") formRef.current?.reset();
+  }, [state]);
+
+  return (
+    <form ref={formRef} action={formAction} className="flex flex-wrap items-start gap-2 px-4 py-3 sm:px-6">
+      <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="projectId" value={projectId} />
+      <div className="min-w-[160px] flex-1">
+        <input
+          type="text"
+          name="title"
+          placeholder="Nouvelle tâche…"
+          aria-label="Titre de la tâche"
+          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        />
+        {state.type === "zodError" && state.fieldsForm?.title && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.title}</p>
+        )}
+      </div>
+      <input
+        type="date"
+        name="dueDate"
+        aria-label="Échéance"
+        className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+      />
+      <button
+        type="submit"
+        disabled={isPending}
+        className={`rounded bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600 cursor-pointer ${
+          isPending ? "opacity-50 cursor-not-allowed" : ""
+        }`}
+      >
+        Ajouter
+      </button>
+      {state.type === "error" && (
+        <p className="w-full text-xs text-red-500">{state.message}</p>
+      )}
+    </form>
+  );
+}

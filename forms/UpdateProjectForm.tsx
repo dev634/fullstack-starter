@@ -25,6 +25,7 @@ export default function UpdateProjectForm({ project }: { project: Project }) {
   );
   const [values, setValues] = useState<ProjectFormValues>({
     name: project.name,
+    type: project.type,
     status: project.status,
     power: project.power?.toString() ?? "",
     budget: project.budget?.toString() ?? "",

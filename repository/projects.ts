@@ -64,6 +64,7 @@ export async function search({
 type ProjectData = {
     clientId: number;
     name: string;
+    type?: string;
     status: string;
     power?: number;
     budget?: number;
@@ -79,6 +80,7 @@ export async function create(data: ProjectData) {
             data: {
                 clientId: data.clientId,
                 name: data.name,
+                type: (data.type ?? "AUTRE") as never,
                 status: data.status as never,
                 power: data.power ?? null,
                 budget: data.budget ?? null,
@@ -135,6 +137,7 @@ export async function update(id: number, data: ProjectData) {
             where: { id },
             data: {
                 name: data.name,
+                type: (data.type ?? "AUTRE") as never,
                 status: data.status as never,
                 power: data.power ?? null,
                 budget: data.budget ?? null,
