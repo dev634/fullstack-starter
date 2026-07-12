@@ -102,7 +102,7 @@ function PageLink({ page, disabled, label }: { page: number; disabled: boolean; 
   return (
     <Link
       href={`/clients/activity?page=${page}`}
-      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-[#d1d5dc] dark:hover:bg-gray-700"
     >
       {label}
     </Link>

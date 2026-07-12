@@ -43,7 +43,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+        className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600 cursor-pointer"
       >
         <FolderPlusIcon className="h-3.5 w-3.5" />
         {t.files.newFolder}
@@ -81,7 +81,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
       <button
         type="button"
         onClick={() => setOpen(false)}
-        className="rounded border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+        className="rounded border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer"
       >
         {t.common.cancel}
       </button>

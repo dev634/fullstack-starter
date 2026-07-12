@@ -74,7 +74,7 @@ export default function ClientsToolbar() {
           type="button"
           onClick={() => push({ dir: dir === "asc" ? "desc" : "asc" })}
           aria-label={dir === "asc" ? t.clients.toolbar.sortAsc : t.clients.toolbar.sortDesc}
-          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer"
         >
           {dir === "asc" ? <BarsArrowUpIcon className="h-5 w-5" /> : <BarsArrowDownIcon className="h-5 w-5" />}
         </button>

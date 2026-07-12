@@ -144,7 +144,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             {canEdit && (
               <Link
                 href={`/clients/${id}/projects/${pid}/edit`}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-600 sm:flex-none"
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-sm font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600 sm:flex-none"
               >
                 <PencilSquareIcon className="h-4 w-4" />
                 {t.common.edit}

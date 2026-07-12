@@ -59,7 +59,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             <button
               type="button"
               onClick={() => setSelected(new Set())}
-              className="rounded border border-gray-300 dark:border-gray-600 bg-white px-3 py-1.5 text-sm text-gray-600 dark:bg-transparent dark:text-gray-300 hover:bg-[#e5e7eb] dark:hover:bg-gray-700 cursor-pointer"
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white px-3 py-1.5 text-sm text-gray-600 dark:bg-transparent dark:text-gray-300 hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer"
             >
               {t.common.cancel}
             </button>

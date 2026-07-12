@@ -23,7 +23,7 @@ export default function Modal({ className, title, text, error, textForCancel, te
         <div className="flex justify-end space-x-6">
           {textForCancel && (
             <button
-              className="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
+              className="bg-gray-100 dark:bg-gray-700 hover:bg-[#d1d5dc] dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
               onClick={onClose}
             >
               {textForCancel}

@@ -85,7 +85,7 @@ export default async function ProjectsPage({
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/clients/${project.client.id}/projects/${project.id}/edit`}
-                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-600"
+                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
                       >
                         <PencilSquareIcon className="h-3.5 w-3.5" />
                         {t.common.edit}
@@ -140,7 +140,7 @@ function PageLink({ href, disabled, label }: { href: string; disabled: boolean; 
   return (
     <Link
       href={href}
-      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-[#d1d5dc] dark:hover:bg-gray-700"
     >
       {label}
     </Link>
