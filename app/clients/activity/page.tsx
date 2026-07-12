@@ -52,7 +52,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
 
         {entries.length ? (
           <>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm">
               {entries.map((entry) => {
                 const label = actionLabels[entry.action] ?? entry.action;
                 const className = ACTION_CLASSES[entry.action] ?? "";
@@ -100,7 +100,7 @@ function PageLink({ page, disabled, label }: { page: number; disabled: boolean; 
   return (
     <Link
       href={`/clients/activity?page=${page}`}
-      className="rounded border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+      className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
     >
       {label}
     </Link>

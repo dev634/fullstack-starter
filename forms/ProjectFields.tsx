@@ -49,7 +49,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           name="type"
           value={values.type}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         >
           {TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -64,7 +64,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           name="status"
           value={values.status}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -86,7 +86,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           name="startDate"
           value={values.startDate}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         />
       </div>
       <div className="mb-7">
@@ -97,7 +97,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           name="endDate"
           value={values.endDate}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         />
       </div>
 
@@ -109,7 +109,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           rows={4}
           value={values.notes}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100 placeholder-gray-500"
           placeholder={t.projects.fields.notes}
         />
       </div>

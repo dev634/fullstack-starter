@@ -5,10 +5,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Slightly off-white so bg-white cards/inputs stand out against the page,
-     mirroring the dark theme's contrast between its near-black page and
-     bg-gray-800 cards. */
-  --background: #f1f5f9;
+  --background: #ffffff;
   --foreground: #171717;
 }
 

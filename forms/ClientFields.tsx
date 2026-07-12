@@ -57,7 +57,7 @@ export function ClientFields({ values, onChange, errors }: ClientFieldsProps) {
           name="status"
           value={values.status}
           onChange={onChange}
-          className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>

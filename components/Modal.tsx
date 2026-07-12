@@ -16,7 +16,7 @@ export default function Modal({ className, title, text, error, textForCancel, te
 
     return (
     <div className={className || 'fixed inset-0 flex items-center justify-center bg-black/50 z-50 pointer-events-none'}>
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-6 rounded shadow-lg mx-8 text-gray-900 dark:text-gray-100">
+      <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-6 rounded shadow-lg mx-8 text-gray-900 dark:text-gray-100">
         {title && <h2 className="text-xl font-bold mb-4">{title}</h2>}
         {text && <p className="text-gray-600 dark:text-gray-300 mb-4">{text}</p>}
         {error && <p className="text-red-400 mb-4" aria-live="polite">{error}</p>}
