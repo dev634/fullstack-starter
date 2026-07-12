@@ -89,7 +89,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       <div className="w-full max-w-3xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
           <div className="border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
@@ -163,7 +163,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
 
         {/* Tasks */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
           <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -198,7 +198,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
 
         {/* Files */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">

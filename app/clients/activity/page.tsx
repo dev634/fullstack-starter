@@ -52,7 +52,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
 
         {entries.length ? (
           <>
-            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
               <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
                 {entries.map((entry) => {
                   const label = actionLabels[entry.action] ?? entry.action;
