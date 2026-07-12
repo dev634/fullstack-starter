@@ -1,4 +1,65 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
+
+export type ProjectSortField = "name" | "status" | "createdAt";
+
+type ProjectSearchArgs = {
+    q?: string;
+    sortField?: ProjectSortField;
+    dir?: "asc" | "desc";
+    page?: number;
+    pageSize?: number;
+};
+
+/**
+ * Paginated, filterable listing across every client's projects. `q` matches
+ * the project name or the owning client's name/company. Excludes projects
+ * whose client is in the trash.
+ */
+export async function search({
+    q = "",
+    sortField = "createdAt",
+    dir = "desc",
+    page = 1,
+    pageSize = 12,
+}: ProjectSearchArgs) {
+    const term = q.trim();
+    const where: Prisma.ProjectWhereInput = {
+        client: { deletedAt: null },
+        ...(term
+            ? {
+                OR: [
+                    { name: { contains: term, mode: Prisma.QueryMode.insensitive } },
+                    { client: { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
+                    { client: { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
+                    { client: { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
+                ],
+            }
+            : {}),
+    };
+
+    try {
+        const [projects, total] = await Promise.all([
+            prisma.project.findMany({
+                where,
+                include: {
+                    client: { select: { id: true, firstName: true, lastName: true, companyName: true } },
+                },
+                orderBy: { [sortField]: dir } as Prisma.ProjectOrderByWithRelationInput,
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+            }),
+            prisma.project.count({ where }),
+        ]);
+        return { projects, total };
+    } catch (error) {
+        console.log("Repository search (project) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error searching projects.",
+        };
+    }
+}
 
 type ProjectData = {
     clientId: number;

@@ -44,7 +44,10 @@ export default async function RootLayout({
       <body className="flex flex-col h-dvh overflow-y-hidden">
         <Navbar
           brand={{ href: "/", display: "Fullstack Starter" }}
-          links={session ? [{ href: "/clients", display: "Clients" }] : []}
+          links={session ? [
+            { href: "/clients", display: "Clients" },
+            { href: "/projects", display: "Projets" },
+          ] : []}
           action={session ? <LogoutButton /> : undefined}
         />
         {children}
