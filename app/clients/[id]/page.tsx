@@ -68,7 +68,7 @@ export default async function ClientPage({ params }: PageProps) {
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-6">
-      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
 
         {/* Header */}
         <div className="flex items-center gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
@@ -154,7 +154,7 @@ export default async function ClientPage({ params }: PageProps) {
       </div>
 
       {/* Projects */}
-      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
         <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
             <BoltIcon className="h-5 w-5 text-amber-500" />

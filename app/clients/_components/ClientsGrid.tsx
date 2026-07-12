@@ -88,7 +88,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             )}
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-gray-100 dark:bg-gray-800 p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
+              className={`flex h-full items-center gap-4 rounded-lg border bg-gray-100 dark:bg-gray-800 p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-gray-200 hover:shadow-md dark:hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
                 selected.has(client.id) ? "border-blue-500" : "border-gray-300 dark:border-gray-700"
               }`}
             >

@@ -89,7 +89,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       <div className="w-full max-w-3xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
           <div className="border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold">{project.name}</h1>
@@ -161,7 +161,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
 
         {/* Tasks */}
-        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
           <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
@@ -194,7 +194,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
 
         {/* Files */}
-        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm transition-shadow hover:shadow-md hover:border-gray-400 dark:hover:border-gray-600">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <FolderIcon className="h-5 w-5 text-amber-500" />
