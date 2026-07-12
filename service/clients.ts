@@ -2,6 +2,8 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { create, findAll } from "@/repository/clients";
 import { CreateClientInput, createClientSchema } from "@/schemas/client";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 
 
@@ -19,14 +21,15 @@ type OrderEnum = "asc" | "desc";
 export type GetClientsByOrder = OneKeyOnly<Record<keyof CreateClientInput, OrderEnum>>
 
 export async function createClient(data: CreateClientInput & { photoUrl?: string | null }) {
+    const t = getDictionary(await getLocale());
     try {
         const parsedData = createClientSchema.safeParse(data);
 
         if (!parsedData.success) {
             throw {
                 type: "zodError",
-                message: "Validation error. Please check your input and try again.",
-                fieldsForm: makeObjectFromZodError(parsedData.error)
+                message: t.errors.validationError,
+                fieldsForm: makeObjectFromZodError(parsedData.error, t)
             };
         }
 
@@ -38,7 +41,7 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
         });
         return {
             type: "success",
-            message: `Client ajouté avec succès !`,
+            message: t.clients.messages.created,
             data: created,
         }
 
@@ -48,7 +51,7 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
             if(error.code === "P2002") {
                 throw {
                     type: "error",
-                    message: "A client with this email already exists. Please use a different email."
+                    message: t.clients.messages.duplicateEmail
                 }
             }
         }
@@ -59,7 +62,7 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
 
         throw {
             type: "error",
-            message: "Server error adding client."
+            message: t.errors.serverError
         }
     }
 }
@@ -69,9 +72,10 @@ export async function getClients(orderBy: GetClientsByOrder) {
         const clients = await findAll(orderBy);
         return clients;
     } catch {
+        const t = getDictionary(await getLocale());
         throw {
             type: "error",
-            message: "Server error fetching clients."
+            message: t.errors.serverError
         }
     }
 }

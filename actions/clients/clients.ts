@@ -8,6 +8,9 @@ import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { parseCsvRecords, CLIENT_CSV_COLUMNS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 import type { ClientActionState } from "@/types/client";
 
 const HEADER_TO_FIELD: Record<string, string> = Object.fromEntries(
@@ -21,6 +24,7 @@ export async function addClient(
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
+  const t = getDictionary(await getLocale());
   const clientDatas = formDataToObject(formData) as CreateClientInput;
 
   try {
@@ -55,7 +59,7 @@ export async function addClient(
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, "Server error adding client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -64,11 +68,12 @@ export async function getClient(id: number) {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
       throw {
         type: "error",
-        message: "Invalid client ID.",
+        message: t.errors.invalidId,
       };
     }
 
@@ -83,7 +88,7 @@ export async function getClient(id: number) {
     console.log("Action getClient error:", error);
     return {
       type: "error",
-      message: getErrorMessage(error, "Server error fetching client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -95,16 +100,17 @@ export async function updateClient(
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
+  const t = getDictionary(await getLocale());
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
   try {
     if (!clientDatas.id) {
-      return { type: "error", message: "Missing client ID" };
+      return { type: "error", message: t.clients.messages.missingId };
     }
     const id = parseInt(clientDatas.id.toString(), 10);
     if (isNaN(id)) {
       throw {
         type: "error",
-        message: "Invalid client ID",
+        message: t.errors.invalidId,
       };
     }
 
@@ -141,14 +147,14 @@ export async function updateClient(
     revalidatePath(`/clients/${id}`);
     return {
       type: "success",
-      message: "Client mis à jour avec succès.",
+      message: t.clients.messages.updated,
       data: client,
     };
   } catch (error) {
     console.log("Action updateClient error:", error);
     return {
       type: "error",
-      message: getErrorMessage(error, "Server error updating client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -174,11 +180,12 @@ export async function deleteClient(id: number) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
       throw {
         type: "error",
-        message: "Invalid client ID",
+        message: t.errors.invalidId,
       };
     }
     const existing = await findById(id);
@@ -195,7 +202,7 @@ export async function deleteClient(id: number) {
     console.log("Action deleteClient error:", error);
     return {
       type: "error",
-      message: getErrorMessage(error, "Server error deleting client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -208,10 +215,11 @@ export async function deleteClients(ids: number[]) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     const valid = ids.filter((id) => Number.isInteger(id) && id > 0);
     if (valid.length === 0) {
-      return { type: "error" as const, message: "No client selected." };
+      return { type: "error" as const, message: t.clients.messages.noneSelected };
     }
     for (const id of valid) {
       const existing = await findById(id);
@@ -224,12 +232,12 @@ export async function deleteClients(ids: number[]) {
       });
     }
     revalidatePath("/clients");
-    return { type: "success" as const, message: `${valid.length} client(s) deleted.` };
+    return { type: "success" as const, message: format(t.clients.messages.deletedBulk, { count: valid.length }) };
   } catch (error) {
     console.log("Action deleteClients error:", error);
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error deleting clients."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -239,9 +247,10 @@ export async function restoreClient(id: number) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid client ID" };
+      throw { type: "error", message: t.errors.invalidId };
     }
     const client = await restore(id);
     await logActivity({
@@ -252,12 +261,12 @@ export async function restoreClient(id: number) {
     });
     revalidatePath("/clients");
     revalidatePath("/clients/trash");
-    return { type: "success" as const, message: "Client restored.", data: client };
+    return { type: "success" as const, message: t.clients.messages.restored, data: client };
   } catch (error) {
     console.log("Action restoreClient error:", error);
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error restoring client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -270,9 +279,10 @@ export async function permanentlyDeleteClient(id: number) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid client ID" };
+      throw { type: "error", message: t.errors.invalidId };
     }
     const existing = await findById(id);
     const client = await permanentlyRemove(id);
@@ -284,12 +294,12 @@ export async function permanentlyDeleteClient(id: number) {
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients/trash");
-    return { type: "success" as const, message: "Client permanently deleted.", data: client };
+    return { type: "success" as const, message: t.clients.messages.permanentlyDeleted, data: client };
   } catch (error) {
     console.log("Action permanentlyDeleteClient error:", error);
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error permanently deleting client."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -311,19 +321,20 @@ export type ImportResult = {
  */
 export async function importClients(formData: FormData): Promise<ImportResult> {
   const roleCheck = await requireRole("ADMIN");
+  const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
   }
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return { type: "error", message: "Please choose a CSV file.", created: 0, total: 0, errors: [] };
+    return { type: "error", message: t.clients.messages.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
   const text = await file.text();
   const records = parseCsvRecords(text);
   if (records.length === 0) {
-    return { type: "error", message: "The file is empty or has no data rows.", created: 0, total: 0, errors: [] };
+    return { type: "error", message: t.clients.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
   }
 
   let created = 0;
@@ -350,7 +361,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
       errors.push({
         row: rowNumber,
         email: record.Email,
-        message: getErrorMessage(error, "Invalid row."),
+        message: getErrorMessage(error, t.clients.messages.invalidRow),
       });
     }
   }
@@ -369,8 +380,8 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
     type: created > 0 ? "success" : "error",
     message:
       errors.length === 0
-        ? `${created} client(s) importé(s).`
-        : `${created} client(s) importé(s), ${errors.length} ligne(s) en échec.`,
+        ? format(t.clients.messages.importedSuccess, { count: created })
+        : format(t.clients.messages.importedPartial, { count: created, errors: errors.length }),
     created,
     total: records.length,
     errors,

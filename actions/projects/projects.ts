@@ -5,6 +5,8 @@ import { requireSession, requireRole } from "@/lib/authz";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove } from "@/repository/projects";
 import { revalidatePath } from "next/cache";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectActionState } from "@/types/project";
 
 export async function addProject(
@@ -14,14 +16,15 @@ export async function addProject(
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
+  const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
   const parsed = createProjectSchema.safeParse(raw);
   if (!parsed.success) {
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -31,14 +34,14 @@ export async function addProject(
     return {
       ...prevState,
       type: "success",
-      message: "Project created successfully.",
+      message: t.projects.messages.created,
       data: project,
     };
   } catch (error) {
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, "Server error creating project."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -50,14 +53,15 @@ export async function updateProject(
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
+  const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
   const parsed = updateProjectSchema.safeParse(raw);
   if (!parsed.success) {
     return {
       ...prevState,
       type: "zodError",
-      message: "Validation error. Please check your input and try again.",
-      fieldsForm: makeObjectFromZodError(parsed.error),
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
 
@@ -67,14 +71,14 @@ export async function updateProject(
     return {
       ...prevState,
       type: "success",
-      message: "Project updated successfully.",
+      message: t.projects.messages.updated,
       data: project,
     };
   } catch (error) {
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, "Server error updating project."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -88,17 +92,18 @@ export async function deleteProject(id: number, clientId: number) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid project ID" };
+      throw { type: "error", message: t.projects.messages.invalidId };
     }
     const project = await remove(id);
     revalidatePath(`/clients/${clientId}`);
-    return { type: "success" as const, message: "Project deleted.", data: project };
+    return { type: "success" as const, message: t.projects.messages.deleted, data: project };
   } catch (error) {
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error deleting project."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -107,13 +112,14 @@ export async function getProjectsForClient(clientId: number) {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
+  const t = getDictionary(await getLocale());
   try {
     const projects = await findByClient(clientId);
     return { type: "success" as const, data: projects };
   } catch (error) {
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error fetching projects."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -122,16 +128,17 @@ export async function getProject(id: number) {
   const unauthorized = await requireSession();
   if (unauthorized) return unauthorized;
 
+  const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) {
-      throw { type: "error", message: "Invalid project ID" };
+      throw { type: "error", message: t.projects.messages.invalidId };
     }
     const project = await findById(id);
     return { type: "success" as const, data: project };
   } catch (error) {
     return {
       type: "error" as const,
-      message: getErrorMessage(error, "Server error fetching project."),
+      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }

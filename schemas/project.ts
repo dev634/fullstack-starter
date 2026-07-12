@@ -22,7 +22,7 @@ const optionalNumber = z
     .string()
     .optional()
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || !Number.isNaN(v), "Must be a number");
+    .refine((v) => v === undefined || !Number.isNaN(v), { message: "Must be a number", params: { i18n: "notANumber" } });
 
 const optionalDate = z
     .string()

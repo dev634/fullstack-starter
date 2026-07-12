@@ -12,6 +12,7 @@ vi.mock("@/repository/projects", () => ({
   findById: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addProject, updateProject, deleteProject, getProjectsForClient } from "@/actions/projects/projects";
 import { requireSession, requireRole } from "@/lib/authz";

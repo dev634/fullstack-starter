@@ -1,4 +1,6 @@
 import { auth } from "@/lib/auth";
+import { getLocale } from "@/lib/i18n/getLocale";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 /**
  * Guard actions behind an authenticated session. Returns an error payload
@@ -8,7 +10,8 @@ import { auth } from "@/lib/auth";
 export async function requireSession(): Promise<{ type: "error"; message: string } | null> {
   const session = await auth();
   if (!session) {
-    return { type: "error", message: "Unauthorized. Please sign in." };
+    const t = getDictionary(await getLocale());
+    return { type: "error", message: t.errors.unauthorized };
   }
   return null;
 }
@@ -24,11 +27,12 @@ export type RoleCheckResult =
  */
 export async function requireRole(role: "ADMIN"): Promise<RoleCheckResult> {
   const session = await auth();
+  const t = getDictionary(await getLocale());
   if (!session) {
-    return { error: { type: "error", message: "Unauthorized. Please sign in." } };
+    return { error: { type: "error", message: t.errors.unauthorized } };
   }
   if (session.user?.role !== role) {
-    return { error: { type: "error", message: "Forbidden. Your role does not allow this action." } };
+    return { error: { type: "error", message: t.errors.forbidden } };
   }
   return { error: null, email: session.user?.email ?? "unknown" };
 }

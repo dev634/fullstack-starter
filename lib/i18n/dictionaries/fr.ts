@@ -15,6 +15,20 @@ const fr = {
         loading: "Chargement…",
         pagination: "Pagination",
     },
+    errors: {
+        required: "Ce champ est requis.",
+        invalidEmail: "Adresse email invalide.",
+        invalidValue: "Valeur invalide.",
+        invalid: "Champ invalide.",
+        minLength: "Doit contenir au moins {min} caractères.",
+        passwordMismatch: "Les mots de passe ne correspondent pas.",
+        notANumber: "Doit être un nombre.",
+        validationError: "Erreur de validation. Vérifie les informations saisies et réessaie.",
+        unauthorized: "Non autorisé. Merci de te connecter.",
+        forbidden: "Accès refusé. Ton rôle ne permet pas cette action.",
+        invalidId: "Identifiant invalide.",
+        serverError: "Erreur serveur. Réessaie plus tard.",
+    },
     nav: {
         clients: "Clients",
         projects: "Projets",
@@ -54,6 +68,11 @@ const fr = {
         resetPassword: "Réinitialiser le mot de passe",
         showPassword: "Afficher le mot de passe",
         hidePassword: "Masquer le mot de passe",
+        invalidCredentials: "Email ou mot de passe invalide.",
+        tooManyAttempts: "Trop de tentatives. Réessaie dans {minutes} min.",
+        resetLinkSent: "Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.",
+        resetLinkInvalidOrExpired: "Ce lien de réinitialisation est invalide ou a expiré.",
+        passwordUpdated: "Mot de passe mis à jour. Tu peux maintenant te connecter.",
     },
     photoUpload: {
         mustBeImage: "Le fichier doit être une image.",
@@ -158,6 +177,21 @@ const fr = {
             submit: "Importer",
             rowLabel: "Ligne {row}",
         },
+        messages: {
+            created: "Client ajouté avec succès !",
+            updated: "Client mis à jour avec succès.",
+            duplicateEmail: "Un client avec cet email existe déjà. Merci d'utiliser un email différent.",
+            deletedBulk: "{count} client(s) supprimé(s).",
+            noneSelected: "Aucun client sélectionné.",
+            restored: "Client restauré.",
+            permanentlyDeleted: "Client supprimé définitivement.",
+            missingId: "Identifiant client manquant.",
+            chooseCsvFile: "Merci de choisir un fichier CSV.",
+            emptyCsvFile: "Le fichier est vide ou ne contient aucune ligne de données.",
+            importedSuccess: "{count} client(s) importé(s).",
+            importedPartial: "{count} client(s) importé(s), {errors} ligne(s) en échec.",
+            invalidRow: "Ligne invalide.",
+        },
     },
     projects: {
         status: {
@@ -220,6 +254,12 @@ const fr = {
             deleteAriaLabel: "Supprimer {name}",
             deleting: "Suppression…",
         },
+        messages: {
+            created: "Projet créé avec succès.",
+            updated: "Projet mis à jour avec succès.",
+            deleted: "Projet supprimé.",
+            invalidId: "Identifiant de projet invalide.",
+        },
     },
     tasks: {
         newPlaceholder: "Nouvelle tâche…",
@@ -228,6 +268,12 @@ const fr = {
         markDone: "Marquer « {title} » comme terminée",
         markUndone: "Marquer « {title} » comme à faire",
         deleteTask: "Supprimer la tâche {title}",
+        messages: {
+            added: "Tâche ajoutée.",
+            updated: "Tâche mise à jour.",
+            deleted: "Tâche supprimée.",
+            invalidId: "Identifiant de tâche invalide.",
+        },
     },
     files: {
         newFolder: "Nouveau dossier",
@@ -243,6 +289,17 @@ const fr = {
         sizeKB: "{size} Ko",
         sizeMB: "{size} Mo",
         home: "Racine",
+        messages: {
+            folderCreated: "Dossier créé.",
+            fileUploaded: "Fichier envoyé.",
+            fileDeleted: "Fichier supprimé.",
+            folderDeleted: "Dossier supprimé.",
+            invalidProject: "Projet invalide.",
+            chooseFileToUpload: "Merci de choisir un fichier à envoyer.",
+            fileNotFound: "Fichier introuvable.",
+            invalidFolderId: "Identifiant de dossier invalide.",
+            invalidFileId: "Identifiant de fichier invalide.",
+        },
     },
 };
 
