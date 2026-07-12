@@ -52,24 +52,26 @@ export default async function ActivityPage({ searchParams }: PageProps) {
 
         {entries.length ? (
           <>
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-shadow hover:shadow-lg hover:border-gray-400 dark:hover:border-gray-500">
-              {entries.map((entry) => {
-                const label = actionLabels[entry.action] ?? entry.action;
-                const className = ACTION_CLASSES[entry.action] ?? "";
-                return (
-                  <li key={entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
-                      {label}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">{entry.clientName}</span>
-                    <span className="text-gray-500 dark:text-gray-400">{entry.actorEmail}</span>
-                    <span className="text-gray-400 dark:text-gray-500">
-                      {new Date(entry.createdAt).toLocaleString(localeTag(locale))}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:bg-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-gray-700 dark:hover:ring-blue-600">
+              <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
+                {entries.map((entry) => {
+                  const label = actionLabels[entry.action] ?? entry.action;
+                  const className = ACTION_CLASSES[entry.action] ?? "";
+                  return (
+                    <li key={entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
+                        {label}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100">{entry.clientName}</span>
+                      <span className="text-gray-500 dark:text-gray-400">{entry.actorEmail}</span>
+                      <span className="text-gray-400 dark:text-gray-500">
+                        {new Date(entry.createdAt).toLocaleString(localeTag(locale))}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
 
             {totalPages > 1 && (
               <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
