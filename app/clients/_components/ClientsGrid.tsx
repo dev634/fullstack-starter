@@ -76,7 +76,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
 
       <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {clients.map((client) => (
-          <li key={client.id} className="relative">
+          <li key={client.id} className="group relative">
             {canEdit && (
               <input
                 type="checkbox"
@@ -88,7 +88,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             )}
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#e5e7eb] hover:shadow-lg dark:hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
+              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all group-hover:bg-[#e5e7eb] group-hover:shadow-lg dark:group-hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
                 selected.has(client.id) ? "border-blue-500" : "border-gray-300 dark:border-gray-700"
               }`}
             >
