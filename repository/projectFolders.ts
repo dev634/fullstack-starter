@@ -6,6 +6,23 @@ type FolderData = {
     parentId?: number | null;
 };
 
+/** Standard root folders every new project should start with. */
+export const DEFAULT_FOLDER_NAMES = ["Plans", "Vgp", "Pvisotestes", "Bulletins de livraisons"];
+
+export async function createDefaults(projectId: number) {
+    try {
+        return await prisma.projectFolder.createMany({
+            data: DEFAULT_FOLDER_NAMES.map((name) => ({ projectId, name, parentId: null })),
+        });
+    } catch (error) {
+        console.log("Repository createDefaults (folder) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error creating default folders.",
+        };
+    }
+}
+
 export async function create(data: FolderData) {
     try {
         return await prisma.projectFolder.create({
