@@ -422,8 +422,7 @@ const fr = {
         tasksTitle: "Avancement des tâches",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
-        seriesTitle: "Avancement par série",
-        seriesNone: "Aucune série de tâches pour le moment.",
+        detailedTitle: "Avancement détaillé",
         materialsTitle: "Stock matériel",
         materialsNone: "Aucun matériel lié à une tâche pour le moment.",
         legend: {

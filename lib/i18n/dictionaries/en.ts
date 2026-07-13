@@ -424,8 +424,7 @@ const en: Dictionary = {
         tasksTitle: "Task progress",
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
-        seriesTitle: "Progress by series",
-        seriesNone: "No task series yet.",
+        detailedTitle: "Detailed progress",
         materialsTitle: "Material stock",
         materialsNone: "No material linked to a task yet.",
         legend: {

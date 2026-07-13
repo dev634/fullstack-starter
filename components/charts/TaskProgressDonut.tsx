@@ -3,17 +3,18 @@ import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
 
 type TaskProgressDonutProps = {
-  done: number;
-  total: number;
-  percent: number;
+  tasks: { id: number; title: string; done: boolean }[];
 };
 
 const DONE_COLOR = "#3b82f6";
 const REMAINING_COLOR = "#9ca3af";
 
-export default function TaskProgressDonut({ done, total, percent }: TaskProgressDonutProps) {
+export default function TaskProgressDonut({ tasks }: TaskProgressDonutProps) {
   const { t } = useTranslation();
+  const total = tasks.length;
+  const done = tasks.filter((task) => task.done).length;
   const remaining = total - done;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   const data = [
     { name: t.projectDashboard.legend.done, value: done },
     { name: t.projectDashboard.legend.remaining, value: remaining },

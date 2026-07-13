@@ -2,14 +2,14 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
 
 type SeriesProgressBarsProps = {
-  groups: { id: number; name: string; done: number; total: number; percent: number }[];
+  items: { id: number | string; name: string; done: number; total: number; percent: number }[];
 };
 
 const BAR_COLOR = "#3b82f6";
 const HEIGHT_PER_ROW = 36;
 
-export default function SeriesProgressBars({ groups }: SeriesProgressBarsProps) {
-  const data = groups.map((g) => ({ name: g.name, percent: g.percent, label: `${g.done}/${g.total}` }));
+export default function SeriesProgressBars({ items }: SeriesProgressBarsProps) {
+  const data = items.map((g) => ({ name: g.name, percent: g.percent, label: `${g.done}/${g.total}` }));
   const height = Math.max(HEIGHT_PER_ROW * data.length, HEIGHT_PER_ROW);
 
   return (

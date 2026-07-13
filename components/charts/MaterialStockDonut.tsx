@@ -1,54 +1,64 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
+import type { MaterialStockStatus } from "@/lib/materialStock";
 
 type MaterialStockDonutProps = {
-  green: number;
-  orange: number;
-  red: number;
+  materials: { id: number; name: string; status: MaterialStockStatus }[];
 };
 
-const COLORS = { green: "#22c55e", orange: "#f59e0b", red: "#ef4444" };
+const COLORS: Record<MaterialStockStatus, string> = { green: "#22c55e", orange: "#f59e0b", red: "#ef4444" };
+const STATUS_ORDER: Record<MaterialStockStatus, number> = { red: 0, orange: 1, green: 2 };
 
-export default function MaterialStockDonut({ green, orange, red }: MaterialStockDonutProps) {
+export default function MaterialStockDonut({ materials }: MaterialStockDonutProps) {
   const { t } = useTranslation();
-  const total = green + orange + red;
-  const data = [
-    { key: "green" as const, name: t.materials.stockStatus.green, value: green },
-    { key: "orange" as const, name: t.materials.stockStatus.orange, value: orange },
-    { key: "red" as const, name: t.materials.stockStatus.red, value: red },
-  ];
+  const total = materials.length;
+  const counts = { green: 0, orange: 0, red: 0 };
+  for (const m of materials) counts[m.status] += 1;
+
+  // One slice per material (not per status) so same-status materials still
+  // show up as visually separate wedges, with a gap between every slice.
+  const slices = [...materials]
+    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+    .map((m) => ({ id: m.id, name: m.name, status: m.status, value: 1 }));
 
   return (
     <div className="relative flex flex-col items-center">
       <PieChart width={200} height={200}>
         <Pie
-          data={data}
+          data={slices}
           dataKey="value"
+          nameKey="name"
           cx="50%"
           cy="50%"
           innerRadius={65}
           outerRadius={90}
           startAngle={90}
           endAngle={-270}
-          paddingAngle={total > 0 ? 2 : 0}
+          paddingAngle={total > 1 ? 4 : 0}
         >
-          {data.map((entry) => (
-            <Cell key={entry.key} fill={COLORS[entry.key]} stroke="none" />
+          {slices.map((entry) => (
+            <Cell key={entry.id} fill={COLORS[entry.status]} stroke="none" />
           ))}
         </Pie>
-        <Tooltip />
+        <Tooltip formatter={(_, __, item) => [t.materials.stockStatus[item.payload.status as MaterialStockStatus], item.payload.name]} />
       </PieChart>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-gray-900 dark:text-gray-100">
         <span className="text-2xl font-semibold">{total}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
-        {data.map((entry) => (
-          <span key={entry.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[entry.key] }} />
-            {entry.name} ({entry.value})
-          </span>
-        ))}
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.green }} />
+          {t.materials.stockStatus.green} ({counts.green})
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.orange }} />
+          {t.materials.stockStatus.orange} ({counts.orange})
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.red }} />
+          {t.materials.stockStatus.red} ({counts.red})
+        </span>
       </div>
     </div>
   );

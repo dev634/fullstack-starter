@@ -1,8 +1,8 @@
 import { getProject } from "@/actions/projects/projects";
-import { findByProject } from "@/repository/tasks";
+import { findByProject, findAllForPicker as findAllTasks } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
+import { computeTaskProgress } from "@/lib/projectDashboard";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
@@ -50,14 +50,28 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   }
 
   const project = result.data!;
-  const [tasks, taskGroups, materials] = await Promise.all([
+  const [tasks, taskGroups, materials, allTasks] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
     findMaterialsByProject(pid),
+    findAllTasks(pid),
   ]);
 
   const taskProgress = computeTaskProgress(tasks, taskGroups);
-  const materialStats = computeMaterialStockStats(materials);
+
+  // One percentage bar per series, plus one per standalone task (0% or 100%
+  // since a single task has no partial state) — series first, since they
+  // typically represent the bulk of the work.
+  const detailedProgress = [
+    ...taskProgress.groups,
+    ...tasks.map((task) => ({
+      id: `task-${task.id}`,
+      name: task.title,
+      done: task.done ? 1 : 0,
+      total: 1,
+      percent: task.done ? 100 : 0,
+    })),
+  ];
 
   const STATUS_ORDER = { red: 0, orange: 1, green: 2 };
   const namedMaterials = materials
@@ -98,17 +112,17 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
               {taskProgress.total > 0 ? (
                 <div className="flex flex-col items-center gap-1">
-                  <TaskProgressDonut done={taskProgress.done} total={taskProgress.total} percent={taskProgress.percent} />
+                  <TaskProgressDonut tasks={allTasks} />
                   <span className="text-xs text-gray-500 dark:text-gray-400">{t.projectDashboard.tasksOverall}</span>
                 </div>
               ) : (
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.tasksNone}</p>
               )}
 
-              {taskProgress.groups.length > 0 && (
+              {detailedProgress.length > 0 && (
                 <div className="border-t border-gray-300 dark:border-gray-700 pt-4">
-                  <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.projectDashboard.seriesTitle}</h3>
-                  <SeriesProgressBars groups={taskProgress.groups} />
+                  <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.projectDashboard.detailedTitle}</h3>
+                  <SeriesProgressBars items={detailedProgress} />
                 </div>
               )}
             </div>
@@ -124,8 +138,8 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             </div>
 
             <div className="flex flex-col items-center gap-1 px-4 py-6 sm:px-6">
-              {materialStats.tracked > 0 ? (
-                <MaterialStockDonut green={materialStats.green} orange={materialStats.orange} red={materialStats.red} />
+              {namedMaterials.length > 0 ? (
+                <MaterialStockDonut materials={namedMaterials} />
               ) : (
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.materialsNone}</p>
               )}
