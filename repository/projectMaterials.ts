@@ -7,6 +7,8 @@ type MaterialData = {
     unit?: string;
     supplierName?: string;
     reference?: string;
+    taskId?: number | null;
+    requiredQuantity?: number | null;
 };
 
 export async function create(data: MaterialData) {
@@ -19,6 +21,8 @@ export async function create(data: MaterialData) {
                 unit: data.unit || null,
                 supplierName: data.supplierName || null,
                 reference: data.reference || null,
+                taskId: data.taskId ?? null,
+                requiredQuantity: data.requiredQuantity ?? null,
             },
         });
     } catch (error) {
@@ -30,11 +34,15 @@ export async function create(data: MaterialData) {
     }
 }
 
-/** Materials for a project, most recently added first. */
+/**
+ * Materials for a project, most recently added first — includes the linked
+ * task's title (if any) so the UI can show what the stock indicator refers to.
+ */
 export async function findByProject(projectId: number) {
     try {
         return await prisma.projectMaterial.findMany({
             where: { projectId },
+            include: { task: { select: { id: true, title: true } } },
             orderBy: { createdAt: "desc" },
         });
     } catch (error) {
