@@ -35,7 +35,14 @@ export const PROJECT_CSV_COLUMNS: { key: string; header: string }[] = [
 ];
 
 export function csvCell(value: unknown): string {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  let str = String(value ?? "");
+  // Neutralise CSV formula injection: a cell starting with = + - @ (or a
+  // leading tab/CR that spreadsheets strip before parsing) is treated as a
+  // formula by Excel/Sheets. Prefix with a single quote so it stays text.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
 }
 
 /**
