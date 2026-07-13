@@ -45,10 +45,14 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
   }
 
   return (
-    <form ref={formRef} action={formAction} className="flex flex-wrap items-start gap-2 px-4 py-3 sm:px-6">
+    <form
+      ref={formRef}
+      action={formAction}
+      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:px-6"
+    >
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="projectId" value={projectId} />
-      <div className="min-w-[140px] flex-1">
+      <div className="sm:min-w-[140px] sm:flex-1">
         <input
           type="text"
           name="name"
@@ -61,7 +65,7 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
         )}
       </div>
-      <div className="min-w-[140px] flex-1">
+      <div className="sm:min-w-[140px] sm:flex-1">
         <input
           type="text"
           name="pattern"
@@ -74,44 +78,50 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
         )}
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{t.tasks.series.patternHint}</p>
       </div>
-      <div className="w-20">
-        <input
-          type="number"
-          name="from"
-          defaultValue="1"
-          placeholder={t.tasks.series.fromLabel}
-          aria-label={t.tasks.series.fromLabel}
-          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-        />
+      {/* From/To grouped in their own row so they never get split apart by wrapping. */}
+      <div className="flex gap-2">
+        <div className="w-1/2 sm:w-20">
+          <input
+            type="number"
+            name="from"
+            defaultValue="1"
+            placeholder={t.tasks.series.fromLabel}
+            aria-label={t.tasks.series.fromLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          />
+        </div>
+        <div className="w-1/2 sm:w-20">
+          <input
+            type="number"
+            name="to"
+            placeholder={t.tasks.series.toLabel}
+            aria-label={t.tasks.series.toLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          />
+          {state.type === "zodError" && state.fieldsForm?.to && (
+            <p className="mt-1 text-xs text-red-500">{state.fieldsForm.to}</p>
+          )}
+        </div>
       </div>
-      <div className="w-20">
-        <input
-          type="number"
-          name="to"
-          placeholder={t.tasks.series.toLabel}
-          aria-label={t.tasks.series.toLabel}
-          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-        />
-        {state.type === "zodError" && state.fieldsForm?.to && (
-          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.to}</p>
-        )}
+      {/* Same idea for the actions. */}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={isPending}
+          className={`flex-1 rounded bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600 cursor-pointer sm:flex-none ${
+            isPending ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          {t.tasks.series.generate}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer sm:flex-none"
+        >
+          {t.common.cancel}
+        </button>
       </div>
-      <button
-        type="submit"
-        disabled={isPending}
-        className={`rounded bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600 cursor-pointer ${
-          isPending ? "opacity-50 cursor-not-allowed" : ""
-        }`}
-      >
-        {t.tasks.series.generate}
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        className="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer"
-      >
-        {t.common.cancel}
-      </button>
       {state.type === "error" && (
         <p className="w-full text-xs text-red-500">{state.message}</p>
       )}
