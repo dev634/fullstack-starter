@@ -1,5 +1,6 @@
 import { getProject } from "@/actions/projects/projects";
 import { findByProject } from "@/repository/tasks";
+import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { auth } from "@/lib/auth";
@@ -7,9 +8,11 @@ import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
 import AddTaskForm from "@/forms/AddTaskForm";
+import AddMaterialForm from "@/forms/AddMaterialForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
@@ -25,6 +28,7 @@ import {
   PencilSquareIcon,
   ArrowLeftIcon,
   ClipboardDocumentListIcon,
+  CubeIcon,
   FolderIcon,
   HomeIcon,
   ChevronRightIcon,
@@ -77,6 +81,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const canEdit = session?.user?.role === "ADMIN";
   const tasks = await findByProject(pid);
   const doneCount = tasks.filter((task) => task.done).length;
+  const materials = await findMaterialsByProject(pid);
 
   const [subfolders, files, breadcrumb] = await Promise.all([
     findChildFolders(pid, currentFolderId),
@@ -192,6 +197,41 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
               <AddTaskForm clientId={clientId} projectId={pid} />
+            </div>
+          )}
+        </div>
+        </div>
+
+        {/* Materials */}
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+        <div className="overflow-hidden rounded-xl">
+          <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <CubeIcon className="h-5 w-5 text-purple-500" />
+              {t.projects.detail.materialsHeading}
+              {materials.length > 0 && (
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+                  ({materials.length})
+                </span>
+              )}
+            </h2>
+          </div>
+
+          {materials.length ? (
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+              {materials.map((material) => (
+                <ProjectMaterialRow key={material.id} material={material} clientId={clientId} projectId={pid} canEdit={canEdit} />
+              ))}
+            </ul>
+          ) : (
+            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+              {t.projects.detail.noMaterials}
+            </div>
+          )}
+
+          {canEdit && (
+            <div className="border-t border-gray-300 dark:border-gray-700">
+              <AddMaterialForm clientId={clientId} projectId={pid} />
             </div>
           )}
         </div>
