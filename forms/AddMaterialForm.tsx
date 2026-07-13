@@ -4,12 +4,22 @@ import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
 
+export type MaterialTaskOption = { id: number; title: string; groupName: string | null };
+
 const initialState: ProjectMaterialActionState = {
   type: null,
   message: "",
 }
 
-export default function AddMaterialForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+export default function AddMaterialForm({
+  clientId,
+  projectId,
+  tasks,
+}: {
+  clientId: number;
+  projectId: number;
+  tasks: MaterialTaskOption[];
+}) {
   const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
     addMaterial,
@@ -22,10 +32,14 @@ export default function AddMaterialForm({ clientId, projectId }: { clientId: num
   }, [state]);
 
   return (
-    <form ref={formRef} action={formAction} className="flex flex-wrap items-start gap-2 px-4 py-3 sm:px-6">
+    <form
+      ref={formRef}
+      action={formAction}
+      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:px-6"
+    >
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="projectId" value={projectId} />
-      <div className="min-w-[160px] flex-1">
+      <div className="sm:min-w-[160px] sm:flex-1">
         <input
           type="text"
           name="name"
@@ -37,42 +51,83 @@ export default function AddMaterialForm({ clientId, projectId }: { clientId: num
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
         )}
       </div>
-      <div className="w-24">
-        <input
-          type="number"
-          name="quantity"
-          min="0"
-          step="any"
-          defaultValue="1"
-          placeholder={t.materials.quantityLabel}
-          aria-label={t.materials.quantityLabel}
-          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-        />
-        {state.type === "zodError" && state.fieldsForm?.quantity && (
-          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.quantity}</p>
-        )}
+      {/* Quantity/unit grouped so they never split apart when wrapping. */}
+      <div className="flex gap-2">
+        <div className="w-1/2 sm:w-24">
+          <input
+            type="number"
+            name="quantity"
+            min="0"
+            step="any"
+            defaultValue="1"
+            placeholder={t.materials.quantityLabel}
+            aria-label={t.materials.quantityLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          />
+          {state.type === "zodError" && state.fieldsForm?.quantity && (
+            <p className="mt-1 text-xs text-red-500">{state.fieldsForm.quantity}</p>
+          )}
+        </div>
+        <div className="w-1/2 sm:w-20">
+          <input
+            type="text"
+            name="unit"
+            placeholder={t.materials.unitPlaceholder}
+            aria-label={t.materials.unitLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+          />
+        </div>
       </div>
-      <input
-        type="text"
-        name="unit"
-        placeholder={t.materials.unitPlaceholder}
-        aria-label={t.materials.unitLabel}
-        className="w-20 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-      />
       <input
         type="text"
         name="supplierName"
         placeholder={t.materials.supplierPlaceholder}
         aria-label={t.materials.supplierLabel}
-        className="min-w-[140px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[140px] sm:flex-1"
       />
       <input
         type="text"
         name="reference"
         placeholder={t.materials.referencePlaceholder}
         aria-label={t.materials.referenceLabel}
-        className="min-w-[120px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[120px] sm:flex-1"
       />
+      {/* Optional link to a task: when set, the stock indicator compares
+          quantity in stock against requiredQuantity. Hidden entirely when
+          the project has no tasks yet to link to. */}
+      {tasks.length > 0 && (
+        <div className="flex gap-2">
+          <div className="w-1/2 sm:w-40">
+            <select
+              name="taskId"
+              defaultValue=""
+              aria-label={t.materials.linkedTaskLabel}
+              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+            >
+              <option value="">{t.materials.linkedTaskNone}</option>
+              {tasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.groupName ? `${task.groupName} — ${task.title}` : task.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-1/2 sm:w-28">
+            <input
+              type="number"
+              name="requiredQuantity"
+              min="0"
+              step="any"
+              placeholder={t.materials.requiredQuantityPlaceholder}
+              aria-label={t.materials.requiredQuantityLabel}
+              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+            />
+            {state.type === "zodError" && state.fieldsForm?.requiredQuantity && (
+              <p className="mt-1 text-xs text-red-500">{state.fieldsForm.requiredQuantity}</p>
+            )}
+          </div>
+        </div>
+      )}
       <button
         type="submit"
         disabled={isPending}

@@ -1,5 +1,5 @@
 import { getProject } from "@/actions/projects/projects";
-import { findByProject } from "@/repository/tasks";
+import { findByProject, findAllForPicker as findAllTasksForPicker } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
@@ -83,7 +83,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const session = await auth();
   const canEdit = session?.user?.role === "ADMIN";
   const [tasks, taskGroups] = await Promise.all([findByProject(pid), findTaskGroupsByProject(pid)]);
-  const materials = await findMaterialsByProject(pid);
+  const [materials, allTasks] = await Promise.all([findMaterialsByProject(pid), findAllTasksForPicker(pid)]);
+  const materialTaskOptions = allTasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    groupName: task.group?.name ?? null,
+  }));
 
   // Combine plain tasks and task-series groups into one chronological list
   // (unfinished first, oldest first) — a group counts as "done" once every
@@ -262,7 +267,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddMaterialForm clientId={clientId} projectId={pid} />
+              <AddMaterialForm clientId={clientId} projectId={pid} tasks={materialTaskOptions} />
             </div>
           )}
         </div>
