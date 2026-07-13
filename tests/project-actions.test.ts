@@ -14,6 +14,7 @@ vi.mock("@/repository/projects", () => ({
   findById: vi.fn(),
 }));
 vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/projectFolders", () => ({ createDefaults: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -21,6 +22,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addProject, updateProject, deleteProject, getProjectsForClient } from "@/actions/projects/projects";
 import { requireSession, requireRole } from "@/lib/authz";
 import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
+import { createDefaults } from "@/repository/projectFolders";
 
 const requireSessionMock = vi.mocked(requireSession);
 const requireRoleMock = vi.mocked(requireRole);
@@ -30,6 +32,7 @@ const removeMock = vi.mocked(remove);
 const softDeleteMock = vi.mocked(softDelete);
 const findByClientMock = vi.mocked(findByClient);
 const findByIdMock = vi.mocked(findById);
+const createDefaultsMock = vi.mocked(createDefaults);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -64,6 +67,13 @@ describe("project actions", () => {
       expect.objectContaining({ clientId: 1, name: "Toiture principale", status: "ETUDE" })
     );
     expect(res.type).toBe("success");
+  });
+
+  it("addProject seeds the standard root folders for the new project", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 7 } as never);
+    await addProject(initial, formOf({ clientId: "1", name: "Toiture principale" }));
+    expect(createDefaultsMock).toHaveBeenCalledWith(7);
   });
 
   it("addProject treats blank power/budget as absent rather than a validation error", async () => {

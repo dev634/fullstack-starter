@@ -4,6 +4,7 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireSession, requireRole } from "@/lib/authz";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
+import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
 import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
@@ -40,6 +41,7 @@ export async function addProject(
 
   try {
     const project = await create(parsed.data);
+    await createDefaultFolders(project.id);
     await logActivity({
       action: "CREATED",
       projectId: project.id,
