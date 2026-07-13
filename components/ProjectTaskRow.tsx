@@ -23,7 +23,7 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
   async function handleToggle() {
     if (!canEdit || pending) return;
     setPending(true);
-    await toggleTask(task.id, !task.done, clientId, projectId);
+    await toggleTask(task.id, !task.done, clientId, projectId, task.groupId);
     setPending(false);
     router.refresh();
   }
@@ -31,7 +31,7 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
   async function handleDelete() {
     if (pending) return;
     setPending(true);
-    await deleteTask(task.id, clientId, projectId);
+    await deleteTask(task.id, clientId, projectId, task.groupId);
     setPending(false);
     router.refresh();
   }

@@ -6,19 +6,24 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/repository/tasks", () => ({
   create: vi.fn(),
+  createMany: vi.fn(),
   toggle: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
 }));
+vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addTask, toggleTask, deleteTask } from "@/actions/tasks/tasks";
+import { addTask, addTaskSeries, toggleTask, deleteTask } from "@/actions/tasks/tasks";
 import { requireRole } from "@/lib/authz";
-import { create, toggle, remove } from "@/repository/tasks";
+import { create, createMany, toggle, remove } from "@/repository/tasks";
+import { create as createGroup } from "@/repository/taskGroups";
 
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
+const createManyMock = vi.mocked(createMany);
+const createGroupMock = vi.mocked(createGroup);
 const toggleMock = vi.mocked(toggle);
 const removeMock = vi.mocked(remove);
 const initial = { type: null, message: "" } as const;
@@ -64,6 +69,59 @@ describe("task actions", () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ dueDate: "2026-08-01" })
     );
+  });
+
+  it("addTaskSeries refuses a non-ADMIN session", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
+    const res = await addTaskSeries(initial, formOf({ clientId: "1", projectId: "1", name: "Strings", pattern: "String {n}", from: "1", to: "27" }));
+    expect(res.type).toBe("error");
+    expect(createManyMock).not.toHaveBeenCalled();
+  });
+
+  it("addTaskSeries rejects a pattern without {n}", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addTaskSeries(initial, formOf({ clientId: "1", projectId: "1", name: "Strings", pattern: "String", from: "1", to: "27" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.pattern).toBeTruthy();
+    expect(createManyMock).not.toHaveBeenCalled();
+  });
+
+  it("addTaskSeries rejects a 'to' smaller than 'from'", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addTaskSeries(initial, formOf({ clientId: "1", projectId: "1", name: "Strings", pattern: "String {n}", from: "10", to: "5" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.to).toBeTruthy();
+    expect(createManyMock).not.toHaveBeenCalled();
+  });
+
+  it("addTaskSeries rejects a range larger than the max series size", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addTaskSeries(initial, formOf({ clientId: "1", projectId: "1", name: "Strings", pattern: "String {n}", from: "1", to: "500" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.to).toBeTruthy();
+    expect(createManyMock).not.toHaveBeenCalled();
+  });
+
+  it("addTaskSeries creates a named group then one task per number in the range", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createGroupMock.mockResolvedValue({ id: 9, projectId: 2, name: "Strings onduleur", pattern: "String {n}" } as never);
+    createManyMock.mockResolvedValue({ count: 27 } as never);
+    const res = await addTaskSeries(
+      initial,
+      formOf({ clientId: "1", projectId: "2", name: "Strings onduleur", pattern: "String {n}", from: "1", to: "27" })
+    );
+    expect(createGroupMock).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 2, name: "Strings onduleur", pattern: "String {n}" })
+    );
+    expect(createManyMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { projectId: 2, groupId: 9, title: "String 1" },
+        { projectId: 2, groupId: 9, title: "String 27" },
+      ])
+    );
+    const calledWith = createManyMock.mock.calls[0][0];
+    expect(calledWith).toHaveLength(27);
+    expect(res.type).toBe("success");
   });
 
   it("toggleTask refuses a non-ADMIN session", async () => {

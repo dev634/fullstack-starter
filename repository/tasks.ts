@@ -4,6 +4,7 @@ type TaskData = {
     projectId: number;
     title: string;
     dueDate?: string;
+    groupId?: number | null;
 };
 
 export async function create(data: TaskData) {
@@ -13,6 +14,7 @@ export async function create(data: TaskData) {
                 projectId: data.projectId,
                 title: data.title,
                 dueDate: data.dueDate ? new Date(data.dueDate) : null,
+                groupId: data.groupId ?? null,
             },
         });
     } catch (error) {
@@ -24,11 +26,35 @@ export async function create(data: TaskData) {
     }
 }
 
-/** Tasks for a project, unfinished first, oldest first within each group. */
+/** Bulk-insert (e.g. a numbered series) in a single round trip. */
+export async function createMany(items: TaskData[]) {
+    try {
+        return await prisma.projectTask.createMany({
+            data: items.map((item) => ({
+                projectId: item.projectId,
+                title: item.title,
+                dueDate: item.dueDate ? new Date(item.dueDate) : null,
+                groupId: item.groupId ?? null,
+            })),
+        });
+    } catch (error) {
+        console.log("Repository createMany task error:", error);
+        throw {
+            type: "error",
+            message: "Database Error creating tasks.",
+        };
+    }
+}
+
+/**
+ * Ungrouped tasks for a project (tasks belonging to a named series are
+ * fetched separately via repository/taskGroups and shown as one summarized
+ * row) — unfinished first, oldest first within each group.
+ */
 export async function findByProject(projectId: number) {
     try {
         return await prisma.projectTask.findMany({
-            where: { projectId },
+            where: { projectId, groupId: null },
             orderBy: [{ done: "asc" }, { createdAt: "asc" }],
         });
     } catch (error) {

@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
+import { MAX_SERIES_SIZE } from "@/schemas/task";
 
 /**
  * Translates a single zod issue into a user-facing message, using the
@@ -14,6 +15,9 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         const i18nCode = (issue.params as { i18n?: string } | undefined)?.i18n;
         if (i18nCode === "passwordMismatch") return t.errors.passwordMismatch;
         if (i18nCode === "notANumber") return t.errors.notANumber;
+        if (i18nCode === "patternMissingPlaceholder") return t.errors.patternMissingPlaceholder;
+        if (i18nCode === "seriesRangeInvalid") return t.errors.seriesRangeInvalid;
+        if (i18nCode === "seriesTooLarge") return format(t.errors.seriesTooLarge, { max: MAX_SERIES_SIZE });
         return issue.message;
     }
 
