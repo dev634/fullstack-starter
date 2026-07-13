@@ -1,0 +1,41 @@
+import { search, type ProjectSortField } from "@/repository/projects";
+import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+
+const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
+
+/**
+ * Export the (filtered/sorted) projects as a CSV download. Honours the same
+ * ?q/?sort/?dir query used by the list. Protected by the /projects middleware.
+ */
+export async function GET(request: Request) {
+  const params = new URL(request.url).searchParams;
+  const q = params.get("q") ?? "";
+  const sortRaw = params.get("sort");
+  const sortField: ProjectSortField = SORT_FIELDS.includes(sortRaw as ProjectSortField)
+    ? (sortRaw as ProjectSortField)
+    : "createdAt";
+  const dir = params.get("dir") === "asc" ? "asc" : "desc";
+
+  const { projects } = await search({ q, sortField, dir, page: 1, pageSize: 100000 });
+
+  const rows = projects.map((project) => {
+    const flat: Record<string, unknown> = {
+      ...project,
+      clientEmail: project.client.email,
+      startDate: project.startDate ? new Date(project.startDate).toISOString().slice(0, 10) : "",
+      endDate: project.endDate ? new Date(project.endDate).toISOString().slice(0, 10) : "",
+    };
+    return PROJECT_CSV_COLUMNS.map((c) => csvCell(flat[c.key])).join(",");
+  });
+
+  const header = PROJECT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
+  // Prepend a BOM so Excel opens UTF-8 accents correctly.
+  const csv = "﻿" + [header, ...rows].join("\r\n");
+
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="projects.csv"`,
+    },
+  });
+}

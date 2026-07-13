@@ -25,6 +25,7 @@ export async function search({
 }: ProjectSearchArgs) {
     const term = q.trim();
     const where: Prisma.ProjectWhereInput = {
+        deletedAt: null,
         client: { deletedAt: null },
         ...(term
             ? {
@@ -43,7 +44,7 @@ export async function search({
             prisma.project.findMany({
                 where,
                 include: {
-                    client: { select: { id: true, firstName: true, lastName: true, companyName: true } },
+                    client: { select: { id: true, firstName: true, lastName: true, companyName: true, email: true } },
                 },
                 orderBy: { [sortField]: dir } as Prisma.ProjectOrderByWithRelationInput,
                 skip: (page - 1) * pageSize,
@@ -100,11 +101,11 @@ export async function create(data: ProjectData) {
     }
 }
 
-/** Projects for a client, most recently created first. */
+/** Projects for a client, most recently created first. Excludes trashed projects. */
 export async function findByClient(clientId: number) {
     try {
         return await prisma.project.findMany({
-            where: { clientId },
+            where: { clientId, deletedAt: null },
             orderBy: { createdAt: "desc" },
         });
     } catch (error) {
@@ -165,6 +166,57 @@ export async function remove(id: number) {
         throw {
             type: "error",
             message: "Database Error deleting project.",
+        };
+    }
+}
+
+/** Move a project to the trash (reversible). */
+export async function softDelete(id: number) {
+    try {
+        return await prisma.project.update({
+            where: { id },
+            data: { deletedAt: new Date() },
+        });
+    } catch (error) {
+        console.log("Repository softDelete project error:", error);
+        throw {
+            type: "error",
+            message: "Database Error deleting project.",
+        };
+    }
+}
+
+/** Bring a trashed project back into the normal listings. */
+export async function restore(id: number) {
+    try {
+        return await prisma.project.update({
+            where: { id },
+            data: { deletedAt: null },
+        });
+    } catch (error) {
+        console.log("Repository restore project error:", error);
+        throw {
+            type: "error",
+            message: "Database Error restoring project.",
+        };
+    }
+}
+
+/** Soft-deleted projects (trash), most recently deleted first. */
+export async function findTrashed() {
+    try {
+        return await prisma.project.findMany({
+            where: { deletedAt: { not: null } },
+            include: {
+                client: { select: { id: true, firstName: true, lastName: true, companyName: true } },
+            },
+            orderBy: { deletedAt: "desc" },
+        });
+    } catch (error) {
+        console.log("Repository findTrashed project error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching trashed projects.",
         };
     }
 }

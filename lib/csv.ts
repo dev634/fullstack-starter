@@ -16,6 +16,24 @@ export const CLIENT_CSV_COLUMNS: { key: string; header: string }[] = [
   { key: "country", header: "Country" },
 ];
 
+/**
+ * Same idea as CLIENT_CSV_COLUMNS, for /projects/export and its CSV import.
+ * `clientEmail` is a virtual column (not a Project field) used to look up
+ * the owning client on import, since a project can't exist without one.
+ */
+export const PROJECT_CSV_COLUMNS: { key: string; header: string }[] = [
+  { key: "name", header: "Name" },
+  { key: "clientEmail", header: "Client Email" },
+  { key: "type", header: "Type" },
+  { key: "status", header: "Status" },
+  { key: "power", header: "Power" },
+  { key: "budget", header: "Budget" },
+  { key: "address", header: "Address" },
+  { key: "startDate", header: "Start Date" },
+  { key: "endDate", header: "End Date" },
+  { key: "notes", header: "Notes" },
+];
+
 export function csvCell(value: unknown): string {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }

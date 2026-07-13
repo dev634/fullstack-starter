@@ -8,22 +8,28 @@ vi.mock("@/repository/projects", () => ({
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
+  softDelete: vi.fn(),
+  restore: vi.fn(),
   findByClient: vi.fn(),
   findById: vi.fn(),
 }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addProject, updateProject, deleteProject, getProjectsForClient } from "@/actions/projects/projects";
 import { requireSession, requireRole } from "@/lib/authz";
-import { create, update, remove, findByClient } from "@/repository/projects";
+import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
 
 const requireSessionMock = vi.mocked(requireSession);
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
+const softDeleteMock = vi.mocked(softDelete);
 const findByClientMock = vi.mocked(findByClient);
+const findByIdMock = vi.mocked(findById);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -105,11 +111,13 @@ describe("project actions", () => {
     expect(removeMock).not.toHaveBeenCalled();
   });
 
-  it("deleteProject removes the project when authorized", async () => {
+  it("deleteProject soft-deletes the project when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    removeMock.mockResolvedValue({ id: 1 } as never);
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
+    softDeleteMock.mockResolvedValue({ id: 1 } as never);
     const res = await deleteProject(1, 2);
-    expect(removeMock).toHaveBeenCalledWith(1);
+    expect(softDeleteMock).toHaveBeenCalledWith(1);
+    expect(removeMock).not.toHaveBeenCalled();
     expect(res.type).toBe("success");
   });
 

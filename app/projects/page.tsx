@@ -4,9 +4,10 @@ import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectsToolbar from "./_components/ProjectsToolbar";
-import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
+import ProjectCardActions from "./_components/ProjectCardActions";
+import ProjectsActionsMenu from "./_components/ProjectsActionsMenu";
 import Link from "next/link";
-import { UserIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
+import { UserIcon, BoltIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -52,77 +53,135 @@ export default async function ProjectsPage({
     return qs ? `/projects?${qs}` : "/projects";
   }
 
+  // Shared query string for the current search/sort (used by pager + export).
+  function baseParams() {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (sortField !== "createdAt") params.set("sort", sortField);
+    if (dir !== "desc") params.set("dir", dir);
+    return params;
+  }
+  const exportQs = baseParams().toString();
+  const exportHref = exportQs ? `/projects/export?${exportQs}` : "/projects/export";
+
   return (
-    <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
-      <div className="w-full max-w-3xl mx-auto space-y-6">
-        <Title title={t.projects.list.title} />
+    <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-8">
+      <div className="w-full max-w-5xl mx-auto flex flex-1 min-h-0 flex-col gap-6">
+        <div className="flex items-center justify-between gap-4">
+          <Title title={t.projects.list.title} className="text-3xl font-bold" />
+
+          <ProjectsActionsMenu canEdit={canEdit} exportHref={exportHref} />
+
+          <div className="hidden md:flex items-center gap-2">
+            <a
+              href={exportHref}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              {t.projects.list.exportCsv}
+            </a>
+            {canEdit && (
+              <Link
+                href="/projects/import"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <ArrowUpTrayIcon className="h-4 w-4" />
+                {t.projects.list.import}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/projects/trash"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {t.projects.list.trash}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/projects/activity"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <ClockIcon className="h-4 w-4" />
+                {t.projects.list.activity}
+              </Link>
+            )}
+          </div>
+        </div>
 
         <ProjectsToolbar />
 
-        {projects.length ? (
-          <>
-            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {projects.length ? (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {projects.map((project) => (
-                <li key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                  <Link href={`/clients/${project.client.id}/projects/${project.id}`} className="min-w-0 flex-1 hover:opacity-80">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-medium text-gray-900 dark:text-gray-100">{project.name}</span>
-                      <ProjectTypeBadge type={project.type} />
-                      <ProjectStatusBadge status={project.status} />
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="flex items-center gap-1">
-                        <UserIcon className="h-3.5 w-3.5" />
-                        {project.client.firstName} {project.client.lastName}
-                        {project.client.companyName ? ` · ${project.client.companyName}` : ""}
-                      </span>
-                      {project.power != null && <span>{project.power} kWc</span>}
-                      {project.budget != null && <span>{project.budget.toLocaleString(localeTag(locale))} €</span>}
-                    </div>
-                  </Link>
+                <li
+                  key={project.id}
+                  className="relative flex flex-col gap-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg dark:hover:bg-gray-700"
+                >
                   {canEdit && (
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/clients/${project.client.id}/projects/${project.id}/edit`}
-                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
-                      >
-                        <PencilSquareIcon className="h-3.5 w-3.5" />
-                        {t.common.edit}
-                      </Link>
-                      <DeleteProjectButton
+                    <div className="absolute right-3 top-3 z-10">
+                      <ProjectCardActions
                         projectId={project.id}
                         clientId={project.client.id}
                         projectName={project.name}
                       />
                     </div>
                   )}
+                  <Link
+                    href={`/clients/${project.client.id}/projects/${project.id}`}
+                    className={`flex min-w-0 flex-1 items-start gap-3 ${canEdit ? "pr-8" : ""}`}
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
+                      <BoltIcon className="h-5 w-5 text-amber-500" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">{project.name}</span>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <ProjectTypeBadge type={project.type} />
+                        <ProjectStatusBadge status={project.status} />
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                        <UserIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">
+                          {project.client.firstName} {project.client.lastName}
+                          {project.client.companyName ? ` · ${project.client.companyName}` : ""}
+                        </span>
+                      </div>
+                      {(project.power != null || project.budget != null) && (
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+                          {project.power != null && <span>{project.power} kWc</span>}
+                          {project.budget != null && <span>{project.budget.toLocaleString(localeTag(locale))} €</span>}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2">
+              {q ? (
+                <p className="text-gray-500 dark:text-gray-400">{format(t.projects.list.noResultsFor, { q })}</p>
+              ) : (
+                <>
+                  <p className="text-gray-500 dark:text-gray-400">{t.projects.list.noProjectsYet}</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">
+                    {t.projects.list.openClientHint}
+                  </p>
+                </>
+              )}
             </div>
+          )}
+        </div>
 
-            {totalPages > 1 && (
-              <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
-                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
-                <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
-                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
-              </nav>
-            )}
-          </>
-        ) : (
-          <div className="flex h-[45vh] flex-col items-center justify-center gap-2">
-            {q ? (
-              <p className="text-gray-500 dark:text-gray-400">{format(t.projects.list.noResultsFor, { q })}</p>
-            ) : (
-              <>
-                <p className="text-gray-500 dark:text-gray-400">{t.projects.list.noProjectsYet}</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500">
-                  {t.projects.list.openClientHint}
-                </p>
-              </>
-            )}
-          </div>
+        {projects.length > 0 && totalPages > 1 && (
+          <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
+            <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
+            <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
+            <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
+          </nav>
         )}
       </div>
     </main>

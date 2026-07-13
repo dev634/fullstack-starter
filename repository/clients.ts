@@ -153,6 +153,21 @@ export async function findTrashed() {
     }
 }
 
+export async function findByEmail(email: string) {
+    try{
+        const client = await prisma.client.findUnique({
+             where: { email },
+        });
+        return client;
+    }catch(error){
+        console.log("Repository findByEmail error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching client."
+           }
+    }
+}
+
 export async function findById(id: number) {
     try{
         const client = await prisma.client.findUnique({
