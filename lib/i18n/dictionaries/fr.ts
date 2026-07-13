@@ -3,6 +3,7 @@ const fr = {
         brand: "Fullstack Starter",
         edit: "Modifier",
         delete: "Supprimer",
+        actions: "Actions",
         cancel: "Annuler",
         back: "Retour",
         add: "Ajouter",

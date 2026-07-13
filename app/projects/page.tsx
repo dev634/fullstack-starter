@@ -4,9 +4,9 @@ import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectsToolbar from "./_components/ProjectsToolbar";
-import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
+import ProjectCardActions from "./_components/ProjectCardActions";
 import Link from "next/link";
-import { UserIcon, PencilSquareIcon, BoltIcon } from "@heroicons/react/24/outline";
+import { UserIcon, BoltIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -65,11 +65,20 @@ export default async function ProjectsPage({
               {projects.map((project) => (
                 <li
                   key={project.id}
-                  className="flex flex-col gap-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg dark:hover:bg-gray-700"
+                  className="relative flex flex-col gap-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg dark:hover:bg-gray-700"
                 >
+                  {canEdit && (
+                    <div className="absolute right-3 top-3 z-10">
+                      <ProjectCardActions
+                        projectId={project.id}
+                        clientId={project.client.id}
+                        projectName={project.name}
+                      />
+                    </div>
+                  )}
                   <Link
                     href={`/clients/${project.client.id}/projects/${project.id}`}
-                    className="flex min-w-0 flex-1 items-start gap-3"
+                    className={`flex min-w-0 flex-1 items-start gap-3 ${canEdit ? "pr-8" : ""}`}
                   >
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
                       <BoltIcon className="h-5 w-5 text-amber-500" />
@@ -95,22 +104,6 @@ export default async function ProjectsPage({
                       )}
                     </div>
                   </Link>
-                  {canEdit && (
-                    <div className="flex items-center gap-2 border-t border-gray-300 dark:border-gray-700 pt-3">
-                      <Link
-                        href={`/clients/${project.client.id}/projects/${project.id}/edit`}
-                        className="inline-flex items-center gap-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
-                      >
-                        <PencilSquareIcon className="h-3.5 w-3.5" />
-                        {t.common.edit}
-                      </Link>
-                      <DeleteProjectButton
-                        projectId={project.id}
-                        clientId={project.client.id}
-                        projectName={project.name}
-                      />
-                    </div>
-                  )}
                 </li>
               ))}
             </ul>

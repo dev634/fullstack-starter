@@ -5,6 +5,7 @@ const en: Dictionary = {
         brand: "Fullstack Starter",
         edit: "Edit",
         delete: "Delete",
+        actions: "Actions",
         cancel: "Cancel",
         back: "Back",
         add: "Add",
