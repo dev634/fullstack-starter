@@ -19,30 +19,30 @@ enum ClientStatus {
 }
 
 model Client {
-  id Int @id @default(autoincrement())
+  id          Int          @id @default(autoincrement())
   companyName String
-  firstName String
-  lastName String
-  address String
-  zipCode String
-  city String
-  country String
-  email String  @unique
-  photoUrl String?
-  phone String?
-  website String?
-  status ClientStatus @default(PROSPECT)
-  deletedAt DateTime?
-  projects Project[]
+  firstName   String
+  lastName    String
+  address     String
+  zipCode     String
+  city        String
+  country     String
+  email       String       @unique
+  photoUrl    String?
+  phone       String?
+  website     String?
+  status      ClientStatus @default(PROSPECT)
+  deletedAt   DateTime?
+  projects    Project[]
 }
 
 enum ProjectStatus {
-  ETUDE          // étude / devis en cours
-  SIGNE          // devis signé
-  EN_COURS       // installation en cours
-  RACCORDEMENT   // en attente de raccordement / mise en service
-  TERMINE        // chantier terminé
-  ANNULE         // annulé
+  ETUDE // étude / devis en cours
+  SIGNE // devis signé
+  EN_COURS // installation en cours
+  RACCORDEMENT // en attente de raccordement / mise en service
+  TERMINE // chantier terminé
+  ANNULE // annulé
 }
 
 enum ProjectType {
@@ -53,28 +53,28 @@ enum ProjectType {
 }
 
 model Project {
-  id          Int           @id @default(autoincrement())
-  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId    Int
-  name        String
-  type        ProjectType   @default(AUTRE)
-  status      ProjectStatus @default(ETUDE)
+  id         Int                @id @default(autoincrement())
+  client     Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   Int
+  name       String
+  type       ProjectType        @default(AUTRE)
+  status     ProjectStatus      @default(ETUDE)
   // Puissance crête en kWc, budget en euros — nullable tant que non chiffrés.
-  power       Float?
-  budget      Float?
+  power      Float?
+  budget     Float?
   // Adresse du chantier : peut différer de l'adresse de facturation du client.
-  address     String?
-  startDate   DateTime?
-  endDate     DateTime?
-  notes       String?
-  deletedAt   DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  tasks       ProjectTask[]
-  taskGroups  ProjectTaskGroup[]
-  folders     ProjectFolder[]
-  files       ProjectFile[]
-  materials   ProjectMaterial[]
+  address    String?
+  startDate  DateTime?
+  endDate    DateTime?
+  notes      String?
+  deletedAt  DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  tasks      ProjectTask[]
+  taskGroups ProjectTaskGroup[]
+  folders    ProjectFolder[]
+  files      ProjectFile[]
+  materials  ProjectMaterial[]
 }
 
 model ProjectTask {
@@ -89,6 +89,7 @@ model ProjectTask {
   done      Boolean           @default(false)
   dueDate   DateTime?
   createdAt DateTime          @default(now())
+  materials ProjectMaterial[]
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
@@ -121,15 +122,23 @@ model ProjectFolder {
 // Inventory line for a project's equipment/material (panels, inverters,
 // mounting hardware, ...). Quantity-only tracking — no per-unit status.
 model ProjectMaterial {
-  id           Int      @id @default(autoincrement())
-  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId    Int
-  name         String
-  quantity     Float
-  unit         String?
-  supplierName String?
-  reference    String?
-  createdAt    DateTime @default(now())
+  id               Int          @id @default(autoincrement())
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId        Int
+  name             String
+  // Quantity currently in stock.
+  quantity         Float
+  unit             String?
+  supplierName     String?
+  reference        String?
+  // Optional link to the task this material is needed for — when set,
+  // requiredQuantity drives the stock indicator (red/orange/green in the UI).
+  // SetNull rather than Cascade: deleting the task shouldn't delete the
+  // material, just unlink it.
+  task             ProjectTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskId           Int?
+  requiredQuantity Float?
+  createdAt        DateTime     @default(now())
 }
 
 model ProjectFile {
@@ -152,23 +161,23 @@ enum Role {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String?
-  role      Role     @default(ADMIN)
-  createdAt DateTime @default(now())
+  id          Int                  @id @default(autoincrement())
+  email       String               @unique
+  password    String
+  name        String?
+  role        Role                 @default(ADMIN)
+  createdAt   DateTime             @default(now())
   resetTokens PasswordResetToken[]
 }
 
 model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  token     String   @unique
+  id        Int       @id @default(autoincrement())
+  token     String    @unique
   userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 enum ActivityAction {
@@ -200,4 +209,3 @@ model ProjectActivityLog {
   actorEmail  String
   createdAt   DateTime       @default(now())
 }
-
