@@ -60,6 +60,45 @@ export async function findById(id: number) {
     }
 }
 
+/**
+ * publicIds (with mime type, for the correct Cloudinary resource_type) of
+ * every file in a project — used to clean up Cloudinary assets before the
+ * project (and its files, via cascade) are permanently deleted.
+ */
+export async function findPublicIdsByProject(projectId: number) {
+    try {
+        return await prisma.projectFile.findMany({
+            where: { projectId },
+            select: { publicId: true, mimeType: true },
+        });
+    } catch (error) {
+        console.log("Repository findPublicIdsByProject error:", error);
+        throw {
+            type: "error",
+            message: "Database Error collecting project files.",
+        };
+    }
+}
+
+/**
+ * Same as findPublicIdsByProject but for every file across all of a client's
+ * projects — used before permanently deleting a client cascades everything.
+ */
+export async function findPublicIdsByClient(clientId: number) {
+    try {
+        return await prisma.projectFile.findMany({
+            where: { project: { clientId } },
+            select: { publicId: true, mimeType: true },
+        });
+    } catch (error) {
+        console.log("Repository findPublicIdsByClient error:", error);
+        throw {
+            type: "error",
+            message: "Database Error collecting client files.",
+        };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.projectFile.delete({ where: { id } });

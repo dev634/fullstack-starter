@@ -14,7 +14,9 @@ vi.mock("@/repository/clients", () => ({
 vi.mock("@/lib/cloudinary", () => ({
   uploadClientPhoto: vi.fn(),
   destroyClientPhoto: vi.fn(),
+  destroyProjectFile: vi.fn(),
 }));
+vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -23,6 +25,8 @@ import { addClient, deleteClient, restoreClient, permanentlyDeleteClient } from 
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { findById, softDelete, restore, permanentlyRemove } from "@/repository/clients";
+import { findPublicIdsByClient } from "@/repository/projectFiles";
+import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
 
 const authMock = vi.mocked(auth);
@@ -31,6 +35,8 @@ const findByIdMock = vi.mocked(findById);
 const softDeleteMock = vi.mocked(softDelete);
 const restoreMock = vi.mocked(restore);
 const permanentlyRemoveMock = vi.mocked(permanentlyRemove);
+const findPublicIdsByClientMock = vi.mocked(findPublicIdsByClient);
+const destroyProjectFileMock = vi.mocked(destroyProjectFile);
 const logActivityMock = vi.mocked(logActivity);
 const initial = { type: null, message: "" } as const;
 
@@ -121,11 +127,23 @@ describe("client action auth guard + delegation", () => {
       lastName: "Smith",
     } as never);
     permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
+    findPublicIdsByClientMock.mockResolvedValue([]);
     const res = await permanentlyDeleteClient(1);
     expect(permanentlyRemoveMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
     expect(logActivityMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: "PERMANENTLY_DELETED", clientId: 1 })
     );
+  });
+
+  it("permanentlyDeleteClient destroys its projects' Cloudinary files", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null, firstName: "Alice", lastName: "Smith" } as never);
+    permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
+    findPublicIdsByClientMock.mockResolvedValue([
+      { publicId: "projects/9/devis", mimeType: "application/pdf" },
+    ] as never);
+    await permanentlyDeleteClient(1);
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/9/devis", "application/pdf");
   });
 });

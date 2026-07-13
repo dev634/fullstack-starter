@@ -5,6 +5,8 @@ import { requireSession, requireRole } from "@/lib/authz";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
 import { findByEmail } from "@/repository/clients";
+import { findPublicIdsByProject } from "@/repository/projectFiles";
+import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
 import { parseCsvRecords, PROJECT_CSV_COLUMNS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
@@ -177,6 +179,10 @@ export async function permanentlyDeleteProject(id: number) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
     const existing = await findById(id);
+    // Clean up the Cloudinary blobs before the DB rows cascade-delete —
+    // otherwise the files are orphaned in Cloudinary forever.
+    const files = await findPublicIdsByProject(id);
+    await Promise.all(files.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
     const project = await remove(id);
     await logActivity({
       action: "PERMANENTLY_DELETED",
