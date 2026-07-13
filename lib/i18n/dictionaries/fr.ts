@@ -261,6 +261,13 @@ const fr = {
             noMaterials: "Aucun matériel pour ce projet.",
             filesHeading: "Fichiers",
             emptyFolder: "Ce dossier est vide.",
+            dashboardHeading: "Avancement",
+            tasksProgress: "{done}/{total} tâches terminées ({percent} %)",
+            noTasksProgress: "Aucune tâche pour le moment.",
+            materialsAtRisk: "{count} matériau(x) en stock critique ou partiel",
+            materialsOk: "Tout le matériel suivi est en stock suffisant.",
+            noMaterialsTracked: "Aucun matériel lié à une tâche pour le moment.",
+            viewDashboard: "Voir le tableau de bord complet",
         },
         deleteModal: {
             title: "Déplacer vers la corbeille",
@@ -407,6 +414,23 @@ const fr = {
             invalidFolderId: "Identifiant de dossier invalide.",
             invalidFileId: "Identifiant de fichier invalide.",
         },
+    },
+    projectDashboard: {
+        title: "Tableau de bord",
+        backToProject: "Retour au projet",
+        notFound: "Ce projet n'existe pas...",
+        tasksTitle: "Avancement des tâches",
+        tasksOverall: "Ensemble du projet",
+        tasksNone: "Aucune tâche pour le moment.",
+        seriesTitle: "Avancement par série",
+        seriesNone: "Aucune série de tâches pour le moment.",
+        materialsTitle: "Stock matériel",
+        materialsNone: "Aucun matériel lié à une tâche pour le moment.",
+        legend: {
+            done: "Terminées",
+            remaining: "Restantes",
+        },
+        materialsListTitle: "Détail par matériau",
     },
 };
 
