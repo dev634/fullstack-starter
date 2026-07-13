@@ -73,6 +73,7 @@ model Project {
   tasks       ProjectTask[]
   folders     ProjectFolder[]
   files       ProjectFile[]
+  materials   ProjectMaterial[]
 }
 
 model ProjectTask {
@@ -97,6 +98,20 @@ model ProjectFolder {
   children  ProjectFolder[] @relation("FolderChildren")
   files     ProjectFile[]
   createdAt DateTime        @default(now())
+}
+
+// Inventory line for a project's equipment/material (panels, inverters,
+// mounting hardware, ...). Quantity-only tracking — no per-unit status.
+model ProjectMaterial {
+  id           Int      @id @default(autoincrement())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    Int
+  name         String
+  quantity     Float
+  unit         String?
+  supplierName String?
+  reference    String?
+  createdAt    DateTime @default(now())
 }
 
 model ProjectFile {
