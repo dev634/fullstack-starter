@@ -8,15 +8,7 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
-
-const ACTION_CLASSES: Record<string, string> = {
-  CREATED: "border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300",
-  UPDATED: "border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300",
-  DELETED: "border-red-300 bg-red-100 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
-  RESTORED: "border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300",
-  PERMANENTLY_DELETED: "border-red-300 bg-red-100 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
-  IMPORTED: "border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-500/30 dark:bg-gray-500/15 dark:text-gray-300",
-};
+import { ACTIVITY_ACTION_CLASSES } from "@/lib/activityStyles";
 
 type PageProps = {
   searchParams: Promise<{ page?: string }>;
@@ -56,7 +48,7 @@ export default async function ProjectsActivityPage({ searchParams }: PageProps) 
               <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
                 {entries.map((entry) => {
                   const label = actionLabels[entry.action] ?? entry.action;
-                  const className = ACTION_CLASSES[entry.action] ?? "";
+                  const className = ACTIVITY_ACTION_CLASSES[entry.action] ?? "";
                   return (
                     <li key={entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>

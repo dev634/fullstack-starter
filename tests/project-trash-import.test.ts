@@ -14,6 +14,8 @@ vi.mock("@/repository/projects", () => ({
   findById: vi.fn(),
 }));
 vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByProject: vi.fn() }));
+vi.mock("@/lib/cloudinary", () => ({ destroyProjectFile: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -26,6 +28,8 @@ import {
 import { requireRole } from "@/lib/authz";
 import { create, remove, restore, findById } from "@/repository/projects";
 import { findByEmail } from "@/repository/clients";
+import { findPublicIdsByProject } from "@/repository/projectFiles";
+import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -34,6 +38,8 @@ const removeMock = vi.mocked(remove);
 const restoreMock = vi.mocked(restore);
 const findByIdMock = vi.mocked(findById);
 const findByEmailMock = vi.mocked(findByEmail);
+const findPublicIdsByProjectMock = vi.mocked(findPublicIdsByProject);
+const destroyProjectFileMock = vi.mocked(destroyProjectFile);
 const logActivityMock = vi.mocked(logActivity);
 
 const HEADER =
@@ -81,6 +87,7 @@ describe("permanentlyDeleteProject", () => {
   it("permanently removes the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
+    findPublicIdsByProjectMock.mockResolvedValue([]);
     removeMock.mockResolvedValue({ id: 1 } as never);
     const res = await permanentlyDeleteProject(1);
     expect(removeMock).toHaveBeenCalledWith(1);
@@ -88,6 +95,19 @@ describe("permanentlyDeleteProject", () => {
       expect.objectContaining({ action: "PERMANENTLY_DELETED", projectId: 1 })
     );
     expect(res.type).toBe("success");
+  });
+
+  it("destroys the project's Cloudinary files before deleting", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
+    findPublicIdsByProjectMock.mockResolvedValue([
+      { publicId: "projects/1/plan", mimeType: "application/pdf" },
+      { publicId: "projects/1/photo", mimeType: "image/jpeg" },
+    ] as never);
+    removeMock.mockResolvedValue({ id: 1 } as never);
+    await permanentlyDeleteProject(1);
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/plan", "application/pdf");
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/photo", "image/jpeg");
   });
 });
 

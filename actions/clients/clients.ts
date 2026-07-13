@@ -1,7 +1,8 @@
 "use server";
 import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
-import { uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
+import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
+import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireSession, requireRole } from "@/lib/authz";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
@@ -285,8 +286,13 @@ export async function permanentlyDeleteClient(id: number) {
       throw { type: "error", message: t.errors.invalidId };
     }
     const existing = await findById(id);
+    // Collect the project files BEFORE deleting the client — deleting cascades
+    // through projects to files, so afterwards the rows (and their publicIds)
+    // are gone and the Cloudinary blobs would be orphaned.
+    const projectFiles = await findPublicIdsByClient(id);
     const client = await permanentlyRemove(id);
     await destroyClientPhoto(existing?.photoUrl);
+    await Promise.all(projectFiles.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
     await logActivity({
       action: "PERMANENTLY_DELETED",
       clientId: id,
