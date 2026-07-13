@@ -90,6 +90,7 @@ const fr = {
         },
         list: {
             title: "Clients",
+            actions: "Actions",
             exportCsv: "Export CSV",
             import: "Importer",
             trash: "Corbeille",
@@ -100,6 +101,7 @@ const fr = {
             selected: "{count} sélectionné(s)",
         },
         toolbar: {
+            filters: "Filtre",
             searchPlaceholder: "Rechercher un client…",
             searchLabel: "Rechercher un client",
             sortLabel: "Trier par",

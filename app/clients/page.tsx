@@ -4,6 +4,7 @@ import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
+import ClientsActionsMenu from "./_components/ClientsActionsMenu";
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -60,8 +61,11 @@ export default async function ClientsPage({
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         <div className="flex items-center justify-between gap-4">
-          <Title title={t.clients.list.title} />
-          <div className="flex items-center gap-2">
+          <Title title={t.clients.list.title} className="text-3xl font-bold" />
+
+          <ClientsActionsMenu canEdit={canEdit} exportHref={exportHref} />
+
+          <div className="hidden md:flex items-center gap-2">
             <a
               href={exportHref}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"

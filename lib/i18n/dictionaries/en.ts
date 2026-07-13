@@ -92,6 +92,7 @@ const en: Dictionary = {
         },
         list: {
             title: "Clients",
+            actions: "Actions",
             exportCsv: "Export CSV",
             import: "Import",
             trash: "Trash",
@@ -102,6 +103,7 @@ const en: Dictionary = {
             selected: "{count} selected",
         },
         toolbar: {
+            filters: "Filter",
             searchPlaceholder: "Search a client…",
             searchLabel: "Search a client",
             sortLabel: "Sort by",
