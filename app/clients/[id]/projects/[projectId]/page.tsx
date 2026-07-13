@@ -12,6 +12,7 @@ import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
 import AddTaskForm from "@/forms/AddTaskForm";
+import GenerateTaskSeriesForm from "@/forms/GenerateTaskSeriesForm";
 import AddMaterialForm from "@/forms/AddMaterialForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
@@ -197,6 +198,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
               <AddTaskForm clientId={clientId} projectId={pid} />
+            </div>
+          )}
+          {canEdit && (
+            <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
+              <GenerateTaskSeriesForm clientId={clientId} projectId={pid} />
             </div>
           )}
         </div>

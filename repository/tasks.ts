@@ -24,6 +24,25 @@ export async function create(data: TaskData) {
     }
 }
 
+/** Bulk-insert (e.g. a numbered series) in a single round trip. */
+export async function createMany(items: TaskData[]) {
+    try {
+        return await prisma.projectTask.createMany({
+            data: items.map((item) => ({
+                projectId: item.projectId,
+                title: item.title,
+                dueDate: item.dueDate ? new Date(item.dueDate) : null,
+            })),
+        });
+    } catch (error) {
+        console.log("Repository createMany task error:", error);
+        throw {
+            type: "error",
+            message: "Database Error creating tasks.",
+        };
+    }
+}
+
 /** Tasks for a project, unfinished first, oldest first within each group. */
 export async function findByProject(projectId: number) {
     try {
