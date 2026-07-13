@@ -23,6 +23,8 @@ import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
+import { format } from "@/lib/i18n/format";
+import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
   BoltIcon,
   CurrencyEuroIcon,
@@ -35,6 +37,8 @@ import {
   FolderIcon,
   HomeIcon,
   ChevronRightIcon,
+  ChartBarIcon,
+  ArrowRightIcon,
 } from "@heroicons/react/24/outline";
 
 type PageProps = {
@@ -107,8 +111,10 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     if (a.done !== b.done) return a.done ? 1 : -1;
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
-  const doneCount = tasks.filter((task) => task.done).length + taskGroups.reduce((sum, g) => sum + g.doneCount, 0);
-  const totalCount = tasks.length + taskGroups.reduce((sum, g) => sum + g.totalCount, 0);
+  const taskProgress = computeTaskProgress(tasks, taskGroups);
+  const doneCount = taskProgress.done;
+  const totalCount = taskProgress.total;
+  const materialStats = computeMaterialStockStats(materials);
 
   const [subfolders, files, breadcrumb] = await Promise.all([
     findChildFolders(pid, currentFolderId),
@@ -189,6 +195,41 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             >
               <ArrowLeftIcon className="h-4 w-4" />
               {t.common.back}
+            </Link>
+          </div>
+        </div>
+        </div>
+
+        {/* Dashboard summary */}
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+        <div className="overflow-hidden rounded-xl">
+          <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <ChartBarIcon className="h-5 w-5 text-blue-500" />
+              {t.projects.detail.dashboardHeading}
+            </h2>
+          </div>
+          <div className="flex flex-col gap-1.5 px-4 py-4 text-sm sm:px-6">
+            <p>
+              {totalCount > 0
+                ? format(t.projects.detail.tasksProgress, { done: doneCount, total: totalCount, percent: taskProgress.percent })
+                : t.projects.detail.noTasksProgress}
+            </p>
+            <p className="text-gray-600 dark:text-gray-300">
+              {materialStats.tracked === 0
+                ? t.projects.detail.noMaterialsTracked
+                : materialStats.red + materialStats.orange === 0
+                  ? t.projects.detail.materialsOk
+                  : format(t.projects.detail.materialsAtRisk, { count: materialStats.red + materialStats.orange })}
+            </p>
+          </div>
+          <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
+            <Link
+              href={`/clients/${id}/projects/${pid}/dashboard`}
+              className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {t.projects.detail.viewDashboard}
+              <ArrowRightIcon className="h-3.5 w-3.5" />
             </Link>
           </div>
         </div>

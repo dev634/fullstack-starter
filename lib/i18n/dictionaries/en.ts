@@ -263,6 +263,13 @@ const en: Dictionary = {
             noMaterials: "No materials for this project.",
             filesHeading: "Files",
             emptyFolder: "This folder is empty.",
+            dashboardHeading: "Progress",
+            tasksProgress: "{done}/{total} tasks completed ({percent}%)",
+            noTasksProgress: "No tasks yet.",
+            materialsAtRisk: "{count} material(s) low or out of stock",
+            materialsOk: "All tracked materials are fully stocked.",
+            noMaterialsTracked: "No material linked to a task yet.",
+            viewDashboard: "View full dashboard",
         },
         deleteModal: {
             title: "Move to trash",
@@ -409,6 +416,22 @@ const en: Dictionary = {
             invalidFolderId: "Invalid folder ID.",
             invalidFileId: "Invalid file ID.",
         },
+    },
+    projectDashboard: {
+        title: "Dashboard",
+        backToProject: "Back to project",
+        notFound: "This project doesn't exist...",
+        tasksTitle: "Task progress",
+        tasksOverall: "Whole project",
+        tasksNone: "No tasks yet.",
+        detailedTitle: "Detailed progress",
+        materialsTitle: "Material stock",
+        materialsNone: "No material linked to a task yet.",
+        legend: {
+            done: "Done",
+            remaining: "Remaining",
+        },
+        materialsListTitle: "Material breakdown",
     },
 };
 

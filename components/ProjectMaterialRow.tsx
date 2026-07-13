@@ -5,7 +5,7 @@ import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
-import { materialStockStatus } from "@/lib/materialStock";
+import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
 type MaterialWithTask = ProjectMaterial & { task: { id: number; title: string } | null };
@@ -15,12 +15,6 @@ type ProjectMaterialRowProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
-};
-
-const STOCK_DOT_CLASSES: Record<string, string> = {
-  green: "bg-green-500",
-  orange: "bg-amber-500",
-  red: "bg-red-500",
 };
 
 export default function ProjectMaterialRow({ material, clientId, projectId, canEdit }: ProjectMaterialRowProps) {
