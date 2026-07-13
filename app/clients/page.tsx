@@ -4,6 +4,7 @@ import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
+import ClientsActionsMenu from "./_components/ClientsActionsMenu";
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -57,11 +58,14 @@ export default async function ClientsPage({
   const exportHref = exportQs ? `/clients/export?${exportQs}` : "/clients/export";
 
   return (
-    <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
-      <div className="w-full max-w-5xl mx-auto space-y-6">
+    <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-8">
+      <div className="w-full max-w-5xl mx-auto flex flex-1 min-h-0 flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
-          <Title title={t.clients.list.title} />
-          <div className="flex items-center gap-2">
+          <Title title={t.clients.list.title} className="text-3xl font-bold" />
+
+          <ClientsActionsMenu canEdit={canEdit} exportHref={exportHref} />
+
+          <div className="hidden md:flex items-center gap-2">
             <a
               href={exportHref}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
@@ -109,36 +113,36 @@ export default async function ClientsPage({
 
         <ClientsToolbar />
 
-        {clients.length ? (
-          <>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {clients.length ? (
             <ClientsGrid clients={clients} canEdit={canEdit} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-4">
+              {q ? (
+                <p className="text-gray-500 dark:text-gray-400">{format(t.clients.list.noResultsFor, { q })}</p>
+              ) : (
+                <>
+                  <p className="text-gray-500 dark:text-gray-400">{t.clients.list.noClientsYet}</p>
+                  {canEdit && (
+                    <Button
+                      text={t.clients.list.addClient}
+                      as="link"
+                      href="/clients/add"
+                      classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-            {totalPages > 1 && (
-              <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
-                <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
-                <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
-                <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
-              </nav>
-            )}
-          </>
-        ) : (
-          <div className="flex h-[45vh] flex-col items-center justify-center gap-4">
-            {q ? (
-              <p className="text-gray-500 dark:text-gray-400">{format(t.clients.list.noResultsFor, { q })}</p>
-            ) : (
-              <>
-                <p className="text-gray-500 dark:text-gray-400">{t.clients.list.noClientsYet}</p>
-                {canEdit && (
-                  <Button
-                    text={t.clients.list.addClient}
-                    as="link"
-                    href="/clients/add"
-                    classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
-                  />
-                )}
-              </>
-            )}
-          </div>
+        {clients.length > 0 && totalPages > 1 && (
+          <nav className="flex items-center justify-center gap-4 pt-2" aria-label={t.common.pagination}>
+            <PageLink href={pageHref(page - 1)} disabled={page <= 1} label={t.common.previous} />
+            <span className="text-sm text-gray-500 dark:text-gray-400">{format(t.common.pageOf, { page, total: totalPages })}</span>
+            <PageLink href={pageHref(page + 1)} disabled={page >= totalPages} label={t.common.next} />
+          </nav>
         )}
       </div>
     </main>
