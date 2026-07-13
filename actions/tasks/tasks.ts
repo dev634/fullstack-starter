@@ -4,6 +4,7 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { createTaskSchema, createTaskSeriesSchema } from "@/schemas/task";
 import { create, createMany, toggle, remove } from "@/repository/tasks";
+import { create as createGroup } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -76,10 +77,11 @@ export async function addTaskSeries(
   }
 
   try {
-    const { projectId, clientId, pattern, from, to } = parsed.data;
+    const { projectId, clientId, name, pattern, from, to } = parsed.data;
+    const group = await createGroup({ projectId, name, pattern });
     const items = [];
     for (let n = from; n <= to; n++) {
-      items.push({ projectId, title: pattern.replaceAll("{n}", String(n)) });
+      items.push({ projectId, groupId: group.id, title: pattern.replaceAll("{n}", String(n)) });
     }
     const result = await createMany(items);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
@@ -87,7 +89,7 @@ export async function addTaskSeries(
       ...prevState,
       type: "success",
       message: format(t.tasks.series.generated, { count: result.count }),
-      data: result,
+      data: { group, ...result },
     };
   } catch (error) {
     return {
@@ -102,8 +104,16 @@ export async function addTaskSeries(
  * Toggle/delete take the client id and project id explicitly (rather than
  * looking them up) so the caller — a bare checkbox/button, not a form — can
  * revalidate the right project detail page without an extra round trip.
+ * `groupId` is passed when the task belongs to a series, so its dedicated
+ * page gets revalidated too.
  */
-export async function toggleTask(id: number, done: boolean, clientId: number, projectId: number) {
+export async function toggleTask(
+  id: number,
+  done: boolean,
+  clientId: number,
+  projectId: number,
+  groupId?: number | null
+) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
@@ -114,6 +124,7 @@ export async function toggleTask(id: number, done: boolean, clientId: number, pr
     }
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {
@@ -123,7 +134,12 @@ export async function toggleTask(id: number, done: boolean, clientId: number, pr
   }
 }
 
-export async function deleteTask(id: number, clientId: number, projectId: number) {
+export async function deleteTask(
+  id: number,
+  clientId: number,
+  projectId: number,
+  groupId?: number | null
+) {
   const roleCheck = await requireRole("ADMIN");
   if (roleCheck.error) return roleCheck.error;
 
@@ -134,6 +150,7 @@ export async function deleteTask(id: number, clientId: number, projectId: number
     }
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
     return { type: "success" as const, message: t.tasks.messages.deleted, data: task };
   } catch (error) {
     return {

@@ -326,6 +326,8 @@ const en: Dictionary = {
         deleteTask: "Delete task {title}",
         series: {
             toggle: "Generate a series",
+            nameLabel: "Series name",
+            namePlaceholder: "Ex: Inverter strings",
             patternLabel: "Pattern",
             patternPlaceholder: "Ex: String {n}",
             patternHint: "{n} will be replaced by each number in the series.",
@@ -333,6 +335,19 @@ const en: Dictionary = {
             toLabel: "To",
             generate: "Generate",
             generated: "{count} task(s) generated.",
+        },
+        group: {
+            title: "Task series",
+            notFound: "This series doesn't exist...",
+            backToProject: "Back to project",
+            deleteSeries: "Delete series",
+            deleteSeriesTitle: "Delete this series",
+            deleteSeriesText: "Delete the series « {name} » and its {count} task(s)? This action is irreversible.",
+            deleteAriaLabel: "Delete series {name}",
+            deleting: "Deleting…",
+            messages: {
+                deleted: "Series deleted.",
+            },
         },
         messages: {
             added: "Task added.",

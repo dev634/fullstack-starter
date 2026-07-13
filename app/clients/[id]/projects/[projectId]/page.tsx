@@ -1,5 +1,6 @@
 import { getProject } from "@/actions/projects/projects";
 import { findByProject } from "@/repository/tasks";
+import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
@@ -8,6 +9,7 @@ import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
@@ -80,9 +82,28 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = session?.user?.role === "ADMIN";
-  const tasks = await findByProject(pid);
-  const doneCount = tasks.filter((task) => task.done).length;
+  const [tasks, taskGroups] = await Promise.all([findByProject(pid), findTaskGroupsByProject(pid)]);
   const materials = await findMaterialsByProject(pid);
+
+  // Combine plain tasks and task-series groups into one chronological list
+  // (unfinished first, oldest first) — a group counts as "done" once every
+  // task in it is done, matching the per-task ordering rule.
+  type TaskRow = { kind: "task"; createdAt: Date; done: boolean; data: (typeof tasks)[number] };
+  type GroupRow = { kind: "group"; createdAt: Date; done: boolean; data: (typeof taskGroups)[number] };
+  const rows: (TaskRow | GroupRow)[] = [
+    ...tasks.map((task): TaskRow => ({ kind: "task", createdAt: task.createdAt, done: task.done, data: task })),
+    ...taskGroups.map((group): GroupRow => ({
+      kind: "group",
+      createdAt: group.createdAt,
+      done: group.totalCount > 0 && group.doneCount === group.totalCount,
+      data: group,
+    })),
+  ].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+  const doneCount = tasks.filter((task) => task.done).length + taskGroups.reduce((sum, g) => sum + g.doneCount, 0);
+  const totalCount = tasks.length + taskGroups.reduce((sum, g) => sum + g.totalCount, 0);
 
   const [subfolders, files, breadcrumb] = await Promise.all([
     findChildFolders(pid, currentFolderId),
@@ -175,19 +196,23 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
               {t.projects.detail.tasksHeading}
-              {tasks.length > 0 && (
+              {totalCount > 0 && (
                 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({doneCount}/{tasks.length})
+                  ({doneCount}/{totalCount})
                 </span>
               )}
             </h2>
           </div>
 
-          {tasks.length ? (
+          {rows.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {tasks.map((task) => (
-                <ProjectTaskRow key={task.id} task={task} clientId={clientId} projectId={pid} canEdit={canEdit} />
-              ))}
+              {rows.map((row) =>
+                row.kind === "task" ? (
+                  <ProjectTaskRow key={`task-${row.data.id}`} task={row.data} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                ) : (
+                  <ProjectTaskGroupRow key={`group-${row.data.id}`} group={row.data} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                )
+              )}
             </ul>
           ) : (
             <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">

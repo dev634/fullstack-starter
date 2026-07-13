@@ -71,19 +71,37 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   tasks       ProjectTask[]
+  taskGroups  ProjectTaskGroup[]
   folders     ProjectFolder[]
   files       ProjectFile[]
   materials   ProjectMaterial[]
 }
 
 model ProjectTask {
-  id        Int       @id @default(autoincrement())
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int               @id @default(autoincrement())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId Int
+  // Set when this task was bulk-generated as part of a named series (see
+  // ProjectTaskGroup) — null for a regular, individually-added task.
+  group     ProjectTaskGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId   Int?
   title     String
-  done      Boolean   @default(false)
+  done      Boolean           @default(false)
   dueDate   DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime          @default(now())
+}
+
+// A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
+// "String 1".."String 27"). Shown as a single row in the task list; deleting
+// the group cascades to its tasks.
+model ProjectTaskGroup {
+  id        Int           @id @default(autoincrement())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  name      String
+  pattern   String
+  createdAt DateTime      @default(now())
+  tasks     ProjectTask[]
 }
 
 // Self-referential tree: a folder can live at the project root (parentId

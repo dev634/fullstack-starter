@@ -48,11 +48,23 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
     <form ref={formRef} action={formAction} className="flex flex-wrap items-start gap-2 px-4 py-3 sm:px-6">
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="projectId" value={projectId} />
-      <div className="min-w-[160px] flex-1">
+      <div className="min-w-[140px] flex-1">
+        <input
+          type="text"
+          name="name"
+          autoFocus
+          placeholder={t.tasks.series.namePlaceholder}
+          aria-label={t.tasks.series.nameLabel}
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        />
+        {state.type === "zodError" && state.fieldsForm?.name && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
+        )}
+      </div>
+      <div className="min-w-[140px] flex-1">
         <input
           type="text"
           name="pattern"
-          autoFocus
           placeholder={t.tasks.series.patternPlaceholder}
           aria-label={t.tasks.series.patternLabel}
           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"

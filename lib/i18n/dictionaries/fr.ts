@@ -324,6 +324,8 @@ const fr = {
         deleteTask: "Supprimer la tâche {title}",
         series: {
             toggle: "Générer une série",
+            nameLabel: "Nom de la série",
+            namePlaceholder: "Ex: Strings onduleur",
             patternLabel: "Motif",
             patternPlaceholder: "Ex: String {n}",
             patternHint: "{n} sera remplacé par chaque numéro de la série.",
@@ -331,6 +333,19 @@ const fr = {
             toLabel: "À",
             generate: "Générer",
             generated: "{count} tâche(s) générée(s).",
+        },
+        group: {
+            title: "Série de tâches",
+            notFound: "Cette série n'existe pas...",
+            backToProject: "Retour au projet",
+            deleteSeries: "Supprimer la série",
+            deleteSeriesTitle: "Supprimer cette série",
+            deleteSeriesText: "Supprimer la série « {name} » et ses {count} tâche(s) ? Cette action est irréversible.",
+            deleteAriaLabel: "Supprimer la série {name}",
+            deleting: "Suppression…",
+            messages: {
+                deleted: "Série supprimée.",
+            },
         },
         messages: {
             added: "Tâche ajoutée.",

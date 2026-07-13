@@ -27,6 +27,7 @@ export const createTaskSeriesSchema = z
     .object({
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
+        name: z.string().min(1, "Le nom de la série est requis"),
         pattern: z.string().min(1, "Le motif est requis"),
         from: z.coerce.number().int(),
         to: z.coerce.number().int(),
