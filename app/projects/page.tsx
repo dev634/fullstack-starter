@@ -5,8 +5,9 @@ import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectsToolbar from "./_components/ProjectsToolbar";
 import ProjectCardActions from "./_components/ProjectCardActions";
+import ProjectsActionsMenu from "./_components/ProjectsActionsMenu";
 import Link from "next/link";
-import { UserIcon, BoltIcon } from "@heroicons/react/24/outline";
+import { UserIcon, BoltIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -52,10 +53,62 @@ export default async function ProjectsPage({
     return qs ? `/projects?${qs}` : "/projects";
   }
 
+  // Shared query string for the current search/sort (used by pager + export).
+  function baseParams() {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (sortField !== "createdAt") params.set("sort", sortField);
+    if (dir !== "desc") params.set("dir", dir);
+    return params;
+  }
+  const exportQs = baseParams().toString();
+  const exportHref = exportQs ? `/projects/export?${exportQs}` : "/projects/export";
+
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-8">
       <div className="w-full max-w-5xl mx-auto flex flex-1 min-h-0 flex-col gap-6">
-        <Title title={t.projects.list.title} />
+        <div className="flex items-center justify-between gap-4">
+          <Title title={t.projects.list.title} className="text-3xl font-bold" />
+
+          <ProjectsActionsMenu canEdit={canEdit} exportHref={exportHref} />
+
+          <div className="hidden md:flex items-center gap-2">
+            <a
+              href={exportHref}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              {t.projects.list.exportCsv}
+            </a>
+            {canEdit && (
+              <Link
+                href="/projects/import"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <ArrowUpTrayIcon className="h-4 w-4" />
+                {t.projects.list.import}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/projects/trash"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <TrashIcon className="h-4 w-4" />
+                {t.projects.list.trash}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/projects/activity"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <ClockIcon className="h-4 w-4" />
+                {t.projects.list.activity}
+              </Link>
+            )}
+          </div>
+        </div>
 
         <ProjectsToolbar />
 
