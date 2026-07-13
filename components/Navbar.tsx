@@ -47,7 +47,9 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
           </Link>
 
           <div className="flex items-center gap-3">
-            <LocaleToggle />
+            <div className={hasMenu ? "hidden md:block" : ""}>
+              <LocaleToggle />
+            </div>
             <ThemeToggle />
 
             {hasMenu && (
@@ -79,7 +81,8 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
 
         {/* Mobile dropdown menu */}
         {hasMenu && open && (
-          <div className="md:hidden absolute left-0 right-0 top-full z-50 flex flex-col space-y-3 bg-gray-800 px-6 py-4 border-t border-white/10">
+          <div className="md:hidden absolute left-0 right-0 top-full z-50 flex flex-col items-start space-y-3 bg-gray-800 px-6 py-4 border-t border-white/10">
+            <LocaleToggle />
             {links.map((link) => (
               <Link
                 key={link.href}
