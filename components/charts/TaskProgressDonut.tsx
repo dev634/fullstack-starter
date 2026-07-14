@@ -1,20 +1,17 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
+import { PROGRESS_DONE_COLOR, PROGRESS_REMAINING_COLOR } from "@/lib/chartColors";
 
 type TaskProgressDonutProps = {
-  tasks: { id: number; title: string; done: boolean }[];
+  done: number;
+  total: number;
+  percent: number;
 };
 
-const DONE_COLOR = "#3b82f6";
-const REMAINING_COLOR = "#9ca3af";
-
-export default function TaskProgressDonut({ tasks }: TaskProgressDonutProps) {
+export default function TaskProgressDonut({ done, total, percent }: TaskProgressDonutProps) {
   const { t } = useTranslation();
-  const total = tasks.length;
-  const done = tasks.filter((task) => task.done).length;
   const remaining = total - done;
-  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   const data = [
     { name: t.projectDashboard.legend.done, value: done },
     { name: t.projectDashboard.legend.remaining, value: remaining },
@@ -34,8 +31,8 @@ export default function TaskProgressDonut({ tasks }: TaskProgressDonutProps) {
           endAngle={-270}
           paddingAngle={total > 0 ? 2 : 0}
         >
-          <Cell fill={DONE_COLOR} stroke="none" />
-          <Cell fill={REMAINING_COLOR} stroke="none" />
+          <Cell fill={PROGRESS_DONE_COLOR} stroke="none" />
+          <Cell fill={PROGRESS_REMAINING_COLOR} stroke="none" />
         </Pie>
         <Tooltip />
       </PieChart>
@@ -47,11 +44,11 @@ export default function TaskProgressDonut({ tasks }: TaskProgressDonutProps) {
       </div>
       <div className="mt-2 flex items-center gap-4 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DONE_COLOR }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PROGRESS_DONE_COLOR }} />
           {t.projectDashboard.legend.done}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: REMAINING_COLOR }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PROGRESS_REMAINING_COLOR }} />
           {t.projectDashboard.legend.remaining}
         </span>
       </div>

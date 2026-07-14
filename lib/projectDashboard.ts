@@ -1,8 +1,9 @@
-import { materialStockStatus } from "@/lib/materialStock";
+import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type TaskLike = { done: boolean };
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number };
 type MaterialLike = { quantity: number; requiredQuantity: number | null };
+type NamedMaterialLike = MaterialLike & { id: number; name: string };
 
 export type TaskProgressStats = {
   done: number;
@@ -52,4 +53,31 @@ export function computeMaterialStockStats(materials: MaterialLike[]): MaterialSt
     stats[materialStockStatus(material.quantity, material.requiredQuantity)] += 1;
   }
   return stats;
+}
+
+export type TrackedMaterial = {
+  id: number;
+  name: string;
+  quantity: number;
+  requiredQuantity: number;
+  status: MaterialStockStatus;
+};
+
+/**
+ * Materials with a linked task requirement, each tagged with its stock status
+ * and sorted worst-stock-first — the per-material detail behind the donut.
+ * Shares the "tracked" predicate (requiredQuantity != null) with
+ * computeMaterialStockStats so the two views can't drift apart.
+ */
+export function computeTrackedMaterials(materials: NamedMaterialLike[]): TrackedMaterial[] {
+  return materials
+    .filter((m): m is NamedMaterialLike & { requiredQuantity: number } => m.requiredQuantity != null)
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      quantity: m.quantity,
+      requiredQuantity: m.requiredQuantity,
+      status: materialStockStatus(m.quantity, m.requiredQuantity),
+    }))
+    .sort((a, b) => STOCK_STATUS_ORDER[a.status] - STOCK_STATUS_ORDER[b.status]);
 }

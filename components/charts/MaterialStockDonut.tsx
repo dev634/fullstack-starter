@@ -1,14 +1,11 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
-import type { MaterialStockStatus } from "@/lib/materialStock";
+import { STOCK_HEX, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type MaterialStockDonutProps = {
   materials: { id: number; name: string; status: MaterialStockStatus }[];
 };
-
-const COLORS: Record<MaterialStockStatus, string> = { green: "#22c55e", orange: "#f59e0b", red: "#ef4444" };
-const STATUS_ORDER: Record<MaterialStockStatus, number> = { red: 0, orange: 1, green: 2 };
 
 export default function MaterialStockDonut({ materials }: MaterialStockDonutProps) {
   const { t } = useTranslation();
@@ -19,7 +16,7 @@ export default function MaterialStockDonut({ materials }: MaterialStockDonutProp
   // One slice per material (not per status) so same-status materials still
   // show up as visually separate wedges, with a gap between every slice.
   const slices = [...materials]
-    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+    .sort((a, b) => STOCK_STATUS_ORDER[a.status] - STOCK_STATUS_ORDER[b.status])
     .map((m) => ({ id: m.id, name: m.name, status: m.status, value: 1 }));
 
   return (
@@ -38,7 +35,7 @@ export default function MaterialStockDonut({ materials }: MaterialStockDonutProp
           paddingAngle={total > 1 ? 4 : 0}
         >
           {slices.map((entry) => (
-            <Cell key={entry.id} fill={COLORS[entry.status]} stroke="none" />
+            <Cell key={entry.id} fill={STOCK_HEX[entry.status]} stroke="none" />
           ))}
         </Pie>
         <Tooltip formatter={(_, __, item) => [t.materials.stockStatus[item.payload.status as MaterialStockStatus], item.payload.name]} />
@@ -48,15 +45,15 @@ export default function MaterialStockDonut({ materials }: MaterialStockDonutProp
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.green }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.green }} />
           {t.materials.stockStatus.green} ({counts.green})
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.orange }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.orange }} />
           {t.materials.stockStatus.orange} ({counts.orange})
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS.red }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.red }} />
           {t.materials.stockStatus.red} ({counts.red})
         </span>
       </div>
