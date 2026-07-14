@@ -7,6 +7,7 @@ import { signIn, signOut } from "@/lib/auth";
 import { formDataToObject } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit";
+import { isLoginRateLimited } from "@/lib/loginRateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -28,11 +29,10 @@ import {
 } from "@/repository/users";
 import type { AuthActionState } from "@/types/auth";
 
-const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 };
 const RESET_REQUEST_LIMIT = { limit: 3, windowMs: 15 * 60 * 1000 };
-// Per-IP caps sit on top of the per-email ones to blunt password-spraying and
-// reset-email bombing across many different accounts from one source.
-const LOGIN_IP_LIMIT = { limit: 20, windowMs: 15 * 60 * 1000 };
+// Per-IP cap sits on top of the per-email one to blunt reset-email bombing
+// across many different accounts from one source. (Login limits live in
+// lib/loginRateLimit.ts, shared with the authorize() callback.)
 const RESET_IP_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 };
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
@@ -59,17 +59,16 @@ export async function login(
     };
   }
 
-  // Throttle repeated failed sign-ins: per-email (targeted) and per-IP (spray).
-  const rlKey = `login:${parsed.data.email.toLowerCase()}`;
-  const ipKey = `login-ip:${await getClientIp()}`;
-  const rl = isRateLimited(rlKey, LOGIN_LIMIT);
-  const rlIp = isRateLimited(ipKey, LOGIN_IP_LIMIT);
-  if (rl.limited || rlIp.limited) {
-    const retryMs = Math.max(rl.retryAfterMs, rlIp.retryAfterMs);
+  // Fast-fail with a localized message before even hitting signIn()/bcrypt.
+  // Read-only check — the actual enforcement (and failure recording) happens
+  // once, inside authorize() (lib/auth.ts), the one choke point every
+  // credentials sign-in funnels through regardless of caller.
+  const rl = isLoginRateLimited(parsed.data.email, await getClientIp());
+  if (rl.limited) {
     return {
       ...prevState,
       type: "error",
-      message: format(t.auth.tooManyAttempts, { minutes: Math.ceil(retryMs / 60000) }),
+      message: format(t.auth.tooManyAttempts, { minutes: Math.ceil(rl.retryAfterMs / 60000) }),
     };
   }
 
@@ -83,8 +82,6 @@ export async function login(
     // A successful sign-in throws a NEXT_REDIRECT error that must bubble up
     // so Next.js can perform the redirect — only AuthError means a real failure.
     if (error instanceof AuthError) {
-      registerFailure(rlKey, LOGIN_LIMIT);
-      registerFailure(ipKey, LOGIN_IP_LIMIT);
       return {
         ...prevState,
         type: "error",
@@ -94,9 +91,6 @@ export async function login(
     throw error;
   }
 
-  // Unreachable on success (signIn redirects), but clears the counter if a
-  // caller ever passes redirect:false.
-  clearRateLimit(rlKey);
   return prevState;
 }
 
