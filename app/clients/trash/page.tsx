@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { findTrashed } from "@/repository/clients";
 import ClientAvatar from "@/components/ClientAvatar";
 import Title from "@/components/Title";
@@ -11,7 +12,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function TrashPage() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  if (!hasMinRole(session?.user?.role, "ADMIN")) {
     redirect("/clients");
   }
 

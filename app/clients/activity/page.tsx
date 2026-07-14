@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { listActivity } from "@/repository/activity";
 import Title from "@/components/Title";
 import Link from "next/link";
@@ -16,7 +17,7 @@ type PageProps = {
 
 export default async function ActivityPage({ searchParams }: PageProps) {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  if (!hasMinRole(session?.user?.role, "ADMIN")) {
     redirect("/clients");
   }
 

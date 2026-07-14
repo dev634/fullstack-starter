@@ -1,5 +1,6 @@
 import { getClient } from '@/actions/clients/clients';
 import { auth } from '@/lib/auth';
+import { hasMinRole } from '@/lib/authz';
 import { findByClient } from '@/repository/projects';
 import Title from '@/components/Title';
 import ClientAvatar from '@/components/ClientAvatar';
@@ -62,7 +63,7 @@ export default async function ClientPage({ params }: PageProps) {
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
     : null;
   const session = await auth();
-  const canEdit = session?.user?.role === "ADMIN";
+  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const projects = await findByClient(clientId);
 
   return (
