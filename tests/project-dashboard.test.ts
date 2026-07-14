@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
+import { computeTaskProgress, computeMaterialStockStats, computeTrackedMaterials } from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
   it("returns 0% with no tasks or groups", () => {
@@ -54,5 +54,30 @@ describe("computeMaterialStockStats", () => {
       orange: 1,
       green: 1,
     });
+  });
+});
+
+describe("computeTrackedMaterials", () => {
+  it("drops untracked materials (no requiredQuantity)", () => {
+    const materials = [
+      { id: 1, name: "Untracked", quantity: 5, requiredQuantity: null },
+      { id: 2, name: "Tracked", quantity: 5, requiredQuantity: 10 },
+    ];
+    const result = computeTrackedMaterials(materials);
+    expect(result.map((m) => m.id)).toEqual([2]);
+  });
+
+  it("tags each material with its status and sorts worst-stock-first", () => {
+    const materials = [
+      { id: 1, name: "Full", quantity: 10, requiredQuantity: 10 },
+      { id: 2, name: "Empty", quantity: 0, requiredQuantity: 10 },
+      { id: 3, name: "Partial", quantity: 5, requiredQuantity: 10 },
+    ];
+    const result = computeTrackedMaterials(materials);
+    expect(result.map((m) => [m.name, m.status])).toEqual([
+      ["Empty", "red"],
+      ["Partial", "orange"],
+      ["Full", "green"],
+    ]);
   });
 });

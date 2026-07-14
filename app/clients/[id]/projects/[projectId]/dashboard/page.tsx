@@ -1,9 +1,9 @@
 import { getProject } from "@/actions/projects/projects";
-import { findByProject, findAllForPicker as findAllTasks } from "@/repository/tasks";
+import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { computeTaskProgress } from "@/lib/projectDashboard";
-import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
+import { computeTaskProgress, computeTrackedMaterials } from "@/lib/projectDashboard";
+import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
 import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
@@ -50,11 +50,10 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   }
 
   const project = result.data!;
-  const [tasks, taskGroups, materials, allTasks] = await Promise.all([
+  const [tasks, taskGroups, materials] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
     findMaterialsByProject(pid),
-    findAllTasks(pid),
   ]);
 
   const taskProgress = computeTaskProgress(tasks, taskGroups);
@@ -73,17 +72,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
     })),
   ];
 
-  const STATUS_ORDER = { red: 0, orange: 1, green: 2 };
-  const namedMaterials = materials
-    .filter((m) => m.requiredQuantity != null)
-    .map((m) => ({
-      id: m.id,
-      name: m.name,
-      quantity: m.quantity,
-      requiredQuantity: m.requiredQuantity!,
-      status: materialStockStatus(m.quantity, m.requiredQuantity!),
-    }))
-    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  const namedMaterials = computeTrackedMaterials(materials);
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -112,7 +101,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
               {taskProgress.total > 0 ? (
                 <div className="flex flex-col items-center gap-1">
-                  <TaskProgressDonut tasks={allTasks} />
+                  <TaskProgressDonut done={taskProgress.done} total={taskProgress.total} percent={taskProgress.percent} />
                   <span className="text-xs text-gray-500 dark:text-gray-400">{t.projectDashboard.tasksOverall}</span>
                 </div>
               ) : (

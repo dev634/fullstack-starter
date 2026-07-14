@@ -1,15 +1,15 @@
 'use client'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
+import { PROGRESS_DONE_COLOR } from "@/lib/chartColors";
 
 type SeriesProgressBarsProps = {
   items: { id: number | string; name: string; done: number; total: number; percent: number }[];
 };
 
-const BAR_COLOR = "#3b82f6";
 const HEIGHT_PER_ROW = 36;
 
 export default function SeriesProgressBars({ items }: SeriesProgressBarsProps) {
-  const data = items.map((g) => ({ name: g.name, percent: g.percent, label: `${g.done}/${g.total}` }));
+  const data = items.map((g) => ({ id: g.id, name: g.name, percent: g.percent, label: `${g.done}/${g.total}` }));
   const height = Math.max(HEIGHT_PER_ROW * data.length, HEIGHT_PER_ROW);
 
   return (
@@ -20,7 +20,7 @@ export default function SeriesProgressBars({ items }: SeriesProgressBarsProps) {
         <Tooltip formatter={(_, __, item) => [item.payload.label, null]} />
         <Bar dataKey="percent" radius={[4, 4, 4, 4]} barSize={16}>
           {data.map((entry) => (
-            <Cell key={entry.name} fill={BAR_COLOR} />
+            <Cell key={entry.id} fill={PROGRESS_DONE_COLOR} />
           ))}
         </Bar>
       </BarChart>
