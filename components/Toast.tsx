@@ -9,7 +9,7 @@ export function Toast({
 }) {
   return (
     <div
-      className={`fixed top-14 right-5 left-5 px-4 py-2 rounded shadow
+      className={`fixed top-32 right-5 left-5 px-4 py-2 rounded shadow
              ${
                type === "success"
                  ? "bg-green-500 text-black"
