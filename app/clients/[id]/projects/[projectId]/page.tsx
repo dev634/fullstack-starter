@@ -227,7 +227,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
             <Link
               href={`/clients/${id}/projects/${pid}/dashboard`}
-              className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80"
             >
               {t.projects.detail.viewDashboard}
               <ArrowRightIcon className="h-3.5 w-3.5" />

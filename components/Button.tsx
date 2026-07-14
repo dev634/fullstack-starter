@@ -20,7 +20,7 @@ type ButtonProps = ButtonLinkProps | ButtonButtonProps;
 
 export default function Button(props: ButtonProps) {
   const defaultClasses =
-    "block w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline";
+    "block w-full px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 text-center no-underline";
 
   if (props.as === "link") {
     return (

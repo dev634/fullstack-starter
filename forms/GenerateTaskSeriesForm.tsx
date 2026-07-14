@@ -108,7 +108,7 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
         <button
           type="submit"
           disabled={isPending}
-          className={`flex-1 rounded bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600 cursor-pointer sm:flex-none ${
+          className={`flex-1 rounded bg-primary px-3 py-2 text-sm text-white hover:bg-primary/90 cursor-pointer sm:flex-none ${
             isPending ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >

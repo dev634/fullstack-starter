@@ -25,7 +25,7 @@ export default function ClientsActionsMenu({ canEdit, exportHref }: { canEdit: b
             href: "/clients/add",
             label: t.clients.list.addClient,
             icon: PlusIcon,
-            className: "font-medium text-blue-600 dark:text-blue-400",
+            className: "font-medium text-primary",
           },
         ]
       : []),

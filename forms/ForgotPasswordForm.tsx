@@ -30,8 +30,8 @@ export default function ForgotPasswordForm() {
       <button
         type="submit"
         disabled={isPending}
-        className={`w-full px-4 py-2 bg-blue-500 text-white
-        rounded hover:bg-blue-600 cursor-pointer ${
+        className={`w-full px-4 py-2 bg-primary text-white
+        rounded hover:bg-primary/90 cursor-pointer ${
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >

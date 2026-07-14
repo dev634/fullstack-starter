@@ -100,7 +100,7 @@ export default async function ClientPage({ params }: PageProps) {
           <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
             <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
             <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.email}</dt>
-            <dd className="min-w-0 break-all text-sm text-blue-600 dark:text-blue-400">{data.email || "—"}</dd>
+            <dd className="min-w-0 break-all text-sm text-primary">{data.email || "—"}</dd>
           </div>
           {data.phone && (
             <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
@@ -114,7 +114,7 @@ export default async function ClientPage({ params }: PageProps) {
               <LinkIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
               <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.website}</dt>
               <dd className="min-w-0 break-all text-sm">
-                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   {data.website}
                 </a>
               </dd>
@@ -167,7 +167,7 @@ export default async function ClientPage({ params }: PageProps) {
           {canEdit && (
             <Link
               href={`/clients/${id}/projects/add`}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-blue-500 px-3 py-1.5 text-sm text-white hover:bg-blue-600"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-primary px-3 py-1.5 text-sm text-white hover:bg-primary/90"
             >
               <PlusIcon className="h-4 w-4" />
               {t.clients.detail.addProject}

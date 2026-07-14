@@ -72,7 +72,7 @@ export default function CreateFolderForm({ clientId, projectId, parentId }: Crea
       <button
         type="submit"
         disabled={isPending}
-        className={`rounded bg-blue-500 px-2.5 py-1.5 text-xs text-white hover:bg-blue-600 cursor-pointer ${
+        className={`rounded bg-primary px-2.5 py-1.5 text-xs text-white hover:bg-primary/90 cursor-pointer ${
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >

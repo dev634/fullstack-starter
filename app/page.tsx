@@ -25,7 +25,7 @@ export default async function HomePage() {
           <h1 className="text-3xl font-bold">{t.dashboard.title}</h1>
           <Link
             href="/clients"
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-blue-500 px-4 py-2 text-sm text-white no-underline hover:bg-blue-600"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-primary px-4 py-2 text-sm text-white no-underline hover:bg-primary/90"
           >
             <UsersIcon className="h-4 w-4" />
             {t.dashboard.viewClients}

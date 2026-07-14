@@ -31,7 +31,7 @@ export default async function ImportClientsPage() {
 
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {t.clients.import.introPrefix}{" "}
-          <Link href="/clients/export" className="text-blue-600 dark:text-blue-400 hover:underline">
+          <Link href="/clients/export" className="text-primary hover:underline">
             {t.clients.import.introLink}
           </Link>{" "}
           {t.clients.import.introSuffix}
