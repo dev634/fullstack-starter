@@ -68,6 +68,62 @@ export async function destroyClientPhoto(
   }
 }
 
+const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
+
+/**
+ * Upload the app-wide branding logo to Cloudinary. Returns publicId
+ * alongside the URL so the previous logo can be cleanly destroyed on
+ * replacement (see destroyLogo).
+ */
+export async function uploadLogo(file: File): Promise<{ url: string; publicId: string }> {
+  if (!file.type.startsWith("image/")) {
+    throw {
+      type: "error",
+      message: "The logo must be an image file.",
+    };
+  }
+
+  if (file.size > MAX_LOGO_BYTES) {
+    throw {
+      type: "error",
+      message: "The logo must be 2 MB or smaller.",
+    };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        { folder: "app-settings", resource_type: "image" },
+        (error, result) => {
+          if (error || !result) {
+            reject({
+              type: "error",
+              message: "Failed to upload the logo. Please try again.",
+            });
+            return;
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      )
+      .end(buffer);
+  });
+}
+
+/**
+ * Best-effort deletion of the previous logo. Never throws so it can't break
+ * the surrounding mutation if the asset is already gone.
+ */
+export async function destroyLogo(publicId: string | null | undefined): Promise<void> {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+  } catch (error) {
+    console.error("Cloudinary destroy failed:", error);
+  }
+}
+
 const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
 
 /**
