@@ -30,17 +30,19 @@ export async function authorizeCredentials(
   const email = String(credentials?.email ?? "");
   const ip = clientIpFrom(request);
 
-  if (isLoginRateLimited(email, ip).limited) {
+  // Reserve this attempt FIRST, before even checking the budget — the check
+  // and the reservation are two separate DB round trips (a SELECT count and
+  // an INSERT), so checking first would reopen the exact race this closes:
+  // a burst of concurrent requests could all see "under budget" before any
+  // of them had recorded, letting far more than 5 guesses through while
+  // their bcrypt compares were still pending. Recording unconditionally
+  // first means every attempt is durably counted the moment it arrives,
+  // regardless of how many siblings are in flight at the same instant.
+  await registerLoginFailure(email, ip);
+
+  if ((await isLoginRateLimited(email, ip)).limited) {
     return null;
   }
-
-  // Reserve this attempt against the budget now, synchronously and before
-  // the slow bcrypt compare below (verifyCredentials awaits it). Node runs
-  // this whole synchronous block to completion before yielding to any other
-  // request, so this closes the race where a burst of concurrent requests
-  // could all pass the check above before any of them had registered —
-  // letting far more than 5 guesses through while bcrypt was still pending.
-  registerLoginFailure(email, ip);
 
   const user = await verifyCredentials({
     email,
@@ -51,6 +53,6 @@ export async function authorizeCredentials(
     return null;
   }
 
-  clearLoginRateLimit(email);
+  await clearLoginRateLimit(email);
   return user;
 }

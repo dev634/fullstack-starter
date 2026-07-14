@@ -18,6 +18,21 @@ enum ClientStatus {
   INACTIVE
 }
 
+// Persistent, DB-backed rate limiting (login/reset attempts). Deliberately
+// just timestamped rows per key — "how many in the last N ms" is a plain
+// count query, and this must be a genuine single source of truth shared
+// across every request: Next.js can compile the same module into separate
+// bundles for Server Actions vs Route Handlers, so a plain in-memory Map is
+// NOT a reliable process-wide singleton and silently under-counts failures
+// made through different call paths.
+model RateLimitAttempt {
+  id        Int      @id @default(autoincrement())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}
+
 model Client {
   id          Int          @id @default(autoincrement())
   companyName String

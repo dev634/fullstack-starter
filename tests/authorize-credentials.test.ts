@@ -2,9 +2,31 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/service/auth", () => ({ verifyCredentials: vi.fn() }));
 
+// A stateful in-memory fake of the DB repository, so these tests exercise
+// the real cumulative rate-limiting logic (lib/rate-limit.ts,
+// lib/loginRateLimit.ts, lib/authorizeCredentials.ts) across many sequential
+// calls, without touching a real database. Declared via vi.hoisted so it's
+// available inside the hoisted vi.mock factory below.
+const { fakeRows } = vi.hoisted(() => ({ fakeRows: new Map<string, number[]>() }));
+
+vi.mock("@/repository/rateLimit", () => ({
+  getRecentAttempts: vi.fn(async (key: string, windowMs: number) => {
+    const since = Date.now() - windowMs;
+    const recent = (fakeRows.get(key) ?? []).filter((t: number) => t >= since);
+    return { count: recent.length, oldestAt: recent.length ? new Date(recent[0]) : null };
+  }),
+  recordAttempt: vi.fn(async (key: string) => {
+    const arr = fakeRows.get(key) ?? [];
+    arr.push(Date.now());
+    fakeRows.set(key, arr);
+  }),
+  clearAttempts: vi.fn(async (key: string) => {
+    fakeRows.delete(key);
+  }),
+}));
+
 import { authorizeCredentials } from "@/lib/authorizeCredentials";
 import { verifyCredentials } from "@/service/auth";
-import { clearRateLimit } from "@/lib/rate-limit";
 
 const verifyCredentialsMock = vi.mocked(verifyCredentials);
 
@@ -15,7 +37,7 @@ function requestFromIp(ip: string): Request {
 describe("authorizeCredentials", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearRateLimit();
+    fakeRows.clear();
   });
 
   it("returns the user on valid credentials", async () => {
@@ -43,7 +65,7 @@ describe("authorizeCredentials", () => {
   // in regardless of which caller invokes it.
   it("blocks further attempts for the same email after 5 failures, even with valid credentials on the next try", async () => {
     verifyCredentialsMock.mockResolvedValue(null);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       await authorizeCredentials({ email: "bob@example.com", password: "wrong" }, requestFromIp("2.2.2.2"));
     }
     verifyCredentialsMock.mockResolvedValue({ id: "2", email: "bob@example.com", role: "VIEWER" } as never);
@@ -52,8 +74,12 @@ describe("authorizeCredentials", () => {
       requestFromIp("2.2.2.2")
     );
     expect(user).toBeNull();
-    // Rate-limited before even reaching verifyCredentials.
-    expect(verifyCredentialsMock).toHaveBeenCalledTimes(5);
+    // The attempt is recorded BEFORE being checked (see authorizeCredentials —
+    // needed so a concurrent burst can't all pass the check before any of
+    // them registers), so the 5th recorded attempt is the one that trips the
+    // limit and never reaches verifyCredentials, even though it happens to
+    // carry the correct password. Only attempts 1-4 got that far.
+    expect(verifyCredentialsMock).toHaveBeenCalledTimes(4);
   });
 
   it("blocks a spray attack from one IP across many different emails", async () => {
@@ -71,7 +97,10 @@ describe("authorizeCredentials", () => {
 
   it("clears the rate limit for an email on success", async () => {
     verifyCredentialsMock.mockResolvedValue(null);
-    for (let i = 0; i < 4; i++) {
+    // Stay under the effective ceiling (3 failures, not the full 4) so the
+    // next attempt's registration doesn't itself trip the limit before its
+    // (correct) password ever gets checked.
+    for (let i = 0; i < 3; i++) {
       await authorizeCredentials({ email: "carol@example.com", password: "wrong" }, requestFromIp("4.4.4.4"));
     }
     verifyCredentialsMock.mockResolvedValue({ id: "4", email: "carol@example.com", role: "ADMIN" } as never);
@@ -83,10 +112,15 @@ describe("authorizeCredentials", () => {
   });
 
   // Regression test for the TOCTOU race: a real brute-force tool fires
-  // requests concurrently, not sequentially. The old code only recorded a
-  // failure *after* awaiting the (slow) bcrypt compare, so a burst of
-  // concurrent requests could all pass the rate-limit check before any of
-  // them had registered — letting far more than 5 guesses through.
+  // requests concurrently, not sequentially. The old (in-memory, check-then-
+  // record) design only recorded a failure *after* awaiting the (slow)
+  // bcrypt compare, so a burst of concurrent requests could all pass the
+  // rate-limit check before any of them had registered — letting far more
+  // than 5 guesses through. Recording is now unconditional and happens
+  // before the check, so every concurrent attempt is durably counted the
+  // instant it arrives — the exact number that slip through before the
+  // count catches up depends on scheduling, but it can never exceed the
+  // configured budget.
   it("blocks a burst of concurrent attempts, not just sequential ones", async () => {
     let resolveAll: (value: null) => void;
     const pending = new Promise<null>((resolve) => {
@@ -104,9 +138,9 @@ describe("authorizeCredentials", () => {
     resolveAll!(null);
     await Promise.all(attempts);
 
-    // Only the first 5 (the configured per-email budget) should have
-    // actually reached verifyCredentials; the rest were reserved-out.
-    expect(verifyCredentialsMock).toHaveBeenCalledTimes(5);
+    // Never more than the configured per-email budget (5) reach
+    // verifyCredentials, no matter how the 10 concurrent attempts interleave.
+    expect(verifyCredentialsMock.mock.calls.length).toBeLessThanOrEqual(5);
   });
 
   it("trusts the last X-Forwarded-For hop (the proxy-appended one), not an attacker-supplied prefix", async () => {

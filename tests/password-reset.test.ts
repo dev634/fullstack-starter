@@ -13,8 +13,27 @@ vi.mock("@/repository/users", () => ({
   updatePassword: vi.fn(),
 }));
 
+// Stateful in-memory fake of the DB repository so the rate-limit tests below
+// (which rely on cumulative counts across several sequential calls) exercise
+// the real lib/rate-limit.ts logic without touching a real database.
+const { fakeRows } = vi.hoisted(() => ({ fakeRows: new Map<string, number[]>() }));
+vi.mock("@/repository/rateLimit", () => ({
+  getRecentAttempts: vi.fn(async (key: string, windowMs: number) => {
+    const since = Date.now() - windowMs;
+    const recent = (fakeRows.get(key) ?? []).filter((t: number) => t >= since);
+    return { count: recent.length, oldestAt: recent.length ? new Date(recent[0]) : null };
+  }),
+  recordAttempt: vi.fn(async (key: string) => {
+    const arr = fakeRows.get(key) ?? [];
+    arr.push(Date.now());
+    fakeRows.set(key, arr);
+  }),
+  clearAttempts: vi.fn(async (key: string) => {
+    fakeRows.delete(key);
+  }),
+}));
+
 import { requestPasswordReset, resetPassword } from "@/actions/auth/auth";
-import { clearRateLimit } from "@/lib/rate-limit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import {
   findByEmail,
@@ -41,7 +60,7 @@ function formOf(data: Record<string, string>): FormData {
 describe("requestPasswordReset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearRateLimit();
+    fakeRows.clear();
   });
 
   it("rejects an invalid email with a validation error", async () => {
@@ -83,7 +102,7 @@ describe("requestPasswordReset", () => {
 describe("resetPassword", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearRateLimit();
+    fakeRows.clear();
   });
 
   it("rejects a weak password", async () => {

@@ -6,7 +6,7 @@ import { AuthError } from "next-auth";
 import { signIn, signOut } from "@/lib/auth";
 import { formDataToObject } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit";
+import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { isLoginRateLimited } from "@/lib/loginRateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -68,7 +68,7 @@ export async function login(
   // Read-only check — the actual enforcement (and failure recording) happens
   // once, inside authorize() (lib/auth.ts), the one choke point every
   // credentials sign-in funnels through regardless of caller.
-  const rl = isLoginRateLimited(parsed.data.email, await getClientIp());
+  const rl = await isLoginRateLimited(parsed.data.email, await getClientIp());
   if (rl.limited) {
     return {
       ...prevState,
@@ -141,12 +141,13 @@ export async function requestPasswordReset(
   const email = parsed.data.email.toLowerCase();
   const rlKey = `reset:${email}`;
   const ipKey = `reset-ip:${await getClientIp()}`;
-  const rl = isRateLimited(rlKey, RESET_REQUEST_LIMIT);
-  const rlIp = isRateLimited(ipKey, RESET_IP_LIMIT);
+  const [rl, rlIp] = await Promise.all([
+    isRateLimited(rlKey, RESET_REQUEST_LIMIT),
+    isRateLimited(ipKey, RESET_IP_LIMIT),
+  ]);
 
   if (!rl.limited && !rlIp.limited) {
-    registerFailure(rlKey, RESET_REQUEST_LIMIT);
-    registerFailure(ipKey, RESET_IP_LIMIT);
+    await Promise.all([registerFailure(rlKey), registerFailure(ipKey)]);
     // Resolve the link base BEFORE the user lookup so timing/behaviour is the
     // same whether or not the email exists (no enumeration signal).
     const baseUrl = await getResetBaseUrl();
