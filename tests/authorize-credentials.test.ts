@@ -81,4 +81,49 @@ describe("authorizeCredentials", () => {
     );
     expect(user).not.toBeNull();
   });
+
+  // Regression test for the TOCTOU race: a real brute-force tool fires
+  // requests concurrently, not sequentially. The old code only recorded a
+  // failure *after* awaiting the (slow) bcrypt compare, so a burst of
+  // concurrent requests could all pass the rate-limit check before any of
+  // them had registered — letting far more than 5 guesses through.
+  it("blocks a burst of concurrent attempts, not just sequential ones", async () => {
+    let resolveAll: (value: null) => void;
+    const pending = new Promise<null>((resolve) => {
+      resolveAll = resolve;
+    });
+    verifyCredentialsMock.mockReturnValue(pending);
+
+    const attempts = Array.from({ length: 10 }, () =>
+      authorizeCredentials({ email: "dave@example.com", password: "wrong" }, requestFromIp("5.5.5.5"))
+    );
+    // Let all 10 calls run up to their `await verifyCredentials(...)` before
+    // any of them resolves, simulating truly concurrent requests.
+    await Promise.resolve();
+    await Promise.resolve();
+    resolveAll!(null);
+    await Promise.all(attempts);
+
+    // Only the first 5 (the configured per-email budget) should have
+    // actually reached verifyCredentials; the rest were reserved-out.
+    expect(verifyCredentialsMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("trusts the last X-Forwarded-For hop (the proxy-appended one), not an attacker-supplied prefix", async () => {
+    verifyCredentialsMock.mockResolvedValue(null);
+    const spoofedThenReal = new Request("https://example.com", {
+      headers: { "x-forwarded-for": "9.9.9.9, 6.6.6.6" },
+    });
+    for (let i = 0; i < 20; i++) {
+      await authorizeCredentials({ email: `spray${i}@example.com`, password: "wrong" }, spoofedThenReal);
+    }
+    // The real (last-hop) IP 6.6.6.6 should now be spray-limited...
+    verifyCredentialsMock.mockResolvedValue({ id: "5", email: "victim@example.com", role: "VIEWER" } as never);
+    const blocked = await authorizeCredentials({ email: "victim@example.com", password: "correct" }, spoofedThenReal);
+    expect(blocked).toBeNull();
+    // ...but a request that genuinely arrives from a different last hop is unaffected.
+    const otherIp = new Request("https://example.com", { headers: { "x-forwarded-for": "9.9.9.9, 7.7.7.7" } });
+    const notBlocked = await authorizeCredentials({ email: "victim@example.com", password: "correct" }, otherIp);
+    expect(notBlocked).not.toBeNull();
+  });
 });

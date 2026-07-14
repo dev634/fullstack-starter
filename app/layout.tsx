@@ -48,8 +48,8 @@ export default async function RootLayout({
   const settings = await getAppSettings();
   const primaryColor = safeHex(settings.primaryColor, "#3b82f6");
   const accentColor = safeHex(settings.accentColor, "#8b5cf6");
-  // Set by middleware.ts on every request — authorizes these two inline
-  // tags under the nonce-based CSP (see middleware.ts for why).
+  // Set by proxy.ts on every request — authorizes the two inline tags below
+  // under the nonce-based CSP (see proxy.ts for why).
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
@@ -63,6 +63,11 @@ export default async function RootLayout({
             default colors — consumed via @theme inline in globals.css. */}
         <style
           nonce={nonce}
+          // The nonce legitimately differs between the SSR pass and any
+          // later client render (a fresh one is minted per request, and
+          // browsers never expose it back via the DOM) — expected per
+          // Next.js's own CSP-nonce guide, not a real hydration bug.
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `:root{--primary:${primaryColor};--accent:${accentColor}}`,
           }}
@@ -70,6 +75,7 @@ export default async function RootLayout({
         {/* Apply the saved (or system) theme before paint to avoid a flash. */}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`,
           }}
