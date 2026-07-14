@@ -1,45 +1,32 @@
-// Minimal in-memory, failure-based rate limiter. Suitable for a single
-// instance (the VPS web container). For a multi-instance deployment this
-// would need a shared store (Redis).
+import { getRecentAttempts, recordAttempt, clearAttempts } from "@/repository/rateLimit";
 
-type Entry = { count: number; resetAt: number };
-
-const store = new Map<string, Entry>();
+// Persistent, Postgres-backed rate limiter (sliding window). Not an
+// in-memory Map: Next.js can compile the same module into separate bundles
+// for Server Actions vs Route Handlers, so in-process memory is not a
+// reliable single source of truth across every call path — see
+// repository/rateLimit.ts for the full reasoning.
 
 export type RateLimitOptions = { limit: number; windowMs: number };
 
 /** Is this key currently over its failure budget? */
-export function isRateLimited(
+export async function isRateLimited(
   key: string,
-  opts: RateLimitOptions,
-  now: number = Date.now()
-): { limited: boolean; retryAfterMs: number } {
-  const entry = store.get(key);
-  if (!entry || now >= entry.resetAt) {
-    return { limited: false, retryAfterMs: 0 };
-  }
-  if (entry.count >= opts.limit) {
-    return { limited: true, retryAfterMs: entry.resetAt - now };
+  opts: RateLimitOptions
+): Promise<{ limited: boolean; retryAfterMs: number }> {
+  const { count, oldestAt } = await getRecentAttempts(key, opts.windowMs);
+  if (count >= opts.limit && oldestAt) {
+    const retryAfterMs = Math.max(0, opts.windowMs - (Date.now() - oldestAt.getTime()));
+    return { limited: true, retryAfterMs };
   }
   return { limited: false, retryAfterMs: 0 };
 }
 
-/** Record a failed attempt, starting or extending the window. */
-export function registerFailure(
-  key: string,
-  opts: RateLimitOptions,
-  now: number = Date.now()
-): void {
-  const entry = store.get(key);
-  if (!entry || now >= entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + opts.windowMs });
-    return;
-  }
-  entry.count += 1;
+/** Record a failed attempt. */
+export async function registerFailure(key: string): Promise<void> {
+  await recordAttempt(key);
 }
 
-/** Clear one key (e.g. on success) or the whole store (tests). */
-export function clearRateLimit(key?: string): void {
-  if (key) store.delete(key);
-  else store.clear();
+/** Clear every recorded attempt for a key (e.g. on success). */
+export async function clearRateLimit(key: string): Promise<void> {
+  await clearAttempts(key);
 }
