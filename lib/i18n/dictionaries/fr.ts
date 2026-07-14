@@ -389,6 +389,13 @@ const fr = {
             invalidId: "Identifiant de matériel invalide.",
         },
     },
+    appSettings: {
+        messages: {
+            updated: "Paramètres mis à jour.",
+            logoUploaded: "Logo mis à jour.",
+            logoRemoved: "Logo supprimé.",
+        },
+    },
     files: {
         newFolder: "Nouveau dossier",
         folderNameLabel: "Nom du dossier",

@@ -391,6 +391,13 @@ const en: Dictionary = {
             invalidId: "Invalid material ID.",
         },
     },
+    appSettings: {
+        messages: {
+            updated: "Settings updated.",
+            logoUploaded: "Logo updated.",
+            logoRemoved: "Logo removed.",
+        },
+    },
     files: {
         newFolder: "New folder",
         folderNameLabel: "Folder name",
