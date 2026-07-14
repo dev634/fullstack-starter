@@ -181,6 +181,20 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 }
 
+// Singleton row (always id=1) holding app-wide branding/theme, configurable
+// by a SUPERADMIN. One row for the whole app — this is a single-tenant
+// starter, not a multi-tenant SaaS.
+model AppSettings {
+  id            Int      @id @default(1)
+  appName       String   @default("Fullstack Starter")
+  logoUrl       String?
+  logoPublicId  String?
+  primaryColor  String   @default("#3b82f6")
+  accentColor   String   @default("#8b5cf6")
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+}
+
 enum ActivityAction {
   CREATED
   UPDATED

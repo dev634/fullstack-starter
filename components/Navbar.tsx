@@ -15,7 +15,7 @@ type NavbarProps = {
 
 type LinkProps = {
     href: string;
-    display: string;
+    display: React.ReactNode;
 }
 
 export default function Navbar({ brand, links, action }: NavbarProps) {
