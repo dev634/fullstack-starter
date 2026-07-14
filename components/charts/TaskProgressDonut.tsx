@@ -1,7 +1,12 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
-import { PROGRESS_DONE_COLOR, PROGRESS_REMAINING_COLOR } from "@/lib/chartColors";
+import {
+  PROGRESS_DONE_COLOR,
+  PROGRESS_REMAINING_COLOR,
+  PROGRESS_DONE_DOT_CLASS,
+  PROGRESS_REMAINING_DOT_CLASS,
+} from "@/lib/chartColors";
 
 type TaskProgressDonutProps = {
   done: number;
@@ -44,11 +49,11 @@ export default function TaskProgressDonut({ done, total, percent }: TaskProgress
       </div>
       <div className="mt-2 flex items-center gap-4 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PROGRESS_DONE_COLOR }} />
+          <span className={`h-2.5 w-2.5 rounded-full ${PROGRESS_DONE_DOT_CLASS}`} />
           {t.projectDashboard.legend.done}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PROGRESS_REMAINING_COLOR }} />
+          <span className={`h-2.5 w-2.5 rounded-full ${PROGRESS_REMAINING_DOT_CLASS}`} />
           {t.projectDashboard.legend.remaining}
         </span>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
-import { STOCK_HEX, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
+import { STOCK_HEX, STOCK_DOT_CLASSES, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type MaterialStockDonutProps = {
   materials: { id: number; name: string; status: MaterialStockStatus }[];
@@ -45,15 +45,15 @@ export default function MaterialStockDonut({ materials }: MaterialStockDonutProp
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.green }} />
+          <span className={`h-2.5 w-2.5 rounded-full ${STOCK_DOT_CLASSES.green}`} />
           {t.materials.stockStatus.green} ({counts.green})
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.orange }} />
+          <span className={`h-2.5 w-2.5 rounded-full ${STOCK_DOT_CLASSES.orange}`} />
           {t.materials.stockStatus.orange} ({counts.orange})
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STOCK_HEX.red }} />
+          <span className={`h-2.5 w-2.5 rounded-full ${STOCK_DOT_CLASSES.red}`} />
           {t.materials.stockStatus.red} ({counts.red})
         </span>
       </div>

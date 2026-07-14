@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
@@ -31,6 +32,9 @@ export default async function RootLayout({
   const session = await auth();
   const locale = await getLocale();
   const t = getDictionary(locale);
+  // Set by proxy.ts on every request — authorizes the inline script below
+  // under the nonce-based CSP (see proxy.ts for why).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html
@@ -41,6 +45,12 @@ export default async function RootLayout({
       <head>
         {/* Apply the saved (or system) theme before paint to avoid a flash. */}
         <script
+          nonce={nonce}
+          // The nonce legitimately differs between the SSR pass and any
+          // later client render (a fresh one is minted per request, and
+          // browsers never expose it back via the DOM) — expected per
+          // Next.js's own CSP-nonce guide, not a real hydration bug.
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`,
           }}
