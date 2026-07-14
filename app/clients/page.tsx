@@ -106,7 +106,7 @@ export default async function ClientsPage({
                 text={t.clients.list.addClient}
                 as="link"
                 href="/clients/add"
-                classes="inline-block whitespace-nowrap px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+                classes="inline-block whitespace-nowrap px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 text-center no-underline"
               />
             )}
           </div>
@@ -129,7 +129,7 @@ export default async function ClientsPage({
                       text={t.clients.list.addClient}
                       as="link"
                       href="/clients/add"
-                      classes="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-center no-underline"
+                      classes="inline-block px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 text-center no-underline"
                     />
                   )}
                 </>

@@ -31,7 +31,7 @@ export default async function ImportProjectsPage() {
 
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {t.projects.import.introPrefix}{" "}
-          <Link href="/projects/export" className="text-blue-600 dark:text-blue-400 hover:underline">
+          <Link href="/projects/export" className="text-primary hover:underline">
             {t.projects.import.introLink}
           </Link>{" "}
           {t.projects.import.introSuffix}

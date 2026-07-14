@@ -131,7 +131,7 @@ export default function AddMaterialForm({
       <button
         type="submit"
         disabled={isPending}
-        className={`rounded bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600 cursor-pointer ${
+        className={`rounded bg-primary px-3 py-2 text-sm text-white hover:bg-primary/90 cursor-pointer ${
           isPending ? "opacity-50 cursor-not-allowed" : ""
         }`}
       >

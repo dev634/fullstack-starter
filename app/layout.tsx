@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import LogoutButton from "@/components/LogoutButton";
 import { LocaleProvider } from "@/components/LocaleProvider";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { getAppSettings } from "@/lib/appSettings";
@@ -99,6 +100,9 @@ export default async function RootLayout({
             links={session ? [
               { href: "/clients", display: t.nav.clients },
               { href: "/projects", display: t.nav.projects },
+              ...(hasMinRole(session.user?.role, "SUPERADMIN")
+                ? [{ href: "/admin/settings", display: t.nav.admin }]
+                : []),
             ] : []}
             action={session ? <LogoutButton /> : undefined}
           />

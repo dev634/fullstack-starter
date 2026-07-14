@@ -31,7 +31,7 @@ export default function Modal({ className, title, text, error, textForCancel, te
           )}
           {textForConfirm && (
             <button
-              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
+              className="bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
               onClick={onConfirm}
             >
               {textForConfirm}

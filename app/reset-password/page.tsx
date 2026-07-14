@@ -19,7 +19,7 @@ export default async function ResetPasswordPage({ searchParams }: PageProps) {
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {t.auth.invalidLinkText}
           </p>
-          <Link href="/forgot-password" className="block text-sm text-blue-600 dark:text-blue-400 hover:underline">
+          <Link href="/forgot-password" className="block text-sm text-primary hover:underline">
             {t.auth.requestNewLink}
           </Link>
         </div>
