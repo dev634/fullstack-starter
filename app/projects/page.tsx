@@ -1,5 +1,6 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
@@ -39,7 +40,7 @@ export default async function ProjectsPage({
   const { projects, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
-  const canEdit = session?.user?.role === "ADMIN";
+  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const locale = await getLocale();
   const t = getDictionary(locale);
 

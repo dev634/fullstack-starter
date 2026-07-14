@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { findTrashed } from "@/repository/projects";
 import Title from "@/components/Title";
 import Link from "next/link";
@@ -10,7 +11,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function ProjectsTrashPage() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  if (!hasMinRole(session?.user?.role, "ADMIN")) {
     redirect("/projects");
   }
 

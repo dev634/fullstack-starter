@@ -156,6 +156,7 @@ model ProjectFile {
 }
 
 enum Role {
+  SUPERADMIN
   ADMIN
   VIEWER
 }

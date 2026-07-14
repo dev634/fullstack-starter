@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -9,7 +10,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function ImportProjectsPage() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  if (!hasMinRole(session?.user?.role, "ADMIN")) {
     redirect("/projects");
   }
   const t = getDictionary(await getLocale());

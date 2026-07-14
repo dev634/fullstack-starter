@@ -1,5 +1,6 @@
 import { getProject } from "@/actions/projects/projects";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import UpdateProjectForm from "@/forms/UpdateProjectForm";
 import { redirect } from "next/navigation";
@@ -15,7 +16,7 @@ type PageProps = {
 
 export default async function EditProjectPage({ params }: PageProps) {
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") {
+    if (!hasMinRole(session?.user?.role, "ADMIN")) {
         redirect("/clients");
     }
 

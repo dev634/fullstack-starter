@@ -1,5 +1,6 @@
 import { getClient } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import UpdateClientForm from "@/forms/UpdateClientForm";
 import { redirect } from "next/navigation";
@@ -14,7 +15,7 @@ type PageProps = {
 
 export default async function EditPage({ params }: PageProps){
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") {
+    if (!hasMinRole(session?.user?.role, "ADMIN")) {
         redirect("/clients");
     }
 

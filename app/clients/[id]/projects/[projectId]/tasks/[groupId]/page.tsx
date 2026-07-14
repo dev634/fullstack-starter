@@ -1,5 +1,6 @@
 import { getTaskGroup } from "@/actions/taskGroups/taskGroups";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
 import DeleteTaskGroupButton from "@/components/DeleteTaskGroupButton";
@@ -45,7 +46,7 @@ export default async function TaskGroupPage({ params }: PageProps) {
   }
 
   const session = await auth();
-  const canEdit = session?.user?.role === "ADMIN";
+  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const doneCount = group.tasks.filter((task) => task.done).length;
 
   return (

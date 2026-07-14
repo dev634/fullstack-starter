@@ -1,12 +1,13 @@
 import AddClientForm from "@/forms/AddClientForm";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { redirect } from "next/navigation";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function AddClientPage(){
     const session = await auth();
-    if (session?.user?.role !== "ADMIN") {
+    if (!hasMinRole(session?.user?.role, "ADMIN")) {
         redirect("/clients");
     }
     const t = getDictionary(await getLocale());

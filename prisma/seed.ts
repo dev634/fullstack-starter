@@ -38,6 +38,17 @@ async function main() {
       zipCode: "10001",
     },
   });
+  const superadmin = await prisma.user.upsert({
+    where: { email: "superadmin@example.com" },
+    update: {},
+    create: {
+      email: "superadmin@example.com",
+      name: "Super Admin",
+      role: "SUPERADMIN",
+      // Default dev password: "password123" — change it in real environments.
+      password: await bcrypt.hash("password123", 10),
+    },
+  });
   const admin = await prisma.user.upsert({
     where: { email: "admin@example.com" },
     update: {},
@@ -61,7 +72,7 @@ async function main() {
     },
   });
 
-  console.log({ alice, bob, admin, viewer });
+  console.log({ alice, bob, superadmin, admin, viewer });
 }
 
 main()

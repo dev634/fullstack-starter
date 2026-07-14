@@ -5,6 +5,7 @@ import { findByProject as findMaterialsByProject } from "@/repository/projectMat
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
@@ -85,7 +86,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
   const project = result.data!;
   const session = await auth();
-  const canEdit = session?.user?.role === "ADMIN";
+  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const [tasks, taskGroups] = await Promise.all([findByProject(pid), findTaskGroupsByProject(pid)]);
   const [materials, allTasks] = await Promise.all([findMaterialsByProject(pid), findAllTasksForPicker(pid)]);
   const materialTaskOptions = allTasks.map((task) => ({
