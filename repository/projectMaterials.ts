@@ -9,6 +9,7 @@ type MaterialData = {
     reference?: string;
     taskId?: number | null;
     taskGroupId?: number | null;
+    taskCategoryId?: number | null;
     requiredQuantity?: number | null;
 };
 
@@ -24,6 +25,7 @@ export async function create(data: MaterialData) {
                 reference: data.reference || null,
                 taskId: data.taskId ?? null,
                 taskGroupId: data.taskGroupId ?? null,
+                taskCategoryId: data.taskCategoryId ?? null,
                 requiredQuantity: data.requiredQuantity ?? null,
             },
         });
@@ -38,8 +40,8 @@ export async function create(data: MaterialData) {
 
 /**
  * Materials for a project, most recently added first — includes the linked
- * task or task-series name (if any) so the UI can show what the stock
- * indicator refers to.
+ * task, task-series, or task-category name (if any) so the UI can show what
+ * the stock indicator refers to.
  */
 export async function findByProject(projectId: number) {
     try {
@@ -48,6 +50,7 @@ export async function findByProject(projectId: number) {
             include: {
                 task: { select: { id: true, title: true } },
                 taskGroup: { select: { id: true, name: true } },
+                taskCategory: { select: { id: true, name: true } },
             },
             orderBy: { createdAt: "desc" },
         });

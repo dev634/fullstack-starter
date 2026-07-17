@@ -12,18 +12,22 @@ const optionalPositiveNumber = z
     });
 
 // The picker submits a single field encoding what's linked: "" (nothing),
-// "task:<id>" (an individual standalone task), or "group:<id>" (a whole
-// task series) — a native <select> can only carry one name/value pair, and
-// the two kinds are mutually exclusive by construction of the dropdown.
+// "task:<id>" (an individual standalone task), "group:<id>" (a whole task
+// series), or "category:<id>" (a whole task category) — a native <select>
+// can only carry one name/value pair, and the three kinds are mutually
+// exclusive by construction of the dropdown.
 const linkTarget = z
     .string()
     .optional()
     .transform((v) => {
+        const empty = { taskId: undefined, taskGroupId: undefined, taskCategoryId: undefined };
         const [kind, idStr] = (v ?? "").split(":");
         const id = Number(idStr);
-        if (kind === "task" && Number.isInteger(id) && id > 0) return { taskId: id, taskGroupId: undefined };
-        if (kind === "group" && Number.isInteger(id) && id > 0) return { taskId: undefined, taskGroupId: id };
-        return { taskId: undefined, taskGroupId: undefined };
+        if (!Number.isInteger(id) || id <= 0) return empty;
+        if (kind === "task") return { ...empty, taskId: id };
+        if (kind === "group") return { ...empty, taskGroupId: id };
+        if (kind === "category") return { ...empty, taskCategoryId: id };
+        return empty;
     });
 
 export const createMaterialSchema = z
@@ -45,12 +49,17 @@ export const createMaterialSchema = z
     })
     .transform((data) => {
         const { link, ...rest } = data;
-        return { ...rest, taskId: link.taskId, taskGroupId: link.taskGroupId };
+        return { ...rest, taskId: link.taskId, taskGroupId: link.taskGroupId, taskCategoryId: link.taskCategoryId };
     })
-    .refine((data) => (data.taskId === undefined && data.taskGroupId === undefined) || data.requiredQuantity !== undefined, {
-        message: "La quantité requise est nécessaire quand une tâche ou une série est liée",
-        path: ["requiredQuantity"],
-        params: { i18n: "requiredQuantityMissing" },
-    });
+    .refine(
+        (data) =>
+            (data.taskId === undefined && data.taskGroupId === undefined && data.taskCategoryId === undefined) ||
+            data.requiredQuantity !== undefined,
+        {
+            message: "La quantité requise est nécessaire quand une tâche, une série ou un groupe est lié",
+            path: ["requiredQuantity"],
+            params: { i18n: "requiredQuantityMissing" },
+        }
+    );
 
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;

@@ -1,13 +1,32 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireSession, requireRole } from "@/lib/authz";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
-import { create, remove } from "@/repository/taskCategories";
+import { create, findById, remove } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { TaskCategoryActionState } from "@/types/taskCategory";
+
+export async function getTaskCategory(id: number) {
+  const unauthorized = await requireSession();
+  if (unauthorized) return unauthorized;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (isNaN(id)) {
+      throw { type: "error", message: t.tasks.messages.invalidId };
+    }
+    const category = await findById(id);
+    return { type: "success" as const, data: category };
+  } catch (error) {
+    return {
+      type: "error" as const,
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
 
 export async function addTaskCategory(
   prevState: TaskCategoryActionState,
