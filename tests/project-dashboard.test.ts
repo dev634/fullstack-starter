@@ -26,6 +26,29 @@ describe("computeTaskProgress", () => {
       { id: 2, name: "B", done: 0, total: 0, percent: 0 },
     ]);
   });
+
+  it("rolls a categorized series up into its category's bar instead of its own", () => {
+    const groups = [
+      { id: 1, name: "Onduleur 13", totalCount: 10, doneCount: 5, categoryId: 1 },
+      { id: 2, name: "Onduleur 14", totalCount: 10, doneCount: 5, categoryId: 1 },
+      { id: 3, name: "Standalone series", totalCount: 4, doneCount: 4, categoryId: null },
+    ];
+    const categories = [{ id: 1, name: "Onduleurs" }];
+    const result = computeTaskProgress([], groups, categories);
+    expect(result.groups).toEqual([
+      { id: "category-1", name: "Onduleurs", done: 10, total: 20, percent: 50 },
+      { id: 3, name: "Standalone series", done: 4, total: 4, percent: 100 },
+    ]);
+    // Overall done/total is unaffected by the rollup — still counts every task once.
+    expect(result.done).toBe(14);
+    expect(result.total).toBe(24);
+  });
+
+  it("gives an empty category a 0% bar rather than dividing by zero", () => {
+    const categories = [{ id: 1, name: "Empty category" }];
+    const result = computeTaskProgress([], [], categories);
+    expect(result.groups).toEqual([{ id: "category-1", name: "Empty category", done: 0, total: 0, percent: 0 }]);
+  });
 });
 
 describe("computeMaterialStockStats", () => {

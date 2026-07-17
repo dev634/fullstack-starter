@@ -1,6 +1,7 @@
 import { getProject } from "@/actions/projects/projects";
 import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
+import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { computeTaskProgress, computeTrackedMaterials } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
@@ -50,13 +51,14 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   }
 
   const project = result.data!;
-  const [tasks, taskGroups, materials] = await Promise.all([
+  const [tasks, taskGroups, taskCategories, materials] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
+    findTaskCategoriesByProject(pid),
     findMaterialsByProject(pid),
   ]);
 
-  const taskProgress = computeTaskProgress(tasks, taskGroups);
+  const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
 
   // One percentage bar per series, plus one per standalone task (0% or 100%
   // since a single task has no partial state) — series first, since they

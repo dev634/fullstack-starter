@@ -1,7 +1,8 @@
 import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type TaskLike = { done: boolean };
-type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number };
+type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
+type TaskCategoryLike = { id: number; name: string };
 type MaterialLike = { quantity: number; requiredQuantity: number | null };
 type NamedMaterialLike = MaterialLike & { id: number; name: string };
 
@@ -9,27 +10,54 @@ export type TaskProgressStats = {
   done: number;
   total: number;
   percent: number;
-  groups: { id: number; name: string; done: number; total: number; percent: number }[];
+  groups: { id: number | string; name: string; done: number; total: number; percent: number }[];
 };
 
-/** Overall + per-series task completion, for the project dashboard. */
-export function computeTaskProgress(tasks: TaskLike[], taskGroups: TaskGroupLike[]): TaskProgressStats {
+/**
+ * Overall + per-series task completion, for the project dashboard. A series
+ * assigned to a category is rolled up into that category's own bar instead
+ * of appearing on its own — matching the project detail page, where a
+ * categorized series is only shown nested inside its category's section.
+ */
+export function computeTaskProgress(
+  tasks: TaskLike[],
+  taskGroups: TaskGroupLike[],
+  taskCategories: TaskCategoryLike[] = []
+): TaskProgressStats {
   const ungroupedDone = tasks.filter((t) => t.done).length;
   const groupedDone = taskGroups.reduce((sum, g) => sum + g.doneCount, 0);
   const groupedTotal = taskGroups.reduce((sum, g) => sum + g.totalCount, 0);
   const done = ungroupedDone + groupedDone;
   const total = tasks.length + groupedTotal;
+
+  const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
+  const categoryBars = taskCategories.map((category) => {
+    const groupsInCategory = taskGroups.filter((g) => g.categoryId === category.id);
+    const catDone = groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0);
+    const catTotal = groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0);
+    return {
+      id: `category-${category.id}`,
+      name: category.name,
+      done: catDone,
+      total: catTotal,
+      percent: catTotal > 0 ? Math.round((catDone / catTotal) * 100) : 0,
+    };
+  });
+
   return {
     done,
     total,
     percent: total > 0 ? Math.round((done / total) * 100) : 0,
-    groups: taskGroups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      done: g.doneCount,
-      total: g.totalCount,
-      percent: g.totalCount > 0 ? Math.round((g.doneCount / g.totalCount) * 100) : 0,
-    })),
+    groups: [
+      ...categoryBars,
+      ...ungroupedSeries.map((g) => ({
+        id: g.id,
+        name: g.name,
+        done: g.doneCount,
+        total: g.totalCount,
+        percent: g.totalCount > 0 ? Math.round((g.doneCount / g.totalCount) * 100) : 0,
+      })),
+    ],
   };
 }
 
