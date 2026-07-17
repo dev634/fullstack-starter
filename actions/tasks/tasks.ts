@@ -77,8 +77,8 @@ export async function addTaskSeries(
   }
 
   try {
-    const { projectId, clientId, name, pattern, from, to } = parsed.data;
-    const group = await createGroup({ projectId, name, pattern });
+    const { projectId, clientId, name, pattern, from, to, categoryId } = parsed.data;
+    const group = await createGroup({ projectId, name, pattern, categoryId });
     const items = [];
     for (let n = from; n <= to; n++) {
       items.push({ projectId, groupId: group.id, title: pattern.replaceAll("{n}", String(n)) });

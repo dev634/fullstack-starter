@@ -68,28 +68,29 @@ enum ProjectType {
 }
 
 model Project {
-  id         Int                @id @default(autoincrement())
-  client     Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId   Int
-  name       String
-  type       ProjectType        @default(AUTRE)
-  status     ProjectStatus      @default(ETUDE)
+  id             Int                   @id @default(autoincrement())
+  client         Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId       Int
+  name           String
+  type           ProjectType           @default(AUTRE)
+  status         ProjectStatus         @default(ETUDE)
   // Puissance crête en kWc, budget en euros — nullable tant que non chiffrés.
-  power      Float?
-  budget     Float?
+  power          Float?
+  budget         Float?
   // Adresse du chantier : peut différer de l'adresse de facturation du client.
-  address    String?
-  startDate  DateTime?
-  endDate    DateTime?
-  notes      String?
-  deletedAt  DateTime?
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-  tasks      ProjectTask[]
-  taskGroups ProjectTaskGroup[]
-  folders    ProjectFolder[]
-  files      ProjectFile[]
-  materials  ProjectMaterial[]
+  address        String?
+  startDate      DateTime?
+  endDate        DateTime?
+  notes          String?
+  deletedAt      DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  tasks          ProjectTask[]
+  taskGroups     ProjectTaskGroup[]
+  taskCategories ProjectTaskCategory[]
+  folders        ProjectFolder[]
+  files          ProjectFile[]
+  materials      ProjectMaterial[]
 }
 
 model ProjectTask {
@@ -111,14 +112,31 @@ model ProjectTask {
 // "String 1".."String 27"). Shown as a single row in the task list; deleting
 // the group cascades to its tasks.
 model ProjectTaskGroup {
-  id        Int               @id @default(autoincrement())
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id         Int                  @id @default(autoincrement())
+  project    Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  Int
+  name       String
+  pattern    String
+  createdAt  DateTime             @default(now())
+  tasks      ProjectTask[]
+  materials  ProjectMaterial[]
+  // Optional higher-level grouping of several series together (e.g. a
+  // "Toiture" category containing the "Strings onduleur" and "Fixations"
+  // series). SetNull rather than Cascade: deleting the category shouldn't
+  // delete the series, just ungroup it.
+  category   ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId Int?
+}
+
+// Groups several ProjectTaskGroup series under one named category (e.g.
+// "Toiture" containing "Strings onduleur" + "Fixations").
+model ProjectTaskCategory {
+  id        Int                @id @default(autoincrement())
+  project   Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId Int
   name      String
-  pattern   String
-  createdAt DateTime          @default(now())
-  tasks     ProjectTask[]
-  materials ProjectMaterial[]
+  createdAt DateTime           @default(now())
+  groups    ProjectTaskGroup[]
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -138,8 +156,8 @@ model ProjectFolder {
 // Inventory line for a project's equipment/material (panels, inverters,
 // mounting hardware, ...). Quantity-only tracking — no per-unit status.
 model ProjectMaterial {
-  id               Int          @id @default(autoincrement())
-  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id               Int               @id @default(autoincrement())
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId        Int
   name             String
   // Quantity currently in stock.
@@ -157,7 +175,7 @@ model ProjectMaterial {
   taskGroup        ProjectTaskGroup? @relation(fields: [taskGroupId], references: [id], onDelete: SetNull)
   taskGroupId      Int?
   requiredQuantity Float?
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime          @default(now())
 }
 
 model ProjectFile {
@@ -204,14 +222,14 @@ model PasswordResetToken {
 // by a SUPERADMIN. One row for the whole app — this is a single-tenant
 // starter, not a multi-tenant SaaS.
 model AppSettings {
-  id            Int      @id @default(1)
-  appName       String   @default("Fullstack Starter")
-  logoUrl       String?
-  logoPublicId  String?
-  primaryColor  String   @default("#3b82f6")
-  accentColor   String   @default("#8b5cf6")
-  updatedAt     DateTime @updatedAt
-  updatedBy     String?
+  id           Int      @id @default(1)
+  appName      String   @default("Fullstack Starter")
+  logoUrl      String?
+  logoPublicId String?
+  primaryColor String   @default("#3b82f6")
+  accentColor  String   @default("#8b5cf6")
+  updatedAt    DateTime @updatedAt
+  updatedBy    String?
 }
 
 enum ActivityAction {

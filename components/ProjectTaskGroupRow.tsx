@@ -6,13 +6,15 @@ import { TrashIcon, Squares2X2Icon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
-import { deleteTaskGroup } from "@/actions/taskGroups/taskGroups";
+import { deleteTaskGroup, setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
+import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 
 type TaskGroupSummary = {
   id: number;
   name: string;
   doneCount: number;
   totalCount: number;
+  categoryId?: number | null;
 };
 
 type ProjectTaskGroupRowProps = {
@@ -20,9 +22,10 @@ type ProjectTaskGroupRowProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
+  categories?: TaskCategoryOption[];
 };
 
-export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit }: ProjectTaskGroupRowProps) {
+export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit, categories }: ProjectTaskGroupRowProps) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
@@ -42,6 +45,12 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
     router.refresh();
   }
 
+  async function handleCategoryChange(value: string) {
+    const categoryId = value ? Number(value) : null;
+    await setTaskGroupCategory(group.id, categoryId, clientId, projectId);
+    router.refresh();
+  }
+
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
       <Link
@@ -56,6 +65,22 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
           ({group.doneCount}/{group.totalCount})
         </span>
       </Link>
+      {canEdit && categories && categories.length > 0 && (
+        <select
+          value={group.categoryId ?? ""}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          disabled={pending}
+          aria-label={t.tasks.series.categoryLabel}
+          className="shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 text-xs text-gray-900 dark:text-gray-100"
+        >
+          <option value="">{t.tasks.series.noCategoryOption}</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      )}
       {canEdit && (
         <button
           type="button"

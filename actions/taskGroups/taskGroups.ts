@@ -1,7 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireSession, requireRole } from "@/lib/authz";
-import { findById, remove } from "@/repository/taskGroups";
+import { findById, remove, setCategory } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -17,6 +17,36 @@ export async function getTaskGroup(id: number) {
     }
     const group = await findById(id);
     return { type: "success" as const, data: group };
+  } catch (error) {
+    return {
+      type: "error" as const,
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
+
+/**
+ * Assign (or clear, when categoryId is null) the category an existing
+ * series belongs to — takes the client/project id explicitly (rather than
+ * looking them up) so the caller can revalidate the right project page.
+ */
+export async function setTaskGroupCategory(
+  id: number,
+  categoryId: number | null,
+  clientId: number,
+  projectId: number
+) {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (isNaN(id)) {
+      throw { type: "error", message: t.tasks.messages.invalidId };
+    }
+    const group = await setCategory(id, categoryId);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    return { type: "success" as const, message: t.tasks.messages.updated, data: group };
   } catch (error) {
     return {
       type: "error" as const,

@@ -10,7 +10,17 @@ const initialState: TaskActionState = {
   message: "",
 }
 
-export default function GenerateTaskSeriesForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+export type TaskCategoryOption = { id: number; name: string };
+
+export default function GenerateTaskSeriesForm({
+  clientId,
+  projectId,
+  categories,
+}: {
+  clientId: number;
+  projectId: number;
+  categories: TaskCategoryOption[];
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(
@@ -103,6 +113,23 @@ export default function GenerateTaskSeriesForm({ clientId, projectId }: { client
           )}
         </div>
       </div>
+      {categories.length > 0 && (
+        <div className="sm:min-w-[140px]">
+          <select
+            name="categoryId"
+            defaultValue=""
+            aria-label={t.tasks.series.categoryLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+          >
+            <option value="">{t.tasks.series.noCategoryOption}</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {/* Same idea for the actions. */}
       <div className="flex gap-2">
         <button

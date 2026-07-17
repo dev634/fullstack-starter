@@ -340,6 +340,8 @@ const fr = {
             patternHint: "{n} sera remplacé par chaque numéro de la série.",
             fromLabel: "De",
             toLabel: "À",
+            categoryLabel: "Groupe",
+            noCategoryOption: "Aucun groupe",
             generate: "Générer",
             generated: "{count} tâche(s) générée(s).",
         },
@@ -354,6 +356,22 @@ const fr = {
             deleting: "Suppression…",
             messages: {
                 deleted: "Série supprimée.",
+            },
+        },
+        category: {
+            toggle: "Nouveau groupe",
+            nameLabel: "Nom du groupe",
+            namePlaceholder: "Ex: Toiture",
+            create: "Créer",
+            uncategorized: "Sans groupe",
+            deleteCategory: "Supprimer le groupe",
+            deleteCategoryTitle: "Supprimer ce groupe",
+            deleteCategoryText: "Supprimer le groupe « {name} » ? Les séries qu'il contient seront simplement dégroupées, pas supprimées.",
+            deleteAriaLabel: "Supprimer le groupe {name}",
+            deleting: "Suppression…",
+            messages: {
+                added: "Groupe créé.",
+                deleted: "Groupe supprimé.",
             },
         },
         messages: {

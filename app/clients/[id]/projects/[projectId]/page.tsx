@@ -1,6 +1,7 @@
 import { getProject } from "@/actions/projects/projects";
 import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
+import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
@@ -11,11 +12,13 @@ import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
+import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
 import AddTaskForm from "@/forms/AddTaskForm";
 import GenerateTaskSeriesForm from "@/forms/GenerateTaskSeriesForm";
+import AddTaskCategoryForm from "@/forms/AddTaskCategoryForm";
 import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
@@ -87,7 +90,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = hasMinRole(session?.user?.role, "ADMIN");
-  const [tasks, taskGroups] = await Promise.all([findByProject(pid), findTaskGroupsByProject(pid)]);
+  const [tasks, taskGroups, taskCategories] = await Promise.all([
+    findByProject(pid),
+    findTaskGroupsByProject(pid),
+    findTaskCategoriesByProject(pid),
+  ]);
   const materials = await findMaterialsByProject(pid);
   // The material picker links to a standalone (ungrouped) task or to a
   // whole series at once — a series is one collapsed option, never
@@ -97,14 +104,25 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     ...taskGroups.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
   ];
 
-  // Combine plain tasks and task-series groups into one chronological list
-  // (unfinished first, oldest first) — a group counts as "done" once every
-  // task in it is done, matching the per-task ordering rule.
+  // Series can optionally belong to a category (a higher-level grouping of
+  // several series, e.g. "Toiture" containing "Strings onduleur" +
+  // "Fixations") — categorized series are rendered inside their category's
+  // own section, so only standalone tasks and ungrouped series go into the
+  // flat chronological list below.
+  const ungroupedTaskGroups = taskGroups.filter((group) => group.categoryId == null);
+  const categorySections = taskCategories.map((category) => ({
+    category,
+    groups: taskGroups.filter((group) => group.categoryId === category.id),
+  }));
+
+  // Combine plain tasks and ungrouped task-series into one chronological
+  // list (unfinished first, oldest first) — a group counts as "done" once
+  // every task in it is done, matching the per-task ordering rule.
   type TaskRow = { kind: "task"; createdAt: Date; done: boolean; data: (typeof tasks)[number] };
   type GroupRow = { kind: "group"; createdAt: Date; done: boolean; data: (typeof taskGroups)[number] };
   const rows: (TaskRow | GroupRow)[] = [
     ...tasks.map((task): TaskRow => ({ kind: "task", createdAt: task.createdAt, done: task.done, data: task })),
-    ...taskGroups.map((group): GroupRow => ({
+    ...ungroupedTaskGroups.map((group): GroupRow => ({
       kind: "group",
       createdAt: group.createdAt,
       done: group.totalCount > 0 && group.doneCount === group.totalCount,
@@ -253,21 +271,40 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </h2>
           </div>
 
+          {categorySections.map(({ category, groups }) => (
+            <ProjectTaskCategorySection
+              key={`category-${category.id}`}
+              category={category}
+              groups={groups}
+              categories={taskCategories}
+              clientId={clientId}
+              projectId={pid}
+              canEdit={canEdit}
+            />
+          ))}
+
           {rows.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {rows.map((row) =>
                 row.kind === "task" ? (
                   <ProjectTaskRow key={`task-${row.data.id}`} task={row.data} clientId={clientId} projectId={pid} canEdit={canEdit} />
                 ) : (
-                  <ProjectTaskGroupRow key={`group-${row.data.id}`} group={row.data} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                  <ProjectTaskGroupRow
+                    key={`group-${row.data.id}`}
+                    group={row.data}
+                    clientId={clientId}
+                    projectId={pid}
+                    canEdit={canEdit}
+                    categories={taskCategories}
+                  />
                 )
               )}
             </ul>
-          ) : (
+          ) : categorySections.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
               {t.projects.detail.noTasks}
             </div>
-          )}
+          ) : null}
 
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
@@ -275,8 +312,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
-              <GenerateTaskSeriesForm clientId={clientId} projectId={pid} />
+            <div className="flex flex-wrap gap-2 border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
+              <GenerateTaskSeriesForm clientId={clientId} projectId={pid} categories={taskCategories} />
+              <AddTaskCategoryForm clientId={clientId} projectId={pid} />
             </div>
           )}
         </div>
