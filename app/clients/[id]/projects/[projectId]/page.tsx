@@ -1,5 +1,5 @@
 import { getProject } from "@/actions/projects/projects";
-import { findByProject, findAllForPicker as findAllTasksForPicker } from "@/repository/tasks";
+import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
@@ -16,7 +16,7 @@ import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
 import AddTaskForm from "@/forms/AddTaskForm";
 import GenerateTaskSeriesForm from "@/forms/GenerateTaskSeriesForm";
-import AddMaterialForm from "@/forms/AddMaterialForm";
+import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
@@ -88,12 +88,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const session = await auth();
   const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const [tasks, taskGroups] = await Promise.all([findByProject(pid), findTaskGroupsByProject(pid)]);
-  const [materials, allTasks] = await Promise.all([findMaterialsByProject(pid), findAllTasksForPicker(pid)]);
-  const materialTaskOptions = allTasks.map((task) => ({
-    id: task.id,
-    title: task.title,
-    groupName: task.group?.name ?? null,
-  }));
+  const materials = await findMaterialsByProject(pid);
+  // The material picker links to a standalone (ungrouped) task or to a
+  // whole series at once — a series is one collapsed option, never
+  // expanded into its individual member tasks.
+  const materialLinkOptions: MaterialLinkOption[] = [
+    ...tasks.map((task): MaterialLinkOption => ({ kind: "task", id: task.id, title: task.title })),
+    ...taskGroups.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
+  ];
 
   // Combine plain tasks and task-series groups into one chronological list
   // (unfinished first, oldest first) — a group counts as "done" once every
@@ -309,7 +311,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddMaterialForm clientId={clientId} projectId={pid} tasks={materialTaskOptions} />
+              <AddMaterialForm clientId={clientId} projectId={pid} linkOptions={materialLinkOptions} />
             </div>
           )}
         </div>

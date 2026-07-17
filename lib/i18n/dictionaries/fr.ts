@@ -27,7 +27,7 @@ const fr = {
         patternMissingPlaceholder: "Le motif doit contenir {n}.",
         seriesRangeInvalid: "La valeur « à » doit être supérieure ou égale à « de ».",
         seriesTooLarge: "La série ne peut pas dépasser {max} tâches.",
-        requiredQuantityMissing: "La quantité requise est nécessaire quand une tâche est liée.",
+        requiredQuantityMissing: "La quantité requise est nécessaire quand une tâche ou une série est liée.",
         validationError: "Erreur de validation. Vérifie les informations saisies et réessaie.",
         unauthorized: "Non autorisé. Merci de te connecter.",
         forbidden: "Accès refusé. Ton rôle ne permet pas cette action.",

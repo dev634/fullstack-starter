@@ -8,7 +8,10 @@ import { format } from "@/lib/i18n/format";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
-type MaterialWithTask = ProjectMaterial & { task: { id: number; title: string } | null };
+type MaterialWithTask = ProjectMaterial & {
+  task: { id: number; title: string } | null;
+  taskGroup: { id: number; name: string } | null;
+};
 
 type ProjectMaterialRowProps = {
   material: MaterialWithTask;
@@ -30,11 +33,12 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
     router.refresh();
   }
 
+  const linkedName = material.task?.title ?? material.taskGroup?.name ?? null;
   const secondaryParts = [material.supplierName, material.reference];
-  if (material.task) secondaryParts.push(format(t.materials.linkedTask, { title: material.task.title }));
+  if (linkedName) secondaryParts.push(format(t.materials.linkedTask, { title: linkedName }));
   const secondary = secondaryParts.filter(Boolean).join(" · ");
 
-  const status = material.task && material.requiredQuantity != null
+  const status = linkedName && material.requiredQuantity != null
     ? materialStockStatus(material.quantity, material.requiredQuantity)
     : null;
 
@@ -56,7 +60,7 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
       <span className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
         {material.quantity}
         {material.unit ? ` ${material.unit}` : ""}
-        {material.task && material.requiredQuantity != null && (
+        {linkedName && material.requiredQuantity != null && (
           <span className="text-gray-400 dark:text-gray-500"> / {material.requiredQuantity}</span>
         )}
       </span>

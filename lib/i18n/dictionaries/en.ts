@@ -29,7 +29,7 @@ const en: Dictionary = {
         patternMissingPlaceholder: "The pattern must contain {n}.",
         seriesRangeInvalid: "\"to\" must be greater than or equal to \"from\".",
         seriesTooLarge: "A series can't exceed {max} tasks.",
-        requiredQuantityMissing: "The required quantity is needed when a task is linked.",
+        requiredQuantityMissing: "The required quantity is needed when a task or series is linked.",
         validationError: "Validation error. Please check your input and try again.",
         unauthorized: "Unauthorized. Please sign in.",
         forbidden: "Forbidden. Your role does not allow this action.",

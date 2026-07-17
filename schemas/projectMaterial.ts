@@ -2,15 +2,6 @@ import z from "zod";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
-const optionalPositiveInt = z
-    .string()
-    .optional()
-    .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || (Number.isInteger(v) && v > 0), {
-        message: "Invalid task",
-        params: { i18n: "notANumber" },
-    });
-
 const optionalPositiveNumber = z
     .string()
     .optional()
@@ -18,6 +9,21 @@ const optionalPositiveNumber = z
     .refine((v) => v === undefined || v > 0, {
         message: "Must be a positive number",
         params: { i18n: "notANumber" },
+    });
+
+// The picker submits a single field encoding what's linked: "" (nothing),
+// "task:<id>" (an individual standalone task), or "group:<id>" (a whole
+// task series) — a native <select> can only carry one name/value pair, and
+// the two kinds are mutually exclusive by construction of the dropdown.
+const linkTarget = z
+    .string()
+    .optional()
+    .transform((v) => {
+        const [kind, idStr] = (v ?? "").split(":");
+        const id = Number(idStr);
+        if (kind === "task" && Number.isInteger(id) && id > 0) return { taskId: id, taskGroupId: undefined };
+        if (kind === "group" && Number.isInteger(id) && id > 0) return { taskId: undefined, taskGroupId: id };
+        return { taskId: undefined, taskGroupId: undefined };
     });
 
 export const createMaterialSchema = z
@@ -31,13 +37,18 @@ export const createMaterialSchema = z
         unit: z.string().optional(),
         supplierName: z.string().optional(),
         reference: z.string().optional(),
-        // When a task is linked, requiredQuantity drives the stock indicator
-        // (see lib/materialStock.ts) — comparing quantity in stock against it.
-        taskId: optionalPositiveInt,
+        // When a task or task-series is linked, requiredQuantity drives the
+        // stock indicator (see lib/materialStock.ts) — comparing quantity in
+        // stock against it.
+        link: linkTarget,
         requiredQuantity: optionalPositiveNumber,
     })
-    .refine((data) => data.taskId === undefined || data.requiredQuantity !== undefined, {
-        message: "La quantité requise est nécessaire quand une tâche est liée",
+    .transform((data) => {
+        const { link, ...rest } = data;
+        return { ...rest, taskId: link.taskId, taskGroupId: link.taskGroupId };
+    })
+    .refine((data) => (data.taskId === undefined && data.taskGroupId === undefined) || data.requiredQuantity !== undefined, {
+        message: "La quantité requise est nécessaire quand une tâche ou une série est liée",
         path: ["requiredQuantity"],
         params: { i18n: "requiredQuantityMissing" },
     });

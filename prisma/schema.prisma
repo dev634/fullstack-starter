@@ -111,13 +111,14 @@ model ProjectTask {
 // "String 1".."String 27"). Shown as a single row in the task list; deleting
 // the group cascades to its tasks.
 model ProjectTaskGroup {
-  id        Int           @id @default(autoincrement())
-  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int               @id @default(autoincrement())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId Int
   name      String
   pattern   String
-  createdAt DateTime      @default(now())
+  createdAt DateTime          @default(now())
   tasks     ProjectTask[]
+  materials ProjectMaterial[]
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -146,12 +147,15 @@ model ProjectMaterial {
   unit             String?
   supplierName     String?
   reference        String?
-  // Optional link to the task this material is needed for — when set,
-  // requiredQuantity drives the stock indicator (red/orange/green in the UI).
+  // Optional link to the task (or whole task series) this material is
+  // needed for — when set, requiredQuantity drives the stock indicator
+  // (red/orange/green in the UI). Mutually exclusive with taskGroupId.
   // SetNull rather than Cascade: deleting the task shouldn't delete the
   // material, just unlink it.
-  task             ProjectTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  task             ProjectTask?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
   taskId           Int?
+  taskGroup        ProjectTaskGroup? @relation(fields: [taskGroupId], references: [id], onDelete: SetNull)
+  taskGroupId      Int?
   requiredQuantity Float?
   createdAt        DateTime     @default(now())
 }

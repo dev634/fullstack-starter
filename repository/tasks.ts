@@ -66,26 +66,6 @@ export async function findByProject(projectId: number) {
     }
 }
 
-/**
- * Every task in the project — grouped or not, with its series name if any —
- * for pickers (e.g. linking a material to the task it's needed for).
- */
-export async function findAllForPicker(projectId: number) {
-    try {
-        return await prisma.projectTask.findMany({
-            where: { projectId },
-            include: { group: { select: { name: true } } },
-            orderBy: [{ done: "asc" }, { createdAt: "asc" }],
-        });
-    } catch (error) {
-        console.log("Repository findAllForPicker (task) error:", error);
-        throw {
-            type: "error",
-            message: "Database Error fetching tasks.",
-        };
-    }
-}
-
 export async function toggle(id: number, done: boolean) {
     try {
         return await prisma.projectTask.update({ where: { id }, data: { done } });
