@@ -342,6 +342,8 @@ const en: Dictionary = {
             patternHint: "{n} will be replaced by each number in the series.",
             fromLabel: "From",
             toLabel: "To",
+            categoryLabel: "Group",
+            noCategoryOption: "No group",
             generate: "Generate",
             generated: "{count} task(s) generated.",
         },
@@ -356,6 +358,22 @@ const en: Dictionary = {
             deleting: "Deleting…",
             messages: {
                 deleted: "Series deleted.",
+            },
+        },
+        category: {
+            toggle: "New group",
+            nameLabel: "Group name",
+            namePlaceholder: "Ex: Roofing",
+            create: "Create",
+            uncategorized: "Ungrouped",
+            deleteCategory: "Delete group",
+            deleteCategoryTitle: "Delete this group",
+            deleteCategoryText: "Delete the group « {name} »? The series it contains will just be ungrouped, not deleted.",
+            deleteAriaLabel: "Delete group {name}",
+            deleting: "Deleting…",
+            messages: {
+                added: "Group created.",
+                deleted: "Group deleted.",
             },
         },
         messages: {

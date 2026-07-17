@@ -124,6 +124,19 @@ describe("task actions", () => {
     expect(res.type).toBe("success");
   });
 
+  it("addTaskSeries passes an optional categoryId through to the group", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createGroupMock.mockResolvedValue({ id: 9, projectId: 2, name: "Strings onduleur", pattern: "String {n}" } as never);
+    createManyMock.mockResolvedValue({ count: 2 } as never);
+    await addTaskSeries(
+      initial,
+      formOf({ clientId: "1", projectId: "2", name: "Strings onduleur", pattern: "String {n}", from: "1", to: "2", categoryId: "5" })
+    );
+    expect(createGroupMock).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: 5 })
+    );
+  });
+
   it("toggleTask refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await toggleTask(1, true, 1, 2);

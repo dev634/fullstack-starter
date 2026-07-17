@@ -5,6 +5,17 @@ const optionalDate = z
     .optional()
     .transform((v) => (v && v.trim() !== "" ? v : undefined));
 
+// Empty string (nothing picked) means "not provided" rather than a
+// validation error — same convention as schemas/project.ts's optionalNumber.
+const optionalPositiveInt = z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
+    .refine((v) => v === undefined || (Number.isInteger(v) && v > 0), {
+        message: "Invalid category",
+        params: { i18n: "notANumber" },
+    });
+
 export const createTaskSchema = z.object({
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
@@ -31,6 +42,9 @@ export const createTaskSeriesSchema = z
         pattern: z.string().min(1, "Le motif est requis"),
         from: z.coerce.number().int(),
         to: z.coerce.number().int(),
+        // Optional: assign the new series directly to an existing category
+        // (e.g. put "Strings onduleur" under a "Toiture" group) at creation time.
+        categoryId: optionalPositiveInt,
     })
     .refine((data) => data.pattern.includes("{n}"), {
         message: "Le motif doit contenir {n}",

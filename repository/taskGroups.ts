@@ -4,6 +4,7 @@ type TaskGroupData = {
     projectId: number;
     name: string;
     pattern: string;
+    categoryId?: number | null;
 };
 
 export async function create(data: TaskGroupData) {
@@ -13,6 +14,7 @@ export async function create(data: TaskGroupData) {
                 projectId: data.projectId,
                 name: data.name,
                 pattern: data.pattern,
+                categoryId: data.categoryId ?? null,
             },
         });
     } catch (error) {
@@ -41,6 +43,7 @@ export async function findByProject(projectId: number) {
             name: group.name,
             pattern: group.pattern,
             createdAt: group.createdAt,
+            categoryId: group.categoryId,
             totalCount: group.tasks.length,
             doneCount: group.tasks.filter((t) => t.done).length,
         }));
@@ -68,6 +71,19 @@ export async function findById(id: number) {
         throw {
             type: "error",
             message: "Database Error fetching task group.",
+        };
+    }
+}
+
+/** Assigns (or clears, when categoryId is null) the category an existing series belongs to. */
+export async function setCategory(id: number, categoryId: number | null) {
+    try {
+        return await prisma.projectTaskGroup.update({ where: { id }, data: { categoryId } });
+    } catch (error) {
+        console.log("Repository setCategory (task group) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task group category.",
         };
     }
 }
