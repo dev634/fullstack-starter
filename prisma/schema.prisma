@@ -137,6 +137,7 @@ model ProjectTaskCategory {
   name      String
   createdAt DateTime           @default(now())
   groups    ProjectTaskGroup[]
+  materials ProjectMaterial[]
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -156,8 +157,8 @@ model ProjectFolder {
 // Inventory line for a project's equipment/material (panels, inverters,
 // mounting hardware, ...). Quantity-only tracking — no per-unit status.
 model ProjectMaterial {
-  id               Int               @id @default(autoincrement())
-  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id               Int                  @id @default(autoincrement())
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId        Int
   name             String
   // Quantity currently in stock.
@@ -165,17 +166,19 @@ model ProjectMaterial {
   unit             String?
   supplierName     String?
   reference        String?
-  // Optional link to the task (or whole task series) this material is
-  // needed for — when set, requiredQuantity drives the stock indicator
-  // (red/orange/green in the UI). Mutually exclusive with taskGroupId.
-  // SetNull rather than Cascade: deleting the task shouldn't delete the
-  // material, just unlink it.
-  task             ProjectTask?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  // Optional link to the task, whole task series, or whole task category
+  // this material is needed for (mutually exclusive) — when set,
+  // requiredQuantity drives the stock indicator (red/orange/green in the
+  // UI). SetNull rather than Cascade: deleting the task/series/category
+  // shouldn't delete the material, just unlink it.
+  task             ProjectTask?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   taskId           Int?
-  taskGroup        ProjectTaskGroup? @relation(fields: [taskGroupId], references: [id], onDelete: SetNull)
+  taskGroup        ProjectTaskGroup?    @relation(fields: [taskGroupId], references: [id], onDelete: SetNull)
   taskGroupId      Int?
+  taskCategory     ProjectTaskCategory? @relation(fields: [taskCategoryId], references: [id], onDelete: SetNull)
+  taskCategoryId   Int?
   requiredQuantity Float?
-  createdAt        DateTime          @default(now())
+  createdAt        DateTime             @default(now())
 }
 
 model ProjectFile {

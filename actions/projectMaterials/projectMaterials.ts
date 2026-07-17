@@ -38,6 +38,7 @@ export async function addMaterial(
       reference: parsed.data.reference,
       taskId: parsed.data.taskId,
       taskGroupId: parsed.data.taskGroupId,
+      taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);

@@ -1,6 +1,7 @@
 'use client'
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { TrashIcon, FolderIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
@@ -59,13 +60,18 @@ export default function ProjectTaskCategorySection({
   return (
     <div className="border-b border-gray-300 dark:border-gray-700">
       <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800/60 px-4 py-2 sm:px-6">
-        <FolderIcon className="h-4 w-4 shrink-0 text-amber-500" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
-          {category.name}
-        </span>
-        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
-          ({doneCount}/{totalCount})
-        </span>
+        <Link
+          href={`/clients/${clientId}/projects/${projectId}/categories/${category.id}`}
+          className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80"
+        >
+          <FolderIcon className="h-4 w-4 shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {category.name}
+          </span>
+          <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+            ({doneCount}/{totalCount})
+          </span>
+        </Link>
         {canEdit && (
           <button
             type="button"

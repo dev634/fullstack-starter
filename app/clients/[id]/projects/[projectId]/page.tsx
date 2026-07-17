@@ -96,12 +96,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     findTaskCategoriesByProject(pid),
   ]);
   const materials = await findMaterialsByProject(pid);
-  // The material picker links to a standalone (ungrouped) task or to a
-  // whole series at once — a series is one collapsed option, never
-  // expanded into its individual member tasks.
+  // The material picker links to a standalone (ungrouped) task, a whole
+  // series, or a whole category at once — series and categories are single
+  // collapsed options, never expanded into their individual member tasks/series.
   const materialLinkOptions: MaterialLinkOption[] = [
     ...tasks.map((task): MaterialLinkOption => ({ kind: "task", id: task.id, title: task.title })),
     ...taskGroups.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
+    ...taskCategories.map((category): MaterialLinkOption => ({ kind: "category", id: category.id, name: category.name })),
   ];
 
   // Series can optionally belong to a category (a higher-level grouping of

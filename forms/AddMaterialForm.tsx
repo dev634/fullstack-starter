@@ -4,12 +4,14 @@ import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
 
-// A linkable target for a material: either a standalone (ungrouped) task,
-// or an entire task series — a series is offered as a single collapsed
-// option (e.g. "Strings onduleur"), not expanded into its member tasks.
+// A linkable target for a material: a standalone (ungrouped) task, an
+// entire task series, or an entire task category — series and categories
+// are offered as single collapsed options (e.g. "Strings onduleur" or
+// "Toiture"), never expanded into their member tasks/series.
 export type MaterialLinkOption =
   | { kind: "task"; id: number; title: string }
-  | { kind: "group"; id: number; name: string };
+  | { kind: "group"; id: number; name: string }
+  | { kind: "category"; id: number; name: string };
 
 const initialState: ProjectMaterialActionState = {
   type: null,
@@ -115,8 +117,12 @@ export default function AddMaterialForm({
                   <option key={`task-${option.id}`} value={`task:${option.id}`}>
                     {option.title}
                   </option>
-                ) : (
+                ) : option.kind === "group" ? (
                   <option key={`group-${option.id}`} value={`group:${option.id}`}>
+                    {option.name}
+                  </option>
+                ) : (
+                  <option key={`category-${option.id}`} value={`category:${option.id}`}>
                     {option.name}
                   </option>
                 )

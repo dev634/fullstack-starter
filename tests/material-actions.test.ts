@@ -153,6 +153,36 @@ describe("material actions", () => {
     );
   });
 
+  it("addMaterial rejects a linked task category without a required quantity", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addMaterial(
+      initial,
+      formOf({ clientId: "1", projectId: "1", name: "Panneau", quantity: "10", link: "category:3" })
+    );
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.requiredQuantity).toBeTruthy();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("addMaterial passes taskCategoryId/requiredQuantity through when linked to a category", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 1 } as never);
+    await addMaterial(
+      initial,
+      formOf({
+        clientId: "1",
+        projectId: "2",
+        name: "Panneau 400W",
+        quantity: "10",
+        link: "category:3",
+        requiredQuantity: "24",
+      })
+    );
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ taskCategoryId: 3, taskId: undefined, taskGroupId: undefined, requiredQuantity: 24 })
+    );
+  });
+
   it("deleteMaterial refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await deleteMaterial(1, 1, 2);

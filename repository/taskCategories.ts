@@ -38,6 +38,41 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** A category with its series (and their done/total counts), plus its project (for auth checks). */
+export async function findById(id: number) {
+    try {
+        const category = await prisma.projectTaskCategory.findUnique({
+            where: { id },
+            include: {
+                project: { select: { id: true, clientId: true } },
+                groups: {
+                    include: { tasks: { select: { done: true } } },
+                    orderBy: { createdAt: "asc" },
+                },
+            },
+        });
+        if (!category) return null;
+        return {
+            ...category,
+            groups: category.groups.map((group) => ({
+                id: group.id,
+                name: group.name,
+                pattern: group.pattern,
+                createdAt: group.createdAt,
+                categoryId: group.categoryId,
+                totalCount: group.tasks.length,
+                doneCount: group.tasks.filter((t) => t.done).length,
+            })),
+        };
+    } catch (error) {
+        console.log("Repository findById (task category) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error fetching task category.",
+        };
+    }
+}
+
 /** Deletes the category only — its series are SetNull'd back to ungrouped, not deleted. */
 export async function remove(id: number) {
     try {

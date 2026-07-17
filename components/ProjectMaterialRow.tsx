@@ -11,6 +11,7 @@ import type { ProjectMaterial } from "@/app/generated/prisma/client";
 type MaterialWithTask = ProjectMaterial & {
   task: { id: number; title: string } | null;
   taskGroup: { id: number; name: string } | null;
+  taskCategory: { id: number; name: string } | null;
 };
 
 type ProjectMaterialRowProps = {
@@ -33,7 +34,7 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
     router.refresh();
   }
 
-  const linkedName = material.task?.title ?? material.taskGroup?.name ?? null;
+  const linkedName = material.task?.title ?? material.taskGroup?.name ?? material.taskCategory?.name ?? null;
   const secondaryParts = [material.supplierName, material.reference];
   if (linkedName) secondaryParts.push(format(t.materials.linkedTask, { title: linkedName }));
   const secondary = secondaryParts.filter(Boolean).join(" · ");
