@@ -37,6 +37,7 @@ export async function addMaterial(
       supplierName: parsed.data.supplierName,
       reference: parsed.data.reference,
       taskId: parsed.data.taskId,
+      taskGroupId: parsed.data.taskGroupId,
       requiredQuantity: parsed.data.requiredQuantity,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);

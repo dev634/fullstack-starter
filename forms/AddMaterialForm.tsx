@@ -4,7 +4,12 @@ import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
 
-export type MaterialTaskOption = { id: number; title: string; groupName: string | null };
+// A linkable target for a material: either a standalone (ungrouped) task,
+// or an entire task series — a series is offered as a single collapsed
+// option (e.g. "Strings onduleur"), not expanded into its member tasks.
+export type MaterialLinkOption =
+  | { kind: "task"; id: number; title: string }
+  | { kind: "group"; id: number; name: string };
 
 const initialState: ProjectMaterialActionState = {
   type: null,
@@ -14,11 +19,11 @@ const initialState: ProjectMaterialActionState = {
 export default function AddMaterialForm({
   clientId,
   projectId,
-  tasks,
+  linkOptions,
 }: {
   clientId: number;
   projectId: number;
-  tasks: MaterialTaskOption[];
+  linkOptions: MaterialLinkOption[];
 }) {
   const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
@@ -92,24 +97,30 @@ export default function AddMaterialForm({
         aria-label={t.materials.referenceLabel}
         className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[120px] sm:flex-1"
       />
-      {/* Optional link to a task: when set, the stock indicator compares
-          quantity in stock against requiredQuantity. Hidden entirely when
-          the project has no tasks yet to link to. */}
-      {tasks.length > 0 && (
+      {/* Optional link to a task or a whole task series: when set, the stock
+          indicator compares quantity in stock against requiredQuantity.
+          Hidden entirely when the project has nothing yet to link to. */}
+      {linkOptions.length > 0 && (
         <div className="flex gap-2">
           <div className="w-1/2 sm:w-40">
             <select
-              name="taskId"
+              name="link"
               defaultValue=""
               aria-label={t.materials.linkedTaskLabel}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             >
               <option value="">{t.materials.linkedTaskNone}</option>
-              {tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.groupName ? `${task.groupName} — ${task.title}` : task.title}
-                </option>
-              ))}
+              {linkOptions.map((option) =>
+                option.kind === "task" ? (
+                  <option key={`task-${option.id}`} value={`task:${option.id}`}>
+                    {option.title}
+                  </option>
+                ) : (
+                  <option key={`group-${option.id}`} value={`group:${option.id}`}>
+                    {option.name}
+                  </option>
+                )
+              )}
             </select>
           </div>
           <div className="w-1/2 sm:w-28">
