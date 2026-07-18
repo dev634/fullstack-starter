@@ -27,15 +27,16 @@ export async function create(data: TaskGroupData) {
 }
 
 /**
- * Task-series groups for a project, with their done/total task counts —
- * shown as a single summarized row in the task list. Unfinished first,
- * oldest first within each group, matching the plain task ordering.
+ * Task-series groups for a project, with their done/total task counts and
+ * full task list — the list is rendered inline in a collapsible dropdown
+ * rather than on a separate page, so it's fetched up front here. Unfinished
+ * first, oldest first within each group, matching the plain task ordering.
  */
 export async function findByProject(projectId: number) {
     try {
         const groups = await prisma.projectTaskGroup.findMany({
             where: { projectId },
-            include: { tasks: { select: { done: true } } },
+            include: { tasks: { orderBy: [{ done: "asc" }, { createdAt: "asc" }] } },
         });
         return groups.map((group) => ({
             id: group.id,
@@ -44,6 +45,7 @@ export async function findByProject(projectId: number) {
             pattern: group.pattern,
             createdAt: group.createdAt,
             categoryId: group.categoryId,
+            tasks: group.tasks,
             totalCount: group.tasks.length,
             doneCount: group.tasks.filter((t) => t.done).length,
         }));
@@ -52,25 +54,6 @@ export async function findByProject(projectId: number) {
         throw {
             type: "error",
             message: "Database Error fetching task groups.",
-        };
-    }
-}
-
-/** A group with its full task list (for the group detail page) and its project (for auth checks). */
-export async function findById(id: number) {
-    try {
-        return await prisma.projectTaskGroup.findUnique({
-            where: { id },
-            include: {
-                project: { select: { id: true, clientId: true } },
-                tasks: { orderBy: [{ done: "asc" }, { createdAt: "asc" }] },
-            },
-        });
-    } catch (error) {
-        console.log("Repository findById (task group) error:", error);
-        throw {
-            type: "error",
-            message: "Database Error fetching task group.",
         };
     }
 }

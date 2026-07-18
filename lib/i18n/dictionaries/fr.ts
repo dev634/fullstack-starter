@@ -346,9 +346,6 @@ const fr = {
             generated: "{count} tâche(s) générée(s).",
         },
         group: {
-            title: "Série de tâches",
-            notFound: "Cette série n'existe pas...",
-            backToProject: "Retour au projet",
             deleteSeries: "Supprimer la série",
             deleteSeriesTitle: "Supprimer cette série",
             deleteSeriesText: "Supprimer la série « {name} » et ses {count} tâche(s) ? Cette action est irréversible.",
