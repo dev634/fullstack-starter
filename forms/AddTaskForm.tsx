@@ -3,13 +3,22 @@ import { addTask } from "@/actions/tasks/tasks";
 import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { TaskActionState } from "@/types/task";
+import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 
 const initialState: TaskActionState = {
   type: null,
   message: "",
 }
 
-export default function AddTaskForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+export default function AddTaskForm({
+  clientId,
+  projectId,
+  categories = [],
+}: {
+  clientId: number;
+  projectId: number;
+  categories?: TaskCategoryOption[];
+}) {
   const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(
     addTask,
@@ -57,6 +66,23 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.quantityTarget}</p>
         )}
       </div>
+      {categories.length > 0 && (
+        <div className="sm:min-w-[140px]">
+          <select
+            name="categoryId"
+            defaultValue=""
+            aria-label={t.tasks.series.categoryLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+          >
+            <option value="">{t.tasks.series.noCategoryOption}</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <button
         type="submit"
         disabled={isPending}

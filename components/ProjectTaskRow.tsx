@@ -1,5 +1,5 @@
 'use client'
-import { toggleTask, deleteTask, updateTaskQuantity } from "@/actions/tasks/tasks";
+import { toggleTask, deleteTask, updateTaskQuantity, setTaskCategory } from "@/actions/tasks/tasks";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
@@ -7,6 +7,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { localeTag } from "@/lib/i18n/formatDate";
 import EditTaskForm from "@/forms/EditTaskForm";
+import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
 type ProjectTaskRowProps = {
@@ -14,11 +15,13 @@ type ProjectTaskRowProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
+  categories?: TaskCategoryOption[];
 };
 
-export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: ProjectTaskRowProps) {
+export default function ProjectTaskRow({ task, clientId, projectId, canEdit, categories }: ProjectTaskRowProps) {
   const { t, locale } = useTranslation();
   const [pending, setPending] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const router = useRouter();
 
   async function handleToggle() {
@@ -26,6 +29,17 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
     setPending(true);
     await toggleTask(task.id, !task.done, clientId, projectId, task.groupId);
     setPending(false);
+    router.refresh();
+  }
+
+  async function handleCategoryChange(value: string) {
+    const categoryId = value ? Number(value) : null;
+    setCategoryError(null);
+    const res = await setTaskCategory(task.id, categoryId, clientId, projectId);
+    if (res.type === "error") {
+      setCategoryError(res.message);
+      return;
+    }
     router.refresh();
   }
 
@@ -48,7 +62,8 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
   }
 
   return (
-    <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+    <li>
+    <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
       {task.quantityTarget != null ? (
         <span className="flex shrink-0 items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
           <input
@@ -87,6 +102,22 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
           {new Date(task.dueDate).toLocaleDateString(localeTag(locale))}
         </span>
       )}
+      {canEdit && categories && categories.length > 0 && (
+        <select
+          value={task.categoryId ?? ""}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          disabled={pending}
+          aria-label={t.tasks.series.categoryLabel}
+          className="shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 text-xs text-gray-900 dark:text-gray-100"
+        >
+          <option value="">{t.tasks.series.noCategoryOption}</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      )}
       {canEdit && (
         <EditTaskForm
           task={{ id: task.id, title: task.title, dueDate: task.dueDate, quantityTarget: task.quantityTarget }}
@@ -105,6 +136,10 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
           <TrashIcon className="h-4 w-4" />
         </button>
       )}
+    </div>
+    {categoryError && (
+      <p className="px-4 pb-2 text-xs text-red-500 sm:px-6">{categoryError}</p>
+    )}
     </li>
   );
 }

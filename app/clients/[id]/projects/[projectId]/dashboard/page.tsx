@@ -62,17 +62,21 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
 
-  // One percentage bar per series, plus one per standalone task — a
-  // quantity-tracked task reports its actual count (e.g. 32/50) rather than
-  // a flat 0/1, so its bar reflects real progress. Series first, since they
-  // typically represent the bulk of the work.
+  // One percentage bar per series, plus one per uncategorized standalone
+  // task — a quantity-tracked task reports its actual count (e.g. 32/50)
+  // rather than a flat 0/1, so its bar reflects real progress. A task
+  // assigned to a category is rolled into that category's own bar instead
+  // (see computeTaskProgress), same as a categorized series. Series/category
+  // bars first, since they typically represent the bulk of the work.
   const detailedProgress = [
     ...taskProgress.groups,
-    ...tasks.map((task) => ({
-      id: `task-${task.id}`,
-      name: task.title,
-      ...computeTaskBarStats(task),
-    })),
+    ...tasks
+      .filter((task) => task.categoryId == null)
+      .map((task) => ({
+        id: `task-${task.id}`,
+        name: task.title,
+        ...computeTaskBarStats(task),
+      })),
   ];
 
   const namedMaterials = computeTrackedMaterials(materials);

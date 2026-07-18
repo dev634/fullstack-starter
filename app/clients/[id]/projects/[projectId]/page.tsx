@@ -113,13 +113,16 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
   // Series can optionally belong to a category (a higher-level grouping of
   // several series, e.g. "Toiture" containing "Strings onduleur" +
-  // "Fixations") — categorized series are rendered inside their category's
-  // own section, so only standalone tasks and ungrouped series go into the
-  // flat chronological list below.
+  // "Fixations") — a standalone task can now join the same category
+  // directly too (no need to wrap a lone task in its own series). Both are
+  // rendered inside the category's own section, so only uncategorized
+  // standalone tasks and ungrouped series go into the flat list below.
+  const ungroupedTasks = tasks.filter((task) => task.categoryId == null);
   const ungroupedTaskGroups = taskGroups.filter((group) => group.categoryId == null);
   const categorySections = taskCategories.map((category) => ({
     category,
     groups: taskGroups.filter((group) => group.categoryId === category.id),
+    tasks: tasks.filter((task) => task.categoryId === category.id),
   }));
 
   // Combine plain tasks and ungrouped task-series into one chronological
@@ -128,7 +131,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   type TaskRow = { kind: "task"; createdAt: Date; done: boolean; data: (typeof tasks)[number] };
   type GroupRow = { kind: "group"; createdAt: Date; done: boolean; data: (typeof taskGroups)[number] };
   const rows: (TaskRow | GroupRow)[] = [
-    ...tasks.map((task): TaskRow => ({ kind: "task", createdAt: task.createdAt, done: task.done, data: task })),
+    ...ungroupedTasks.map((task): TaskRow => ({ kind: "task", createdAt: task.createdAt, done: task.done, data: task })),
     ...ungroupedTaskGroups.map((group): GroupRow => ({
       kind: "group",
       createdAt: group.createdAt,
@@ -271,11 +274,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             title={t.projects.detail.tasksHeading}
             badge={totalCount > 0 ? `(${doneCount}/${totalCount})` : undefined}
           >
-          {categorySections.map(({ category, groups }) => (
+          {categorySections.map(({ category, groups, tasks: categoryTasks }) => (
             <ProjectTaskCategorySection
               key={`category-${category.id}`}
               category={category}
               groups={groups}
+              tasks={categoryTasks}
               categories={taskCategories}
               clientId={clientId}
               projectId={pid}
@@ -287,7 +291,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {rows.map((row) =>
                 row.kind === "task" ? (
-                  <ProjectTaskRow key={`task-${row.data.id}`} task={row.data} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                  <ProjectTaskRow
+                    key={`task-${row.data.id}`}
+                    task={row.data}
+                    clientId={clientId}
+                    projectId={pid}
+                    canEdit={canEdit}
+                    categories={taskCategories}
+                  />
                 ) : (
                   <ProjectTaskGroupRow
                     key={`group-${row.data.id}`}
@@ -308,7 +319,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddTaskForm clientId={clientId} projectId={pid} />
+              <AddTaskForm clientId={clientId} projectId={pid} categories={taskCategories} />
             </div>
           )}
           {canEdit && (

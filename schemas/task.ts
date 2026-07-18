@@ -24,6 +24,9 @@ export const createTaskSchema = z.object({
     // A standalone task can optionally track progress as a quantity (e.g.
     // "12 / 20 panneaux") instead of a plain checkbox — set once at creation.
     quantityTarget: optionalPositiveInt,
+    // Optional: put this standalone task directly under an existing category
+    // (e.g. "Toiture") at creation time — same idea as a series's categoryId.
+    categoryId: optionalPositiveInt,
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

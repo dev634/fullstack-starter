@@ -12,14 +12,15 @@ vi.mock("@/repository/tasks", () => ({
   update: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
+  setCategory: vi.fn(),
 }));
 vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addTask, addTaskSeries, toggleTask, updateTaskQuantity, editTask, deleteTask } from "@/actions/tasks/tasks";
+import { addTask, addTaskSeries, toggleTask, updateTaskQuantity, editTask, deleteTask, setTaskCategory } from "@/actions/tasks/tasks";
 import { requireRole } from "@/lib/authz";
-import { create, createMany, toggle, updateQuantity, update, remove } from "@/repository/tasks";
+import { create, createMany, toggle, updateQuantity, update, remove, setCategory } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -30,6 +31,7 @@ const toggleMock = vi.mocked(toggle);
 const updateQuantityMock = vi.mocked(updateQuantity);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
+const setCategoryMock = vi.mocked(setCategory);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -82,6 +84,40 @@ describe("task actions", () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ quantityTarget: 20 })
     );
+  });
+
+  it("addTask passes an optional categoryId through, even for a quantity-tracked task", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 1 } as never);
+    await addTask(
+      initial,
+      formOf({ clientId: "1", projectId: "2", title: "Panneaux", quantityTarget: "20", categoryId: "4" })
+    );
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ quantityTarget: 20, categoryId: 4 })
+    );
+  });
+
+  it("setTaskCategory refuses a non-ADMIN session", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
+    const res = await setTaskCategory(1, 4, 1, 2);
+    expect(res.type).toBe("error");
+    expect(setCategoryMock).not.toHaveBeenCalled();
+  });
+
+  it("setTaskCategory assigns the task's category when authorized", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    setCategoryMock.mockResolvedValue({ id: 1, categoryId: 4 } as never);
+    const res = await setTaskCategory(1, 4, 1, 2);
+    expect(setCategoryMock).toHaveBeenCalledWith(1, 4);
+    expect(res.type).toBe("success");
+  });
+
+  it("setTaskCategory clears the task's category when passed null", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    setCategoryMock.mockResolvedValue({ id: 1, categoryId: null } as never);
+    await setTaskCategory(1, null, 1, 2);
+    expect(setCategoryMock).toHaveBeenCalledWith(1, null);
   });
 
   it("addTaskSeries refuses a non-ADMIN session", async () => {

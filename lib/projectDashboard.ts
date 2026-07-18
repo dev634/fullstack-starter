@@ -1,6 +1,6 @@
 import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
-type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null };
+type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null; categoryId?: number | null };
 
 /**
  * Per-task bar stats — a quantity-tracked task reports its actual count
@@ -36,9 +36,10 @@ export type TaskProgressStats = {
 
 /**
  * Overall + per-series task completion, for the project dashboard. A series
- * assigned to a category is rolled up into that category's own bar instead
- * of appearing on its own — matching the project detail page, where a
- * categorized series is only shown nested inside its category's section.
+ * — or a standalone task — assigned to a category is rolled up into that
+ * category's own bar instead of appearing on its own, matching the project
+ * detail page, where a categorized series or task is only shown nested
+ * inside its category's section.
  */
 export function computeTaskProgress(
   tasks: TaskLike[],
@@ -59,8 +60,9 @@ export function computeTaskProgress(
   const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
   const categoryBars = taskCategories.map((category) => {
     const groupsInCategory = taskGroups.filter((g) => g.categoryId === category.id);
-    const catDone = groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0);
-    const catTotal = groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0);
+    const tasksInCategory = tasks.filter((t) => t.categoryId === category.id);
+    const catDone = groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0) + tasksInCategory.filter((t) => t.done).length;
+    const catTotal = groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0) + tasksInCategory.length;
     return {
       id: `category-${category.id}`,
       name: category.name,
