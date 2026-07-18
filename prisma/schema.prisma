@@ -91,6 +91,7 @@ model Project {
   folders        ProjectFolder[]
   files          ProjectFile[]
   materials      ProjectMaterial[]
+  interventions  Intervention[]
 }
 
 model ProjectTask {
@@ -186,6 +187,26 @@ model ProjectMaterial {
   taskCategoryId   Int?
   requiredQuantity Float?
   createdAt        DateTime             @default(now())
+}
+
+enum InterventionStatus {
+  PLANIFIEE
+  FAITE
+  ANNULEE
+}
+
+// A future on-site visit for a project (maintenance, inspection, install
+// follow-up, ...) — independent of the task list, just a scheduled date +
+// description tracked through to completion.
+model Intervention {
+  id          Int                @id @default(autoincrement())
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   Int
+  scheduledAt DateTime
+  description String
+  technician  String?
+  status      InterventionStatus @default(PLANIFIEE)
+  createdAt   DateTime           @default(now())
 }
 
 model ProjectFile {

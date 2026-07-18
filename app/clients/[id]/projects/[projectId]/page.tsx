@@ -3,6 +3,7 @@ import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
+import { findByProject as findInterventionsByProject } from "@/repository/interventions";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { auth } from "@/lib/auth";
@@ -15,12 +16,14 @@ import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
+import ProjectInterventionRow from "@/components/ProjectInterventionRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
 import AddTaskForm from "@/forms/AddTaskForm";
 import GenerateTaskSeriesForm from "@/forms/GenerateTaskSeriesForm";
 import AddTaskCategoryForm from "@/forms/AddTaskCategoryForm";
 import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
+import AddInterventionForm from "@/forms/AddInterventionForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
@@ -44,6 +47,7 @@ import {
   ChevronRightIcon,
   ChartBarIcon,
   ArrowRightIcon,
+  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 
 type PageProps = {
@@ -91,11 +95,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = hasMinRole(session?.user?.role, "ADMIN");
-  const [tasks, taskGroups, taskCategories, materials] = await Promise.all([
+  const [tasks, taskGroups, taskCategories, materials, interventions] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
     findTaskCategoriesByProject(pid),
     findMaterialsByProject(pid),
+    findInterventionsByProject(pid),
   ]);
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
@@ -339,6 +344,41 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           {canEdit && (
             <div className="border-t border-gray-300 dark:border-gray-700">
               <AddMaterialForm clientId={clientId} projectId={pid} linkOptions={materialLinkOptions} />
+            </div>
+          )}
+          </CollapsibleSection>
+        </div>
+        </div>
+
+        {/* Interventions */}
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+        <div className="overflow-hidden rounded-xl">
+          <CollapsibleSection
+            icon={<WrenchScrewdriverIcon className="h-5 w-5 text-amber-500" />}
+            title={t.projects.detail.interventionsHeading}
+            badge={interventions.length > 0 ? `(${interventions.length})` : undefined}
+          >
+          {interventions.length ? (
+            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+              {interventions.map((intervention) => (
+                <ProjectInterventionRow
+                  key={intervention.id}
+                  intervention={intervention}
+                  clientId={clientId}
+                  projectId={pid}
+                  canEdit={canEdit}
+                />
+              ))}
+            </ul>
+          ) : (
+            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+              {t.projects.detail.noInterventions}
+            </div>
+          )}
+
+          {canEdit && (
+            <div className="border-t border-gray-300 dark:border-gray-700">
+              <AddInterventionForm clientId={clientId} projectId={pid} />
             </div>
           )}
           </CollapsibleSection>
