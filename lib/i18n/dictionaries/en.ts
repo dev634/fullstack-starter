@@ -348,9 +348,6 @@ const en: Dictionary = {
             generated: "{count} task(s) generated.",
         },
         group: {
-            title: "Task series",
-            notFound: "This series doesn't exist...",
-            backToProject: "Back to project",
             deleteSeries: "Delete series",
             deleteSeriesTitle: "Delete this series",
             deleteSeriesText: "Delete the series « {name} » and its {count} task(s)? This action is irreversible.",

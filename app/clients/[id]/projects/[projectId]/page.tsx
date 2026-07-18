@@ -13,6 +13,7 @@ import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
+import CollapsibleSection from "@/components/CollapsibleSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
@@ -260,18 +261,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         {/* Tasks */}
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
-          <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
-              {t.projects.detail.tasksHeading}
-              {totalCount > 0 && (
-                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({doneCount}/{totalCount})
-                </span>
-              )}
-            </h2>
-          </div>
-
+          <CollapsibleSection
+            icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
+            title={t.projects.detail.tasksHeading}
+            badge={totalCount > 0 ? `(${doneCount}/${totalCount})` : undefined}
+          >
           {categorySections.map(({ category, groups }) => (
             <ProjectTaskCategorySection
               key={`category-${category.id}`}
@@ -318,24 +312,18 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               <AddTaskCategoryForm clientId={clientId} projectId={pid} />
             </div>
           )}
+          </CollapsibleSection>
         </div>
         </div>
 
         {/* Materials */}
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
-          <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <CubeIcon className="h-5 w-5 text-purple-500" />
-              {t.projects.detail.materialsHeading}
-              {materials.length > 0 && (
-                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({materials.length})
-                </span>
-              )}
-            </h2>
-          </div>
-
+          <CollapsibleSection
+            icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
+            title={t.projects.detail.materialsHeading}
+            badge={materials.length > 0 ? `(${materials.length})` : undefined}
+          >
           {materials.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {materials.map((material) => (
@@ -353,20 +341,18 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               <AddMaterialForm clientId={clientId} projectId={pid} linkOptions={materialLinkOptions} />
             </div>
           )}
+          </CollapsibleSection>
         </div>
         </div>
 
         {/* Files */}
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
         <div className="overflow-hidden rounded-xl">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <FolderIcon className="h-5 w-5 text-amber-500" />
-              {t.projects.detail.filesHeading}
-            </h2>
-            {canEdit && <CreateFolderForm clientId={clientId} projectId={pid} parentId={currentFolderId} />}
-          </div>
-
+          <CollapsibleSection
+            icon={<FolderIcon className="h-5 w-5 text-amber-500" />}
+            title={t.projects.detail.filesHeading}
+            headerExtra={canEdit && <CreateFolderForm clientId={clientId} projectId={pid} parentId={currentFolderId} />}
+          >
           {/* Breadcrumb */}
           <div className="flex flex-wrap items-center gap-1 border-b border-gray-300 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
             <Link
@@ -409,6 +395,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               <UploadFileForm clientId={clientId} projectId={pid} folderId={currentFolderId} />
             </div>
           )}
+          </CollapsibleSection>
         </div>
         </div>
 

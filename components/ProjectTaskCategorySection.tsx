@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import { deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
+import type { ProjectTask } from "@/app/generated/prisma/client";
 
 type TaskGroupSummary = {
   id: number;
@@ -15,6 +16,7 @@ type TaskGroupSummary = {
   doneCount: number;
   totalCount: number;
   categoryId?: number | null;
+  tasks: ProjectTask[];
 };
 
 type ProjectTaskCategorySectionProps = {

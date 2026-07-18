@@ -1,32 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/authz", () => ({
-  requireSession: vi.fn(),
   requireRole: vi.fn(),
 }));
 vi.mock("@/repository/taskCategories", () => ({
   create: vi.fn(),
-  findById: vi.fn(),
   remove: vi.fn(),
 }));
 vi.mock("@/repository/taskGroups", () => ({
-  findById: vi.fn(),
   remove: vi.fn(),
   setCategory: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addTaskCategory, deleteTaskCategory, getTaskCategory } from "@/actions/taskCategories/taskCategories";
+import { addTaskCategory, deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import { setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
-import { requireSession, requireRole } from "@/lib/authz";
-import { create, findById, remove } from "@/repository/taskCategories";
+import { requireRole } from "@/lib/authz";
+import { create, remove } from "@/repository/taskCategories";
 import { setCategory } from "@/repository/taskGroups";
 
-const requireSessionMock = vi.mocked(requireSession);
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
-const findByIdMock = vi.mocked(findById);
 const removeMock = vi.mocked(remove);
 const setCategoryMock = vi.mocked(setCategory);
 const initial = { type: null, message: "" } as const;
@@ -36,25 +31,6 @@ function formOf(data: Record<string, string>): FormData {
   for (const [k, v] of Object.entries(data)) fd.set(k, v);
   return fd;
 }
-
-describe("getTaskCategory", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("refuses without a session", async () => {
-    requireSessionMock.mockResolvedValue({ type: "error", message: "Unauthorized." });
-    const res = await getTaskCategory(1);
-    expect(res.type).toBe("error");
-    expect(findByIdMock).not.toHaveBeenCalled();
-  });
-
-  it("returns the category for any authenticated session", async () => {
-    requireSessionMock.mockResolvedValue(null);
-    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
-    const res = await getTaskCategory(1);
-    expect(res.type).toBe("success");
-    expect(findByIdMock).toHaveBeenCalledWith(1);
-  });
-});
 
 describe("addTaskCategory", () => {
   beforeEach(() => vi.clearAllMocks());
