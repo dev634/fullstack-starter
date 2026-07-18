@@ -1,7 +1,6 @@
 'use client'
 import { editMaterial } from "@/actions/projectMaterials/projectMaterials";
-import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
@@ -33,19 +32,19 @@ export default function EditMaterialForm({
   projectId: number;
 }) {
   const { t } = useTranslation();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
     editMaterial,
     initialState
   );
 
-  useEffect(() => {
-    if (state.type === "success") {
-      setOpen(false);
-      router.refresh();
-    }
-  }, [state, router]);
+  // Close the modal once a successful edit is reflected in state — done
+  // during render (not an effect), same pattern as AddTaskCategoryForm.
+  const [lastHandledState, setLastHandledState] = useState(state);
+  if (state !== lastHandledState) {
+    setLastHandledState(state);
+    if (state.type === "success") setOpen(false);
+  }
 
   return (
     <>
