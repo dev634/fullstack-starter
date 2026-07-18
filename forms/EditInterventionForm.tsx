@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
+import { toDatetimeLocal, datetimeLocalToIso } from "@/lib/datetimeLocal";
 import type { InterventionActionState } from "@/types/intervention";
 
 const initialState: InterventionActionState = {
@@ -19,13 +20,6 @@ export type EditableIntervention = {
   status: string;
 };
 
-// <input type="datetime-local"> needs "YYYY-MM-DDTHH:mm" in local time —
-// toISOString() would shift to UTC, so build the string from local getters.
-function toDatetimeLocal(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 export default function EditInterventionForm({
   intervention,
   clientId,
@@ -37,6 +31,11 @@ export default function EditInterventionForm({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // Controlled so the visible (zone-less) input can be converted to a
+  // timezone-unambiguous ISO instant in the hidden field the server reads.
+  // Re-seeded from the prop each time the modal opens (below), since the
+  // form isn't remounted between edits.
+  const [scheduledAt, setScheduledAt] = useState(() => toDatetimeLocal(intervention.scheduledAt));
   const [state, formAction, isPending] = useActionState<InterventionActionState, FormData>(
     editIntervention,
     initialState
@@ -52,7 +51,10 @@ export default function EditInterventionForm({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setScheduledAt(toDatetimeLocal(intervention.scheduledAt));
+          setOpen(true);
+        }}
         aria-label={format(t.interventions.editIntervention, { description: intervention.description })}
         className="shrink-0 cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-500/10 dark:text-gray-400"
       >
@@ -71,10 +73,13 @@ export default function EditInterventionForm({
             <input type="hidden" name="projectId" value={projectId} />
 
             <div className="mb-3">
+              {/* Zone-less local value shown to the user; the hidden field
+                  carries the timezone-unambiguous instant the server stores. */}
+              <input type="hidden" name="scheduledAt" value={datetimeLocalToIso(scheduledAt)} />
               <input
                 type="datetime-local"
-                name="scheduledAt"
-                defaultValue={toDatetimeLocal(intervention.scheduledAt)}
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
                 aria-label={t.interventions.scheduledAtLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
               />
