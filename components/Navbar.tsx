@@ -42,7 +42,7 @@ export default function Navbar({ brand, links, action }: NavbarProps) {
   return (
       <nav ref={navRef} className="relative bg-gray-800 text-white py-4 px-6 mb-6 print:hidden">
         <div className="flex justify-between items-center w-full">
-          <Link href={brand.href} className="text-lg font-bold" onClick={() => setOpen(false)}>
+          <Link href={brand.href} className="flex items-center gap-2 text-lg font-bold" onClick={() => setOpen(false)}>
             {brand.display}
           </Link>
 

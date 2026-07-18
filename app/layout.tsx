@@ -88,11 +88,11 @@ export default async function RootLayout({
             brand={{
               href: "/",
               display: settings.logoUrl ? (
-                <span className="flex items-center gap-2">
+                <>
                   {/* eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local asset next/image can optimize at build time */}
-                  <img src={settings.logoUrl} alt={settings.appName} className="h-6 w-auto" />
-                  {settings.appName}
-                </span>
+                  <img src={settings.logoUrl} alt={settings.appName} className="block h-6 w-auto" />
+                  <span>{settings.appName}</span>
+                </>
               ) : (
                 settings.appName
               ),
