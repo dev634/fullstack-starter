@@ -2,6 +2,11 @@ import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } fro
 
 type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null; categoryId?: number | null };
 
+/** A percentage rounded to 2 decimal places (e.g. 0.3333 -> 33.33), not a whole number — every percent in this module (and dashboard/page.tsx's own group rollup) goes through this. */
+export function roundPercent(done: number, total: number): number {
+  return total > 0 ? Math.round((done / total) * 10000) / 100 : 0;
+}
+
 /**
  * Per-task bar stats — a quantity-tracked task reports its actual count
  * (e.g. 32/50) instead of being flattened to a plain 0/1, so both the
@@ -11,15 +16,9 @@ type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: 
 export function computeTaskBarStats(task: TaskLike): { done: number; total: number; percent: number } {
   if (task.quantityTarget != null && task.quantityTarget > 0) {
     const doneQty = Math.min(task.quantityTarget, Math.max(0, task.quantityDone ?? 0));
-    return { done: doneQty, total: task.quantityTarget, percent: Math.round((doneQty / task.quantityTarget) * 100) };
+    return { done: doneQty, total: task.quantityTarget, percent: roundPercent(doneQty, task.quantityTarget) };
   }
   return { done: task.done ? 1 : 0, total: 1, percent: task.done ? 100 : 0 };
-}
-
-/** A quantity-tracked task's fractional progress (e.g. 30/50 -> 0.6), derived from computeTaskBarStats so the two can't drift apart. */
-function taskProgressFraction(task: TaskLike): number {
-  const { done, total } = computeTaskBarStats(task);
-  return total > 0 ? done / total : 0;
 }
 
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
@@ -53,29 +52,42 @@ export function computeTaskProgress(
   const total = tasks.length + groupedTotal;
 
   // percent is weighted separately from done/total: done/total stay whole
-  // task counts ("2/16 tasks completed"), while percent additionally
-  // credits partial progress on quantity-tracked tasks.
-  const weightedDone = tasks.reduce((sum, t) => sum + taskProgressFraction(t), 0) + groupedDone;
+  // task counts ("2/16 tasks completed"), while percent is weighted by
+  // each task's actual magnitude (its quantity target when tracked,
+  // otherwise 1 like a plain checkbox) — so a task like "0/2894 panneaux"
+  // pulls the overall percentage down proportionally to how much work it
+  // actually represents, not just as "one task out of N" (which would
+  // barely move the needle despite being most of the remaining work).
+  const taskStats = tasks.map(computeTaskBarStats);
+  const weightedDone = taskStats.reduce((sum, s) => sum + s.done, 0) + groupedDone;
+  const weightedTotal = taskStats.reduce((sum, s) => sum + s.total, 0) + groupedTotal;
 
   const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
   const categoryBars = taskCategories.map((category) => {
     const groupsInCategory = taskGroups.filter((g) => g.categoryId === category.id);
-    const tasksInCategory = tasks.filter((t) => t.categoryId === category.id);
-    const catDone = groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0) + tasksInCategory.filter((t) => t.done).length;
-    const catTotal = groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0) + tasksInCategory.length;
+    // Weighted by each task's real magnitude (computeTaskBarStats), not a
+    // flat +1 per task — otherwise a quantity-tracked task (e.g. target
+    // 2894) would count as "1" toward its category's total instead of
+    // 2894, making that category's bar tiny relative to its actual share
+    // of the work, same rule the per-task bars below already apply.
+    const taskStatsInCategory = tasks.filter((t) => t.categoryId === category.id).map(computeTaskBarStats);
+    const catDone =
+      groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0) + taskStatsInCategory.reduce((sum, s) => sum + s.done, 0);
+    const catTotal =
+      groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0) + taskStatsInCategory.reduce((sum, s) => sum + s.total, 0);
     return {
       id: `category-${category.id}`,
       name: category.name,
       done: catDone,
       total: catTotal,
-      percent: catTotal > 0 ? Math.round((catDone / catTotal) * 100) : 0,
+      percent: roundPercent(catDone, catTotal),
     };
   });
 
   return {
     done,
     total,
-    percent: total > 0 ? Math.round((weightedDone / total) * 100) : 0,
+    percent: roundPercent(weightedDone, weightedTotal),
     groups: [
       ...categoryBars,
       ...ungroupedSeries.map((g) => ({
@@ -83,7 +95,7 @@ export function computeTaskProgress(
         name: g.name,
         done: g.doneCount,
         total: g.totalCount,
-        percent: g.totalCount > 0 ? Math.round((g.doneCount / g.totalCount) * 100) : 0,
+        percent: roundPercent(g.doneCount, g.totalCount),
       })),
     ],
   };

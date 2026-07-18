@@ -3,7 +3,7 @@ import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials } from "@/lib/projectDashboard";
+import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials, roundPercent } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
@@ -62,21 +62,36 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
 
-  // One percentage bar per series, plus one per uncategorized standalone
-  // task — a quantity-tracked task reports its actual count (e.g. 32/50)
-  // rather than a flat 0/1, so its bar reflects real progress. A task
-  // assigned to a category is rolled into that category's own bar instead
-  // (see computeTaskProgress), same as a categorized series. Series/category
-  // bars first, since they typically represent the bulk of the work.
-  const detailedProgress = [
-    ...taskProgress.groups,
+  // One bar per category and per ungrouped series — a categorized series or
+  // task is rolled into its category's own bar instead of appearing on its
+  // own (see computeTaskProgress).
+  const categoryProgress = taskProgress.groups;
+
+  // The donut's slices must not double-count: only bars not already folded
+  // into a category/series rollup above (i.e. uncategorized standalone
+  // tasks) get their own slice, alongside the category/series bars.
+  const donutItems = [
+    ...categoryProgress,
     ...tasks
       .filter((task) => task.categoryId == null)
-      .map((task) => ({
-        id: `task-${task.id}`,
-        name: task.title,
-        ...computeTaskBarStats(task),
-      })),
+      .map((task) => ({ id: `task-${task.id}`, name: task.title, ...computeTaskBarStats(task) })),
+  ];
+
+  // Every standalone task gets its own bar here, regardless of category —
+  // a more granular, separate view than "Avancement par catégorie / groupe"
+  // above, so a categorized task legitimately appears in both sections. A
+  // quantity-tracked task reports its actual count (e.g. 32/50) rather than
+  // a flat 0/1. A generated series is one row here too — its name with the
+  // done/total task count — not exploded into each of its member tasks.
+  const taskDetailProgress = [
+    ...tasks.map((task) => ({ id: `task-${task.id}`, name: task.title, ...computeTaskBarStats(task) })),
+    ...taskGroups.map((group) => ({
+      id: `group-${group.id}`,
+      name: group.name,
+      done: group.doneCount,
+      total: group.totalCount,
+      percent: roundPercent(group.doneCount, group.totalCount),
+    })),
   ];
 
   const namedMaterials = computeTrackedMaterials(materials);
@@ -112,7 +127,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               {taskProgress.total > 0 ? (
                 <div className="flex flex-col items-center gap-1">
                   <TaskProgressDonut
-                    items={detailedProgress}
+                    items={donutItems}
                     done={taskProgress.done}
                     total={taskProgress.total}
                     percent={taskProgress.percent}
@@ -123,10 +138,17 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.tasksNone}</p>
               )}
 
-              {detailedProgress.length > 0 && (
+              {categoryProgress.length > 0 && (
+                <div className="border-t border-gray-300 dark:border-gray-700 pt-4">
+                  <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.projectDashboard.categoriesTitle}</h3>
+                  <SeriesProgressBars items={categoryProgress} />
+                </div>
+              )}
+
+              {taskDetailProgress.length > 0 && (
                 <div className="border-t border-gray-300 dark:border-gray-700 pt-4">
                   <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.projectDashboard.detailedTitle}</h3>
-                  <SeriesProgressBars items={detailedProgress} />
+                  <SeriesProgressBars items={taskDetailProgress} />
                 </div>
               )}
             </div>
