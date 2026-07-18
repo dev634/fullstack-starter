@@ -470,6 +470,7 @@ const en: Dictionary = {
         backToProject: "Back to project",
         notFound: "This project doesn't exist...",
         tasksTitle: "Task progress",
+        generateReport: "Generate PDF report",
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
         detailedTitle: "Detailed progress",

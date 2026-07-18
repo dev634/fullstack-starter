@@ -468,6 +468,7 @@ const fr = {
         backToProject: "Retour au projet",
         notFound: "Ce projet n'existe pas...",
         tasksTitle: "Avancement des tâches",
+        generateReport: "Générer rapport PDF",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
         detailedTitle: "Avancement détaillé",
