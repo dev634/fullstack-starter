@@ -92,6 +92,7 @@ model Project {
   files          ProjectFile[]
   materials      ProjectMaterial[]
   interventions  Intervention[]
+  subcontractors SubcontractorCompany[]
 }
 
 model ProjectTask {
@@ -214,6 +215,29 @@ model Intervention {
   technician  String?
   status      InterventionStatus @default(PLANIFIEE)
   createdAt   DateTime           @default(now())
+}
+
+// A subcontracted company working on the project (e.g. an electrician or
+// roofing firm) — a lightweight two-level structure mirroring
+// ProjectTaskGroup/ProjectTask: the company is the "group", its personnel
+// are the individual entries under it.
+model SubcontractorCompany {
+  id        Int                   @id @default(autoincrement())
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  name      String
+  createdAt DateTime              @default(now())
+  personnel SubcontractorPerson[]
+}
+
+model SubcontractorPerson {
+  id        Int                  @id @default(autoincrement())
+  company   SubcontractorCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId Int
+  name      String
+  role      String?
+  phone     String?
+  createdAt DateTime             @default(now())
 }
 
 model ProjectFile {
