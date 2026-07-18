@@ -3,22 +3,10 @@ import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } fro
 type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null };
 
 /**
- * A quantity-tracked task contributes its fractional progress (e.g. 30/50 ->
- * 0.6) instead of only counting once fully done — otherwise a task that's
- * 90% of the way there would count exactly the same as one that's untouched.
- * A plain checkbox task is still worth 0 or 1.
- */
-function taskProgressFraction(task: TaskLike): number {
-  if (task.quantityTarget != null && task.quantityTarget > 0) {
-    return Math.min(1, Math.max(0, (task.quantityDone ?? 0) / task.quantityTarget));
-  }
-  return task.done ? 1 : 0;
-}
-
-/**
- * Per-task bar stats for the dashboard's detailed breakdown — a
- * quantity-tracked task reports its actual count (e.g. 32/50) instead of
- * being flattened to a plain 0/1, so its bar reflects real progress.
+ * Per-task bar stats — a quantity-tracked task reports its actual count
+ * (e.g. 32/50) instead of being flattened to a plain 0/1, so both the
+ * dashboard's per-task bar and the overall weighted percent (below) reflect
+ * real progress instead of only counting a task once it's fully done.
  */
 export function computeTaskBarStats(task: TaskLike): { done: number; total: number; percent: number } {
   if (task.quantityTarget != null && task.quantityTarget > 0) {
@@ -26,6 +14,12 @@ export function computeTaskBarStats(task: TaskLike): { done: number; total: numb
     return { done: doneQty, total: task.quantityTarget, percent: Math.round((doneQty / task.quantityTarget) * 100) };
   }
   return { done: task.done ? 1 : 0, total: 1, percent: task.done ? 100 : 0 };
+}
+
+/** A quantity-tracked task's fractional progress (e.g. 30/50 -> 0.6), derived from computeTaskBarStats so the two can't drift apart. */
+function taskProgressFraction(task: TaskLike): number {
+  const { done, total } = computeTaskBarStats(task);
+  return total > 0 ? done / total : 0;
 }
 
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
