@@ -1,11 +1,10 @@
 'use client'
 import { deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
+import { useRowAction } from "@/lib/useRowAction";
 import EditMaterialForm from "@/forms/EditMaterialForm";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
@@ -24,16 +23,7 @@ type ProjectMaterialRowProps = {
 
 export default function ProjectMaterialRow({ material, clientId, projectId, canEdit }: ProjectMaterialRowProps) {
   const { t } = useTranslation();
-  const [pending, setPending] = useState(false);
-  const router = useRouter();
-
-  async function handleDelete() {
-    if (pending) return;
-    setPending(true);
-    await deleteMaterial(material.id, clientId, projectId);
-    setPending(false);
-    router.refresh();
-  }
+  const { pending, run } = useRowAction();
 
   const linkedName = material.task?.title ?? material.taskGroup?.name ?? material.taskCategory?.name ?? null;
   const secondaryParts = [material.supplierName, material.reference];
@@ -91,7 +81,7 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
       {canEdit && (
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => run(() => deleteMaterial(material.id, clientId, projectId))}
           disabled={pending}
           aria-label={format(t.materials.deleteMaterial, { name: material.name })}
           className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
