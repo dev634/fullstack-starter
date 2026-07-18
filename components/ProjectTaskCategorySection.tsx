@@ -1,8 +1,7 @@
 'use client'
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { TrashIcon, FolderIcon } from "@heroicons/react/24/outline";
+import { TrashIcon, FolderIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
@@ -36,6 +35,7 @@ export default function ProjectTaskCategorySection({
   canEdit,
 }: ProjectTaskCategorySectionProps) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,18 +60,25 @@ export default function ProjectTaskCategorySection({
   return (
     <div className="border-b border-gray-300 dark:border-gray-700">
       <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800/60 px-4 py-2 sm:px-6">
-        <Link
-          href={`/clients/${clientId}/projects/${projectId}/categories/${category.id}`}
-          className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80"
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 hover:opacity-80"
         >
+          {open ? (
+            <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400" />
+          ) : (
+            <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400" />
+          )}
           <FolderIcon className="h-4 w-4 shrink-0 text-amber-500" />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-gray-900 dark:text-gray-100">
             {category.name}
           </span>
           <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
             ({doneCount}/{totalCount})
           </span>
-        </Link>
+        </button>
         {canEdit && (
           <button
             type="button"
@@ -84,18 +91,20 @@ export default function ProjectTaskCategorySection({
           </button>
         )}
       </div>
-      <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-        {groups.map((group) => (
-          <ProjectTaskGroupRow
-            key={group.id}
-            group={group}
-            clientId={clientId}
-            projectId={projectId}
-            canEdit={canEdit}
-            categories={categories}
-          />
-        ))}
-      </ul>
+      {open && (
+        <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+          {groups.map((group) => (
+            <ProjectTaskGroupRow
+              key={group.id}
+              group={group}
+              clientId={clientId}
+              projectId={projectId}
+              canEdit={canEdit}
+              categories={categories}
+            />
+          ))}
+        </ul>
+      )}
 
       {confirming && (
         <Modal
