@@ -21,6 +21,9 @@ export const createTaskSchema = z.object({
     clientId: z.coerce.number().int().positive(),
     title: z.string().min(1, "Le titre de la tâche est requis"),
     dueDate: optionalDate,
+    // A standalone task can optionally track progress as a quantity (e.g.
+    // "12 / 20 panneaux") instead of a plain checkbox — set once at creation.
+    quantityTarget: optionalPositiveInt,
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

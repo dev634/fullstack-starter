@@ -3,7 +3,7 @@ import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { computeTaskProgress, computeTrackedMaterials } from "@/lib/projectDashboard";
+import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
@@ -60,17 +60,16 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
 
-  // One percentage bar per series, plus one per standalone task (0% or 100%
-  // since a single task has no partial state) — series first, since they
+  // One percentage bar per series, plus one per standalone task — a
+  // quantity-tracked task reports its actual count (e.g. 32/50) rather than
+  // a flat 0/1, so its bar reflects real progress. Series first, since they
   // typically represent the bulk of the work.
   const detailedProgress = [
     ...taskProgress.groups,
     ...tasks.map((task) => ({
       id: `task-${task.id}`,
       name: task.title,
-      done: task.done ? 1 : 0,
-      total: 1,
-      percent: task.done ? 100 : 0,
+      ...computeTaskBarStats(task),
     })),
   ];
 
@@ -103,7 +102,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
               {taskProgress.total > 0 ? (
                 <div className="flex flex-col items-center gap-1">
-                  <TaskProgressDonut done={taskProgress.done} total={taskProgress.total} percent={taskProgress.percent} />
+                  <TaskProgressDonut
+                    items={detailedProgress}
+                    done={taskProgress.done}
+                    total={taskProgress.total}
+                    percent={taskProgress.percent}
+                  />
                   <span className="text-xs text-gray-500 dark:text-gray-400">{t.projectDashboard.tasksOverall}</span>
                 </div>
               ) : (

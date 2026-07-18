@@ -328,6 +328,9 @@ const fr = {
         newPlaceholder: "Nouvelle tâche…",
         titleLabel: "Titre de la tâche",
         dueDateLabel: "Échéance",
+        quantityTargetLabel: "Quantité (optionnel)",
+        quantityTargetPlaceholder: "Ex: 20",
+        quantityDoneLabel: "Quantité faite pour « {title} »",
         markDone: "Marquer « {title} » comme terminée",
         markUndone: "Marquer « {title} » comme à faire",
         deleteTask: "Supprimer la tâche {title}",
@@ -467,6 +470,7 @@ const fr = {
         legend: {
             done: "Terminées",
             remaining: "Restantes",
+            other: "Autres",
         },
         materialsListTitle: "Détail par matériau",
     },

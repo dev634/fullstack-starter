@@ -330,6 +330,9 @@ const en: Dictionary = {
         newPlaceholder: "New task…",
         titleLabel: "Task title",
         dueDateLabel: "Due date",
+        quantityTargetLabel: "Quantity (optional)",
+        quantityTargetPlaceholder: "Ex: 20",
+        quantityDoneLabel: "Quantity done for « {title} »",
         markDone: "Mark « {title} » as done",
         markUndone: "Mark « {title} » as not done",
         deleteTask: "Delete task {title}",
@@ -469,6 +472,7 @@ const en: Dictionary = {
         legend: {
             done: "Done",
             remaining: "Remaining",
+            other: "Other",
         },
         materialsListTitle: "Material breakdown",
     },

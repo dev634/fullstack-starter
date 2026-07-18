@@ -43,6 +43,20 @@ export default function AddTaskForm({ clientId, projectId }: { clientId: number;
         aria-label={t.tasks.dueDateLabel}
         className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
       />
+      <div className="w-24">
+        <input
+          type="number"
+          name="quantityTarget"
+          min="1"
+          step="1"
+          placeholder={t.tasks.quantityTargetPlaceholder}
+          aria-label={t.tasks.quantityTargetLabel}
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        />
+        {state.type === "zodError" && state.fieldsForm?.quantityTarget && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.quantityTarget}</p>
+        )}
+      </div>
       <button
         type="submit"
         disabled={isPending}

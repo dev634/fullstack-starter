@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeTaskProgress, computeMaterialStockStats, computeTrackedMaterials } from "@/lib/projectDashboard";
+import {
+  computeTaskProgress,
+  computeTaskBarStats,
+  computeMaterialStockStats,
+  computeTrackedMaterials,
+} from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
   it("returns 0% with no tasks or groups", () => {
@@ -13,6 +18,36 @@ describe("computeTaskProgress", () => {
     expect(result.done).toBe(6);
     expect(result.total).toBe(13);
     expect(result.percent).toBe(Math.round((6 / 13) * 100));
+  });
+
+  it("credits a quantity-tracked task's partial progress toward the overall percent", () => {
+    // Not done (quantity-wise it's 60% there), so `done` stays 0 — but
+    // percent should reflect the partial progress, not just 0%.
+    const tasks = [{ done: false, quantityTarget: 50, quantityDone: 30 }];
+    const result = computeTaskProgress(tasks, []);
+    expect(result.done).toBe(0);
+    expect(result.total).toBe(1);
+    expect(result.percent).toBe(60);
+  });
+
+  it("mixes quantity-tracked and plain tasks when computing the overall percent", () => {
+    const tasks = [
+      { done: true },
+      { done: false, quantityTarget: 50, quantityDone: 30 },
+      { done: false, quantityTarget: 10, quantityDone: 0 },
+    ];
+    const result = computeTaskProgress(tasks, []);
+    // done: only the plain completed task counts as a whole task.
+    expect(result.done).toBe(1);
+    expect(result.total).toBe(3);
+    // percent: 1 (done) + 0.6 (quantity task) + 0 (quantity task) = 1.6 / 3 = 53%.
+    expect(result.percent).toBe(Math.round((1.6 / 3) * 100));
+  });
+
+  it("treats a quantity-tracked task that reached its target as fully counted, even without done", () => {
+    const tasks = [{ done: false, quantityTarget: 20, quantityDone: 20 }];
+    const result = computeTaskProgress(tasks, []);
+    expect(result.percent).toBe(100);
   });
 
   it("computes a percent per group", () => {
@@ -48,6 +83,31 @@ describe("computeTaskProgress", () => {
     const categories = [{ id: 1, name: "Empty category" }];
     const result = computeTaskProgress([], [], categories);
     expect(result.groups).toEqual([{ id: "category-1", name: "Empty category", done: 0, total: 0, percent: 0 }]);
+  });
+});
+
+describe("computeTaskBarStats", () => {
+  it("reports the actual count for a quantity-tracked task, not a flat 0/1", () => {
+    const result = computeTaskBarStats({ done: false, quantityTarget: 50, quantityDone: 32 });
+    expect(result).toEqual({ done: 32, total: 50, percent: 64 });
+  });
+
+  it("falls back to a plain 0/1 or 1/1 for a checkbox task", () => {
+    expect(computeTaskBarStats({ done: false })).toEqual({ done: 0, total: 1, percent: 0 });
+    expect(computeTaskBarStats({ done: true })).toEqual({ done: 1, total: 1, percent: 100 });
+  });
+
+  it("clamps quantityDone to the target range", () => {
+    expect(computeTaskBarStats({ done: false, quantityTarget: 10, quantityDone: 15 })).toEqual({
+      done: 10,
+      total: 10,
+      percent: 100,
+    });
+    expect(computeTaskBarStats({ done: false, quantityTarget: 10, quantityDone: -5 })).toEqual({
+      done: 0,
+      total: 10,
+      percent: 0,
+    });
   });
 });
 

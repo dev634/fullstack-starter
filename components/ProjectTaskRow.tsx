@@ -1,5 +1,5 @@
 'use client'
-import { toggleTask, deleteTask } from "@/actions/tasks/tasks";
+import { toggleTask, deleteTask, updateTaskQuantity } from "@/actions/tasks/tasks";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
@@ -28,6 +28,16 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
     router.refresh();
   }
 
+  async function handleQuantityChange(value: string) {
+    if (!canEdit || pending) return;
+    const quantityDone = Number(value);
+    if (!Number.isInteger(quantityDone) || quantityDone < 0) return;
+    setPending(true);
+    await updateTaskQuantity(task.id, quantityDone, clientId, projectId);
+    setPending(false);
+    router.refresh();
+  }
+
   async function handleDelete() {
     if (pending) return;
     setPending(true);
@@ -38,14 +48,32 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
-      <input
-        type="checkbox"
-        checked={task.done}
-        disabled={!canEdit || pending}
-        onChange={handleToggle}
-        aria-label={format(task.done ? t.tasks.markUndone : t.tasks.markDone, { title: task.title })}
-        className="h-4 w-4 shrink-0 cursor-pointer rounded border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
-      />
+      {task.quantityTarget != null ? (
+        <span className="flex shrink-0 items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            key={task.quantityDone}
+            type="number"
+            min="0"
+            max={task.quantityTarget}
+            step="1"
+            defaultValue={task.quantityDone ?? 0}
+            disabled={!canEdit || pending}
+            onBlur={(e) => handleQuantityChange(e.target.value)}
+            aria-label={format(t.tasks.quantityDoneLabel, { title: task.title })}
+            className="w-14 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 text-sm text-gray-900 dark:text-gray-100 disabled:cursor-not-allowed"
+          />
+          <span className="text-gray-400 dark:text-gray-500">/ {task.quantityTarget}</span>
+        </span>
+      ) : (
+        <input
+          type="checkbox"
+          checked={task.done}
+          disabled={!canEdit || pending}
+          onChange={handleToggle}
+          aria-label={format(task.done ? t.tasks.markUndone : t.tasks.markDone, { title: task.title })}
+          className="h-4 w-4 shrink-0 cursor-pointer rounded border-gray-300 dark:border-gray-600 disabled:cursor-not-allowed"
+        />
+      )}
       <span
         className={`min-w-0 flex-1 truncate text-sm ${
           task.done ? "text-gray-400 line-through dark:text-gray-500" : "text-gray-900 dark:text-gray-100"

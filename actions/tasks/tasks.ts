@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { createTaskSchema, createTaskSeriesSchema } from "@/schemas/task";
-import { create, createMany, toggle, remove } from "@/repository/tasks";
+import { create, createMany, toggle, updateQuantity, remove } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -35,6 +35,7 @@ export async function addTask(
       projectId: parsed.data.projectId,
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
+      quantityTarget: parsed.data.quantityTarget,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     return {
@@ -125,6 +126,32 @@ export async function toggleTask(
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
+    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
+  } catch (error) {
+    return {
+      type: "error" as const,
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
+
+/** Updates a quantity-tracked standalone task's progress (see repository/tasks.ts's updateQuantity). */
+export async function updateTaskQuantity(
+  id: number,
+  quantityDone: number,
+  clientId: number,
+  projectId: number
+) {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (isNaN(id)) {
+      throw { type: "error", message: t.tasks.messages.invalidId };
+    }
+    const task = await updateQuantity(id, quantityDone);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {

@@ -5,6 +5,7 @@ type TaskData = {
     title: string;
     dueDate?: string;
     groupId?: number | null;
+    quantityTarget?: number;
 };
 
 export async function create(data: TaskData) {
@@ -15,6 +16,8 @@ export async function create(data: TaskData) {
                 title: data.title,
                 dueDate: data.dueDate ? new Date(data.dueDate) : null,
                 groupId: data.groupId ?? null,
+                quantityTarget: data.quantityTarget ?? null,
+                quantityDone: data.quantityTarget != null ? 0 : null,
             },
         });
     } catch (error) {
@@ -71,6 +74,30 @@ export async function toggle(id: number, done: boolean) {
         return await prisma.projectTask.update({ where: { id }, data: { done } });
     } catch (error) {
         console.log("Repository toggle task error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task.",
+        };
+    }
+}
+
+/**
+ * Updates a quantity-tracked task's progress, clamped to [0, quantityTarget]
+ * — done is kept in sync (true once quantityDone reaches quantityTarget) so
+ * every other view that reads task.done (progress bars, dashboards, sort
+ * order) keeps working without special-casing quantity-tracked tasks.
+ */
+export async function updateQuantity(id: number, quantityDone: number) {
+    try {
+        const task = await prisma.projectTask.findUniqueOrThrow({ where: { id } });
+        const target = task.quantityTarget ?? 0;
+        const clamped = Math.max(0, Math.min(quantityDone, target));
+        return await prisma.projectTask.update({
+            where: { id },
+            data: { quantityDone: clamped, done: target > 0 && clamped >= target },
+        });
+    } catch (error) {
+        console.log("Repository updateQuantity task error:", error);
         throw {
             type: "error",
             message: "Database Error updating task.",
