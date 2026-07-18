@@ -6,8 +6,7 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/lib/deliveryNoteScan", () => ({ extractDeliveryNoteItems: vi.fn() }));
 vi.mock("@/repository/projectMaterials", () => ({
-  addStock: vi.fn(),
-  create: vi.fn(),
+  applyScanItems: vi.fn(),
 }));
 vi.mock("@/repository/projectFiles", () => ({ create: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
@@ -18,15 +17,14 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
 import { requireRole } from "@/lib/authz";
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
-import { addStock, create as createMaterial } from "@/repository/projectMaterials";
+import { applyScanItems } from "@/repository/projectMaterials";
 import { create as createFile } from "@/repository/projectFiles";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { uploadProjectFile } from "@/lib/cloudinary";
 
 const requireRoleMock = vi.mocked(requireRole);
 const extractDeliveryNoteItemsMock = vi.mocked(extractDeliveryNoteItems);
-const addStockMock = vi.mocked(addStock);
-const createMaterialMock = vi.mocked(createMaterial);
+const applyScanItemsMock = vi.mocked(applyScanItems);
 const createFileMock = vi.mocked(createFile);
 const findChildFoldersMock = vi.mocked(findChildFolders);
 const uploadProjectFileMock = vi.mocked(uploadProjectFile);
@@ -94,7 +92,7 @@ describe("applyDeliveryNoteScan", () => {
       formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 5 }]) })
     );
     expect(res.type).toBe("error");
-    expect(addStockMock).not.toHaveBeenCalled();
+    expect(applyScanItemsMock).not.toHaveBeenCalled();
   });
 
   it("rejects malformed items JSON with a zod error", async () => {
@@ -104,8 +102,7 @@ describe("applyDeliveryNoteScan", () => {
       formOf({ clientId: "1", projectId: "2", items: "not json" })
     );
     expect(res.type).toBe("zodError");
-    expect(addStockMock).not.toHaveBeenCalled();
-    expect(createMaterialMock).not.toHaveBeenCalled();
+    expect(applyScanItemsMock).not.toHaveBeenCalled();
   });
 
   it("rejects an empty items array", async () => {
@@ -117,9 +114,9 @@ describe("applyDeliveryNoteScan", () => {
     expect(res.type).toBe("zodError");
   });
 
-  it("adds stock to an existing material when materialId is set", async () => {
+  it("passes a matched (materialId set) item through to applyScanItems, scoped to the project", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    addStockMock.mockResolvedValue({ id: 7 } as never);
+    applyScanItemsMock.mockResolvedValue([] as never);
     findChildFoldersMock.mockResolvedValue([]);
     const res = await applyDeliveryNoteScan(
       initialApply,
@@ -129,14 +126,16 @@ describe("applyDeliveryNoteScan", () => {
         items: JSON.stringify([{ name: "Panneau 400W", quantity: 24, materialId: 7 }]),
       })
     );
-    expect(addStockMock).toHaveBeenCalledWith(7, 24);
-    expect(createMaterialMock).not.toHaveBeenCalled();
+    expect(applyScanItemsMock).toHaveBeenCalledWith(
+      2,
+      expect.arrayContaining([expect.objectContaining({ materialId: 7, quantity: 24 })])
+    );
     expect(res.type).toBe("success");
   });
 
-  it("creates a new material when materialId is absent", async () => {
+  it("passes an unmatched (no materialId) item through to applyScanItems", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMaterialMock.mockResolvedValue({ id: 9 } as never);
+    applyScanItemsMock.mockResolvedValue([] as never);
     findChildFoldersMock.mockResolvedValue([]);
     await applyDeliveryNoteScan(
       initialApply,
@@ -146,15 +145,15 @@ describe("applyDeliveryNoteScan", () => {
         items: JSON.stringify([{ name: "Onduleur", quantity: 3, unit: "pièce" }]),
       })
     );
-    expect(createMaterialMock).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 2, name: "Onduleur", quantity: 3, unit: "pièce" })
+    expect(applyScanItemsMock).toHaveBeenCalledWith(
+      2,
+      expect.arrayContaining([expect.objectContaining({ name: "Onduleur", quantity: 3, unit: "pièce" })])
     );
-    expect(addStockMock).not.toHaveBeenCalled();
   });
 
   it("attaches the photo into the existing 'Bulletins de livraisons' folder, matched case-insensitively", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    addStockMock.mockResolvedValue({ id: 7 } as never);
+    applyScanItemsMock.mockResolvedValue([] as never);
     findChildFoldersMock.mockResolvedValue([
       { id: 3, name: "Plans" },
       { id: 5, name: "bulletins de livraisons" },
@@ -179,7 +178,7 @@ describe("applyDeliveryNoteScan", () => {
 
   it("attaches the photo at the project root when no delivery-note folder exists", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    addStockMock.mockResolvedValue({ id: 7 } as never);
+    applyScanItemsMock.mockResolvedValue([] as never);
     findChildFoldersMock.mockResolvedValue([{ id: 3, name: "Plans" }] as never);
     uploadProjectFileMock.mockResolvedValue({
       url: "https://example.com/note.jpg",

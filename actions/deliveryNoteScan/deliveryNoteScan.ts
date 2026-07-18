@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { requireRole } from "@/lib/authz";
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
-import { addStock, create as createMaterial } from "@/repository/projectMaterials";
+import { applyScanItems } from "@/repository/projectMaterials";
 import { create as createFile } from "@/repository/projectFiles";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { uploadProjectFile } from "@/lib/cloudinary";
@@ -64,18 +64,7 @@ export async function applyDeliveryNoteScan(
   const file = formData.get("file");
 
   try {
-    for (const item of items) {
-      if (item.materialId) {
-        await addStock(item.materialId, item.quantity);
-      } else {
-        await createMaterial({
-          projectId,
-          name: item.name,
-          quantity: item.quantity,
-          unit: item.unit ?? undefined,
-        });
-      }
-    }
+    await applyScanItems(projectId, items);
 
     if (file instanceof File && file.size > 0) {
       const rootFolders = await findChildFolders(projectId, null);
