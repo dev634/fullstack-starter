@@ -94,18 +94,25 @@ model Project {
 }
 
 model ProjectTask {
-  id        Int               @id @default(autoincrement())
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId Int
+  id             Int               @id @default(autoincrement())
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      Int
   // Set when this task was bulk-generated as part of a named series (see
   // ProjectTaskGroup) — null for a regular, individually-added task.
-  group     ProjectTaskGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  groupId   Int?
-  title     String
-  done      Boolean           @default(false)
-  dueDate   DateTime?
-  createdAt DateTime          @default(now())
-  materials ProjectMaterial[]
+  group          ProjectTaskGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId        Int?
+  title          String
+  done           Boolean           @default(false)
+  // Optional quantity tracking for a standalone (ungrouped) task — when
+  // quantityTarget is set, progress is entered as a count (quantityDone out
+  // of quantityTarget) instead of a plain checkbox; done is kept in sync
+  // (true once quantityDone reaches quantityTarget). Null for series tasks
+  // and for standalone tasks that just use the checkbox.
+  quantityTarget Int?
+  quantityDone   Int?
+  dueDate        DateTime?
+  createdAt      DateTime          @default(now())
+  materials      ProjectMaterial[]
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->

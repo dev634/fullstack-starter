@@ -8,6 +8,7 @@ vi.mock("@/repository/tasks", () => ({
   create: vi.fn(),
   createMany: vi.fn(),
   toggle: vi.fn(),
+  updateQuantity: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
 }));
@@ -15,9 +16,9 @@ vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addTask, addTaskSeries, toggleTask, deleteTask } from "@/actions/tasks/tasks";
+import { addTask, addTaskSeries, toggleTask, updateTaskQuantity, deleteTask } from "@/actions/tasks/tasks";
 import { requireRole } from "@/lib/authz";
-import { create, createMany, toggle, remove } from "@/repository/tasks";
+import { create, createMany, toggle, updateQuantity, remove } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -25,6 +26,7 @@ const createMock = vi.mocked(create);
 const createManyMock = vi.mocked(createMany);
 const createGroupMock = vi.mocked(createGroup);
 const toggleMock = vi.mocked(toggle);
+const updateQuantityMock = vi.mocked(updateQuantity);
 const removeMock = vi.mocked(remove);
 const initial = { type: null, message: "" } as const;
 
@@ -68,6 +70,15 @@ describe("task actions", () => {
     await addTask(initial, formOf({ clientId: "1", projectId: "2", title: "Raccordement", dueDate: "2026-08-01" }));
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ dueDate: "2026-08-01" })
+    );
+  });
+
+  it("addTask passes an optional quantityTarget through", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 1 } as never);
+    await addTask(initial, formOf({ clientId: "1", projectId: "2", title: "Panneaux", quantityTarget: "20" }));
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ quantityTarget: 20 })
     );
   });
 
@@ -149,6 +160,21 @@ describe("task actions", () => {
     toggleMock.mockResolvedValue({ id: 1, done: true } as never);
     const res = await toggleTask(1, true, 1, 2);
     expect(toggleMock).toHaveBeenCalledWith(1, true);
+    expect(res.type).toBe("success");
+  });
+
+  it("updateTaskQuantity refuses a non-ADMIN session", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
+    const res = await updateTaskQuantity(1, 5, 1, 2);
+    expect(res.type).toBe("error");
+    expect(updateQuantityMock).not.toHaveBeenCalled();
+  });
+
+  it("updateTaskQuantity updates the task's progress when authorized", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateQuantityMock.mockResolvedValue({ id: 1, quantityDone: 5 } as never);
+    const res = await updateTaskQuantity(1, 5, 1, 2);
+    expect(updateQuantityMock).toHaveBeenCalledWith(1, 5);
     expect(res.type).toBe("success");
   });
 
