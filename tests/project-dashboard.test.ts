@@ -98,6 +98,16 @@ describe("computeTaskProgress", () => {
     expect(result.total).toBe(13);
   });
 
+  it("weighs a categorized quantity-tracked task by its target, not a flat +1", () => {
+    // Regression: a task tracking "0/2894" must inflate its category's bar
+    // by 2894, not by 1 — otherwise the category with the most work left
+    // shows up as the smallest slice.
+    const tasks = [{ done: false, quantityTarget: 2894, quantityDone: 0, categoryId: 1 }];
+    const categories = [{ id: 1, name: "Pose Panneau" }];
+    const result = computeTaskProgress(tasks, [], categories);
+    expect(result.groups).toEqual([{ id: "category-1", name: "Pose Panneau", done: 0, total: 2894, percent: 0 }]);
+  });
+
   it("gives an empty category a 0% bar rather than dividing by zero", () => {
     const categories = [{ id: 1, name: "Empty category" }];
     const result = computeTaskProgress([], [], categories);

@@ -60,9 +60,16 @@ export function computeTaskProgress(
   const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
   const categoryBars = taskCategories.map((category) => {
     const groupsInCategory = taskGroups.filter((g) => g.categoryId === category.id);
-    const tasksInCategory = tasks.filter((t) => t.categoryId === category.id);
-    const catDone = groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0) + tasksInCategory.filter((t) => t.done).length;
-    const catTotal = groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0) + tasksInCategory.length;
+    // Weighted by each task's real magnitude (computeTaskBarStats), not a
+    // flat +1 per task — otherwise a quantity-tracked task (e.g. target
+    // 2894) would count as "1" toward its category's total instead of
+    // 2894, making that category's bar tiny relative to its actual share
+    // of the work, same rule the per-task bars below already apply.
+    const taskStatsInCategory = tasks.filter((t) => t.categoryId === category.id).map(computeTaskBarStats);
+    const catDone =
+      groupsInCategory.reduce((sum, g) => sum + g.doneCount, 0) + taskStatsInCategory.reduce((sum, s) => sum + s.done, 0);
+    const catTotal =
+      groupsInCategory.reduce((sum, g) => sum + g.totalCount, 0) + taskStatsInCategory.reduce((sum, s) => sum + s.total, 0);
     return {
       id: `category-${category.id}`,
       name: category.name,
