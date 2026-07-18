@@ -95,18 +95,45 @@ export async function update(id: number, data: MaterialUpdateData) {
     }
 }
 
-/** Atomically adds (or subtracts, for a negative delta) to a material's stock quantity — used by the delivery note scanner. */
-export async function addStock(id: number, delta: number) {
+type ScanApplyItem = {
+    name: string;
+    quantity: number;
+    unit?: string | null;
+    materialId?: number | null;
+};
+
+/**
+ * Applies a reviewed delivery-note scan in a single transaction: for each
+ * item, either increments a matched material's stock or creates a new
+ * material. Atomic — a mid-list failure rolls the whole batch back rather
+ * than leaving stock half-updated (which would double-apply on retry).
+ * Stock increments are scoped to the project (updateMany with projectId) so
+ * a stray materialId can't touch another project's stock.
+ */
+export async function applyScanItems(projectId: number, items: ScanApplyItem[]) {
     try {
-        return await prisma.projectMaterial.update({
-            where: { id },
-            data: { quantity: { increment: delta } },
-        });
+        return await prisma.$transaction(
+            items.map((item) =>
+                item.materialId
+                    ? prisma.projectMaterial.updateMany({
+                          where: { id: item.materialId, projectId },
+                          data: { quantity: { increment: item.quantity } },
+                      })
+                    : prisma.projectMaterial.create({
+                          data: {
+                              projectId,
+                              name: item.name,
+                              quantity: item.quantity,
+                              unit: item.unit || null,
+                          },
+                      })
+            )
+        );
     } catch (error) {
-        console.log("Repository addStock material error:", error);
+        console.log("Repository applyScanItems error:", error);
         throw {
             type: "error",
-            message: "Database Error updating material stock.",
+            message: "Database Error applying delivery scan.",
         };
     }
 }
