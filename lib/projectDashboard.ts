@@ -2,6 +2,11 @@ import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } fro
 
 type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null; categoryId?: number | null };
 
+/** A percentage rounded to 2 decimal places (e.g. 0.3333 -> 33.33), not a whole number — every percent in this module (and dashboard/page.tsx's own group rollup) goes through this. */
+export function roundPercent(done: number, total: number): number {
+  return total > 0 ? Math.round((done / total) * 10000) / 100 : 0;
+}
+
 /**
  * Per-task bar stats — a quantity-tracked task reports its actual count
  * (e.g. 32/50) instead of being flattened to a plain 0/1, so both the
@@ -11,7 +16,7 @@ type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: 
 export function computeTaskBarStats(task: TaskLike): { done: number; total: number; percent: number } {
   if (task.quantityTarget != null && task.quantityTarget > 0) {
     const doneQty = Math.min(task.quantityTarget, Math.max(0, task.quantityDone ?? 0));
-    return { done: doneQty, total: task.quantityTarget, percent: Math.round((doneQty / task.quantityTarget) * 100) };
+    return { done: doneQty, total: task.quantityTarget, percent: roundPercent(doneQty, task.quantityTarget) };
   }
   return { done: task.done ? 1 : 0, total: 1, percent: task.done ? 100 : 0 };
 }
@@ -75,14 +80,14 @@ export function computeTaskProgress(
       name: category.name,
       done: catDone,
       total: catTotal,
-      percent: catTotal > 0 ? Math.round((catDone / catTotal) * 100) : 0,
+      percent: roundPercent(catDone, catTotal),
     };
   });
 
   return {
     done,
     total,
-    percent: weightedTotal > 0 ? Math.round((weightedDone / weightedTotal) * 100) : 0,
+    percent: roundPercent(weightedDone, weightedTotal),
     groups: [
       ...categoryBars,
       ...ungroupedSeries.map((g) => ({
@@ -90,7 +95,7 @@ export function computeTaskProgress(
         name: g.name,
         done: g.doneCount,
         total: g.totalCount,
-        percent: g.totalCount > 0 ? Math.round((g.doneCount / g.totalCount) * 100) : 0,
+        percent: roundPercent(g.doneCount, g.totalCount),
       })),
     ],
   };

@@ -3,7 +3,7 @@ import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials } from "@/lib/projectDashboard";
+import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials, roundPercent } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
@@ -90,7 +90,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
       name: group.name,
       done: group.doneCount,
       total: group.totalCount,
-      percent: group.totalCount > 0 ? Math.round((group.doneCount / group.totalCount) * 100) : 0,
+      percent: roundPercent(group.doneCount, group.totalCount),
     })),
   ];
 

@@ -1,6 +1,7 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
+import { roundPercent } from "@/lib/projectDashboard";
 import {
   CATEGORICAL_COLORS,
   CATEGORICAL_OTHER_COLOR,
@@ -52,7 +53,7 @@ export default function TaskProgressDonut({ items, done, total, percent }: TaskP
       ? [
           {
             name: t.projectDashboard.legend.other,
-            percent: other.total > 0 ? Math.round((other.done / other.total) * 100) : 0,
+            percent: roundPercent(other.done, other.total),
             color: CATEGORICAL_OTHER_COLOR,
             dotClass: CATEGORICAL_OTHER_DOT_CLASS,
           },
@@ -94,7 +95,7 @@ export default function TaskProgressDonut({ items, done, total, percent }: TaskP
         <Tooltip />
       </PieChart>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-gray-900 dark:text-gray-100">
-        <span className="text-3xl font-semibold">{percent}%</span>
+        <span className="text-3xl font-semibold">{percent.toFixed(2)}%</span>
         <span className="text-sm text-gray-500 dark:text-gray-400">
           {done}/{total}
         </span>

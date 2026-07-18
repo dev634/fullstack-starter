@@ -7,6 +7,13 @@ import {
 } from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
+  it("rounds percent to 2 decimal places instead of a whole number", () => {
+    const tasks = [{ done: true }, { done: false }, { done: false }];
+    const result = computeTaskProgress(tasks, []);
+    // 1/3 = 33.333...% — must keep 2 decimals (33.33), not round to 33.
+    expect(result.percent).toBe(33.33);
+  });
+
   it("returns 0% with no tasks or groups", () => {
     expect(computeTaskProgress([], [])).toEqual({ done: 0, total: 0, percent: 0, groups: [] });
   });
@@ -17,7 +24,7 @@ describe("computeTaskProgress", () => {
     const result = computeTaskProgress(tasks, groups);
     expect(result.done).toBe(6);
     expect(result.total).toBe(13);
-    expect(result.percent).toBe(Math.round((6 / 13) * 100));
+    expect(result.percent).toBe(Math.round((6 / 13) * 10000) / 100);
   });
 
   it("credits a quantity-tracked task's partial progress toward the overall percent", () => {
@@ -42,7 +49,7 @@ describe("computeTaskProgress", () => {
     expect(result.total).toBe(3);
     // percent is weighted by magnitude, not by task count: done = 1 (plain) + 30 + 0 = 31,
     // total = 1 (plain) + 50 + 10 = 61 -> 31/61, not the naive (1 + 0.6 + 0) / 3.
-    expect(result.percent).toBe(Math.round((31 / 61) * 100));
+    expect(result.percent).toBe(Math.round((31 / 61) * 10000) / 100);
   });
 
   it("lets a large quantity-tracked task dominate the overall percent, matching its real share of the work", () => {
@@ -53,7 +60,7 @@ describe("computeTaskProgress", () => {
       { done: false, quantityTarget: 2894, quantityDone: 0 },
     ];
     const result = computeTaskProgress(tasks, []);
-    expect(result.percent).toBe(Math.round((6 / 2900) * 100));
+    expect(result.percent).toBe(Math.round((6 / 2900) * 10000) / 100);
   });
 
   it("treats a quantity-tracked task that reached its target as fully counted, even without done", () => {

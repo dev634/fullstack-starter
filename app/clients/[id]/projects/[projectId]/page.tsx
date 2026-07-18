@@ -244,7 +244,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           <div className="flex flex-col gap-1.5 px-4 py-4 text-sm sm:px-6">
             <p>
               {totalCount > 0
-                ? format(t.projects.detail.tasksProgress, { done: doneCount, total: totalCount, percent: taskProgress.percent })
+                ? format(t.projects.detail.tasksProgress, { done: doneCount, total: totalCount, percent: taskProgress.percent.toFixed(2) })
                 : t.projects.detail.noTasksProgress}
             </p>
             <p className="text-gray-600 dark:text-gray-300">
