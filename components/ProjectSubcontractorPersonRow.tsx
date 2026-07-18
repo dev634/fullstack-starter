@@ -1,10 +1,9 @@
 'use client'
 import { deleteSubcontractorPerson } from "@/actions/subcontractors/subcontractors";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
+import { useRowAction } from "@/lib/useRowAction";
 import type { SubcontractorPerson } from "@/app/generated/prisma/client";
 
 type ProjectSubcontractorPersonRowProps = {
@@ -16,16 +15,7 @@ type ProjectSubcontractorPersonRowProps = {
 
 export default function ProjectSubcontractorPersonRow({ person, clientId, projectId, canEdit }: ProjectSubcontractorPersonRowProps) {
   const { t } = useTranslation();
-  const [pending, setPending] = useState(false);
-  const router = useRouter();
-
-  async function handleDelete() {
-    if (pending) return;
-    setPending(true);
-    await deleteSubcontractorPerson(person.id, clientId, projectId);
-    setPending(false);
-    router.refresh();
-  }
+  const { pending, run } = useRowAction();
 
   const secondary = [person.role, person.phone].filter(Boolean).join(" · ");
 
@@ -40,7 +30,7 @@ export default function ProjectSubcontractorPersonRow({ person, clientId, projec
       {canEdit && (
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => run(() => deleteSubcontractorPerson(person.id, clientId, projectId))}
           disabled={pending}
           aria-label={format(t.subcontractors.person.deletePerson, { name: person.name })}
           className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
