@@ -9,6 +9,8 @@ import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
 import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
 import MaterialStockDonut from "@/components/charts/MaterialStockDonut";
+import CollapsibleSection from "@/components/CollapsibleSection";
+import PrintReportButton from "@/components/PrintReportButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -84,7 +86,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
           </h1>
           <Link
             href={`/clients/${id}/projects/${pid}`}
-            className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            className="print:hidden inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           >
             <ArrowLeftIcon className="h-4 w-4" />
             {t.projectDashboard.backToProject}
@@ -92,11 +94,14 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         </div>
 
         {/* Task progress */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-              <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
-              <h2 className="text-lg font-semibold">{t.projectDashboard.tasksTitle}</h2>
+            <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
+              <span className="flex items-center gap-2">
+                <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
+                <h2 className="text-lg font-semibold">{t.projectDashboard.tasksTitle}</h2>
+              </span>
+              <PrintReportButton />
             </div>
 
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
@@ -125,13 +130,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         </div>
 
         {/* Material stock */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm">
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-              <CubeIcon className="h-5 w-5 text-purple-500" />
-              <h2 className="text-lg font-semibold">{t.projectDashboard.materialsTitle}</h2>
-            </div>
-
+            <CollapsibleSection
+              icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
+              title={t.projectDashboard.materialsTitle}
+            >
             <div className="flex flex-col items-center gap-1 px-4 py-6 sm:px-6">
               {namedMaterials.length > 0 ? (
                 <MaterialStockDonut materials={namedMaterials} />
@@ -141,11 +145,11 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             </div>
 
             {namedMaterials.length > 0 && (
-              <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+              <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
                 <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   {t.projectDashboard.materialsListTitle}
                 </h3>
-                <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+                <ul className="divide-y divide-gray-300 dark:divide-gray-700 print:divide-gray-300 dark:print:divide-gray-300">
                   {namedMaterials.map((material) => (
                     <li key={material.id} className="flex items-center gap-3 py-2 text-sm">
                       <span
@@ -162,6 +166,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 </ul>
               </div>
             )}
+            </CollapsibleSection>
           </div>
         </div>
       </div>

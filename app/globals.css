@@ -32,3 +32,16 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* A printed report should always be light — regardless of the viewer's
+   dark-mode setting — and shouldn't waste ink on the app chrome. Placed
+   last so it wins the cascade against the unconditional `body` rule above
+   (same specificity, later source order). Individual components hide
+   themselves with the `print:hidden` utility instead of being listed here,
+   so this stays a single global reset rather than a chase-every-component list. */
+@media print {
+  body {
+    background: #ffffff;
+    color: #171717;
+  }
+}
