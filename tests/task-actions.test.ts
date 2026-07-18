@@ -9,6 +9,7 @@ vi.mock("@/repository/tasks", () => ({
   createMany: vi.fn(),
   toggle: vi.fn(),
   updateQuantity: vi.fn(),
+  update: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
 }));
@@ -16,9 +17,9 @@ vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addTask, addTaskSeries, toggleTask, updateTaskQuantity, deleteTask } from "@/actions/tasks/tasks";
+import { addTask, addTaskSeries, toggleTask, updateTaskQuantity, editTask, deleteTask } from "@/actions/tasks/tasks";
 import { requireRole } from "@/lib/authz";
-import { create, createMany, toggle, updateQuantity, remove } from "@/repository/tasks";
+import { create, createMany, toggle, updateQuantity, update, remove } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -27,6 +28,7 @@ const createManyMock = vi.mocked(createMany);
 const createGroupMock = vi.mocked(createGroup);
 const toggleMock = vi.mocked(toggle);
 const updateQuantityMock = vi.mocked(updateQuantity);
+const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const initial = { type: null, message: "" } as const;
 
@@ -175,6 +177,32 @@ describe("task actions", () => {
     updateQuantityMock.mockResolvedValue({ id: 1, quantityDone: 5 } as never);
     const res = await updateTaskQuantity(1, 5, 1, 2);
     expect(updateQuantityMock).toHaveBeenCalledWith(1, 5);
+    expect(res.type).toBe("success");
+  });
+
+  it("editTask refuses a non-ADMIN session", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
+    const res = await editTask(initial, formOf({ id: "1", clientId: "1", projectId: "1", title: "Poser les panneaux" }));
+    expect(res.type).toBe("error");
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editTask rejects a missing title with a zod error", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await editTask(initial, formOf({ id: "1", clientId: "1", projectId: "1", title: "" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.title).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editTask updates the task when authorized", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    const res = await editTask(
+      initial,
+      formOf({ id: "1", clientId: "1", projectId: "2", title: "Raccordement final", quantityTarget: "30" })
+    );
+    expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ title: "Raccordement final", quantityTarget: 30 }));
     expect(res.type).toBe("success");
   });
 

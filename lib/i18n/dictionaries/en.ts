@@ -10,6 +10,7 @@ const en: Dictionary = {
         back: "Back",
         add: "Add",
         create: "Create",
+        save: "Save",
         send: "Send",
         sending: "Sending…",
         previous: "Previous",
@@ -336,6 +337,8 @@ const en: Dictionary = {
         markDone: "Mark « {title} » as done",
         markUndone: "Mark « {title} » as not done",
         deleteTask: "Delete task {title}",
+        editTask: "Edit task {title}",
+        editTitle: "Edit task",
         series: {
             toggle: "Generate a series",
             nameLabel: "Series name",
@@ -394,6 +397,8 @@ const en: Dictionary = {
         referenceLabel: "Reference",
         referencePlaceholder: "Reference",
         deleteMaterial: "Delete {name}",
+        editMaterial: "Edit {name}",
+        editTitle: "Edit material",
         linkedTaskLabel: "Linked task",
         linkedTaskNone: "No linked task",
         linkedTask: "For: {title}",
@@ -406,6 +411,7 @@ const en: Dictionary = {
         },
         messages: {
             added: "Material added.",
+            updated: "Material updated.",
             deleted: "Material deleted.",
             invalidId: "Invalid material ID.",
         },

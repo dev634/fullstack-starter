@@ -6,6 +6,7 @@ import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
+import EditMaterialForm from "@/forms/EditMaterialForm";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
 type MaterialWithTask = ProjectMaterial & {
@@ -65,6 +66,22 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
           <span className="text-gray-400 dark:text-gray-500"> / {material.requiredQuantity}</span>
         )}
       </span>
+      {canEdit && (
+        <EditMaterialForm
+          material={{
+            id: material.id,
+            name: material.name,
+            quantity: material.quantity,
+            unit: material.unit,
+            supplierName: material.supplierName,
+            reference: material.reference,
+            requiredQuantity: material.requiredQuantity,
+            isLinked: linkedName != null,
+          }}
+          clientId={clientId}
+          projectId={projectId}
+        />
+      )}
       {canEdit && (
         <button
           type="button"

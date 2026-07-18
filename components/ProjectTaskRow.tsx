@@ -6,6 +6,7 @@ import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { localeTag } from "@/lib/i18n/formatDate";
+import EditTaskForm from "@/forms/EditTaskForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
 type ProjectTaskRowProps = {
@@ -85,6 +86,13 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit }: P
         <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
           {new Date(task.dueDate).toLocaleDateString(localeTag(locale))}
         </span>
+      )}
+      {canEdit && (
+        <EditTaskForm
+          task={{ id: task.id, title: task.title, dueDate: task.dueDate, quantityTarget: task.quantityTarget }}
+          clientId={clientId}
+          projectId={projectId}
+        />
       )}
       {canEdit && (
         <button

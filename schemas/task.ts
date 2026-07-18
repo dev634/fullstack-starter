@@ -28,6 +28,20 @@ export const createTaskSchema = z.object({
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
+// Leaving quantityTarget blank on edit reverts the task to a plain checkbox
+// (see repository/tasks.ts's update) — same "empty means not provided"
+// convention as everywhere else in this schema.
+export const updateTaskSchema = z.object({
+    id: z.coerce.number().int().positive(),
+    projectId: z.coerce.number().int().positive(),
+    clientId: z.coerce.number().int().positive(),
+    title: z.string().min(1, "Le titre de la tâche est requis"),
+    dueDate: optionalDate,
+    quantityTarget: optionalPositiveInt,
+});
+
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
 export const MAX_SERIES_SIZE = 200;
 
 /**

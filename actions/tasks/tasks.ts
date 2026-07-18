@@ -2,8 +2,8 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
-import { createTaskSchema, createTaskSeriesSchema } from "@/schemas/task";
-import { create, createMany, toggle, updateQuantity, remove } from "@/repository/tasks";
+import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema } from "@/schemas/task";
+import { create, createMany, toggle, updateQuantity, update, remove } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -130,6 +130,47 @@ export async function toggleTask(
   } catch (error) {
     return {
       type: "error" as const,
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
+
+export async function editTask(
+  prevState: TaskActionState,
+  formData: FormData
+): Promise<TaskActionState> {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+
+  const t = getDictionary(await getLocale());
+  const raw = formDataToObject(formData);
+  const parsed = updateTaskSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
+
+  try {
+    const task = await update(parsed.data.id, {
+      title: parsed.data.title,
+      dueDate: parsed.data.dueDate,
+      quantityTarget: parsed.data.quantityTarget,
+    });
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    return {
+      ...prevState,
+      type: "success",
+      message: t.tasks.messages.updated,
+      data: task,
+    };
+  } catch (error) {
+    return {
+      ...prevState,
+      type: "error",
       message: getErrorMessage(error, t.errors.serverError),
     };
   }
