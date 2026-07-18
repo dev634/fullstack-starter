@@ -1,10 +1,10 @@
 'use client'
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { TrashIcon, FolderIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
+import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
@@ -38,26 +38,12 @@ export default function ProjectTaskCategorySection({
 }: ProjectTaskCategorySectionProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+  const { confirming, setConfirming, pending, error, handleDelete } = useDeleteConfirm(() =>
+    deleteTaskCategory(category.id, clientId, projectId)
+  );
 
   const doneCount = groups.reduce((sum, group) => sum + group.doneCount, 0);
   const totalCount = groups.reduce((sum, group) => sum + group.totalCount, 0);
-
-  async function handleDelete() {
-    setPending(true);
-    setError(null);
-    const res = await deleteTaskCategory(category.id, clientId, projectId);
-    setPending(false);
-    if (res.type === "error") {
-      setError(res.message);
-      return;
-    }
-    setConfirming(false);
-    router.refresh();
-  }
 
   return (
     <div className="border-b border-gray-300 dark:border-gray-700">

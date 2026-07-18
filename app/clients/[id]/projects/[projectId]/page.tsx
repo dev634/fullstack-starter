@@ -91,12 +91,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = hasMinRole(session?.user?.role, "ADMIN");
-  const [tasks, taskGroups, taskCategories] = await Promise.all([
+  const [tasks, taskGroups, taskCategories, materials] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
     findTaskCategoriesByProject(pid),
+    findMaterialsByProject(pid),
   ]);
-  const materials = await findMaterialsByProject(pid);
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
   // collapsed options, never expanded into their individual member tasks/series.

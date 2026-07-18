@@ -116,12 +116,19 @@ type TaskUpdateData = {
  * quantityDone to the new target and keeps done in sync — same rule as
  * updateQuantity. Clearing quantityTarget entirely reverts the task to a
  * plain checkbox (done is left as-is; the admin can flip it manually).
+ *
+ * Newly turning ON quantity tracking (quantityTarget was null, now isn't)
+ * starts from the task's current done state rather than always 0 — a task
+ * that was already checked off shouldn't silently flip back to "not done"
+ * with its progress wiped just because an admin gave it a target.
  */
 export async function update(id: number, data: TaskUpdateData) {
     try {
         const current = await prisma.projectTask.findUniqueOrThrow({ where: { id } });
         const quantityTarget = data.quantityTarget ?? null;
-        const quantityDone = quantityTarget != null ? Math.max(0, Math.min(current.quantityDone ?? 0, quantityTarget)) : null;
+        const baselineDone =
+            current.quantityTarget != null ? (current.quantityDone ?? 0) : current.done ? (quantityTarget ?? 0) : 0;
+        const quantityDone = quantityTarget != null ? Math.max(0, Math.min(baselineDone, quantityTarget)) : null;
         const done = quantityTarget != null ? quantityDone! >= quantityTarget : current.done;
         return await prisma.projectTask.update({
             where: { id },

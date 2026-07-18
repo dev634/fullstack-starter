@@ -211,6 +211,27 @@ describe("material actions", () => {
     expect(res.type).toBe("success");
   });
 
+  it("editMaterial rejects clearing requiredQuantity on a still-linked material", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await editMaterial(
+      initial,
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", isLinked: "true" })
+    );
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.requiredQuantity).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editMaterial allows a blank requiredQuantity when the material isn't linked", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    const res = await editMaterial(
+      initial,
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", isLinked: "false" })
+    );
+    expect(res.type).toBe("success");
+  });
+
   it("deleteMaterial refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await deleteMaterial(1, 1, 2);
