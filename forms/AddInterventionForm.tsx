@@ -1,7 +1,8 @@
 'use client'
 import { addIntervention } from "@/actions/interventions/interventions";
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
+import { datetimeLocalToIso } from "@/lib/datetimeLocal";
 import type { InterventionActionState } from "@/types/intervention";
 
 const initialState: InterventionActionState = {
@@ -16,10 +17,22 @@ export default function AddInterventionForm({ clientId, projectId }: { clientId:
     initialState
   );
   const formRef = useRef<HTMLFormElement>(null);
+  // Controlled so the visible (zone-less) input can be converted to a
+  // timezone-unambiguous ISO instant in the hidden field the server reads.
+  const [scheduledAt, setScheduledAt] = useState("");
 
   useEffect(() => {
     if (state.type === "success") formRef.current?.reset();
   }, [state]);
+
+  // Clear the controlled date on success during render (not in the effect
+  // above) — this repo's ESLint forbids setState inside useEffect. The
+  // uncontrolled text inputs are handled by formRef.reset() there instead.
+  const [lastHandledState, setLastHandledState] = useState(state);
+  if (state !== lastHandledState) {
+    setLastHandledState(state);
+    if (state.type === "success") setScheduledAt("");
+  }
 
   return (
     <form
@@ -30,9 +43,13 @@ export default function AddInterventionForm({ clientId, projectId }: { clientId:
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="projectId" value={projectId} />
       <div className="sm:w-52">
+        {/* Zone-less local value shown to the user; the hidden field carries
+            the timezone-unambiguous instant the server actually stores. */}
+        <input type="hidden" name="scheduledAt" value={datetimeLocalToIso(scheduledAt)} />
         <input
           type="datetime-local"
-          name="scheduledAt"
+          value={scheduledAt}
+          onChange={(e) => setScheduledAt(e.target.value)}
           aria-label={t.interventions.scheduledAtLabel}
           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
         />
