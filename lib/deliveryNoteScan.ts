@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — well under Claude's image limit
+const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — well under either provider's image limit
 const ACCEPTED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 export type ScannedDeliveryItem = {
@@ -9,11 +10,127 @@ export type ScannedDeliveryItem = {
     unit: string | null;
 };
 
+type RawItem = { name?: unknown; quantity?: unknown; unit?: unknown };
+
+const PROMPT =
+    "This is a photo of a delivery note (bulletin de livraison) for a solar installation project. Read every delivered line item (material name, quantity, and unit if shown) and record them with the record_delivery_items tool. Ignore prices, references, and non-material lines.";
+
+const ITEMS_SCHEMA = {
+    type: "object" as const,
+    properties: {
+        items: {
+            type: "array" as const,
+            items: {
+                type: "object" as const,
+                properties: {
+                    name: { type: "string", description: "The material/product name as written on the note." },
+                    quantity: { type: "number", description: "The delivered quantity for this line." },
+                    unit: { type: "string", description: "The unit, if shown (e.g. pièce, m, kg). Omit if not shown." },
+                },
+                required: ["name", "quantity"],
+            },
+        },
+    },
+    required: ["items"],
+};
+
+/** Which vision provider to use — same output contract either way, switchable without redeploying code (just the env var). */
+function activeProvider(): "anthropic" | "openai" {
+    return process.env.OCR_PROVIDER === "openai" ? "openai" : "anthropic";
+}
+
+async function extractWithAnthropic(base64: string, mimeType: string): Promise<RawItem[]> {
+    if (!process.env.ANTHROPIC_API_KEY) {
+        throw {
+            type: "error",
+            message: "Delivery note scanning isn't configured (missing ANTHROPIC_API_KEY).",
+        };
+    }
+
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    const extractItemsTool: Anthropic.Tool = {
+        name: "record_delivery_items",
+        description: "Records the line items read from a delivery note (bulletin de livraison) photo.",
+        input_schema: ITEMS_SCHEMA,
+    };
+
+    const message = await client.messages.create({
+        model: "claude-sonnet-5",
+        max_tokens: 2048,
+        tools: [extractItemsTool],
+        tool_choice: { type: "tool", name: "record_delivery_items" },
+        messages: [
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "image",
+                        source: { type: "base64", media_type: mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: base64 },
+                    },
+                    { type: "text", text: PROMPT },
+                ],
+            },
+        ],
+    });
+
+    const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+    const input = toolUse?.input as { items?: RawItem[] } | undefined;
+    return input?.items ?? [];
+}
+
+async function extractWithOpenAI(base64: string, mimeType: string): Promise<RawItem[]> {
+    if (!process.env.OPENAI_API_KEY) {
+        throw {
+            type: "error",
+            message: "Delivery note scanning isn't configured (missing OPENAI_API_KEY).",
+        };
+    }
+
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const response = await client.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: 2048,
+        tools: [
+            {
+                type: "function",
+                function: {
+                    name: "record_delivery_items",
+                    description: "Records the line items read from a delivery note (bulletin de livraison) photo.",
+                    parameters: ITEMS_SCHEMA,
+                },
+            },
+        ],
+        tool_choice: { type: "function", function: { name: "record_delivery_items" } },
+        messages: [
+            {
+                role: "user",
+                content: [
+                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                    { type: "text", text: PROMPT },
+                ],
+            },
+        ],
+    });
+
+    const toolCall = response.choices[0]?.message.tool_calls?.[0];
+    if (!toolCall || toolCall.type !== "function") return [];
+    try {
+        const parsed = JSON.parse(toolCall.function.arguments) as { items?: RawItem[] };
+        return parsed.items ?? [];
+    } catch {
+        return [];
+    }
+}
+
 /**
- * Reads a delivery note photo with Claude's vision API and extracts each
- * delivered line item as structured data. Uses tool-use (not free-text
- * parsing) so the model is constrained to return exactly this shape —
- * far more reliable than asking for JSON in prose and parsing it after.
+ * Reads a delivery note photo with a vision LLM and extracts each delivered
+ * line item as structured data. Uses tool/function calling (not free-text
+ * parsing) so the model is constrained to return exactly this shape — far
+ * more reliable than asking for JSON in prose and parsing it after. The
+ * provider (Anthropic by default, OpenAI as a fallback) is chosen by the
+ * OCR_PROVIDER env var so it can be switched without a code change.
  */
 export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliveryItem[]> {
     if (!ACCEPTED_MIME_TYPES.has(file.type)) {
@@ -28,73 +145,16 @@ export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliv
             message: "The delivery note photo must be 10 MB or smaller.",
         };
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-        throw {
-            type: "error",
-            message: "Delivery note scanning isn't configured (missing ANTHROPIC_API_KEY).",
-        };
-    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const base64 = buffer.toString("base64");
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const rawItems =
+        activeProvider() === "openai"
+            ? await extractWithOpenAI(base64, file.type)
+            : await extractWithAnthropic(base64, file.type);
 
-    const extractItemsTool: Anthropic.Tool = {
-        name: "record_delivery_items",
-        description: "Records the line items read from a delivery note (bulletin de livraison) photo.",
-        input_schema: {
-            type: "object",
-            properties: {
-                items: {
-                    type: "array",
-                    items: {
-                        type: "object",
-                        properties: {
-                            name: { type: "string", description: "The material/product name as written on the note." },
-                            quantity: { type: "number", description: "The delivered quantity for this line." },
-                            unit: { type: "string", description: "The unit, if shown (e.g. pièce, m, kg). Omit if not shown." },
-                        },
-                        required: ["name", "quantity"],
-                    },
-                },
-            },
-            required: ["items"],
-        },
-    };
-
-    const message = await client.messages.create({
-        model: "claude-sonnet-5",
-        max_tokens: 2048,
-        tools: [extractItemsTool],
-        tool_choice: { type: "tool", name: "record_delivery_items" },
-        messages: [
-            {
-                role: "user",
-                content: [
-                    {
-                        type: "image",
-                        source: { type: "base64", media_type: file.type as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: base64 },
-                    },
-                    {
-                        type: "text",
-                        text: "This is a photo of a delivery note (bulletin de livraison) for a solar installation project. Read every delivered line item (material name, quantity, and unit if shown) and record them with the record_delivery_items tool. Ignore prices, references, and non-material lines.",
-                    },
-                ],
-            },
-        ],
-    });
-
-    const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
-    if (!toolUse) {
-        throw {
-            type: "error",
-            message: "Could not read any items from this delivery note. Try a clearer photo.",
-        };
-    }
-
-    const input = toolUse.input as { items?: { name?: unknown; quantity?: unknown; unit?: unknown }[] };
-    const items = (input.items ?? [])
+    const items = rawItems
         .filter((item) => typeof item.name === "string" && item.name.trim() !== "" && typeof item.quantity === "number")
         .map((item) => ({
             name: (item.name as string).trim(),
