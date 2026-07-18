@@ -470,6 +470,7 @@ const fr = {
         legend: {
             done: "Terminées",
             remaining: "Restantes",
+            other: "Autres",
         },
         materialsListTitle: "Détail par matériau",
     },

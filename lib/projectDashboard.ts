@@ -14,6 +14,20 @@ function taskProgressFraction(task: TaskLike): number {
   }
   return task.done ? 1 : 0;
 }
+
+/**
+ * Per-task bar stats for the dashboard's detailed breakdown — a
+ * quantity-tracked task reports its actual count (e.g. 32/50) instead of
+ * being flattened to a plain 0/1, so its bar reflects real progress.
+ */
+export function computeTaskBarStats(task: TaskLike): { done: number; total: number; percent: number } {
+  if (task.quantityTarget != null && task.quantityTarget > 0) {
+    const doneQty = Math.min(task.quantityTarget, Math.max(0, task.quantityDone ?? 0));
+    return { done: doneQty, total: task.quantityTarget, percent: Math.round((doneQty / task.quantityTarget) * 100) };
+  }
+  return { done: task.done ? 1 : 0, total: 1, percent: task.done ? 100 : 0 };
+}
+
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
 type TaskCategoryLike = { id: number; name: string };
 type MaterialLike = { quantity: number; requiredQuantity: number | null };

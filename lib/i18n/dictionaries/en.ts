@@ -472,6 +472,7 @@ const en: Dictionary = {
         legend: {
             done: "Done",
             remaining: "Remaining",
+            other: "Other",
         },
         materialsListTitle: "Material breakdown",
     },
