@@ -95,6 +95,22 @@ export async function update(id: number, data: MaterialUpdateData) {
     }
 }
 
+/** Atomically adds (or subtracts, for a negative delta) to a material's stock quantity — used by the delivery note scanner. */
+export async function addStock(id: number, delta: number) {
+    try {
+        return await prisma.projectMaterial.update({
+            where: { id },
+            data: { quantity: { increment: delta } },
+        });
+    } catch (error) {
+        console.log("Repository addStock material error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating material stock.",
+        };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.projectMaterial.delete({ where: { id } });

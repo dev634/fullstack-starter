@@ -16,6 +16,7 @@ import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
+import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
 import ProjectInterventionRow from "@/components/ProjectInterventionRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
@@ -339,6 +340,15 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
             title={t.projects.detail.materialsHeading}
             badge={materials.length > 0 ? `(${materials.length})` : undefined}
+            headerExtra={
+              canEdit && (
+                <ScanDeliveryNoteModal
+                  clientId={clientId}
+                  projectId={pid}
+                  materials={materials.map((m) => ({ id: m.id, name: m.name }))}
+                />
+              )
+            }
           >
           {materials.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
