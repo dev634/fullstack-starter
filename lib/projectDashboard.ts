@@ -16,12 +16,6 @@ export function computeTaskBarStats(task: TaskLike): { done: number; total: numb
   return { done: task.done ? 1 : 0, total: 1, percent: task.done ? 100 : 0 };
 }
 
-/** A quantity-tracked task's fractional progress (e.g. 30/50 -> 0.6), derived from computeTaskBarStats so the two can't drift apart. */
-function taskProgressFraction(task: TaskLike): number {
-  const { done, total } = computeTaskBarStats(task);
-  return total > 0 ? done / total : 0;
-}
-
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
 type TaskCategoryLike = { id: number; name: string };
 type MaterialLike = { quantity: number; requiredQuantity: number | null };
@@ -53,9 +47,15 @@ export function computeTaskProgress(
   const total = tasks.length + groupedTotal;
 
   // percent is weighted separately from done/total: done/total stay whole
-  // task counts ("2/16 tasks completed"), while percent additionally
-  // credits partial progress on quantity-tracked tasks.
-  const weightedDone = tasks.reduce((sum, t) => sum + taskProgressFraction(t), 0) + groupedDone;
+  // task counts ("2/16 tasks completed"), while percent is weighted by
+  // each task's actual magnitude (its quantity target when tracked,
+  // otherwise 1 like a plain checkbox) — so a task like "0/2894 panneaux"
+  // pulls the overall percentage down proportionally to how much work it
+  // actually represents, not just as "one task out of N" (which would
+  // barely move the needle despite being most of the remaining work).
+  const taskStats = tasks.map(computeTaskBarStats);
+  const weightedDone = taskStats.reduce((sum, s) => sum + s.done, 0) + groupedDone;
+  const weightedTotal = taskStats.reduce((sum, s) => sum + s.total, 0) + groupedTotal;
 
   const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
   const categoryBars = taskCategories.map((category) => {
@@ -82,7 +82,7 @@ export function computeTaskProgress(
   return {
     done,
     total,
-    percent: total > 0 ? Math.round((weightedDone / total) * 100) : 0,
+    percent: weightedTotal > 0 ? Math.round((weightedDone / weightedTotal) * 100) : 0,
     groups: [
       ...categoryBars,
       ...ungroupedSeries.map((g) => ({

@@ -30,18 +30,30 @@ describe("computeTaskProgress", () => {
     expect(result.percent).toBe(60);
   });
 
-  it("mixes quantity-tracked and plain tasks when computing the overall percent", () => {
+  it("weighs the overall percent by each task's quantity magnitude, not a flat +1 per task", () => {
     const tasks = [
       { done: true },
       { done: false, quantityTarget: 50, quantityDone: 30 },
       { done: false, quantityTarget: 10, quantityDone: 0 },
     ];
     const result = computeTaskProgress(tasks, []);
-    // done: only the plain completed task counts as a whole task.
+    // done/total stay whole task counts: only the plain completed task counts as a whole task.
     expect(result.done).toBe(1);
     expect(result.total).toBe(3);
-    // percent: 1 (done) + 0.6 (quantity task) + 0 (quantity task) = 1.6 / 3 = 53%.
-    expect(result.percent).toBe(Math.round((1.6 / 3) * 100));
+    // percent is weighted by magnitude, not by task count: done = 1 (plain) + 30 + 0 = 31,
+    // total = 1 (plain) + 50 + 10 = 61 -> 31/61, not the naive (1 + 0.6 + 0) / 3.
+    expect(result.percent).toBe(Math.round((31 / 61) * 100));
+  });
+
+  it("lets a large quantity-tracked task dominate the overall percent, matching its real share of the work", () => {
+    // Regression: a task tracking "0/2894" must pull the overall percent
+    // down close to 0%, not barely move it as "just one task out of two".
+    const tasks = [
+      { done: true, quantityTarget: 6, quantityDone: 6 },
+      { done: false, quantityTarget: 2894, quantityDone: 0 },
+    ];
+    const result = computeTaskProgress(tasks, []);
+    expect(result.percent).toBe(Math.round((6 / 2900) * 100));
   });
 
   it("treats a quantity-tracked task that reached its target as fully counted, even without done", () => {
