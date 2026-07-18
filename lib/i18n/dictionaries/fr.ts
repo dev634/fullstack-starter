@@ -8,6 +8,7 @@ const fr = {
         back: "Retour",
         add: "Ajouter",
         create: "Créer",
+        save: "Enregistrer",
         send: "Envoyer",
         sending: "Envoi…",
         previous: "Précédent",
@@ -334,6 +335,8 @@ const fr = {
         markDone: "Marquer « {title} » comme terminée",
         markUndone: "Marquer « {title} » comme à faire",
         deleteTask: "Supprimer la tâche {title}",
+        editTask: "Modifier la tâche {title}",
+        editTitle: "Modifier la tâche",
         series: {
             toggle: "Générer une série",
             nameLabel: "Nom de la série",
@@ -392,6 +395,8 @@ const fr = {
         referenceLabel: "Référence",
         referencePlaceholder: "Référence",
         deleteMaterial: "Supprimer {name}",
+        editMaterial: "Modifier {name}",
+        editTitle: "Modifier le matériel",
         linkedTaskLabel: "Tâche liée",
         linkedTaskNone: "Aucune tâche liée",
         linkedTask: "Pour : {title}",
@@ -404,6 +409,7 @@ const fr = {
         },
         messages: {
             added: "Matériel ajouté.",
+            updated: "Matériel mis à jour.",
             deleted: "Matériel supprimé.",
             invalidId: "Identifiant de matériel invalide.",
         },

@@ -2,8 +2,8 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
-import { createMaterialSchema } from "@/schemas/projectMaterial";
-import { create, remove } from "@/repository/projectMaterials";
+import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
+import { create, update, remove } from "@/repository/projectMaterials";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -46,6 +46,50 @@ export async function addMaterial(
       ...prevState,
       type: "success",
       message: t.materials.messages.added,
+      data: material,
+    };
+  } catch (error) {
+    return {
+      ...prevState,
+      type: "error",
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
+
+export async function editMaterial(
+  prevState: ProjectMaterialActionState,
+  formData: FormData
+): Promise<ProjectMaterialActionState> {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+
+  const t = getDictionary(await getLocale());
+  const raw = formDataToObject(formData);
+  const parsed = updateMaterialSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
+
+  try {
+    const material = await update(parsed.data.id, {
+      name: parsed.data.name,
+      quantity: parsed.data.quantity,
+      unit: parsed.data.unit,
+      supplierName: parsed.data.supplierName,
+      reference: parsed.data.reference,
+      requiredQuantity: parsed.data.requiredQuantity,
+    });
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    return {
+      ...prevState,
+      type: "success",
+      message: t.materials.messages.updated,
       data: material,
     };
   } catch (error) {

@@ -63,6 +63,38 @@ export async function findByProject(projectId: number) {
     }
 }
 
+type MaterialUpdateData = {
+    name: string;
+    quantity: number;
+    unit?: string;
+    supplierName?: string;
+    reference?: string;
+    requiredQuantity?: number | null;
+};
+
+/** Edits a material's own fields — never its link (task/series/category), which is set at creation. */
+export async function update(id: number, data: MaterialUpdateData) {
+    try {
+        return await prisma.projectMaterial.update({
+            where: { id },
+            data: {
+                name: data.name,
+                quantity: data.quantity,
+                unit: data.unit || null,
+                supplierName: data.supplierName || null,
+                reference: data.reference || null,
+                requiredQuantity: data.requiredQuantity ?? null,
+            },
+        });
+    } catch (error) {
+        console.log("Repository update material error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating material.",
+        };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.projectMaterial.delete({ where: { id } });

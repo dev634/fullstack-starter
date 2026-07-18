@@ -6,18 +6,20 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/repository/projectMaterials", () => ({
   create: vi.fn(),
+  update: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addMaterial, deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
+import { addMaterial, editMaterial, deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
 import { requireRole } from "@/lib/authz";
-import { create, remove } from "@/repository/projectMaterials";
+import { create, update, remove } from "@/repository/projectMaterials";
 
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
+const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const initial = { type: null, message: "" } as const;
 
@@ -181,6 +183,32 @@ describe("material actions", () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ taskCategoryId: 3, taskId: undefined, taskGroupId: undefined, requiredQuantity: 24 })
     );
+  });
+
+  it("editMaterial refuses a non-ADMIN session", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
+    const res = await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "1", name: "Panneau", quantity: "10" }));
+    expect(res.type).toBe("error");
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editMaterial rejects a missing name with a zod error", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "1", name: "", quantity: "10" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.name).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editMaterial updates the material when authorized", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    const res = await editMaterial(
+      initial,
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", unit: "pièce" })
+    );
+    expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ name: "Panneau 500W", quantity: 15, unit: "pièce" }));
+    expect(res.type).toBe("success");
   });
 
   it("deleteMaterial refuses a non-ADMIN session", async () => {

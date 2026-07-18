@@ -105,6 +105,43 @@ export async function updateQuantity(id: number, quantityDone: number) {
     }
 }
 
+type TaskUpdateData = {
+    title: string;
+    dueDate?: string;
+    quantityTarget?: number;
+};
+
+/**
+ * Edits a task's own fields. Changing quantityTarget re-clamps the existing
+ * quantityDone to the new target and keeps done in sync — same rule as
+ * updateQuantity. Clearing quantityTarget entirely reverts the task to a
+ * plain checkbox (done is left as-is; the admin can flip it manually).
+ */
+export async function update(id: number, data: TaskUpdateData) {
+    try {
+        const current = await prisma.projectTask.findUniqueOrThrow({ where: { id } });
+        const quantityTarget = data.quantityTarget ?? null;
+        const quantityDone = quantityTarget != null ? Math.max(0, Math.min(current.quantityDone ?? 0, quantityTarget)) : null;
+        const done = quantityTarget != null ? quantityDone! >= quantityTarget : current.done;
+        return await prisma.projectTask.update({
+            where: { id },
+            data: {
+                title: data.title,
+                dueDate: data.dueDate ? new Date(data.dueDate) : null,
+                quantityTarget,
+                quantityDone,
+                done,
+            },
+        });
+    } catch (error) {
+        console.log("Repository update task error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task.",
+        };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.projectTask.delete({ where: { id } });
