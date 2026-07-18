@@ -518,7 +518,8 @@ const en: Dictionary = {
         generateReport: "Generate PDF report",
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
-        detailedTitle: "Detailed progress",
+        categoriesTitle: "Progress by category / group",
+        detailedTitle: "Detailed progress, task by task",
         materialsTitle: "Material stock",
         materialsNone: "No material linked to a task yet.",
         legend: {

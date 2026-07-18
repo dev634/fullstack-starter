@@ -516,7 +516,8 @@ const fr = {
         generateReport: "Générer rapport PDF",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
-        detailedTitle: "Avancement détaillé",
+        categoriesTitle: "Avancement par catégorie / groupe",
+        detailedTitle: "Avancement détaillé, tâche par tâche",
         materialsTitle: "Stock matériel",
         materialsNone: "Aucun matériel lié à une tâche pour le moment.",
         legend: {

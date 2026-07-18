@@ -75,14 +75,14 @@ export default function TaskProgressDonut({ items, done, total, percent }: TaskP
 
   return (
     <div className="relative flex flex-col items-center">
-      <PieChart width={200} height={200}>
+      <PieChart width={240} height={240}>
         <Pie
           data={slices}
           dataKey="value"
           cx="50%"
           cy="50%"
-          innerRadius={65}
-          outerRadius={90}
+          innerRadius={78}
+          outerRadius={108}
           startAngle={90}
           endAngle={-270}
           paddingAngle={slices.length > 1 ? 1 : 0}
@@ -94,8 +94,8 @@ export default function TaskProgressDonut({ items, done, total, percent }: TaskP
         <Tooltip />
       </PieChart>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-gray-900 dark:text-gray-100">
-        <span className="text-2xl font-semibold">{percent}%</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-3xl font-semibold">{percent}%</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {done}/{total}
         </span>
       </div>
