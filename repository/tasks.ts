@@ -6,6 +6,7 @@ type TaskData = {
     dueDate?: string;
     groupId?: number | null;
     quantityTarget?: number;
+    categoryId?: number | null;
 };
 
 export async function create(data: TaskData) {
@@ -18,6 +19,7 @@ export async function create(data: TaskData) {
                 groupId: data.groupId ?? null,
                 quantityTarget: data.quantityTarget ?? null,
                 quantityDone: data.quantityTarget != null ? 0 : null,
+                categoryId: data.categoryId ?? null,
             },
         });
     } catch (error) {
@@ -145,6 +147,19 @@ export async function update(id: number, data: TaskUpdateData) {
         throw {
             type: "error",
             message: "Database Error updating task.",
+        };
+    }
+}
+
+/** Assigns (or clears, when categoryId is null) the category a standalone task belongs to. */
+export async function setCategory(id: number, categoryId: number | null) {
+    try {
+        return await prisma.projectTask.update({ where: { id }, data: { categoryId } });
+    } catch (error) {
+        console.log("Repository setCategory (task) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task category.",
         };
     }
 }

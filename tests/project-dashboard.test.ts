@@ -79,6 +79,25 @@ describe("computeTaskProgress", () => {
     expect(result.total).toBe(24);
   });
 
+  it("rolls a categorized standalone task up into its category's bar alongside its series", () => {
+    const tasks = [
+      { done: true, categoryId: 1 },
+      { done: false, categoryId: 1 },
+      { done: true, categoryId: null },
+    ];
+    const groups = [{ id: 1, name: "Onduleur 13", totalCount: 10, doneCount: 5, categoryId: 1 }];
+    const categories = [{ id: 1, name: "Onduleurs" }];
+    const result = computeTaskProgress(tasks, groups, categories);
+    expect(result.groups).toEqual([
+      { id: "category-1", name: "Onduleurs", done: 6, total: 12, percent: 50 },
+    ]);
+    // The uncategorized task doesn't appear in `groups` (it's not a series
+    // or a category) — the dashboard page renders it as its own bar
+    // separately, from the raw `tasks` list.
+    expect(result.done).toBe(7);
+    expect(result.total).toBe(13);
+  });
+
   it("gives an empty category a 0% bar rather than dividing by zero", () => {
     const categories = [{ id: 1, name: "Empty category" }];
     const result = computeTaskProgress([], [], categories);

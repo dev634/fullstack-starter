@@ -114,6 +114,12 @@ model ProjectTask {
   dueDate        DateTime?
   createdAt      DateTime          @default(now())
   materials      ProjectMaterial[]
+  // Optional direct link to a category (e.g. "Toiture") for a standalone
+  // task, same grouping series already have via ProjectTaskGroup.categoryId
+  // — lets a lone quantity-tracked task sit alongside series under the same
+  // category without needing to be wrapped in its own series.
+  category       ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId     Int?
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
@@ -145,6 +151,7 @@ model ProjectTaskCategory {
   name      String
   createdAt DateTime           @default(now())
   groups    ProjectTaskGroup[]
+  tasks     ProjectTask[]
   materials ProjectMaterial[]
 }
 

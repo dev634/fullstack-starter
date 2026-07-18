@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema } from "@/schemas/task";
-import { create, createMany, toggle, updateQuantity, update, remove } from "@/repository/tasks";
+import { create, createMany, toggle, updateQuantity, update, remove, setCategory } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -36,6 +36,7 @@ export async function addTask(
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
       quantityTarget: parsed.data.quantityTarget,
+      categoryId: parsed.data.categoryId,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     return {
@@ -192,6 +193,37 @@ export async function updateTaskQuantity(
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
     const task = await updateQuantity(id, quantityDone);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
+  } catch (error) {
+    return {
+      type: "error" as const,
+      message: getErrorMessage(error, t.errors.serverError),
+    };
+  }
+}
+
+/**
+ * Assign (or clear, when categoryId is null) the category a standalone task
+ * belongs to — takes the client/project id explicitly (rather than looking
+ * them up) so the caller can revalidate the right project page, same
+ * pattern as taskGroups/setTaskGroupCategory.
+ */
+export async function setTaskCategory(
+  id: number,
+  categoryId: number | null,
+  clientId: number,
+  projectId: number
+) {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (isNaN(id)) {
+      throw { type: "error", message: t.tasks.messages.invalidId };
+    }
+    const task = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
