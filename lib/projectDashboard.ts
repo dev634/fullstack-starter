@@ -1,6 +1,19 @@
 import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
-type TaskLike = { done: boolean };
+type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null };
+
+/**
+ * A quantity-tracked task contributes its fractional progress (e.g. 30/50 ->
+ * 0.6) instead of only counting once fully done — otherwise a task that's
+ * 90% of the way there would count exactly the same as one that's untouched.
+ * A plain checkbox task is still worth 0 or 1.
+ */
+function taskProgressFraction(task: TaskLike): number {
+  if (task.quantityTarget != null && task.quantityTarget > 0) {
+    return Math.min(1, Math.max(0, (task.quantityDone ?? 0) / task.quantityTarget));
+  }
+  return task.done ? 1 : 0;
+}
 type TaskGroupLike = { id: number; name: string; totalCount: number; doneCount: number; categoryId?: number | null };
 type TaskCategoryLike = { id: number; name: string };
 type MaterialLike = { quantity: number; requiredQuantity: number | null };
@@ -30,6 +43,11 @@ export function computeTaskProgress(
   const done = ungroupedDone + groupedDone;
   const total = tasks.length + groupedTotal;
 
+  // percent is weighted separately from done/total: done/total stay whole
+  // task counts ("2/16 tasks completed"), while percent additionally
+  // credits partial progress on quantity-tracked tasks.
+  const weightedDone = tasks.reduce((sum, t) => sum + taskProgressFraction(t), 0) + groupedDone;
+
   const ungroupedSeries = taskGroups.filter((g) => g.categoryId == null);
   const categoryBars = taskCategories.map((category) => {
     const groupsInCategory = taskGroups.filter((g) => g.categoryId === category.id);
@@ -47,7 +65,7 @@ export function computeTaskProgress(
   return {
     done,
     total,
-    percent: total > 0 ? Math.round((done / total) * 100) : 0,
+    percent: total > 0 ? Math.round((weightedDone / total) * 100) : 0,
     groups: [
       ...categoryBars,
       ...ungroupedSeries.map((g) => ({
