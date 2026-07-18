@@ -40,7 +40,13 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
   if (linkedName) secondaryParts.push(format(t.materials.linkedTask, { title: linkedName }));
   const secondary = secondaryParts.filter(Boolean).join(" · ");
 
-  const status = linkedName && material.requiredQuantity != null
+  // Gated on requiredQuantity alone (not also on linkedName) so this stays
+  // in lockstep with lib/projectDashboard.ts's computeMaterialStockStats/
+  // computeTrackedMaterials, which use the same single predicate — a
+  // material whose linked task/series/category was since deleted (SetNull
+  // clears the link but not requiredQuantity) still shows a status here
+  // exactly like it still does on the dashboard, instead of disagreeing.
+  const status = material.requiredQuantity != null
     ? materialStockStatus(material.quantity, material.requiredQuantity)
     : null;
 
@@ -62,7 +68,7 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
       <span className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
         {material.quantity}
         {material.unit ? ` ${material.unit}` : ""}
-        {linkedName && material.requiredQuantity != null && (
+        {material.requiredQuantity != null && (
           <span className="text-gray-400 dark:text-gray-500"> / {material.requiredQuantity}</span>
         )}
       </span>

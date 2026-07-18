@@ -5,6 +5,7 @@ import { TrashIcon, Squares2X2Icon, ChevronDownIcon, ChevronRightIcon } from "@h
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
+import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskGroup, setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
@@ -30,27 +31,20 @@ type ProjectTaskGroupRowProps = {
 export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit, categories }: ProjectTaskGroupRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const router = useRouter();
-
-  async function handleDelete() {
-    setPending(true);
-    setError(null);
-    const res = await deleteTaskGroup(group.id, clientId, projectId);
-    setPending(false);
-    if (res.type === "error") {
-      setError(res.message);
-      return;
-    }
-    setConfirming(false);
-    router.refresh();
-  }
+  const { confirming, setConfirming, pending, error, handleDelete } = useDeleteConfirm(() =>
+    deleteTaskGroup(group.id, clientId, projectId)
+  );
 
   async function handleCategoryChange(value: string) {
     const categoryId = value ? Number(value) : null;
-    await setTaskGroupCategory(group.id, categoryId, clientId, projectId);
+    setCategoryError(null);
+    const res = await setTaskGroupCategory(group.id, categoryId, clientId, projectId);
+    if (res.type === "error") {
+      setCategoryError(res.message);
+      return;
+    }
     router.refresh();
   }
 
@@ -104,6 +98,9 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
           </button>
         )}
       </div>
+      {categoryError && (
+        <p className="px-4 pb-2 text-xs text-red-500 sm:px-6">{categoryError}</p>
+      )}
 
       {open && (
         group.tasks.length ? (

@@ -67,6 +67,7 @@ export default function EditMaterialForm({
             <input type="hidden" name="id" value={material.id} />
             <input type="hidden" name="clientId" value={clientId} />
             <input type="hidden" name="projectId" value={projectId} />
+            <input type="hidden" name="isLinked" value={String(material.isLinked)} />
 
             <div className="mb-3">
               <input
