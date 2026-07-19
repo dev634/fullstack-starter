@@ -69,10 +69,18 @@ type MaterialUpdateData = {
     unit?: string;
     supplierName?: string;
     reference?: string;
+    taskId?: number | null;
+    taskGroupId?: number | null;
+    taskCategoryId?: number | null;
     requiredQuantity?: number | null;
 };
 
-/** Edits a material's own fields — never its link (task/series/category), which is set at creation. */
+/**
+ * Edits a material's own fields, including its link (task/series/category):
+ * the three FK columns are mutually exclusive by construction of the picker,
+ * and an unset pick clears them all (SetNull-style) — so a scanned material,
+ * which starts unlinked, can be attached to a task after the fact.
+ */
 export async function update(id: number, data: MaterialUpdateData) {
     try {
         return await prisma.projectMaterial.update({
@@ -83,6 +91,9 @@ export async function update(id: number, data: MaterialUpdateData) {
                 unit: data.unit || null,
                 supplierName: data.supplierName || null,
                 reference: data.reference || null,
+                taskId: data.taskId ?? null,
+                taskGroupId: data.taskGroupId ?? null,
+                taskCategoryId: data.taskCategoryId ?? null,
                 requiredQuantity: data.requiredQuantity ?? null,
             },
         });

@@ -64,11 +64,10 @@ export const createMaterialSchema = z
 
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
 
-// Editing a material never touches its link (task/series/category) — that's
-// set once at creation and changed by unlinking/relinking, not by this form.
-// isLinked is submitted as a hidden field (not itself editable) purely so
-// this refine can still require requiredQuantity while the material stays
-// linked — the same rule createMaterialSchema enforces at creation.
+// Editing a material can now change its link (task/series/category) too —
+// same single `link` picker convention as createMaterialSchema. An empty
+// pick clears the link; picking a target requires requiredQuantity, so the
+// stock indicator has something to compare against.
 export const updateMaterialSchema = z
     .object({
         id: z.coerce.number().int().positive(),
@@ -79,16 +78,22 @@ export const updateMaterialSchema = z
         unit: z.string().optional(),
         supplierName: z.string().optional(),
         reference: z.string().optional(),
-        isLinked: z
-            .string()
-            .optional()
-            .transform((v) => v === "true"),
+        link: linkTarget,
         requiredQuantity: optionalPositiveNumber,
     })
-    .refine((data) => !data.isLinked || data.requiredQuantity !== undefined, {
-        message: "La quantité requise est nécessaire quand une tâche, une série ou un groupe est lié",
-        path: ["requiredQuantity"],
-        params: { i18n: "requiredQuantityMissing" },
-    });
+    .transform((data) => {
+        const { link, ...rest } = data;
+        return { ...rest, taskId: link.taskId, taskGroupId: link.taskGroupId, taskCategoryId: link.taskCategoryId };
+    })
+    .refine(
+        (data) =>
+            (data.taskId === undefined && data.taskGroupId === undefined && data.taskCategoryId === undefined) ||
+            data.requiredQuantity !== undefined,
+        {
+            message: "La quantité requise est nécessaire quand une tâche, une série ou un groupe est lié",
+            path: ["requiredQuantity"],
+            params: { i18n: "requiredQuantityMissing" },
+        }
+    );
 
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>;

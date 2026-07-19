@@ -211,11 +211,11 @@ describe("material actions", () => {
     expect(res.type).toBe("success");
   });
 
-  it("editMaterial rejects clearing requiredQuantity on a still-linked material", async () => {
+  it("editMaterial rejects a linked material with no requiredQuantity", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     const res = await editMaterial(
       initial,
-      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", isLinked: "true" })
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", link: "task:5" })
     );
     expect(res.type).toBe("zodError");
     expect(res.fieldsForm?.requiredQuantity).toBeTruthy();
@@ -227,7 +227,21 @@ describe("material actions", () => {
     updateMock.mockResolvedValue({ id: 1 } as never);
     const res = await editMaterial(
       initial,
-      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", isLinked: "false" })
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", link: "" })
+    );
+    expect(res.type).toBe("success");
+  });
+
+  it("editMaterial links the material to a task, passing the FK through to update", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    const res = await editMaterial(
+      initial,
+      formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", link: "task:5", requiredQuantity: "20" })
+    );
+    expect(updateMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ taskId: 5, taskGroupId: undefined, taskCategoryId: undefined, requiredQuantity: 20 })
     );
     expect(res.type).toBe("success");
   });

@@ -5,6 +5,7 @@ import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
+import type { MaterialLinkOption } from "@/forms/AddMaterialForm";
 
 const initialState: ProjectMaterialActionState = {
   type: null,
@@ -19,20 +20,28 @@ export type EditableMaterial = {
   supplierName: string | null;
   reference: string | null;
   requiredQuantity: number | null;
-  isLinked: boolean;
+  // Current link encoded as the picker value ("task:5" / "group:3" /
+  // "category:2"), or "" when the material isn't linked to anything.
+  link: string;
 };
 
 export default function EditMaterialForm({
   material,
   clientId,
   projectId,
+  linkOptions,
 }: {
   material: EditableMaterial;
   clientId: number;
   projectId: number;
+  linkOptions: MaterialLinkOption[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // Controlled so the required-quantity field appears/disappears as the link
+  // is picked or cleared, and so the current link is pre-selected.
+  const [link, setLink] = useState(material.link);
+  const isLinked = link !== "";
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
     editMaterial,
     initialState
@@ -67,7 +76,6 @@ export default function EditMaterialForm({
             <input type="hidden" name="id" value={material.id} />
             <input type="hidden" name="clientId" value={clientId} />
             <input type="hidden" name="projectId" value={projectId} />
-            <input type="hidden" name="isLinked" value={String(material.isLinked)} />
 
             <div className="mb-3">
               <input
@@ -133,7 +141,39 @@ export default function EditMaterialForm({
               />
             </div>
 
-            {material.isLinked && (
+            {linkOptions.length > 0 && (
+              <div className="mb-3">
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {t.materials.linkedTaskLabel}
+                </label>
+                <select
+                  name="link"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  aria-label={t.materials.linkedTaskLabel}
+                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">{t.materials.linkedTaskNone}</option>
+                  {linkOptions.map((option) =>
+                    option.kind === "task" ? (
+                      <option key={`task-${option.id}`} value={`task:${option.id}`}>
+                        {option.title}
+                      </option>
+                    ) : option.kind === "group" ? (
+                      <option key={`group-${option.id}`} value={`group:${option.id}`}>
+                        {option.name}
+                      </option>
+                    ) : (
+                      <option key={`category-${option.id}`} value={`category:${option.id}`}>
+                        {option.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+            )}
+
+            {isLinked && (
               <div className="mb-4">
                 <input
                   type="number"
