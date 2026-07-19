@@ -158,6 +158,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const doneCount = taskProgress.done;
   const totalCount = taskProgress.total;
   const materialStats = computeMaterialStockStats(materials);
+  // Options for the task/series/category assignee picker: either a
+  // subcontractor company or an intérimaire (mutually exclusive).
+  const assigneeOptions = {
+    companies: subcontractorCompanies.map((c) => ({ id: c.id, name: c.name })),
+    interims: interims.map((i) => ({ id: i.id, name: i.name })),
+  };
 
   const [subfolders, files, breadcrumb] = await Promise.all([
     findChildFolders(pid, currentFolderId),
@@ -296,6 +302,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               clientId={clientId}
               projectId={pid}
               canEdit={canEdit}
+              assignees={assigneeOptions}
             />
           ))}
 
@@ -310,6 +317,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     projectId={pid}
                     canEdit={canEdit}
                     categories={taskCategories}
+                    assignees={assigneeOptions}
                   />
                 ) : (
                   <ProjectTaskGroupRow
@@ -319,6 +327,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     projectId={pid}
                     canEdit={canEdit}
                     categories={taskCategories}
+                    assignees={assigneeOptions}
                   />
                 )
               )}

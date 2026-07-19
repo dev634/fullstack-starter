@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskGroup, setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
@@ -17,6 +18,8 @@ type TaskGroupSummary = {
   doneCount: number;
   totalCount: number;
   categoryId?: number | null;
+  assignedCompanyId?: number | null;
+  assignedInterimId?: number | null;
   tasks: ProjectTask[];
 };
 
@@ -26,9 +29,10 @@ type ProjectTaskGroupRowProps = {
   projectId: number;
   canEdit: boolean;
   categories?: TaskCategoryOption[];
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
 };
 
-export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit, categories }: ProjectTaskGroupRowProps) {
+export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit, categories, assignees }: ProjectTaskGroupRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -85,6 +89,18 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
               </option>
             ))}
           </select>
+        )}
+        {canEdit && assignees && (
+          <AssigneePicker
+            targetKind="group"
+            targetId={group.id}
+            clientId={clientId}
+            projectId={projectId}
+            companies={assignees.companies}
+            interims={assignees.interims}
+            assignedCompanyId={group.assignedCompanyId ?? null}
+            assignedInterimId={group.assignedInterimId ?? null}
+          />
         )}
         {canEdit && (
           <button

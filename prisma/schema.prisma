@@ -122,6 +122,13 @@ model ProjectTask {
   // category without needing to be wrapped in its own series.
   category       ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId     Int?
+  // Optional assignee — a task can be handled by EITHER a subcontractor
+  // company OR an intérimaire (mutually exclusive, enforced in the action).
+  // SetNull so deleting the assignee just clears the assignment.
+  assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
+  assignedCompanyId Int?
+  assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
+  assignedInterimId Int?
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
@@ -142,6 +149,12 @@ model ProjectTaskGroup {
   // delete the series, just ungroup it.
   category   ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId Int?
+  // Optional assignee (subcontractor company OR intérimaire) for the whole
+  // series — same rule as ProjectTask.assignedCompany/assignedInterim.
+  assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
+  assignedCompanyId Int?
+  assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
+  assignedInterimId Int?
 }
 
 // Groups several ProjectTaskGroup series under one named category (e.g.
@@ -155,6 +168,12 @@ model ProjectTaskCategory {
   groups    ProjectTaskGroup[]
   tasks     ProjectTask[]
   materials ProjectMaterial[]
+  // Optional assignee (subcontractor company OR intérimaire) for the whole
+  // category — same rule as ProjectTask.assignedCompany/assignedInterim.
+  assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
+  assignedCompanyId Int?
+  assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
+  assignedInterimId Int?
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -223,12 +242,15 @@ model Intervention {
 // ProjectTaskGroup/ProjectTask: the company is the "group", its personnel
 // are the individual entries under it.
 model SubcontractorCompany {
-  id        Int                   @id @default(autoincrement())
-  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId Int
-  name      String
-  createdAt DateTime              @default(now())
-  personnel SubcontractorPerson[]
+  id                 Int                   @id @default(autoincrement())
+  project            Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId          Int
+  name               String
+  createdAt          DateTime              @default(now())
+  personnel          SubcontractorPerson[]
+  assignedTasks      ProjectTask[]
+  assignedGroups     ProjectTaskGroup[]
+  assignedCategories ProjectTaskCategory[]
 }
 
 model SubcontractorPerson {
@@ -245,13 +267,16 @@ model SubcontractorPerson {
 // flat list (no company nesting like subcontractors), managed from the
 // project's Intérimaires section and assignable to tasks.
 model Interim {
-  id        Int      @id @default(autoincrement())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId Int
-  name      String
-  role      String?
-  agency    String?
-  createdAt DateTime @default(now())
+  id                 Int                   @id @default(autoincrement())
+  project            Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId          Int
+  name               String
+  role               String?
+  agency             String?
+  createdAt          DateTime              @default(now())
+  assignedTasks      ProjectTask[]
+  assignedGroups     ProjectTaskGroup[]
+  assignedCategories ProjectTaskCategory[]
 }
 
 model ProjectFile {

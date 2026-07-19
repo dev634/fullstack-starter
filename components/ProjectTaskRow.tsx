@@ -7,6 +7,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { localeTag } from "@/lib/i18n/formatDate";
 import EditTaskForm from "@/forms/EditTaskForm";
+import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
@@ -16,9 +17,10 @@ type ProjectTaskRowProps = {
   projectId: number;
   canEdit: boolean;
   categories?: TaskCategoryOption[];
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
 };
 
-export default function ProjectTaskRow({ task, clientId, projectId, canEdit, categories }: ProjectTaskRowProps) {
+export default function ProjectTaskRow({ task, clientId, projectId, canEdit, categories, assignees }: ProjectTaskRowProps) {
   const { t, locale } = useTranslation();
   const [pending, setPending] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -117,6 +119,18 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit, cat
             </option>
           ))}
         </select>
+      )}
+      {canEdit && assignees && (
+        <AssigneePicker
+          targetKind="task"
+          targetId={task.id}
+          clientId={clientId}
+          projectId={projectId}
+          companies={assignees.companies}
+          interims={assignees.interims}
+          assignedCompanyId={task.assignedCompanyId}
+          assignedInterimId={task.assignedInterimId}
+        />
       )}
       {canEdit && (
         <EditTaskForm

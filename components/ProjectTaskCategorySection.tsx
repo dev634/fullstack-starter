@@ -8,6 +8,7 @@ import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
@@ -18,11 +19,13 @@ type TaskGroupSummary = {
   doneCount: number;
   totalCount: number;
   categoryId?: number | null;
+  assignedCompanyId?: number | null;
+  assignedInterimId?: number | null;
   tasks: ProjectTask[];
 };
 
 type ProjectTaskCategorySectionProps = {
-  category: { id: number; name: string };
+  category: { id: number; name: string; assignedCompanyId?: number | null; assignedInterimId?: number | null };
   groups: TaskGroupSummary[];
   // Standalone (non-series) tasks assigned directly to this category —
   // rendered alongside the series, same section, same "Groupe" concept.
@@ -31,6 +34,7 @@ type ProjectTaskCategorySectionProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
 };
 
 export default function ProjectTaskCategorySection({
@@ -41,6 +45,7 @@ export default function ProjectTaskCategorySection({
   clientId,
   projectId,
   canEdit,
+  assignees,
 }: ProjectTaskCategorySectionProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -91,6 +96,18 @@ export default function ProjectTaskCategorySection({
             ({doneCount}/{totalCount})
           </span>
         </button>
+        {canEdit && assignees && (
+          <AssigneePicker
+            targetKind="category"
+            targetId={category.id}
+            clientId={clientId}
+            projectId={projectId}
+            companies={assignees.companies}
+            interims={assignees.interims}
+            assignedCompanyId={category.assignedCompanyId ?? null}
+            assignedInterimId={category.assignedInterimId ?? null}
+          />
+        )}
         {canEdit && (
           <button
             type="button"
@@ -114,6 +131,7 @@ export default function ProjectTaskCategorySection({
                 projectId={projectId}
                 canEdit={canEdit}
                 categories={categories}
+                assignees={assignees}
               />
             ) : (
               <ProjectTaskGroupRow
@@ -123,6 +141,7 @@ export default function ProjectTaskCategorySection({
                 projectId={projectId}
                 canEdit={canEdit}
                 categories={categories}
+                assignees={assignees}
               />
             )
           )}
