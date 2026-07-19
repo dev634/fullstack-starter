@@ -15,6 +15,21 @@ export const CLIENT_CSV_COLUMNS: { key: string; header: string }[] = [
 ];
 
 /**
+ * Columns for /clients/contacts/export and the contacts CSV import.
+ * `companyEmail` is a virtual column (not a Contact field) used to look up the
+ * owning organisation on import, since a contact can't exist without one.
+ */
+export const CONTACT_CSV_COLUMNS: { key: string; header: string }[] = [
+  { key: "companyEmail", header: "Company Email" },
+  { key: "firstName", header: "First name" },
+  { key: "lastName", header: "Last name" },
+  { key: "role", header: "Role" },
+  { key: "email", header: "Email" },
+  { key: "phone", header: "Phone" },
+  { key: "isPrimary", header: "Primary" },
+];
+
+/**
  * Same idea as CLIENT_CSV_COLUMNS, for /projects/export and its CSV import.
  * `clientEmail` is a virtual column (not a Project field) used to look up
  * the owning client on import, since a project can't exist without one.

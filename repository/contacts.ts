@@ -13,6 +13,24 @@ export async function findByClient(clientId: number) {
     }
 }
 
+/**
+ * Every contact of a non-trashed organisation, each with its org's email
+ * (the link column used by the CSV export/import). Grouped by organisation,
+ * primary first.
+ */
+export async function findAllWithClientEmail() {
+    try {
+        return await prisma.contact.findMany({
+            where: { client: { deletedAt: null } },
+            orderBy: [{ clientId: "asc" }, { isPrimary: "desc" }, { createdAt: "asc" }],
+            include: { client: { select: { email: true } } },
+        });
+    } catch (error) {
+        console.log("Repository findAllWithClientEmail (contact) error:", error);
+        throw { type: "error", message: "Database Error fetching contacts." };
+    }
+}
+
 type ContactData = {
     clientId: number;
     firstName: string;

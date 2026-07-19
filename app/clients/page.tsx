@@ -6,7 +6,7 @@ import { hasMinRole } from "@/lib/authz";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import ClientsActionsMenu from "./_components/ClientsActionsMenu";
-import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon, UserGroupIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -74,6 +74,15 @@ export default async function ClientsPage({
               <ArrowDownTrayIcon className="h-4 w-4" />
               {t.clients.list.exportCsv}
             </a>
+            {/* Plain <a>: this is a CSV-download route handler, not a page — Link would intercept it as client nav and break the download. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a
+              href="/clients/contacts/export"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+            >
+              <UserGroupIcon className="h-4 w-4" />
+              {t.contacts.exportCsv}
+            </a>
             {canEdit && (
               <Link
                 href="/clients/import"
@@ -81,6 +90,15 @@ export default async function ClientsPage({
               >
                 <ArrowUpTrayIcon className="h-4 w-4" />
                 {t.clients.list.import}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/clients/contacts/import"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
+              >
+                <UserGroupIcon className="h-4 w-4" />
+                {t.contacts.importCsv}
               </Link>
             )}
             {canEdit && (
