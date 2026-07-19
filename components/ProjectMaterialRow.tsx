@@ -6,6 +6,7 @@ import { format } from "@/lib/i18n/format";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import { useRowAction } from "@/lib/useRowAction";
 import EditMaterialForm from "@/forms/EditMaterialForm";
+import type { MaterialLinkOption } from "@/forms/AddMaterialForm";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
 type MaterialWithTask = ProjectMaterial & {
@@ -19,13 +20,23 @@ type ProjectMaterialRowProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
+  linkOptions: MaterialLinkOption[];
 };
 
-export default function ProjectMaterialRow({ material, clientId, projectId, canEdit }: ProjectMaterialRowProps) {
+export default function ProjectMaterialRow({ material, clientId, projectId, canEdit, linkOptions }: ProjectMaterialRowProps) {
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
 
   const linkedName = material.task?.title ?? material.taskGroup?.name ?? material.taskCategory?.name ?? null;
+  // The material's current link, encoded as the picker value (or "" if none),
+  // so the edit form can pre-select it.
+  const currentLink = material.taskId
+    ? `task:${material.taskId}`
+    : material.taskGroupId
+      ? `group:${material.taskGroupId}`
+      : material.taskCategoryId
+        ? `category:${material.taskCategoryId}`
+        : "";
   const secondaryParts = [material.supplierName, material.reference];
   if (linkedName) secondaryParts.push(format(t.materials.linkedTask, { title: linkedName }));
   const secondary = secondaryParts.filter(Boolean).join(" · ");
@@ -72,10 +83,11 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
             supplierName: material.supplierName,
             reference: material.reference,
             requiredQuantity: material.requiredQuantity,
-            isLinked: linkedName != null,
+            link: currentLink,
           }}
           clientId={clientId}
           projectId={projectId}
+          linkOptions={linkOptions}
         />
       )}
       {canEdit && (

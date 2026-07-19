@@ -378,7 +378,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           {materials.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
               {materials.map((material) => (
-                <ProjectMaterialRow key={material.id} material={material} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                <ProjectMaterialRow key={material.id} material={material} clientId={clientId} projectId={pid} canEdit={canEdit} linkOptions={materialLinkOptions} />
               ))}
             </ul>
           ) : (
