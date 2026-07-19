@@ -73,7 +73,8 @@ type SearchArgs = {
 
 /**
  * Paginated, filterable organisation listing. `q` matches (case-insensitively)
- * against company name, email and city. Returns the page of rows and the total
+ * against company name, email and city — and against the name/email of any
+ * of the organisation's contacts. Returns the page of rows and the total
  * count for pagination.
  */
 export async function search({
@@ -84,14 +85,26 @@ export async function search({
   pageSize = 9,
 }: SearchArgs) {
   const term = q.trim();
+  const insensitive = Prisma.QueryMode.insensitive;
   const where: Prisma.ClientWhereInput = {
     deletedAt: null,
     ...(term
       ? {
           OR: [
-            { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } },
-            { email: { contains: term, mode: Prisma.QueryMode.insensitive } },
-            { city: { contains: term, mode: Prisma.QueryMode.insensitive } },
+            { companyName: { contains: term, mode: insensitive } },
+            { email: { contains: term, mode: insensitive } },
+            { city: { contains: term, mode: insensitive } },
+            {
+              contacts: {
+                some: {
+                  OR: [
+                    { firstName: { contains: term, mode: insensitive } },
+                    { lastName: { contains: term, mode: insensitive } },
+                    { email: { contains: term, mode: insensitive } },
+                  ],
+                },
+              },
+            },
           ],
         }
       : {}),

@@ -111,8 +111,8 @@ const en: Dictionary = {
         },
         toolbar: {
             filters: "Filter",
-            searchPlaceholder: "Search a company…",
-            searchLabel: "Search a company",
+            searchPlaceholder: "Search a company or contact…",
+            searchLabel: "Search a company or contact",
             sortLabel: "Sort by",
             sortAsc: "Ascending order",
             sortDesc: "Descending order",
