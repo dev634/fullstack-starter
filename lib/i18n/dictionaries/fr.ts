@@ -522,6 +522,10 @@ const fr = {
     appSettings: {
         title: "Paramètres de l'application",
         subtitle: "Personnalisez le nom, les couleurs et le logo affichés dans toute l'application.",
+        tabs: {
+            theme: "Thème",
+            sections: "Ordre des sections",
+        },
         appNameLabel: "Nom de l'application",
         primaryColorLabel: "Couleur principale",
         accentColorLabel: "Couleur d'accent",
