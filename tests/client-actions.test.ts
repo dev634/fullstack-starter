@@ -77,12 +77,12 @@ describe("client action auth guard + delegation", () => {
 
   it("deleteClient soft-deletes the client when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
-    findByIdMock.mockResolvedValue({ id: 1, firstName: "Alice", lastName: "Smith" } as never);
+    findByIdMock.mockResolvedValue({ id: 1, companyName: "Sunrise Corporation" } as never);
     softDeleteMock.mockResolvedValue({ id: 1, deletedAt: new Date() } as never);
     await deleteClient(1);
     expect(softDeleteMock).toHaveBeenCalledWith(1);
     expect(logActivityMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "DELETED", clientId: 1, clientName: "Alice Smith" })
+      expect.objectContaining({ action: "DELETED", clientId: 1, clientName: "Sunrise Corporation" })
     );
   });
 
@@ -102,7 +102,7 @@ describe("client action auth guard + delegation", () => {
 
   it("restoreClient restores the client when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
-    restoreMock.mockResolvedValue({ id: 1, deletedAt: null, firstName: "Alice", lastName: "Smith" } as never);
+    restoreMock.mockResolvedValue({ id: 1, deletedAt: null, companyName: "Sunrise Corporation" } as never);
     const res = await restoreClient(1);
     expect(restoreMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");

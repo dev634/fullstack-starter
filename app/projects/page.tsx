@@ -146,8 +146,7 @@ export default async function ProjectsPage({
                       <div className="mt-1.5 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
                         <UserIcon className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">
-                          {project.client.firstName} {project.client.lastName}
-                          {project.client.companyName ? ` · ${project.client.companyName}` : ""}
+                          {project.client.companyName}
                         </span>
                       </div>
                       {(project.power != null || project.budget != null) && (

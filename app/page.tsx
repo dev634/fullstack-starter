@@ -62,16 +62,15 @@ export default async function HomePage() {
                     >
                       <ClientAvatar
                         photoUrl={client.photoUrl}
-                        firstName={client.firstName}
-                        lastName={client.lastName}
+                        name={client.companyName}
                         size={40}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate font-medium">{client.firstName} {client.lastName}</span>
+                          <span className="truncate font-medium">{client.companyName}</span>
                           <StatusBadge status={client.status} />
                         </span>
-                        <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</span>
+                        <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.email}</span>
                       </span>
                     </Link>
                   </li>

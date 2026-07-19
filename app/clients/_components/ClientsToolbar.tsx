@@ -8,10 +8,9 @@ import { useTranslation } from "@/components/LocaleProvider";
 export default function ClientsToolbar() {
   const { t } = useTranslation();
   const SORT_OPTIONS: { value: string; label: string }[] = [
-    { value: "firstName", label: t.clients.toolbar.sortFirstName },
-    { value: "lastName", label: t.clients.toolbar.sortLastName },
     { value: "companyName", label: t.clients.toolbar.sortCompany },
     { value: "email", label: t.clients.toolbar.sortEmail },
+    { value: "city", label: t.clients.toolbar.sortCity },
   ];
   const router = useRouter();
   const pathname = usePathname();
@@ -33,7 +32,7 @@ export default function ClientsToolbar() {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [filtersOpen]);
 
-  const sort = params.get("sort") ?? "firstName";
+  const sort = params.get("sort") ?? "companyName";
   const dir = params.get("dir") === "desc" ? "desc" : "asc";
 
   // Push a new query string, always resetting to page 1 on any change.

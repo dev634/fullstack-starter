@@ -33,11 +33,13 @@ model RateLimitAttempt {
   @@index([key, createdAt])
 }
 
+// An organisation/entreprise (company). Identified by companyName; its people
+// live in Contact. email/phone are the company's own switchboard details,
+// distinct from any contact's. The former person-identity columns
+// (firstName/lastName) were migrated onto a primary Contact and dropped.
 model Client {
   id          Int          @id @default(autoincrement())
   companyName String
-  firstName   String
-  lastName    String
   address     String
   zipCode     String
   city        String
@@ -52,10 +54,9 @@ model Client {
   contacts    Contact[]
 }
 
-// A person attached to a client/organisation — many per client. The Client's
-// own firstName/lastName/email/phone are migrated onto a primary Contact; the
-// Client-level person fields are dropped in a later step once every read goes
-// through contacts. onDelete Cascade: deleting the client removes its contacts.
+// A person attached to an organisation — many per organisation. Each Client's
+// former firstName/lastName/email/phone were migrated onto a primary Contact.
+// onDelete Cascade: deleting the organisation removes its contacts.
 model Contact {
   id        Int      @id @default(autoincrement())
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)

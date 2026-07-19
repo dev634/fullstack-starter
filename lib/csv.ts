@@ -3,10 +3,8 @@
  * /clients/export and the CSV import — keeps the two round-trip compatible.
  */
 export const CLIENT_CSV_COLUMNS: { key: string; header: string }[] = [
-  { key: "firstName", header: "Firstname" },
-  { key: "lastName", header: "Lastname" },
-  { key: "email", header: "Email" },
   { key: "companyName", header: "Company" },
+  { key: "email", header: "Email" },
   { key: "phone", header: "Phone" },
   { key: "website", header: "Website" },
   { key: "status", header: "Status" },

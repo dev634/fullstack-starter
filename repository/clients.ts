@@ -27,12 +27,10 @@ export async function getDashboardStats() {
     }
 }
 
-export async function create({firstName, lastName, email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id" | "deletedAt">) {
+export async function create({email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id" | "deletedAt">) {
     try {
         const clients = await prisma.client.create({
             data: {
-                firstName,
-                lastName,
                 email,
                 companyName,
                 address,
@@ -63,7 +61,7 @@ export async function create({firstName, lastName, email, companyName, address, 
     }
 }
 
-export type ClientSortField = "firstName" | "lastName" | "companyName" | "email";
+export type ClientSortField = "companyName" | "email" | "city";
 
 type SearchArgs = {
   q?: string;
@@ -74,13 +72,13 @@ type SearchArgs = {
 };
 
 /**
- * Paginated, filterable client listing. `q` matches (case-insensitively)
- * against name, company and email. Returns the page of rows and the total
+ * Paginated, filterable organisation listing. `q` matches (case-insensitively)
+ * against company name, email and city. Returns the page of rows and the total
  * count for pagination.
  */
 export async function search({
   q = "",
-  sortField = "firstName",
+  sortField = "companyName",
   dir = "asc",
   page = 1,
   pageSize = 9,
@@ -91,10 +89,9 @@ export async function search({
     ...(term
       ? {
           OR: [
-            { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } },
-            { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } },
             { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } },
             { email: { contains: term, mode: Prisma.QueryMode.insensitive } },
+            { city: { contains: term, mode: Prisma.QueryMode.insensitive } },
           ],
         }
       : {}),
@@ -183,12 +180,12 @@ export async function findById(id: number) {
     }
 }
 
-export async function update({ id, firstName, lastName, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: Omit<Client, "photoUrl" | "deletedAt"> & { photoUrl?: string | null }) {
+export async function update({ id, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: Omit<Client, "photoUrl" | "deletedAt"> & { photoUrl?: string | null }) {
     try{
         const client = await prisma.client.update({
             where: { id },
             data: {
-                firstName, lastName, email, companyName, address, city, zipCode, country,
+                email, companyName, address, city, zipCode, country,
                 phone, website, status,
                 // Only touch the photo when a new one was provided, so editing
                 // other fields doesn't wipe an existing photo.

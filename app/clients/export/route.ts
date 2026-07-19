@@ -1,7 +1,7 @@
 import { search, type ClientSortField } from "@/repository/clients";
 import { CLIENT_CSV_COLUMNS, csvCell } from "@/lib/csv";
 
-const SORT_FIELDS: ClientSortField[] = ["firstName", "lastName", "companyName", "email"];
+const SORT_FIELDS: ClientSortField[] = ["companyName", "email", "city"];
 
 /**
  * Export the (filtered/sorted) clients as a CSV download. Honours the same
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const sortRaw = params.get("sort");
   const sortField: ClientSortField = SORT_FIELDS.includes(sortRaw as ClientSortField)
     ? (sortRaw as ClientSortField)
-    : "firstName";
+    : "companyName";
   const dir = params.get("dir") === "desc" ? "desc" : "asc";
 
   const { clients } = await search({ q, sortField, dir, page: 1, pageSize: 100000 });

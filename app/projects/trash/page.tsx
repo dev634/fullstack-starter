@@ -44,8 +44,7 @@ export default async function ProjectsTrashPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-gray-900 dark:text-gray-100">{project.name}</p>
                       <p className="truncate text-sm text-gray-500 dark:text-gray-400">
-                        {project.client.firstName} {project.client.lastName}
-                        {project.client.companyName ? ` · ${project.client.companyName}` : ""}
+                        {project.client.companyName}
                       </p>
                     </div>
                   </div>

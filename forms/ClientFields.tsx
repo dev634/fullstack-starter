@@ -17,10 +17,8 @@ export function ClientFields({ values, onChange, errors }: ClientFieldsProps) {
     type?: "text" | "email";
     fullWidth?: boolean;
   }[] = [
-    { label: t.clients.fields.firstName, name: "firstName" },
-    { label: t.clients.fields.lastName, name: "lastName" },
-    { label: t.clients.fields.email, name: "email", type: "email", fullWidth: true },
     { label: t.clients.fields.company, name: "companyName", fullWidth: true },
+    { label: t.clients.fields.email, name: "email", type: "email" },
     { label: t.clients.fields.phone, name: "phone" },
     { label: t.clients.fields.website, name: "website" },
     { label: t.clients.fields.address, name: "address", fullWidth: true },

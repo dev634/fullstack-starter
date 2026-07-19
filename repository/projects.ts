@@ -31,9 +31,8 @@ export async function search({
             ? {
                 OR: [
                     { name: { contains: term, mode: Prisma.QueryMode.insensitive } },
-                    { client: { firstName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
-                    { client: { lastName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
                     { client: { companyName: { contains: term, mode: Prisma.QueryMode.insensitive } } },
+                    { client: { email: { contains: term, mode: Prisma.QueryMode.insensitive } } },
                 ],
             }
             : {}),
@@ -44,7 +43,7 @@ export async function search({
             prisma.project.findMany({
                 where,
                 include: {
-                    client: { select: { id: true, firstName: true, lastName: true, companyName: true, email: true } },
+                    client: { select: { id: true, companyName: true, email: true } },
                 },
                 orderBy: { [sortField]: dir } as Prisma.ProjectOrderByWithRelationInput,
                 skip: (page - 1) * pageSize,
@@ -208,7 +207,7 @@ export async function findTrashed() {
         return await prisma.project.findMany({
             where: { deletedAt: { not: null } },
             include: {
-                client: { select: { id: true, firstName: true, lastName: true, companyName: true } },
+                client: { select: { id: true, companyName: true } },
             },
             orderBy: { deletedAt: "desc" },
         });
