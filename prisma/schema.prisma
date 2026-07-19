@@ -94,6 +94,10 @@ model Project {
   interventions  Intervention[]
   subcontractors SubcontractorCompany[]
   interims       Interim[]
+
+  // Backs findByClient (the client detail page's project list) and the
+  // Client onDelete: Cascade scan. Postgres does not auto-index FK columns.
+  @@index([clientId])
 }
 
 model ProjectTask {
@@ -129,6 +133,16 @@ model ProjectTask {
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+
+  // findByProject filters (projectId, groupId IS NULL); the group include
+  // fetches WHERE groupId IN (...). The remaining FK indexes back the
+  // SetNull/Cascade delete scans (deleting a category/company/interim/group
+  // otherwise seq-scans this table across every project).
+  @@index([projectId])
+  @@index([groupId])
+  @@index([categoryId])
+  @@index([assignedCompanyId])
+  @@index([assignedInterimId])
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
@@ -155,6 +169,12 @@ model ProjectTaskGroup {
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+
+  // projectId backs findByProject; the rest back SetNull/Cascade delete scans.
+  @@index([projectId])
+  @@index([categoryId])
+  @@index([assignedCompanyId])
+  @@index([assignedInterimId])
 }
 
 // Groups several ProjectTaskGroup series under one named category (e.g.
@@ -174,6 +194,11 @@ model ProjectTaskCategory {
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+
+  // projectId backs findByProject; the rest back SetNull delete scans.
+  @@index([projectId])
+  @@index([assignedCompanyId])
+  @@index([assignedInterimId])
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -188,6 +213,12 @@ model ProjectFolder {
   children  ProjectFolder[] @relation("FolderChildren")
   files     ProjectFile[]
   createdAt DateTime        @default(now())
+
+  // The composite backs findChildren / collectDescendantFolderIds
+  // (WHERE projectId AND parentId); the standalone parentId backs the
+  // self-referential onDelete: Cascade scan when a folder is removed.
+  @@index([projectId, parentId])
+  @@index([parentId])
 }
 
 // Inventory line for a project's equipment/material (panels, inverters,
@@ -215,6 +246,13 @@ model ProjectMaterial {
   taskCategoryId   Int?
   requiredQuantity Float?
   createdAt        DateTime             @default(now())
+
+  // projectId backs findMaterialsByProject; the link FKs back the SetNull
+  // scans when a linked task/series/category is deleted.
+  @@index([projectId])
+  @@index([taskId])
+  @@index([taskGroupId])
+  @@index([taskCategoryId])
 }
 
 enum InterventionStatus {
@@ -235,6 +273,8 @@ model Intervention {
   technician  String?
   status      InterventionStatus @default(PLANIFIEE)
   createdAt   DateTime           @default(now())
+
+  @@index([projectId])
 }
 
 // A subcontracted company working on the project (e.g. an electrician or
@@ -251,6 +291,8 @@ model SubcontractorCompany {
   assignedTasks      ProjectTask[]
   assignedGroups     ProjectTaskGroup[]
   assignedCategories ProjectTaskCategory[]
+
+  @@index([projectId])
 }
 
 model SubcontractorPerson {
@@ -261,6 +303,8 @@ model SubcontractorPerson {
   role      String?
   phone     String?
   createdAt DateTime             @default(now())
+
+  @@index([companyId])
 }
 
 // A temp/agency worker (intérimaire) attached directly to the project — a
@@ -277,6 +321,8 @@ model Interim {
   assignedTasks      ProjectTask[]
   assignedGroups     ProjectTaskGroup[]
   assignedCategories ProjectTaskCategory[]
+
+  @@index([projectId])
 }
 
 model ProjectFile {
@@ -291,6 +337,12 @@ model ProjectFile {
   size      Int?
   mimeType  String?
   createdAt DateTime       @default(now())
+
+  // projectId backs project-scoped file queries; folderId backs
+  // findFilesByFolder / collectDescendantFilePublicIds and the folder
+  // onDelete: Cascade scan.
+  @@index([projectId])
+  @@index([folderId])
 }
 
 enum Role {
@@ -317,6 +369,8 @@ model PasswordResetToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // Singleton row (always id=1) holding app-wide branding/theme, configurable
