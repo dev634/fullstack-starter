@@ -524,6 +524,10 @@ const en: Dictionary = {
     appSettings: {
         title: "App settings",
         subtitle: "Customize the name, colors, and logo shown throughout the app.",
+        tabs: {
+            theme: "Theme",
+            sections: "Section order",
+        },
         appNameLabel: "App name",
         primaryColorLabel: "Primary color",
         accentColorLabel: "Accent color",
