@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { create, search, findById, softDelete, restore, permanentlyRemove, findTrashed } from "@/repository/clients";
+import { create as createContact } from "@/repository/contacts";
 
 // A distinctive domain so cleanup can never touch real/seeded data.
 const TEST_DOMAIN = "@integration-test.local";
@@ -55,6 +56,20 @@ describe("clients repository against a real Postgres", () => {
     await softDelete(created.id);
     const after = await search({ q: "zzyxqui" });
     expect(after.clients.some((c) => c.id === created.id)).toBe(false);
+  });
+
+  it("search() also matches an organisation by one of its contacts' names", async () => {
+    const email = uniqueEmail("contact-search");
+    const org = await create(basePayload(email, { companyName: "PlainCorp" }));
+    await createContact({ clientId: org.id, firstName: "Wxyzoro", lastName: "Contactson" });
+
+    const byFirstName = await search({ q: "wxyzoro" });
+    expect(byFirstName.clients.some((c) => c.id === org.id)).toBe(true);
+
+    // Once the org is trashed it must drop out even when the contact still matches.
+    await softDelete(org.id);
+    const after = await search({ q: "wxyzoro" });
+    expect(after.clients.some((c) => c.id === org.id)).toBe(false);
   });
 
   it("soft-delete then restore round-trips deletedAt correctly", async () => {

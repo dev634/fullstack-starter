@@ -109,8 +109,8 @@ const fr = {
         },
         toolbar: {
             filters: "Filtre",
-            searchPlaceholder: "Rechercher une entreprise…",
-            searchLabel: "Rechercher une entreprise",
+            searchPlaceholder: "Rechercher une entreprise ou un contact…",
+            searchLabel: "Rechercher une entreprise ou un contact",
             sortLabel: "Trier par",
             sortAsc: "Tri croissant",
             sortDesc: "Tri décroissant",
