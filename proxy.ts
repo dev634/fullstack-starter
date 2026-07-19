@@ -10,7 +10,7 @@ const { auth } = NextAuth(authConfig);
 // added below — kept as an explicit check (rather than narrowing
 // config.matcher) because the matcher now has to run on every page for the
 // nonce, but sign-in/reset/API routes must stay reachable while logged out.
-const PROTECTED_PATHS = [/^\/$/, /^\/clients(\/.*)?$/, /^\/projects(\/.*)?$/];
+const PROTECTED_PATHS = [/^\/$/, /^\/clients(\/.*)?$/, /^\/projects(\/.*)?$/, /^\/admin(\/.*)?$/];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PATHS.some((re) => re.test(pathname));
