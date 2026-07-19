@@ -93,6 +93,7 @@ model Project {
   materials      ProjectMaterial[]
   interventions  Intervention[]
   subcontractors SubcontractorCompany[]
+  interims       Interim[]
 }
 
 model ProjectTask {
@@ -238,6 +239,19 @@ model SubcontractorPerson {
   role      String?
   phone     String?
   createdAt DateTime             @default(now())
+}
+
+// A temp/agency worker (intérimaire) attached directly to the project — a
+// flat list (no company nesting like subcontractors), managed from the
+// project's Intérimaires section and assignable to tasks.
+model Interim {
+  id        Int      @id @default(autoincrement())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  name      String
+  role      String?
+  agency    String?
+  createdAt DateTime @default(now())
 }
 
 model ProjectFile {
