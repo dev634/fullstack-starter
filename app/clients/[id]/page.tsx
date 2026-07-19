@@ -2,6 +2,9 @@ import { getClient } from '@/actions/clients/clients';
 import { auth } from '@/lib/auth';
 import { hasMinRole } from '@/lib/authz';
 import { findByClient } from '@/repository/projects';
+import { findByClient as findContactsByClient } from '@/repository/contacts';
+import ContactRow from '@/components/ContactRow';
+import AddContactForm from '@/forms/AddContactForm';
 import Title from '@/components/Title';
 import ClientAvatar from '@/components/ClientAvatar';
 import StatusBadge from '@/components/StatusBadge';
@@ -19,6 +22,7 @@ import {
   ArrowLeftIcon,
   BoltIcon,
   PlusIcon,
+  UsersIcon,
 } from '@heroicons/react/24/outline';
 import DeleteClientButton from './_components/DeleteClientButton';
 import DeleteProjectButton from './_components/DeleteProjectButton';
@@ -65,6 +69,7 @@ export default async function ClientPage({ params }: PageProps) {
   const session = await auth();
   const canEdit = hasMinRole(session?.user?.role, "ADMIN");
   const projects = await findByClient(clientId);
+  const contacts = await findContactsByClient(clientId);
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -153,6 +158,31 @@ export default async function ClientPage({ params }: PageProps) {
           </Link>
         </div>
 
+      </div>
+      </div>
+
+      {/* Contacts */}
+      <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+      <div className="overflow-hidden rounded-xl">
+        <div className="flex items-center justify-between gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <UsersIcon className="h-5 w-5 text-teal-500" />
+            {t.contacts.heading}
+          </h2>
+          {canEdit && <AddContactForm clientId={clientId} />}
+        </div>
+
+        {contacts.length ? (
+          <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+            {contacts.map((contact) => (
+              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} />
+            ))}
+          </ul>
+        ) : (
+          <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+            {t.contacts.noContacts}
+          </div>
+        )}
       </div>
       </div>
 

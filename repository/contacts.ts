@@ -1,5 +1,18 @@
 import { prisma } from "@/lib/prisma";
 
+/** Contacts of a client — primary first, then oldest first. */
+export async function findByClient(clientId: number) {
+    try {
+        return await prisma.contact.findMany({
+            where: { clientId },
+            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        });
+    } catch (error) {
+        console.log("Repository findByClient (contact) error:", error);
+        throw { type: "error", message: "Database Error fetching contacts." };
+    }
+}
+
 type ContactData = {
     clientId: number;
     firstName: string;

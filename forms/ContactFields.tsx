@@ -1,0 +1,49 @@
+import type { Dictionary } from "@/lib/i18n/dictionaries";
+import type { ContactActionState } from "@/types/contact";
+
+export type ContactDefaults = {
+  firstName?: string;
+  lastName?: string;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+};
+
+const inputClass =
+  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500";
+
+/** Shared name/role/email/phone inputs for the add & edit contact forms. Presentational: it reads `t`/`state` from props, owns no state. */
+export default function ContactFields({
+  t,
+  state,
+  defaults,
+  autoFocus,
+}: {
+  t: Dictionary;
+  state: ContactActionState;
+  defaults?: ContactDefaults;
+  autoFocus?: boolean;
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex-1">
+          <input type="text" name="firstName" autoFocus={autoFocus} defaultValue={defaults?.firstName ?? ""} placeholder={t.contacts.firstNameLabel} aria-label={t.contacts.firstNameLabel} className={inputClass} />
+          {state.type === "zodError" && state.fieldsForm?.firstName && (
+            <p className="mt-1 text-xs text-red-500">{state.fieldsForm.firstName}</p>
+          )}
+        </div>
+        <div className="flex-1">
+          <input type="text" name="lastName" defaultValue={defaults?.lastName ?? ""} placeholder={t.contacts.lastNameLabel} aria-label={t.contacts.lastNameLabel} className={inputClass} />
+          {state.type === "zodError" && state.fieldsForm?.lastName && (
+            <p className="mt-1 text-xs text-red-500">{state.fieldsForm.lastName}</p>
+          )}
+        </div>
+      </div>
+      <input type="text" name="role" defaultValue={defaults?.role ?? ""} placeholder={t.contacts.rolePlaceholder} aria-label={t.contacts.roleLabel} className={inputClass} />
+      <input type="email" name="email" defaultValue={defaults?.email ?? ""} placeholder={t.contacts.emailPlaceholder} aria-label={t.contacts.emailLabel} className={inputClass} />
+      <input type="text" name="phone" defaultValue={defaults?.phone ?? ""} placeholder={t.contacts.phonePlaceholder} aria-label={t.contacts.phoneLabel} className={inputClass} />
+      {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
+    </>
+  );
+}
