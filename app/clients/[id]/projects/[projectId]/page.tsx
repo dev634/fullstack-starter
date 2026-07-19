@@ -291,6 +291,15 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
             title={t.projects.detail.tasksHeading}
             badge={totalCount > 0 ? `(${doneCount}/${totalCount})` : undefined}
+            headerExtra={
+              canEdit && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <AddTaskForm clientId={clientId} projectId={pid} categories={taskCategories} />
+                  <GenerateTaskSeriesForm clientId={clientId} projectId={pid} categories={taskCategories} />
+                  <AddTaskCategoryForm clientId={clientId} projectId={pid} />
+                </div>
+              )
+            }
           >
           {categorySections.map(({ category, groups, tasks: categoryTasks }) => (
             <ProjectTaskCategorySection
@@ -337,18 +346,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               {t.projects.detail.noTasks}
             </div>
           ) : null}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddTaskForm clientId={clientId} projectId={pid} categories={taskCategories} />
-            </div>
-          )}
-          {canEdit && (
-            <div className="flex flex-wrap gap-2 border-t border-gray-300 dark:border-gray-700 px-4 py-3 sm:px-6">
-              <GenerateTaskSeriesForm clientId={clientId} projectId={pid} categories={taskCategories} />
-              <AddTaskCategoryForm clientId={clientId} projectId={pid} />
-            </div>
-          )}
           </CollapsibleSection>
         </div>
         </div>
@@ -398,6 +395,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<WrenchScrewdriverIcon className="h-5 w-5 text-amber-500" />}
             title={t.projects.detail.interventionsHeading}
             badge={interventions.length > 0 ? `(${interventions.length})` : undefined}
+            headerExtra={canEdit && <AddInterventionForm clientId={clientId} projectId={pid} />}
           >
           {interventions.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
@@ -416,12 +414,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               {t.projects.detail.noInterventions}
             </div>
           )}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddInterventionForm clientId={clientId} projectId={pid} />
-            </div>
-          )}
           </CollapsibleSection>
         </div>
         </div>
@@ -433,6 +425,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
             title={t.projects.detail.subcontractorsHeading}
             badge={subcontractorCompanies.length > 0 ? `(${subcontractorCompanies.length})` : undefined}
+            headerExtra={canEdit && <AddSubcontractorCompanyForm clientId={clientId} projectId={pid} />}
           >
           {subcontractorCompanies.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
@@ -451,12 +444,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               {t.projects.detail.noSubcontractors}
             </div>
           )}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddSubcontractorCompanyForm clientId={clientId} projectId={pid} />
-            </div>
-          )}
           </CollapsibleSection>
         </div>
         </div>
@@ -468,6 +455,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
             title={t.projects.detail.interimsHeading}
             badge={interims.length > 0 ? `(${interims.length})` : undefined}
+            headerExtra={canEdit && <AddInterimForm clientId={clientId} projectId={pid} />}
           >
           {interims.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">
@@ -478,12 +466,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           ) : (
             <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
               {t.projects.detail.noInterims}
-            </div>
-          )}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddInterimForm clientId={clientId} projectId={pid} />
             </div>
           )}
           </CollapsibleSection>
