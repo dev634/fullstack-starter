@@ -8,6 +8,7 @@ const scannedItemSchema = z.object({
     name: z.string().min(1),
     quantity: z.coerce.number().positive(),
     unit: z.string().nullable().optional(),
+    reference: z.string().nullable().optional(),
     materialId: z.coerce.number().int().positive().nullable().optional(),
 });
 
@@ -27,6 +28,8 @@ const itemsJson = z.string().transform((value, ctx) => {
 export const applyDeliveryScanSchema = z.object({
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
+    // Note-level supplier (one per bulletin), applied to every new material.
+    supplier: z.string().nullable().optional(),
     items: itemsJson,
 });
 

@@ -35,12 +35,12 @@ describe("extractDeliveryNoteItems provider switch", () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
     delete process.env.OCR_PROVIDER;
     anthropicCreateMock.mockResolvedValue({
-      content: [{ type: "tool_use", input: { items: [{ name: "Panneau", quantity: 5 }] } }],
+      content: [{ type: "tool_use", input: { supplier: "Rexel", items: [{ name: "Panneau", quantity: 5, reference: "REF-123" }] } }],
     });
-    const items = await extractDeliveryNoteItems(fileOf());
+    const note = await extractDeliveryNoteItems(fileOf());
     expect(anthropicCreateMock).toHaveBeenCalled();
     expect(openaiCreateMock).not.toHaveBeenCalled();
-    expect(items).toEqual([{ name: "Panneau", quantity: 5, unit: null }]);
+    expect(note).toEqual({ supplier: "Rexel", items: [{ name: "Panneau", quantity: 5, unit: null, reference: "REF-123" }] });
   });
 
   it("rejects when OCR_PROVIDER is anthropic (default) but ANTHROPIC_API_KEY is missing", async () => {
@@ -69,10 +69,10 @@ describe("extractDeliveryNoteItems provider switch", () => {
         },
       ],
     });
-    const items = await extractDeliveryNoteItems(fileOf());
+    const note = await extractDeliveryNoteItems(fileOf());
     expect(openaiCreateMock).toHaveBeenCalled();
     expect(anthropicCreateMock).not.toHaveBeenCalled();
-    expect(items).toEqual([{ name: "Onduleur", quantity: 3, unit: "pièce" }]);
+    expect(note).toEqual({ supplier: null, items: [{ name: "Onduleur", quantity: 3, unit: "pièce", reference: null }] });
   });
 
   it("rejects when OCR_PROVIDER=openai but OPENAI_API_KEY is missing", async () => {

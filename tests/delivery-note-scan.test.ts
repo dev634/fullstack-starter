@@ -56,12 +56,16 @@ describe("scanDeliveryNote", () => {
 
   it("returns the extracted items on success", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    extractDeliveryNoteItemsMock.mockResolvedValue([{ name: "Panneau 400W", quantity: 24, unit: "pièce" }]);
+    extractDeliveryNoteItemsMock.mockResolvedValue({
+      supplier: "Rexel",
+      items: [{ name: "Panneau 400W", quantity: 24, unit: "pièce", reference: "REF-9" }],
+    });
     const fd = new FormData();
     fd.set("file", fileOf("note.jpg"));
     const res = await scanDeliveryNote(initialScan, fd);
     expect(res.type).toBe("success");
-    expect(res.items).toEqual([{ name: "Panneau 400W", quantity: 24, unit: "pièce" }]);
+    expect(res.items).toEqual([{ name: "Panneau 400W", quantity: 24, unit: "pièce", reference: "REF-9" }]);
+    expect(res.supplier).toBe("Rexel");
   });
 
   it("surfaces an extraction error", async () => {
@@ -128,7 +132,8 @@ describe("applyDeliveryNoteScan", () => {
     );
     expect(applyScanItemsMock).toHaveBeenCalledWith(
       2,
-      expect.arrayContaining([expect.objectContaining({ materialId: 7, quantity: 24 })])
+      expect.arrayContaining([expect.objectContaining({ materialId: 7, quantity: 24 })]),
+      undefined
     );
     expect(res.type).toBe("success");
   });
@@ -142,12 +147,14 @@ describe("applyDeliveryNoteScan", () => {
       formOf({
         clientId: "1",
         projectId: "2",
-        items: JSON.stringify([{ name: "Onduleur", quantity: 3, unit: "pièce" }]),
+        supplier: "Rexel",
+        items: JSON.stringify([{ name: "Onduleur", quantity: 3, unit: "pièce", reference: "REF-9" }]),
       })
     );
     expect(applyScanItemsMock).toHaveBeenCalledWith(
       2,
-      expect.arrayContaining([expect.objectContaining({ name: "Onduleur", quantity: 3, unit: "pièce" })])
+      expect.arrayContaining([expect.objectContaining({ name: "Onduleur", quantity: 3, unit: "pièce", reference: "REF-9" })]),
+      "Rexel"
     );
   });
 

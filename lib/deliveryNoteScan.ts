@@ -8,16 +8,26 @@ export type ScannedDeliveryItem = {
     name: string;
     quantity: number;
     unit: string | null;
+    reference: string | null;
 };
 
-type RawItem = { name?: unknown; quantity?: unknown; unit?: unknown };
+export type ScannedDeliveryNote = {
+    // Supplier read from the note header — one per delivery note, applied to
+    // every new material created from the scan.
+    supplier: string | null;
+    items: ScannedDeliveryItem[];
+};
+
+type RawItem = { name?: unknown; quantity?: unknown; unit?: unknown; reference?: unknown };
+type RawNote = { supplier?: unknown; items?: RawItem[] };
 
 const PROMPT =
-    "This is a photo of a delivery note (bulletin de livraison) for a solar installation project. Read every delivered line item (material name, quantity, and unit if shown) and record them with the record_delivery_items tool. Ignore prices, references, and non-material lines.";
+    "This is a photo of a delivery note (bulletin de livraison) for a solar installation project. Read the supplier/company name shown on the note (usually in the header), and every delivered line item — for each line record the material/product name, the delivered quantity, the unit if shown, and the product reference/code if shown. Record everything with the record_delivery_items tool. Ignore prices and non-material lines.";
 
 const ITEMS_SCHEMA = {
     type: "object" as const,
     properties: {
+        supplier: { type: "string", description: "The supplier / company name shown on the delivery note (usually in the header). Omit if not shown." },
         items: {
             type: "array" as const,
             items: {
@@ -26,6 +36,7 @@ const ITEMS_SCHEMA = {
                     name: { type: "string", description: "The material/product name as written on the note." },
                     quantity: { type: "number", description: "The delivered quantity for this line." },
                     unit: { type: "string", description: "The unit, if shown (e.g. pièce, m, kg). Omit if not shown." },
+                    reference: { type: "string", description: "The product reference / code for this line, if shown. Omit if not shown." },
                 },
                 required: ["name", "quantity"],
             },
@@ -39,7 +50,7 @@ function activeProvider(): "anthropic" | "openai" {
     return process.env.OCR_PROVIDER === "openai" ? "openai" : "anthropic";
 }
 
-async function extractWithAnthropic(base64: string, mimeType: string): Promise<RawItem[]> {
+async function extractWithAnthropic(base64: string, mimeType: string): Promise<RawNote> {
     if (!process.env.ANTHROPIC_API_KEY) {
         throw {
             type: "error",
@@ -75,11 +86,10 @@ async function extractWithAnthropic(base64: string, mimeType: string): Promise<R
     });
 
     const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
-    const input = toolUse?.input as { items?: RawItem[] } | undefined;
-    return input?.items ?? [];
+    return (toolUse?.input as RawNote | undefined) ?? {};
 }
 
-async function extractWithOpenAI(base64: string, mimeType: string): Promise<RawItem[]> {
+async function extractWithOpenAI(base64: string, mimeType: string): Promise<RawNote> {
     if (!process.env.OPENAI_API_KEY) {
         throw {
             type: "error",
@@ -115,12 +125,11 @@ async function extractWithOpenAI(base64: string, mimeType: string): Promise<RawI
     });
 
     const toolCall = response.choices[0]?.message.tool_calls?.[0];
-    if (!toolCall || toolCall.type !== "function") return [];
+    if (!toolCall || toolCall.type !== "function") return {};
     try {
-        const parsed = JSON.parse(toolCall.function.arguments) as { items?: RawItem[] };
-        return parsed.items ?? [];
+        return JSON.parse(toolCall.function.arguments) as RawNote;
     } catch {
-        return [];
+        return {};
     }
 }
 
@@ -132,7 +141,7 @@ async function extractWithOpenAI(base64: string, mimeType: string): Promise<RawI
  * provider (Anthropic by default, OpenAI as a fallback) is chosen by the
  * OCR_PROVIDER env var so it can be switched without a code change.
  */
-export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliveryItem[]> {
+export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliveryNote> {
     if (!ACCEPTED_MIME_TYPES.has(file.type)) {
         throw {
             type: "error",
@@ -149,17 +158,20 @@ export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliv
     const buffer = Buffer.from(await file.arrayBuffer());
     const base64 = buffer.toString("base64");
 
-    const rawItems =
+    const raw =
         activeProvider() === "openai"
             ? await extractWithOpenAI(base64, file.type)
             : await extractWithAnthropic(base64, file.type);
 
-    const items = rawItems
+    const supplier = typeof raw.supplier === "string" && raw.supplier.trim() !== "" ? raw.supplier.trim() : null;
+
+    const items = (raw.items ?? [])
         .filter((item) => typeof item.name === "string" && item.name.trim() !== "" && typeof item.quantity === "number")
         .map((item) => ({
             name: (item.name as string).trim(),
             quantity: item.quantity as number,
             unit: typeof item.unit === "string" && item.unit.trim() !== "" ? item.unit.trim() : null,
+            reference: typeof item.reference === "string" && item.reference.trim() !== "" ? item.reference.trim() : null,
         }));
 
     if (items.length === 0) {
@@ -169,5 +181,5 @@ export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliv
         };
     }
 
-    return items;
+    return { supplier, items };
 }
