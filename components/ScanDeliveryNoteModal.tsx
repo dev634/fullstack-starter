@@ -27,6 +27,8 @@ export default function ScanDeliveryNoteModal({
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
+  // Note-level supplier read from the bulletin header, editable before apply.
+  const [supplier, setSupplier] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +36,7 @@ export default function ScanDeliveryNoteModal({
   function reset() {
     setFile(null);
     setRows(null);
+    setSupplier("");
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -54,6 +57,7 @@ export default function ScanDeliveryNoteModal({
         setError(res.message);
         return;
       }
+      setSupplier(res.supplier ?? "");
       setRows(
         res.items.map((item) => {
           const match = materials.find((m) => m.name.trim().toLowerCase() === item.name.trim().toLowerCase());
@@ -70,6 +74,7 @@ export default function ScanDeliveryNoteModal({
       const fd = new FormData();
       fd.set("clientId", String(clientId));
       fd.set("projectId", String(projectId));
+      fd.set("supplier", supplier);
       fd.set("items", JSON.stringify(rows));
       fd.set("file", file);
       const res = await applyDeliveryNoteScan({ type: null, message: "" }, fd);
@@ -125,6 +130,19 @@ export default function ScanDeliveryNoteModal({
               ) : (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-gray-600 dark:text-gray-300">{t.materials.scan.reviewInstructions}</p>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {t.materials.supplierLabel}
+                    </label>
+                    <input
+                      type="text"
+                      value={supplier}
+                      onChange={(e) => setSupplier(e.target.value)}
+                      placeholder={t.materials.supplierPlaceholder}
+                      aria-label={t.materials.supplierLabel}
+                      className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                    />
+                  </div>
                   <ul className="divide-y divide-gray-300 rounded border border-gray-300 dark:divide-gray-700 dark:border-gray-700">
                     {rows.map((row, i) => (
                       <li key={i} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
@@ -157,6 +175,14 @@ export default function ScanDeliveryNoteModal({
                           placeholder={t.materials.unitPlaceholder}
                           aria-label={t.materials.unitLabel}
                           className="w-20 shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                        />
+                        <input
+                          type="text"
+                          value={row.reference ?? ""}
+                          onChange={(e) => updateRow(i, { reference: e.target.value || null })}
+                          placeholder={t.materials.referencePlaceholder}
+                          aria-label={t.materials.referenceLabel}
+                          className="w-24 shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
                         />
                         <button
                           type="button"

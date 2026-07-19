@@ -32,8 +32,8 @@ export async function scanDeliveryNote(
   }
 
   try {
-    const items = await extractDeliveryNoteItems(file);
-    return { ...prevState, type: "success", message: t.materials.scan.messages.scanned, items };
+    const { supplier, items } = await extractDeliveryNoteItems(file);
+    return { ...prevState, type: "success", message: t.materials.scan.messages.scanned, items, supplier };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
@@ -60,11 +60,11 @@ export async function applyDeliveryNoteScan(
     return { ...prevState, type: "zodError", message: t.errors.validationError };
   }
 
-  const { projectId, clientId, items } = parsed.data;
+  const { projectId, clientId, supplier, items } = parsed.data;
   const file = formData.get("file");
 
   try {
-    await applyScanItems(projectId, items);
+    await applyScanItems(projectId, items, supplier);
 
     if (file instanceof File && file.size > 0) {
       const rootFolders = await findChildFolders(projectId, null);

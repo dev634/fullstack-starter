@@ -99,6 +99,7 @@ type ScanApplyItem = {
     name: string;
     quantity: number;
     unit?: string | null;
+    reference?: string | null;
     materialId?: number | null;
 };
 
@@ -109,8 +110,12 @@ type ScanApplyItem = {
  * than leaving stock half-updated (which would double-apply on retry).
  * Stock increments are scoped to the project (updateMany with projectId) so
  * a stray materialId can't touch another project's stock.
+ *
+ * The note-level supplier and each item's reference are recorded only on
+ * newly-created materials — matching an existing material just adds the
+ * delivered quantity, leaving its own supplier/reference untouched.
  */
-export async function applyScanItems(projectId: number, items: ScanApplyItem[]) {
+export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null) {
     try {
         return await prisma.$transaction(
             items.map((item) =>
@@ -125,6 +130,8 @@ export async function applyScanItems(projectId: number, items: ScanApplyItem[]) 
                               name: item.name,
                               quantity: item.quantity,
                               unit: item.unit || null,
+                              supplierName: supplier || null,
+                              reference: item.reference || null,
                           },
                       })
             )
