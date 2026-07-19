@@ -334,6 +334,7 @@ const en: Dictionary = {
         },
     },
     tasks: {
+        addToggle: "Add a task",
         newPlaceholder: "New task…",
         titleLabel: "Task title",
         dueDateLabel: "Due date",
@@ -443,6 +444,7 @@ const en: Dictionary = {
         },
     },
     interventions: {
+        addToggle: "Add an intervention",
         newPlaceholder: "Intervention description…",
         descriptionLabel: "Description",
         scheduledAtLabel: "Scheduled date",
@@ -496,6 +498,7 @@ const en: Dictionary = {
         },
     },
     interims: {
+        addToggle: "Add a temp worker",
         nameLabel: "Name",
         namePlaceholder: "Temp worker name…",
         roleLabel: "Role",

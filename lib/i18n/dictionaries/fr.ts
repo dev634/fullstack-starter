@@ -332,6 +332,7 @@ const fr = {
         },
     },
     tasks: {
+        addToggle: "Ajouter une tâche",
         newPlaceholder: "Nouvelle tâche…",
         titleLabel: "Titre de la tâche",
         dueDateLabel: "Échéance",
@@ -441,6 +442,7 @@ const fr = {
         },
     },
     interventions: {
+        addToggle: "Ajouter une intervention",
         newPlaceholder: "Description de l'intervention…",
         descriptionLabel: "Description",
         scheduledAtLabel: "Date prévue",
@@ -494,6 +496,7 @@ const fr = {
         },
     },
     interims: {
+        addToggle: "Ajouter un intérimaire",
         nameLabel: "Nom",
         namePlaceholder: "Nom de l'intérimaire…",
         roleLabel: "Poste",
