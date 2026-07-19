@@ -549,7 +549,7 @@ const en: Dictionary = {
         },
         sectionOrder: {
             title: "Section order",
-            subtitle: "Drag and drop to set the display order of the collapsible sections on a project page. Changes apply immediately.",
+            subtitle: "Drag and drop to set the display order of the collapsible sections on a project page, then click Save.",
             reorder: "Reorder {name}",
             saving: "Saving…",
             saved: "Order saved",

@@ -67,6 +67,9 @@ function SortableRow({
 export default function SectionOrderForm({ order, labels }: Props) {
   const { t } = useTranslation();
   const [items, setItems] = useState<ProjectSectionKey[]>(order);
+  // Explicit save (not auto-save on drop): a drag marks the list dirty, and
+  // the Enregistrer button persists it — matching the Theme tab's form.
+  const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -75,11 +78,12 @@ export default function SectionOrderForm({ order, labels }: Props) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  async function persist(next: ProjectSectionKey[]) {
+  async function handleSave() {
     setStatus("saving");
-    const result = await updateProjectSectionOrder(next);
+    const result = await updateProjectSectionOrder(items);
     if (result.ok) {
       setStatus("saved");
+      setDirty(false);
     } else {
       setStatus("error");
       setErrorMsg(result.message);
@@ -92,9 +96,9 @@ export default function SectionOrderForm({ order, labels }: Props) {
     const oldIndex = items.indexOf(active.id as ProjectSectionKey);
     const newIndex = items.indexOf(over.id as ProjectSectionKey);
     if (oldIndex === -1 || newIndex === -1) return;
-    const next = arrayMove(items, oldIndex, newIndex);
-    setItems(next);
-    void persist(next);
+    setItems(arrayMove(items, oldIndex, newIndex));
+    setDirty(true);
+    setStatus("idle");
   }
 
   return (
@@ -122,14 +126,26 @@ export default function SectionOrderForm({ order, labels }: Props) {
         </SortableContext>
       </DndContext>
 
-      <div className="mt-3 h-5 text-xs" aria-live="polite">
-        {status === "saving" && (
-          <span className="text-gray-500 dark:text-gray-400">{t.appSettings.sectionOrder.saving}</span>
-        )}
-        {status === "saved" && (
-          <span className="text-green-600 dark:text-green-400">{t.appSettings.sectionOrder.saved}</span>
-        )}
-        {status === "error" && <span className="text-red-500">{errorMsg || t.appSettings.sectionOrder.saveError}</span>}
+      <div className="mt-4 flex items-center justify-end gap-3">
+        <span className="text-xs" aria-live="polite">
+          {status === "saving" && (
+            <span className="text-gray-500 dark:text-gray-400">{t.appSettings.sectionOrder.saving}</span>
+          )}
+          {status === "saved" && (
+            <span className="text-green-600 dark:text-green-400">{t.appSettings.sectionOrder.saved}</span>
+          )}
+          {status === "error" && <span className="text-red-500">{errorMsg || t.appSettings.sectionOrder.saveError}</span>}
+        </span>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || status === "saving"}
+          className={`rounded bg-primary px-4 py-2 text-sm font-bold text-white hover:bg-primary/90 cursor-pointer ${
+            !dirty || status === "saving" ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          {t.common.save}
+        </button>
       </div>
     </section>
   );
