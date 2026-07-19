@@ -547,7 +547,7 @@ const fr = {
         },
         sectionOrder: {
             title: "Ordre des sections",
-            subtitle: "Glissez-déposez pour définir l'ordre d'affichage des sections déroulantes sur la page d'un projet. La modification s'applique immédiatement.",
+            subtitle: "Glissez-déposez pour définir l'ordre d'affichage des sections déroulantes sur la page d'un projet, puis cliquez sur Enregistrer.",
             reorder: "Réordonner {name}",
             saving: "Enregistrement…",
             saved: "Ordre enregistré",
