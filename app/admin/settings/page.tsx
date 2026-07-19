@@ -3,9 +3,11 @@ import { hasMinRole } from "@/lib/authz";
 import { getSettings } from "@/repository/appSettings";
 import AppSettingsForm from "@/forms/AppSettingsForm";
 import LogoUploadForm from "@/forms/LogoUploadForm";
+import SectionOrderForm from "@/forms/SectionOrderForm";
 import { redirect } from "next/navigation";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
+import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
 
 export default async function AdminSettingsPage() {
   const session = await auth();
@@ -18,6 +20,17 @@ export default async function AdminSettingsPage() {
   // SUPERADMIN's own edit page, so it must reflect the very latest values.
   const settings = await getSettings();
 
+  // Localized labels for the reorderable project sections, keyed by section
+  // key — reuses the same headings the project page renders.
+  const sectionLabels: Record<ProjectSectionKey, string> = {
+    tasks: t.projects.detail.tasksHeading,
+    materials: t.projects.detail.materialsHeading,
+    interventions: t.projects.detail.interventionsHeading,
+    subcontractors: t.projects.detail.subcontractorsHeading,
+    interims: t.projects.detail.interimsHeading,
+    files: t.projects.detail.filesHeading,
+  };
+
   return (
     <main className="flex flex-1 min-h-0 flex-col justify-start overflow-y-auto py-8">
       <div className="w-full max-w-2xl mx-auto space-y-4 px-6">
@@ -28,6 +41,10 @@ export default async function AdminSettingsPage() {
           appName={settings.appName}
           primaryColor={settings.primaryColor}
           accentColor={settings.accentColor}
+        />
+        <SectionOrderForm
+          order={normalizeSectionOrder(settings.projectSectionOrder)}
+          labels={sectionLabels}
         />
       </div>
     </main>

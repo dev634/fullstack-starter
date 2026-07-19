@@ -37,3 +37,23 @@ export async function upsert(data: SettingsUpdate) {
         };
     }
 }
+
+/**
+ * Updates only the project section display order — kept separate from the
+ * branding upsert so the two concerns don't clobber each other's fields.
+ * The settings row is seeded (id=1), so a plain update is sufficient.
+ */
+export async function updateSectionOrder(order: string[], updatedBy: string) {
+    try {
+        return await prisma.appSettings.update({
+            where: { id: 1 },
+            data: { projectSectionOrder: order, updatedBy },
+        });
+    } catch (error) {
+        console.log("Repository updateSectionOrder (appSettings) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating section order.",
+        };
+    }
+}

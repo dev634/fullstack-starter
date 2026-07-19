@@ -543,6 +543,14 @@ const en: Dictionary = {
             logoUploaded: "Logo updated.",
             logoRemoved: "Logo removed.",
         },
+        sectionOrder: {
+            title: "Section order",
+            subtitle: "Drag and drop to set the display order of the collapsible sections on a project page. Changes apply immediately.",
+            reorder: "Reorder {name}",
+            saving: "Saving…",
+            saved: "Order saved",
+            saveError: "Failed to save the order.",
+        },
     },
     files: {
         newFolder: "New folder",

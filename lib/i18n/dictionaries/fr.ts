@@ -541,6 +541,14 @@ const fr = {
             logoUploaded: "Logo mis à jour.",
             logoRemoved: "Logo supprimé.",
         },
+        sectionOrder: {
+            title: "Ordre des sections",
+            subtitle: "Glissez-déposez pour définir l'ordre d'affichage des sections déroulantes sur la page d'un projet. La modification s'applique immédiatement.",
+            reorder: "Réordonner {name}",
+            saving: "Enregistrement…",
+            saved: "Ordre enregistré",
+            saveError: "Échec de l'enregistrement de l'ordre.",
+        },
     },
     files: {
         newFolder: "Nouveau dossier",

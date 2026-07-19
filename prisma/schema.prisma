@@ -383,6 +383,11 @@ model AppSettings {
   logoPublicId String?
   primaryColor String   @default("#3b82f6")
   accentColor  String   @default("#8b5cf6")
+  // Global display order of the project detail page's collapsible sections,
+  // as an array of section keys (see lib/projectSections.ts). Empty = the
+  // canonical default order; normalized on read so partial/stale values are
+  // safe. Set by a SUPERADMIN via drag-and-drop on /admin/settings.
+  projectSectionOrder String[] @default([])
   updatedAt    DateTime @updatedAt
   updatedBy    String?
 }
