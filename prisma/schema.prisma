@@ -49,6 +49,26 @@ model Client {
   status      ClientStatus @default(PROSPECT)
   deletedAt   DateTime?
   projects    Project[]
+  contacts    Contact[]
+}
+
+// A person attached to a client/organisation — many per client. The Client's
+// own firstName/lastName/email/phone are migrated onto a primary Contact; the
+// Client-level person fields are dropped in a later step once every read goes
+// through contacts. onDelete Cascade: deleting the client removes its contacts.
+model Contact {
+  id        Int      @id @default(autoincrement())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  Int
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+  role      String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
 }
 
 enum ProjectStatus {
