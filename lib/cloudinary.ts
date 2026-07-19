@@ -126,6 +126,26 @@ export async function destroyLogo(publicId: string | null | undefined): Promise<
 
 const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
 
+// Active content that executes script when opened directly from the
+// Cloudinary URL (stored-XSS / content-spoofing). We don't tightly
+// allowlist — project docs are an open-ended set (PDFs, photos, CAD,
+// office files) — but these few types are never legitimate here and are
+// the actual danger. Checked by BOTH declared MIME and file extension,
+// since a crafted request can set file.type to anything.
+const BLOCKED_UPLOAD_MIME_TYPES = new Set([
+  "image/svg+xml",
+  "text/html",
+  "application/xhtml+xml",
+  "text/xml",
+  "application/xml",
+]);
+const BLOCKED_UPLOAD_EXTENSIONS = new Set(["svg", "html", "htm", "xhtml", "xml", "js", "mjs", "svgz"]);
+
+function isBlockedUpload(file: File): boolean {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return BLOCKED_UPLOAD_MIME_TYPES.has(file.type) || BLOCKED_UPLOAD_EXTENSIONS.has(ext);
+}
+
 /**
  * Cloudinary stores non-image/video uploads (PDFs, docs, ...) under the
  * "raw" resource type. Destroy calls must pass the matching resource_type
@@ -149,6 +169,13 @@ export async function uploadProjectFile(
     throw {
       type: "error",
       message: "The file must be 20 MB or smaller.",
+    };
+  }
+
+  if (isBlockedUpload(file)) {
+    throw {
+      type: "error",
+      message: "This file type isn't allowed.",
     };
   }
 
