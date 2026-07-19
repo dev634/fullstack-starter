@@ -39,6 +39,9 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
+import { getAppSettings } from "@/lib/appSettings";
+import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
+import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
   BoltIcon,
@@ -171,6 +174,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     getBreadcrumb(currentFolderId),
   ]);
 
+  // SUPERADMIN-configured display order of the collapsible sections below,
+  // normalized so a partial/stale stored value is always safe.
+  const appSettings = await getAppSettings();
+  const sectionOrder = normalizeSectionOrder(appSettings.projectSectionOrder);
+
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-6">
@@ -284,9 +292,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </div>
         </div>
 
-        {/* Tasks */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        {/* Reorderable "dropdown" sections. Built as a key -> node map so the
+            display order is a pure data concern (the SUPERADMIN order from
+            lib/projectSections.ts), then each is wrapped once in the shared
+            card chrome and rendered in that order. */}
+        {(() => {
+        const sectionContent: Record<ProjectSectionKey, ReactNode> = {
+        tasks: (
           <CollapsibleSection
             icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
             title={t.projects.detail.tasksHeading}
@@ -347,12 +359,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           ) : null}
           </CollapsibleSection>
-        </div>
-        </div>
-
-        {/* Materials */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        ),
+        materials: (
           <CollapsibleSection
             icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
             title={t.projects.detail.materialsHeading}
@@ -385,12 +393,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           </CollapsibleSection>
-        </div>
-        </div>
-
-        {/* Interventions */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        ),
+        interventions: (
           <CollapsibleSection
             icon={<WrenchScrewdriverIcon className="h-5 w-5 text-amber-500" />}
             title={t.projects.detail.interventionsHeading}
@@ -415,12 +419,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           </CollapsibleSection>
-        </div>
-        </div>
-
-        {/* Subcontractors */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        ),
+        subcontractors: (
           <CollapsibleSection
             icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
             title={t.projects.detail.subcontractorsHeading}
@@ -445,12 +445,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           </CollapsibleSection>
-        </div>
-        </div>
-
-        {/* Interims (temp workers) */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        ),
+        interims: (
           <CollapsibleSection
             icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
             title={t.projects.detail.interimsHeading}
@@ -469,12 +465,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           </CollapsibleSection>
-        </div>
-        </div>
-
-        {/* Files */}
-        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-        <div className="overflow-hidden rounded-xl">
+        ),
+        files: (
           <CollapsibleSection
             icon={<FolderIcon className="h-5 w-5 text-amber-500" />}
             title={t.projects.detail.filesHeading}
@@ -523,8 +515,17 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           )}
           </CollapsibleSection>
-        </div>
-        </div>
+        ),
+        };
+        return sectionOrder.map((key) => (
+          <div
+            key={key}
+            className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600"
+          >
+            <div className="overflow-hidden rounded-xl">{sectionContent[key]}</div>
+          </div>
+        ));
+        })()}
 
       </div>
     </main>

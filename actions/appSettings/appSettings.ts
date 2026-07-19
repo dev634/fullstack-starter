@@ -3,13 +3,38 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { updateAppSettingsSchema } from "@/schemas/appSettings";
-import { getSettings, upsert } from "@/repository/appSettings";
+import { getSettings, upsert, updateSectionOrder } from "@/repository/appSettings";
 import { uploadLogo as uploadLogoToCloudinary, destroyLogo } from "@/lib/cloudinary";
 import { revalidateTag } from "next/cache";
 import { APP_SETTINGS_TAG } from "@/lib/appSettings";
+import { normalizeSectionOrder } from "@/lib/projectSections";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { AppSettingsActionState } from "@/types/appSettings";
+
+// Local (not exported): a "use server" file may only export async functions,
+// and the client infers this return type from the action itself.
+type SectionOrderResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Persists the drag-and-drop section order. Called imperatively from the
+ * client on each drop (not a form action) — the incoming order is normalized
+ * server-side so a partial or tampered payload can never corrupt the stored
+ * value. SUPERADMIN only.
+ */
+export async function updateProjectSectionOrder(order: string[]): Promise<SectionOrderResult> {
+  const roleCheck = await requireRole("SUPERADMIN");
+  if (roleCheck.error) return { ok: false, message: roleCheck.error.message };
+
+  const t = getDictionary(await getLocale());
+  try {
+    await updateSectionOrder(normalizeSectionOrder(order), roleCheck.email);
+    revalidateTag(APP_SETTINGS_TAG, "max");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
 
 export async function updateSettings(
   prevState: AppSettingsActionState,
