@@ -3,8 +3,6 @@ import z from "zod";
 export const clientStatusSchema = z.enum(["PROSPECT", "CLIENT", "INACTIVE"]);
 
 export const createClientSchema = z.object({
-    firstName: z.string().min(1, "First name is required"),
-    lastName: z.string().min(1, "Last name is required"),
     email: z.string().email("Invalid email address"),
     companyName: z.string().min(1, "Company name is required"),
     address: z.string().min(1, "Address is required"),
@@ -17,8 +15,6 @@ export const createClientSchema = z.object({
 });
 export const updateClientSchema = z.object({
     id: z.number(),
-    firstName: z.string().min(1, "Min 1 character"),
-    lastName: z.string().min(1, "Min 1 character"),
     email: z.string().email("Invalid email address"),
     companyName: z.string().min(1, "Min 1 character"),
     address: z.string().min(1, "Min 1 character"),

@@ -6,10 +6,8 @@ import { createProjectSchema } from "@/schemas/project";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
 const INVALID_CLIENT = {
-  firstName: "",
-  lastName: "Smith",
   email: "not-an-email",
-  companyName: "Acme",
+  companyName: "",
   address: "1 St",
   city: "NYC",
   zipCode: "10001",
@@ -23,9 +21,9 @@ describe("makeObjectFromZodError", () => {
     if (result.success) return;
 
     const errors = makeObjectFromZodError(result.error);
-    expect(errors.firstName).toBe("First name is required");
+    expect(errors.companyName).toBe("Company name is required");
     expect(errors.email).toBe("Invalid email address");
-    expect(errors.lastName).toBeUndefined();
+    expect(errors.phone).toBeUndefined();
   });
 
   it("translates required/email errors using the given dictionary", () => {
@@ -35,9 +33,9 @@ describe("makeObjectFromZodError", () => {
 
     const fr = getDictionary("fr");
     const en = getDictionary("en");
-    expect(makeObjectFromZodError(result.error, fr).firstName).toBe(fr.errors.required);
+    expect(makeObjectFromZodError(result.error, fr).companyName).toBe(fr.errors.required);
     expect(makeObjectFromZodError(result.error, fr).email).toBe(fr.errors.invalidEmail);
-    expect(makeObjectFromZodError(result.error, en).firstName).toBe(en.errors.required);
+    expect(makeObjectFromZodError(result.error, en).companyName).toBe(en.errors.required);
     expect(makeObjectFromZodError(result.error, en).email).toBe(en.errors.invalidEmail);
   });
 

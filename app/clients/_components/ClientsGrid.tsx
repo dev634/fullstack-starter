@@ -12,9 +12,8 @@ import { format } from "@/lib/i18n/format";
 
 type ClientCard = {
   id: number;
-  firstName: string;
-  lastName: string;
   companyName: string;
+  email: string;
   photoUrl: string | null;
   status: string;
 };
@@ -82,7 +81,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
                 type="checkbox"
                 checked={selected.has(client.id)}
                 onChange={() => toggle(client.id)}
-                aria-label={format(t.clients.selectClient, { name: `${client.firstName} ${client.lastName}` })}
+                aria-label={format(t.clients.selectClient, { name: client.companyName })}
                 className="absolute right-3 top-3 z-10 h-4 w-4 cursor-pointer accent-blue-500"
               />
             )}
@@ -94,18 +93,15 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             >
               <ClientAvatar
                 photoUrl={client.photoUrl}
-                firstName={client.firstName}
-                lastName={client.lastName}
+                name={client.companyName}
                 size={48}
               />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className="truncate font-semibold">
-                    {client.firstName}{client.lastName ? ` ${client.lastName}` : ""}
-                  </span>
+                  <span className="truncate font-semibold">{client.companyName}</span>
                   <StatusBadge status={client.status} />
                 </span>
-                <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</span>
+                <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.email}</span>
               </span>
             </Link>
           </li>

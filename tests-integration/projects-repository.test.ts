@@ -11,8 +11,6 @@ function uniqueEmail(tag: string): string {
 
 async function makeClient(overrides: { companyName?: string } = {}) {
   return createClient({
-    firstName: "Int",
-    lastName: "Test",
     email: uniqueEmail("client"),
     companyName: overrides.companyName ?? "IntegrationCo",
     address: "1 Test St",

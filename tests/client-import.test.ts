@@ -16,7 +16,7 @@ const createClientMock = vi.mocked(createClient);
 const logActivityMock = vi.mocked(logActivity);
 
 const HEADER =
-  '"Firstname","Lastname","Email","Company","Phone","Website","Status","Address","City","Zip Code","Country"';
+  '"Company","Email","Phone","Website","Status","Address","City","Zip Code","Country"';
 
 function csvFile(rows: string[]): FormData {
   const fd = new FormData();
@@ -30,7 +30,7 @@ describe("importClients", () => {
 
   it("refuses without an ADMIN session", async () => {
     authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
-    const res = await importClients(csvFile(['"Alice","Smith","a@x.com","Acme","","","","1 St","NYC","10001","US"']));
+    const res = await importClients(csvFile(['"Acme","a@x.com","","","","1 St","NYC","10001","US"']));
     expect(res.type).toBe("error");
     expect(createClientMock).not.toHaveBeenCalled();
   });
@@ -57,8 +57,8 @@ describe("importClients", () => {
 
     const res = await importClients(
       csvFile([
-        '"Alice","Smith","alice@x.com","Acme","","","","1 St","NYC","10001","US"',
-        '"Bob","Jones","bob@x.com","Acme","","","","2 St","NYC","10001","US"',
+        '"Acme","alice@x.com","","","","1 St","NYC","10001","US"',
+        '"Acme","bob@x.com","","","","2 St","NYC","10001","US"',
       ])
     );
 
@@ -81,9 +81,9 @@ describe("importClients", () => {
 
     const res = await importClients(
       csvFile([
-        '"Alice","Smith","alice@x.com","Acme","","","","1 St","NYC","10001","US"',
-        '"Dup","Row","dup@x.com","Acme","","","","2 St","NYC","10001","US"',
-        '"Bob","Jones","bob@x.com","Acme","","","","3 St","NYC","10001","US"',
+        '"Acme","alice@x.com","","","","1 St","NYC","10001","US"',
+        '"Acme","dup@x.com","","","","2 St","NYC","10001","US"',
+        '"Acme","bob@x.com","","","","3 St","NYC","10001","US"',
       ])
     );
 
@@ -99,11 +99,11 @@ describe("importClients", () => {
     createClientMock.mockResolvedValue({ type: "success", message: "ok" } as never);
 
     await importClients(
-      csvFile(['"Alice","Smith","alice@x.com","Acme","","","","1 St","NYC","10001","US"'])
+      csvFile(['"Acme","alice@x.com","","","","1 St","NYC","10001","US"'])
     );
 
     const passed = createClientMock.mock.calls[0][0] as Record<string, unknown>;
     expect(passed).not.toHaveProperty("status");
-    expect(passed.firstName).toBe("Alice");
+    expect(passed.companyName).toBe("Acme");
   });
 });

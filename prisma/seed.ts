@@ -9,6 +9,17 @@ const connectionString = `${process.env.DATABASE_URL}`;
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+/** Give an organisation a primary contact if it doesn't have one yet (idempotent seed). */
+async function ensurePrimaryContact(
+  clientId: number,
+  data: { firstName: string; lastName: string; email?: string; phone?: string; role?: string }
+) {
+  const existing = await prisma.contact.findFirst({ where: { clientId } });
+  if (!existing) {
+    await prisma.contact.create({ data: { clientId, isPrimary: true, ...data } });
+  }
+}
+
 async function main() {
   const alice = await prisma.client.upsert({
     where: { email: "alice@sunrisecorp.com" },
@@ -16,27 +27,35 @@ async function main() {
     create: {
       email: "alice@sunrisecorp.com",
       companyName: "Sunrise Corporation",
-      firstName: "Alice",
-      lastName: "Smith",
       address: "123 Main St, Anytown, USA",
       country: "USA",
       city: "New York",
       zipCode: "10001",
     },
   });
+  await ensurePrimaryContact(alice.id, {
+    firstName: "Alice",
+    lastName: "Smith",
+    email: "alice@sunrisecorp.com",
+    role: "Directrice",
+  });
     const bob = await prisma.client.upsert({
-    where: { email: "bob@sunrisecorp.com" },
+    where: { email: "contact@oakenergy.com" },
     update: {},
     create: {
-      email: "bob@sunrisecorp.com",
-      companyName: "Sunrise Corporation",
-      firstName: "Bob",
-      lastName: "Johnson",
+      email: "contact@oakenergy.com",
+      companyName: "Oak Energy",
       address: "456 Oak Ave, Anothercity, USA",
       country: "USA",
       city: "New York",
       zipCode: "10001",
     },
+  });
+  await ensurePrimaryContact(bob.id, {
+    firstName: "Bob",
+    lastName: "Johnson",
+    email: "bob@oakenergy.com",
+    role: "Responsable technique",
   });
   const superadmin = await prisma.user.upsert({
     where: { email: "superadmin@example.com" },

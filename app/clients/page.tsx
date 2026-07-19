@@ -13,7 +13,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
 
 const PAGE_SIZE = 9;
-const SORT_FIELDS: ClientSortField[] = ["firstName", "lastName", "companyName", "email"];
+const SORT_FIELDS: ClientSortField[] = ["companyName", "email", "city"];
 
 type SearchParams = {
   q?: string;
@@ -31,7 +31,7 @@ export default async function ClientsPage({
   const q = sp.q ?? "";
   const sortField: ClientSortField = SORT_FIELDS.includes(sp.sort as ClientSortField)
     ? (sp.sort as ClientSortField)
-    : "firstName";
+    : "companyName";
   const dir = sp.dir === "desc" ? "desc" : "asc";
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
@@ -45,7 +45,7 @@ export default async function ClientsPage({
   function baseParams() {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (sortField !== "firstName") params.set("sort", sortField);
+    if (sortField !== "companyName") params.set("sort", sortField);
     if (dir !== "asc") params.set("dir", dir);
     return params;
   }

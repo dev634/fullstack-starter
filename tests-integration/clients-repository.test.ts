@@ -11,8 +11,6 @@ function uniqueEmail(tag: string): string {
 
 function basePayload(email: string, overrides: Partial<Parameters<typeof create>[0]> = {}) {
   return {
-    firstName: "Int",
-    lastName: "Test",
     email,
     companyName: "IntegrationCo",
     address: "1 Test St",
@@ -49,7 +47,7 @@ describe("clients repository against a real Postgres", () => {
 
   it("search() matches case-insensitively and excludes soft-deleted clients", async () => {
     const email = uniqueEmail("search");
-    const created = await create(basePayload(email, { firstName: "Zzyxqui" }));
+    const created = await create(basePayload(email, { companyName: "Zzyxqui" }));
 
     const before = await search({ q: "zzyxqui" });
     expect(before.clients.some((c) => c.id === created.id)).toBe(true);

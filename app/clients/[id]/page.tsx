@@ -81,22 +81,16 @@ export default async function ClientPage({ params }: PageProps) {
         <div className="flex items-center gap-4 border-b border-gray-300 dark:border-gray-700 px-4 py-5 sm:px-6">
           <ClientAvatar
             photoUrl={data.photoUrl}
-            firstName={data.firstName}
-            lastName={data.lastName}
+            name={data.companyName}
             size={56}
             className="text-lg"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">{data.firstName} {data.lastName}</h1>
+              <BuildingOffice2Icon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <h1 className="truncate text-xl font-semibold">{data.companyName}</h1>
               <StatusBadge status={data.status} />
             </div>
-            {data.companyName && (
-              <p className="mt-0.5 flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-                <BuildingOffice2Icon className="h-4 w-4" />
-                <span className="truncate">{data.companyName}</span>
-              </p>
-            )}
           </div>
         </div>
 

@@ -41,20 +41,19 @@ export default async function TrashPage() {
                   <div className="flex min-w-0 items-center gap-3">
                     <ClientAvatar
                       photoUrl={client.photoUrl}
-                      firstName={client.firstName}
-                      lastName={client.lastName}
+                      name={client.companyName}
                       size={40}
                     />
                     <div className="min-w-0">
                       <p className="truncate font-medium text-gray-900 dark:text-gray-100">
-                        {client.firstName} {client.lastName}
+                        {client.companyName}
                       </p>
-                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">{client.companyName}</p>
+                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">{client.email}</p>
                     </div>
                   </div>
                   <TrashItemActions
                     clientId={client.id}
-                    name={`${client.firstName} ${client.lastName}`}
+                    name={client.companyName}
                   />
                 </li>
               ))}

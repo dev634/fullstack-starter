@@ -34,7 +34,7 @@ export async function addClient(
     await logActivity({
       action: "CREATED",
       clientId: client.data?.id ?? null,
-      clientName: `${clientDatas.firstName} ${clientDatas.lastName}`,
+      clientName: clientDatas.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
@@ -140,7 +140,7 @@ export async function updateClient(
     await logActivity({
       action: "UPDATED",
       clientId: id,
-      clientName: `${clientDatas.firstName} ${clientDatas.lastName}`,
+      clientName: clientDatas.companyName,
       actorEmail: roleCheck.email,
     });
 
@@ -194,7 +194,7 @@ export async function deleteClient(id: number) {
     await logActivity({
       action: "DELETED",
       clientId: id,
-      clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+      clientName: existing?.companyName ?? `#${id}`,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
@@ -228,7 +228,7 @@ export async function deleteClients(ids: number[]) {
       await logActivity({
         action: "DELETED",
         clientId: id,
-        clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+        clientName: existing?.companyName ?? `#${id}`,
         actorEmail: roleCheck.email,
       });
     }
@@ -257,7 +257,7 @@ export async function restoreClient(id: number) {
     await logActivity({
       action: "RESTORED",
       clientId: id,
-      clientName: `${client.firstName} ${client.lastName}`,
+      clientName: client.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
@@ -296,7 +296,7 @@ export async function permanentlyDeleteClient(id: number) {
     await logActivity({
       action: "PERMANENTLY_DELETED",
       clientId: id,
-      clientName: existing ? `${existing.firstName} ${existing.lastName}` : `#${id}`,
+      clientName: existing?.companyName ?? `#${id}`,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients/trash");
@@ -376,7 +376,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
     await logActivity({
       action: "IMPORTED",
       clientId: null,
-      clientName: `${created} client(s) via CSV import`,
+      clientName: `${created} entreprise(s) via import CSV`,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");

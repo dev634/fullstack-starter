@@ -46,7 +46,7 @@ export default async function AddProjectPage({ params }: PageProps) {
             <div className="w-full max-w-2xl mx-auto space-y-4 px-6">
                 <h1 className="text-3xl font-bold mb-2">{t.projects.addTitle}</h1>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                    {format(t.projects.addFor, { name: `${client.data!.firstName} ${client.data!.lastName}` })}
+                    {format(t.projects.addFor, { name: client.data!.companyName })}
                 </p>
                 <AddProjectForm clientId={clientId} />
             </div>
