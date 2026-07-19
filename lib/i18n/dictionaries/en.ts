@@ -509,6 +509,15 @@ const en: Dictionary = {
             invalidId: "Invalid temp worker ID.",
         },
     },
+    assignees: {
+        label: "Assigned to",
+        none: "Unassigned",
+        companies: "Subcontractors",
+        interims: "Temp workers",
+        messages: {
+            updated: "Assignment updated.",
+        },
+    },
     appSettings: {
         title: "App settings",
         subtitle: "Customize the name, colors, and logo shown throughout the app.",

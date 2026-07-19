@@ -164,6 +164,22 @@ export async function setCategory(id: number, categoryId: number | null) {
     }
 }
 
+/** Sets a task's assignee (subcontractor company OR intérimaire — the caller passes at most one non-null). */
+export async function setAssignee(id: number, data: { assignedCompanyId: number | null; assignedInterimId: number | null }) {
+    try {
+        return await prisma.projectTask.update({
+            where: { id },
+            data: { assignedCompanyId: data.assignedCompanyId, assignedInterimId: data.assignedInterimId },
+        });
+    } catch (error) {
+        console.log("Repository setAssignee (task) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task assignee.",
+        };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.projectTask.delete({ where: { id } });

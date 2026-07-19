@@ -45,6 +45,8 @@ export async function findByProject(projectId: number) {
             pattern: group.pattern,
             createdAt: group.createdAt,
             categoryId: group.categoryId,
+            assignedCompanyId: group.assignedCompanyId,
+            assignedInterimId: group.assignedInterimId,
             tasks: group.tasks,
             totalCount: group.tasks.length,
             doneCount: group.tasks.filter((t) => t.done).length,
@@ -67,6 +69,22 @@ export async function setCategory(id: number, categoryId: number | null) {
         throw {
             type: "error",
             message: "Database Error updating task group category.",
+        };
+    }
+}
+
+/** Sets a series' assignee (subcontractor company OR intérimaire). */
+export async function setAssignee(id: number, data: { assignedCompanyId: number | null; assignedInterimId: number | null }) {
+    try {
+        return await prisma.projectTaskGroup.update({
+            where: { id },
+            data: { assignedCompanyId: data.assignedCompanyId, assignedInterimId: data.assignedInterimId },
+        });
+    } catch (error) {
+        console.log("Repository setAssignee (task group) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating task group assignee.",
         };
     }
 }

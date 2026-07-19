@@ -507,6 +507,15 @@ const fr = {
             invalidId: "Identifiant d'intérimaire invalide.",
         },
     },
+    assignees: {
+        label: "Assigné à",
+        none: "Non assigné",
+        companies: "Sous-traitants",
+        interims: "Intérimaires",
+        messages: {
+            updated: "Affectation mise à jour.",
+        },
+    },
     appSettings: {
         title: "Paramètres de l'application",
         subtitle: "Personnalisez le nom, les couleurs et le logo affichés dans toute l'application.",
