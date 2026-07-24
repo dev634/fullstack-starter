@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useState, useTransition, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { MapPinIcon, TrashIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { MapPinIcon, TrashIcon, PlusIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { planPageImageUrl } from "@/lib/cloudinary-url";
@@ -13,13 +13,16 @@ import {
   addReserve,
   updateReserve,
   deleteReserve,
+  addReservePhoto,
+  deleteReservePhoto,
 } from "@/actions/reserves/reserves";
-import type { Reserve, ReservePlan, ReserveStatus } from "@/app/generated/prisma/client";
+import type { Reserve, ReservePlan, ReservePhoto, ReserveStatus } from "@/app/generated/prisma/client";
 
-type PlanWithReserves = ReservePlan & { reserves: Reserve[] };
+type ReserveWithPhotos = Reserve & { photos: ReservePhoto[] };
+type PlanWithReserves = ReservePlan & { reserves: ReserveWithPhotos[] };
 type Editor =
   | { mode: "new"; x: number; y: number }
-  | { mode: "edit"; reserve: Reserve; index: number };
+  | { mode: "edit"; reserveId: number; index: number };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const inputClass =
@@ -49,6 +52,7 @@ export default function ReservesSection({
   const [planName, setPlanName] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const planFileRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [planToDelete, setPlanToDelete] = useState<PlanWithReserves | null>(null);
 
   // Réserve editor
@@ -84,9 +88,9 @@ export default function ReservesSection({
     setEditor({ mode: "new", x, y });
   }
 
-  function openReserve(reserve: Reserve, index: number) {
+  function openReserve(reserve: ReserveWithPhotos, index: number) {
     resetEditorFields(reserve);
-    setEditor({ mode: "edit", reserve, index });
+    setEditor({ mode: "edit", reserveId: reserve.id, index });
   }
 
   function captureLocation() {
@@ -152,7 +156,7 @@ export default function ReservesSection({
         fd.set("y", String(editor.y));
         res = await addReserve({ type: null, message: "" }, fd);
       } else {
-        fd.set("id", String(editor.reserve.id));
+        fd.set("id", String(editor.reserveId));
         res = await updateReserve({ type: null, message: "" }, fd);
       }
       if (res.type !== "success") {
@@ -166,13 +170,46 @@ export default function ReservesSection({
 
   function removeCurrentReserve() {
     if (!editor || editor.mode !== "edit") return;
+    const reserveId = editor.reserveId;
     startTransition(async () => {
-      const res = await deleteReserve(editor.reserve.id, clientId, projectId);
+      const res = await deleteReserve(reserveId, clientId, projectId);
       if (res.type !== "success") {
         setEditorError(res.message);
         return;
       }
       closeEditor();
+      router.refresh();
+    });
+  }
+
+  function uploadPhoto(file: File) {
+    if (!editor || editor.mode !== "edit") return;
+    const reserveId = editor.reserveId;
+    setEditorError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("clientId", String(clientId));
+      fd.set("projectId", String(projectId));
+      fd.set("reserveId", String(reserveId));
+      fd.set("file", file);
+      const res = await addReservePhoto({ type: null, message: "" }, fd);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+      if (res.type !== "success") {
+        setEditorError(res.message);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function removePhoto(id: number) {
+    setEditorError(null);
+    startTransition(async () => {
+      const res = await deleteReservePhoto(id, clientId, projectId);
+      if (res.type !== "success") {
+        setEditorError(res.message);
+        return;
+      }
       router.refresh();
     });
   }
@@ -189,6 +226,12 @@ export default function ReservesSection({
       }
     });
   }
+
+  // Live editing réserve derived from props so its photos refresh after an
+  // upload/delete (the `editor` only holds its id + index, never a stale copy).
+  const editingReserve =
+    editor?.mode === "edit" ? selectedPlan?.reserves.find((r) => r.id === editor.reserveId) : undefined;
+  const photos = editingReserve?.photos ?? [];
 
   const pinColor = (s: ReserveStatus) =>
     s === "RESOLVED"
@@ -386,6 +429,64 @@ export default function ReservesSection({
                 className={inputClass}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t.reserves.photosHeading}
+            </label>
+            {editor?.mode === "edit" ? (
+              <div className="flex flex-wrap gap-2">
+                {photos.map((p) => (
+                  <div key={p.id} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.url}
+                      alt=""
+                      className="h-16 w-16 rounded border border-gray-300 object-cover dark:border-gray-700"
+                    />
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(p.id)}
+                        disabled={pending}
+                        aria-label={t.reserves.deletePhoto}
+                        className="absolute -right-1.5 -top-1.5 cursor-pointer rounded-full bg-red-600 p-0.5 text-white shadow hover:bg-red-700 disabled:opacity-50"
+                      >
+                        <XMarkIcon className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {canEdit && (
+                  <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-gray-300 text-gray-400 hover:bg-gray-500/10 dark:border-gray-600">
+                    {pending ? (
+                      <span className="px-1 text-center text-[10px]">{t.reserves.uploadingPhoto}</span>
+                    ) : (
+                      <>
+                        <PhotoIcon className="h-5 w-5" />
+                        <span className="px-1 text-center text-[10px] leading-tight">{t.reserves.addPhoto}</span>
+                      </>
+                    )}
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      disabled={pending}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadPhoto(f);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+                {photos.length === 0 && !canEdit && <p className="text-xs text-gray-400">—</p>}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500">{t.reserves.photosAfterSave}</p>
+            )}
           </div>
 
           {editorError && <p className="text-xs text-red-500">{editorError}</p>}

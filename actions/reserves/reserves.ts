@@ -5,7 +5,8 @@ import { requireRole } from "@/lib/authz";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
 import { create as createReserve, update as updateReserveRow, remove as removeReserve } from "@/repository/reserves";
 import { create as createPlan, findById as findPlanById, remove as removePlan } from "@/repository/reservePlans";
-import { uploadReservePlan, destroyReservePlan } from "@/lib/cloudinary";
+import { create as createPhoto, findById as findPhotoById, remove as removePhoto } from "@/repository/reservePhotos";
+import { uploadReservePlan, destroyReservePlan, uploadReservePhoto, destroyReservePhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -112,6 +113,55 @@ export async function updateReserve(
     return { ...prevState, type: "success", message: t.reserves.messages.updated, data: reserve };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Attach a photo to a réserve (ADMIN). */
+export async function addReservePhoto(
+  prevState: ReserveActionState,
+  formData: FormData
+): Promise<ReserveActionState> {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+
+  const t = getDictionary(await getLocale());
+  const clientId = Number(formData.get("clientId"));
+  const projectId = Number(formData.get("projectId"));
+  const reserveId = Number(formData.get("reserveId"));
+  const file = formData.get("file");
+
+  if (isNaN(reserveId) || isNaN(projectId) || isNaN(clientId)) {
+    return { ...prevState, type: "error", message: t.reserves.messages.invalidId };
+  }
+  if (!(file instanceof File) || file.size === 0) {
+    return { ...prevState, type: "error", message: t.reserves.messages.choosePhoto };
+  }
+
+  try {
+    const { url, publicId } = await uploadReservePhoto(file, projectId);
+    const photo = await createPhoto({ reserveId, url, publicId });
+    revalidatePath(projectPath(clientId, projectId));
+    return { ...prevState, type: "success", message: t.reserves.messages.photoAdded, data: photo };
+  } catch (error) {
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Delete a réserve photo + its Cloudinary asset (ADMIN). */
+export async function deleteReservePhoto(id: number, clientId: number, projectId: number) {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (isNaN(id)) throw { type: "error", message: t.reserves.messages.invalidId };
+    const existing = await findPhotoById(id);
+    const photo = await removePhoto(id);
+    await destroyReservePhoto(existing?.publicId);
+    revalidatePath(projectPath(clientId, projectId));
+    return { type: "success" as const, message: t.reserves.messages.photoDeleted, data: photo };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }
 }
 
