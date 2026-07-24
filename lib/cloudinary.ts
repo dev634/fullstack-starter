@@ -225,3 +225,58 @@ export async function destroyProjectFile(
     console.error("Cloudinary destroy failed:", error);
   }
 }
+
+const MAX_RESERVE_PLAN_BYTES = 25 * 1024 * 1024; // 25 MB
+
+/**
+ * Upload a reserve plan (a PDF) to Cloudinary as an *image* resource — unlike
+ * generic project files (stored raw), this lets Cloudinary rasterise the PDF
+ * so its pages can be delivered as images to pin réserves on (see
+ * planPageImageUrl). Returns the secure URL + public id for later deletion.
+ */
+export async function uploadReservePlan(
+  file: File,
+  projectId: number
+): Promise<{ url: string; publicId: string }> {
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (!isPdf) {
+    throw { type: "error", message: "The plan must be a PDF file." };
+  }
+  if (file.size > MAX_RESERVE_PLAN_BYTES) {
+    throw { type: "error", message: "The plan must be 25 MB or smaller." };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        {
+          folder: `projects/${projectId}/reserve-plans`,
+          resource_type: "image",
+          use_filename: true,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject({ type: "error", message: "Failed to upload the plan. Please try again." });
+            return;
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      )
+      .end(buffer);
+  });
+}
+
+/**
+ * Best-effort deletion of a reserve plan (image resource). Never throws.
+ */
+export async function destroyReservePlan(publicId: string | null | undefined): Promise<void> {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+  } catch (error) {
+    console.error("Cloudinary destroy failed:", error);
+  }
+}

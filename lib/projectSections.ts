@@ -10,6 +10,7 @@ export const PROJECT_SECTION_KEYS = [
   "subcontractors",
   "interims",
   "files",
+  "reserves",
 ] as const;
 
 export type ProjectSectionKey = (typeof PROJECT_SECTION_KEYS)[number];

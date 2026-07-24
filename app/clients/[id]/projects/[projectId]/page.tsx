@@ -8,6 +8,7 @@ import { findCompaniesByProject } from "@/repository/subcontractors";
 import { findByProject as findInterimsByProject } from "@/repository/interims";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
+import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import Title from "@/components/Title";
@@ -33,6 +34,7 @@ import AddSubcontractorCompanyForm from "@/forms/AddSubcontractorCompanyForm";
 import AddInterimForm from "@/forms/AddInterimForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
+import ReservesSection from "@/components/ReservesSection";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -168,10 +170,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     interims: interims.map((i) => ({ id: i.id, name: i.name })),
   };
 
-  const [subfolders, files, breadcrumb] = await Promise.all([
+  const [subfolders, files, breadcrumb, reservePlans] = await Promise.all([
     findChildFolders(pid, currentFolderId),
     findFilesByFolder(pid, currentFolderId),
     getBreadcrumb(currentFolderId),
+    findReservePlansByProject(pid),
   ]);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
@@ -514,6 +517,15 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               <UploadFileForm clientId={clientId} projectId={pid} folderId={currentFolderId} />
             </div>
           )}
+          </CollapsibleSection>
+        ),
+        reserves: (
+          <CollapsibleSection
+            icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
+            title={t.reserves.heading}
+            badge={reservePlans.length > 0 ? `(${reservePlans.length})` : undefined}
+          >
+            <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} canEdit={canEdit} />
           </CollapsibleSection>
         ),
         };
