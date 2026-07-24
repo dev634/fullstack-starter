@@ -426,6 +426,12 @@ const fr = {
             noRows: "Aucun article à appliquer.",
             apply: "Mettre à jour le stock",
             applying: "Mise à jour…",
+            confirmTitle: "Confirmer la mise à jour du stock",
+            confirmIntro: "Vérifiez ce qui va être appliqué avant de mettre à jour le stock :",
+            confirmMergeHeading: "Cumulé au stock existant ({count})",
+            confirmNewHeading: "Nouveaux matériels créés ({count})",
+            back: "Retour",
+            confirm: "Confirmer et mettre à jour",
             messages: {
                 scanned: "Bulletin analysé.",
                 applied: "Stock mis à jour.",

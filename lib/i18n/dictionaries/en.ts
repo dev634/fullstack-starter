@@ -428,6 +428,12 @@ const en: Dictionary = {
             noRows: "No items to apply.",
             apply: "Update stock",
             applying: "Updating…",
+            confirmTitle: "Confirm the stock update",
+            confirmIntro: "Review what will be applied before updating stock:",
+            confirmMergeHeading: "Added to existing stock ({count})",
+            confirmNewHeading: "New materials created ({count})",
+            back: "Back",
+            confirm: "Confirm and update",
             messages: {
                 scanned: "Delivery note scanned.",
                 applied: "Stock updated.",

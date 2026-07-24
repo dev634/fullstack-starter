@@ -370,7 +370,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 <ScanDeliveryNoteModal
                   clientId={clientId}
                   projectId={pid}
-                  materials={materials.map((m) => ({ id: m.id, name: m.name }))}
+                  materials={materials.map((m) => ({ id: m.id, name: m.name, supplierName: m.supplierName, reference: m.reference }))}
                 />
               )
             }

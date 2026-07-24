@@ -3,10 +3,11 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CameraIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
 import type { ScannedItem } from "@/types/deliveryNoteScan";
 
-export type MaterialMatchOption = { id: number; name: string };
+export type MaterialMatchOption = { id: number; name: string; supplierName: string | null; reference: string | null };
 
 // A scanned row, extended with the admin's reviewed match: materialId set
 // means "add to this existing material's stock", null means "create a new
@@ -29,14 +30,35 @@ export default function ScanDeliveryNoteModal({
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
   // Note-level supplier read from the bulletin header, editable before apply.
   const [supplier, setSupplier] = useState("");
+  // Second step gate: the review shows a summary the admin must confirm
+  // before any stock is touched.
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Option A auto-match: a scanned line is added to an existing material only
+  // when it shares the SAME reference AND the SAME (note-level) supplier —
+  // a strong identity. A line with no reference never auto-merges (it would
+  // be unsafe to combine two unreferenced products), so it defaults to a new
+  // material; the admin can still override any row via the dropdown.
+  function autoMatch(item: ScannedItem, noteSupplier: string): number | null {
+    const ref = item.reference?.trim().toLowerCase();
+    if (!ref) return null;
+    const sup = noteSupplier.trim().toLowerCase();
+    const match = materials.find(
+      (m) =>
+        (m.reference?.trim().toLowerCase() ?? "") === ref &&
+        (m.supplierName?.trim().toLowerCase() ?? "") === sup
+    );
+    return match?.id ?? null;
+  }
 
   function reset() {
     setFile(null);
     setRows(null);
     setSupplier("");
+    setConfirming(false);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -57,13 +79,9 @@ export default function ScanDeliveryNoteModal({
         setError(res.message);
         return;
       }
-      setSupplier(res.supplier ?? "");
-      setRows(
-        res.items.map((item) => {
-          const match = materials.find((m) => m.name.trim().toLowerCase() === item.name.trim().toLowerCase());
-          return { ...item, materialId: match?.id ?? null };
-        })
-      );
+      const noteSupplier = res.supplier ?? "";
+      setSupplier(noteSupplier);
+      setRows(res.items.map((item) => ({ ...item, materialId: autoMatch(item, noteSupplier) })));
     });
   }
 
@@ -95,6 +113,13 @@ export default function ScanDeliveryNoteModal({
     setRows((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
+  // Confirmation summary: rows matched to an existing material are cumulated,
+  // the rest are created.
+  const mergeRows = rows?.filter((r) => r.materialId != null) ?? [];
+  const newRows = rows?.filter((r) => r.materialId == null) ?? [];
+  const materialName = (id: number) => materials.find((m) => m.id === id)?.name ?? "";
+  const qtyLabel = (r: ReviewRow) => `${r.quantity}${r.unit ? ` ${r.unit}` : ""}`;
+
   return (
     <>
       <button
@@ -110,7 +135,7 @@ export default function ScanDeliveryNoteModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded border border-gray-300 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
             <h2 className="border-b border-gray-300 px-6 py-4 text-xl font-bold text-gray-900 dark:border-gray-700 dark:text-gray-100">
-              {t.materials.scan.title}
+              {confirming ? t.materials.scan.confirmTitle : t.materials.scan.title}
             </h2>
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -126,6 +151,40 @@ export default function ScanDeliveryNoteModal({
                     onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                     className="text-sm text-gray-500 dark:text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1.5 file:text-sm file:text-gray-900 dark:file:text-gray-100 file:cursor-pointer"
                   />
+                </div>
+              ) : confirming ? (
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">{t.materials.scan.confirmIntro}</p>
+                  {mergeRows.length > 0 && (
+                    <div>
+                      <h3 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {format(t.materials.scan.confirmMergeHeading, { count: mergeRows.length })}
+                      </h3>
+                      <ul className="divide-y divide-gray-200 rounded border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
+                        {mergeRows.map((row, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 px-3 py-2">
+                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{materialName(row.materialId!)}</span>
+                            <span className="shrink-0 font-medium text-green-600 dark:text-green-400">+{qtyLabel(row)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {newRows.length > 0 && (
+                    <div>
+                      <h3 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {format(t.materials.scan.confirmNewHeading, { count: newRows.length })}
+                      </h3>
+                      <ul className="divide-y divide-gray-200 rounded border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
+                        {newRows.map((row, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 px-3 py-2">
+                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{row.name}</span>
+                            <span className="shrink-0 font-medium text-gray-600 dark:text-gray-300">{qtyLabel(row)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -207,10 +266,11 @@ export default function ScanDeliveryNoteModal({
             <div className="flex justify-end gap-3 border-t border-gray-300 px-6 py-4 dark:border-gray-700">
               <button
                 type="button"
-                onClick={close}
-                className="rounded bg-gray-100 px-4 py-2 font-bold text-gray-900 hover:bg-[#d1d5dc] dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                onClick={() => (confirming ? setConfirming(false) : close())}
+                disabled={pending}
+                className="rounded bg-gray-100 px-4 py-2 font-bold text-gray-900 hover:bg-[#d1d5dc] dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {t.common.cancel}
+                {confirming ? t.materials.scan.back : t.common.cancel}
               </button>
               {!rows ? (
                 <button
@@ -223,16 +283,27 @@ export default function ScanDeliveryNoteModal({
                 >
                   {pending ? t.materials.scan.scanning : t.materials.scan.scan}
                 </button>
-              ) : (
+              ) : confirming ? (
                 <button
                   type="button"
                   onClick={handleApply}
+                  disabled={pending}
+                  className={`rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer ${
+                    pending ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  {pending ? t.materials.scan.applying : t.materials.scan.confirm}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
                   disabled={rows.length === 0 || pending}
                   className={`rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer ${
                     rows.length === 0 || pending ? "opacity-50 cursor-not-allowed" : ""
                   }`}
                 >
-                  {pending ? t.materials.scan.applying : t.materials.scan.apply}
+                  {t.materials.scan.apply}
                 </button>
               )}
             </div>
