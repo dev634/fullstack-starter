@@ -468,11 +468,12 @@ export default function ReservesSection({
                         <span className="px-1 text-center text-[10px] leading-tight">{t.reserves.addPhoto}</span>
                       </>
                     )}
+                    {/* No `capture` attribute: on mobile this lets the user pick the
+                        camera OR an existing photo from the gallery. */}
                     <input
                       ref={photoInputRef}
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       disabled={pending}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
