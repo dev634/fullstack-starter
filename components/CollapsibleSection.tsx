@@ -18,7 +18,7 @@ export default function CollapsibleSection({
   title,
   badge,
   headerExtra,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
