@@ -150,18 +150,32 @@ model ReservePlan {
 // any display size), a description, an open/resolved status and an optional
 // GPS fix captured on site. onDelete Cascade with its plan.
 model Reserve {
-  id          Int           @id @default(autoincrement())
-  plan        ReservePlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id          Int            @id @default(autoincrement())
+  plan        ReservePlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
   planId      Int
   x           Float
   y           Float
   description String
-  status      ReserveStatus @default(OPEN)
+  status      ReserveStatus  @default(OPEN)
   latitude    Float?
   longitude   Float?
-  createdAt   DateTime      @default(now())
+  createdAt   DateTime       @default(now())
+  photos      ReservePhoto[]
 
   @@index([planId])
+}
+
+// A photo attached to a réserve (Cloudinary image). Many per réserve.
+// onDelete Cascade: deleting the réserve removes its photos.
+model ReservePhoto {
+  id        Int      @id @default(autoincrement())
+  reserve   Reserve  @relation(fields: [reserveId], references: [id], onDelete: Cascade)
+  reserveId Int
+  url       String
+  publicId  String
+  createdAt DateTime @default(now())
+
+  @@index([reserveId])
 }
 
 model ProjectTask {

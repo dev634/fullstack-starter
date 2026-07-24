@@ -280,3 +280,54 @@ export async function destroyReservePlan(publicId: string | null | undefined): P
     console.error("Cloudinary destroy failed:", error);
   }
 }
+
+const MAX_RESERVE_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/**
+ * Upload a photo attached to a réserve (must be an image, under the limit).
+ */
+export async function uploadReservePhoto(
+  file: File,
+  projectId: number
+): Promise<{ url: string; publicId: string }> {
+  if (!file.type.startsWith("image/") || isBlockedUpload(file)) {
+    throw { type: "error", message: "The photo must be an image file." };
+  }
+  if (file.size > MAX_RESERVE_PHOTO_BYTES) {
+    throw { type: "error", message: "The photo must be 10 MB or smaller." };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        {
+          folder: `projects/${projectId}/reserve-photos`,
+          resource_type: "image",
+          use_filename: true,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject({ type: "error", message: "Failed to upload the photo. Please try again." });
+            return;
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      )
+      .end(buffer);
+  });
+}
+
+/**
+ * Best-effort deletion of a réserve photo (image resource). Never throws.
+ */
+export async function destroyReservePhoto(publicId: string | null | undefined): Promise<void> {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+  } catch (error) {
+    console.error("Cloudinary destroy failed:", error);
+  }
+}

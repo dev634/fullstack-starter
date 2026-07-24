@@ -13,7 +13,12 @@ export async function findByProject(projectId: number) {
         return await prisma.reservePlan.findMany({
             where: { projectId },
             orderBy: { createdAt: "asc" },
-            include: { reserves: { orderBy: { createdAt: "asc" } } },
+            include: {
+                reserves: {
+                    orderBy: { createdAt: "asc" },
+                    include: { photos: { orderBy: { createdAt: "asc" } } },
+                },
+            },
         });
     } catch (error) {
         console.log("Repository findByProject (reservePlan) error:", error);
