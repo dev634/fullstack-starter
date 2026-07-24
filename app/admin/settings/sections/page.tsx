@@ -19,6 +19,7 @@ export default async function AdminSettingsSectionsPage() {
     subcontractors: t.projects.detail.subcontractorsHeading,
     interims: t.projects.detail.interimsHeading,
     files: t.projects.detail.filesHeading,
+    reserves: t.reserves.heading,
   };
 
   return <SectionOrderForm order={normalizeSectionOrder(settings.projectSectionOrder)} labels={sectionLabels} />;

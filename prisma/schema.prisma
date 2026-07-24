@@ -115,10 +115,53 @@ model Project {
   interventions  Intervention[]
   subcontractors SubcontractorCompany[]
   interims       Interim[]
+  reservePlans   ReservePlan[]
 
   // Backs findByClient (the client detail page's project list) and the
   // Client onDelete: Cascade scan. Postgres does not auto-index FK columns.
   @@index([clientId])
+}
+
+enum ReserveStatus {
+  OPEN // réserve ouverte / à traiter
+  RESOLVED // réserve levée
+}
+
+// A construction plan (uploaded as a PDF, rasterised by Cloudinary for
+// display) on which "réserves" are pinned — FinalCad-style snagging. Many
+// plans per project (e.g. one per floor). onDelete Cascade: deleting the
+// project removes its plans and their pins.
+model ReservePlan {
+  id        Int       @id @default(autoincrement())
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  name      String
+  // Cloudinary secure_url of the PDF (stored as an image resource so its
+  // pages can be delivered as images) + public id for deletion.
+  url       String
+  publicId  String
+  createdAt DateTime  @default(now())
+  reserves  Reserve[]
+
+  @@index([projectId])
+}
+
+// A pin dropped on a plan: a relative position (x/y in 0..1 so it survives
+// any display size), a description, an open/resolved status and an optional
+// GPS fix captured on site. onDelete Cascade with its plan.
+model Reserve {
+  id          Int           @id @default(autoincrement())
+  plan        ReservePlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  planId      Int
+  x           Float
+  y           Float
+  description String
+  status      ReserveStatus @default(OPEN)
+  latitude    Float?
+  longitude   Float?
+  createdAt   DateTime      @default(now())
+
+  @@index([planId])
 }
 
 model ProjectTask {

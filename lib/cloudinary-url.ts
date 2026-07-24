@@ -21,3 +21,18 @@ export function optimizedClientPhoto(url: string, size = 112): string {
   const transform = `f_auto,q_auto,c_fill,g_face,w_${size},h_${size}/`;
   return url.slice(0, i + marker.length) + transform + url.slice(i + marker.length);
 }
+
+/**
+ * Rewrite a Cloudinary PDF (uploaded as an image resource) delivery URL to
+ * deliver one page rasterised as a JPG at a given width — used to display a
+ * reserve plan the pins are dropped on. Falls back to the original URL for
+ * non-Cloudinary inputs.
+ */
+export function planPageImageUrl(url: string, page = 1, width = 1600): string {
+  const marker = "/upload/";
+  const i = url.indexOf(marker);
+  if (i === -1) return url;
+  const transform = `pg_${page},f_jpg,q_auto,w_${width}/`;
+  const withTransform = url.slice(0, i + marker.length) + transform + url.slice(i + marker.length);
+  return withTransform.replace(/\.pdf$/i, ".jpg");
+}
