@@ -1,14 +1,13 @@
 'use client'
 import { useRef, useState, useTransition, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { MapPinIcon, TrashIcon, PlusIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
+import { MapPinIcon, TrashIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { planPageImageUrl } from "@/lib/cloudinary-url";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import {
-  addReservePlan,
   deleteReservePlan,
   addReserve,
   updateReserve,
@@ -46,12 +45,8 @@ export default function ReservesSection({
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(plans[0]?.id ?? null);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? plans[0] ?? null;
 
-  // Plan upload
-  const [showUpload, setShowUpload] = useState(false);
-  const [planFile, setPlanFile] = useState<File | null>(null);
-  const [planName, setPlanName] = useState("");
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const planFileRef = useRef<HTMLInputElement>(null);
+  // Plan add lives in the section header (AddReservePlanForm); here we only
+  // choose/delete a plan and pin réserves on it.
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [planToDelete, setPlanToDelete] = useState<PlanWithReserves | null>(null);
 
@@ -112,31 +107,6 @@ export default function ReservesSection({
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
-  }
-
-  function submitPlan() {
-    if (!planFile) return;
-    setUploadError(null);
-    startTransition(async () => {
-      const fd = new FormData();
-      fd.set("clientId", String(clientId));
-      fd.set("projectId", String(projectId));
-      fd.set("file", planFile);
-      if (planName.trim()) fd.set("name", planName.trim());
-      const res = await addReservePlan({ type: null, message: "" }, fd);
-      if (res.type !== "success") {
-        setUploadError(res.message);
-        return;
-      }
-      setPlanFile(null);
-      setPlanName("");
-      setShowUpload(false);
-      if (planFileRef.current) planFileRef.current.value = "";
-      if (res.data && typeof res.data === "object" && "id" in res.data) {
-        setSelectedPlanId((res.data as { id: number }).id);
-      }
-      router.refresh();
-    });
   }
 
   function submitReserve() {
@@ -266,50 +236,7 @@ export default function ReservesSection({
             <TrashIcon className="h-4 w-4" />
           </button>
         )}
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setShowUpload((v) => !v)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-2 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600 cursor-pointer"
-          >
-            <PlusIcon className="h-3.5 w-3.5" />
-            {t.reserves.addPlanToggle}
-          </button>
-        )}
       </div>
-
-      {/* Upload form */}
-      {canEdit && showUpload && (
-        <div className="flex flex-col gap-2 rounded border border-gray-300 p-3 dark:border-gray-700">
-          <input
-            ref={planFileRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            aria-label={t.reserves.choosePlanFile}
-            onChange={(e) => setPlanFile(e.target.files?.[0] ?? null)}
-            className="text-sm text-gray-500 dark:text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1.5 file:text-sm file:text-gray-900 dark:file:text-gray-100 file:cursor-pointer"
-          />
-          <input
-            type="text"
-            value={planName}
-            onChange={(e) => setPlanName(e.target.value)}
-            placeholder={t.reserves.planNamePlaceholder}
-            aria-label={t.reserves.planNamePlaceholder}
-            className={inputClass}
-          />
-          {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
-          <button
-            type="button"
-            onClick={submitPlan}
-            disabled={!planFile || pending}
-            className={`self-start rounded bg-primary px-3 py-1.5 text-sm font-bold text-white hover:bg-primary/90 cursor-pointer ${
-              !planFile || pending ? "opacity-50 cursor-not-allowed" : ""
-            }`}
-          >
-            {pending ? t.reserves.uploadingPlan : t.reserves.addPlanSubmit}
-          </button>
-        </div>
-      )}
 
       {/* Plan viewer */}
       {!selectedPlan ? (
@@ -336,16 +263,24 @@ export default function ReservesSection({
                 style={{ left: `${reserve.x * 100}%`, top: `${reserve.y * 100}%` }}
                 aria-label={`${index + 1} — ${reserve.description}`}
                 title={reserve.description}
-                className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 text-xs font-bold text-white shadow ${pinColor(reserve.status)}`}
+                className="absolute -translate-x-1/2 -translate-y-full cursor-pointer"
               >
-                {index + 1}
+                {/* Teardrop map marker: round head, sharp corner rotated to a
+                    downward tip that sits on the exact spot. */}
+                <span
+                  className={`flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 text-xs font-bold text-white shadow ${pinColor(reserve.status)}`}
+                >
+                  <span className="-rotate-45">{index + 1}</span>
+                </span>
               </button>
             ))}
             {editor?.mode === "new" && (
               <span
                 style={{ left: `${editor.x * 100}%`, top: `${editor.y * 100}%` }}
-                className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border-2 border-white bg-rose-600/70 dark:border-gray-900"
-              />
+                className="pointer-events-none absolute -translate-x-1/2 -translate-y-full"
+              >
+                <span className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white bg-rose-600/70 dark:border-gray-900" />
+              </span>
             )}
           </div>
           <p className="text-[11px] text-gray-400 dark:text-gray-500">{t.reserves.planUnavailableHint}</p>

@@ -35,6 +35,7 @@ import AddInterimForm from "@/forms/AddInterimForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import ReservesSection from "@/components/ReservesSection";
+import AddReservePlanForm from "@/forms/AddReservePlanForm";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -524,6 +525,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
             title={t.reserves.heading}
             badge={reservePlans.length > 0 ? `(${reservePlans.length})` : undefined}
+            headerExtra={canEdit && <AddReservePlanForm clientId={clientId} projectId={pid} />}
           >
             <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} canEdit={canEdit} />
           </CollapsibleSection>
