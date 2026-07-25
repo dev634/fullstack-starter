@@ -6,6 +6,7 @@ vi.mock("@/repository/contacts", () => ({
   update: vi.fn(),
   setPrimary: vi.fn(),
   remove: vi.fn(),
+  setContactProjects: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));

@@ -171,7 +171,7 @@ export default async function ClientPage({ params }: PageProps) {
         {contacts.length ? (
           <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} functions={jobFunctions} />
+              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
             ))}
           </ul>
         ) : (

@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
-import { create, update, setPrimary, remove } from "@/repository/contacts";
+import { create, update, setPrimary, remove, setContactProjects } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
 import { findAll as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords } from "@/lib/csv";
@@ -51,6 +51,13 @@ export async function editContact(
 
   try {
     const contact = await update(parsed.data.id, parsed.data);
+    // Portal project links (checkbox group) — the repository re-checks each id
+    // belongs to this contact's company, so a tampered list can't cross tenants.
+    const projectIds = formData
+      .getAll("projectIds")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    await setContactProjects(parsed.data.id, projectIds);
     revalidatePath(`/clients/${parsed.data.clientId}`);
     return { ...prevState, type: "success", message: t.contacts.messages.updated, data: contact };
   } catch (error) {

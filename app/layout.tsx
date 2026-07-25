@@ -44,6 +44,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const isClient = session?.user?.role === "CLIENT";
   const adminAccess = await getAdminAccess(session?.user?.role);
   const locale = await getLocale();
   const t = getDictionary(locale);
@@ -98,16 +99,24 @@ export default async function RootLayout({
                 settings.appName
               ),
             }}
-            links={session ? [
-              { href: "/clients", display: t.nav.clients },
-              { href: "/projects", display: t.nav.projects },
-              // Administration groups the Fonctions / Utilisateurs / Theme /
-              // Section order / Rôles & accès tabs behind one link; shown when
-              // the role can open at least one of them, pointing at the first.
-              ...(adminAccess.any
-                ? [{ href: adminAccess.landing!, display: t.nav.admin }]
-                : []),
-            ] : []}
+            links={
+              !session
+                ? []
+                : isClient
+                  ? // Client-portal logins only ever see their own projects.
+                    [{ href: "/portail", display: t.portal.myProjects }]
+                  : [
+                      { href: "/clients", display: t.nav.clients },
+                      { href: "/projects", display: t.nav.projects },
+                      // Administration groups the Fonctions / Utilisateurs /
+                      // Theme / Section order / Rôles & accès tabs behind one
+                      // link; shown when the role can open at least one, and
+                      // points at the first accessible tab.
+                      ...(adminAccess.any
+                        ? [{ href: adminAccess.landing!, display: t.nav.admin }]
+                        : []),
+                    ]
+            }
             action={session ? <LogoutButton /> : undefined}
           />
           {children}

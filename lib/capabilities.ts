@@ -1,9 +1,12 @@
 // Client-safe RBAC primitives — no server imports, so both server gates
 // (lib/access.ts) and client UI can share the role ranks + capability list.
 
-export const ROLE_RANK = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 } as const;
+// Ranks are relative — higher outranks lower. CLIENT is the floor (external
+// portal users); 0 stays reserved for "no/unknown role" so an unauthenticated
+// caller never meets even a CLIENT-min capability.
+export const ROLE_RANK = { SUPERADMIN: 5, ADMIN: 4, EDITOR: 3, VIEWER: 2, CLIENT: 1 } as const;
 export type Role = keyof typeof ROLE_RANK;
-export const ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER"];
+export const ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER", "CLIENT"];
 
 /** The capabilities whose required minimum role a SUPERADMIN can configure. */
 export const CAPABILITIES = [

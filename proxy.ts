@@ -10,10 +10,20 @@ const { auth } = NextAuth(authConfig);
 // added below — kept as an explicit check (rather than narrowing
 // config.matcher) because the matcher now has to run on every page for the
 // nonce, but sign-in/reset/API routes must stay reachable while logged out.
-const PROTECTED_PATHS = [/^\/$/, /^\/clients(\/.*)?$/, /^\/projects(\/.*)?$/, /^\/admin(\/.*)?$/];
+const PROTECTED_PATHS = [
+  /^\/$/,
+  /^\/clients(\/.*)?$/,
+  /^\/projects(\/.*)?$/,
+  /^\/admin(\/.*)?$/,
+  /^\/portail(\/.*)?$/,
+];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PATHS.some((re) => re.test(pathname));
+}
+
+function isPortalPath(pathname: string): boolean {
+  return /^\/portail(\/.*)?$/.test(pathname);
 }
 
 // Per-request nonce so script-src/style-src can drop 'unsafe-inline' (a
@@ -45,9 +55,25 @@ function buildCsp(nonce: string): string {
 // session is redirected to the sign-in page. Every request that reaches
 // this proxy (see `config.matcher`) also gets a fresh CSP nonce.
 export const proxy = auth((req) => {
-  if (isProtectedPath(req.nextUrl.pathname) && !req.auth) {
-    const loginUrl = new URL("/login", req.nextUrl.origin);
-    return Response.redirect(loginUrl);
+  const { pathname, origin } = req.nextUrl;
+
+  if (isProtectedPath(pathname) && !req.auth) {
+    return Response.redirect(new URL("/login", origin));
+  }
+
+  // Client-portal boundary. A CLIENT login may only ever reach /portail — any
+  // other protected app page bounces it back there, so it can never load the
+  // unscoped company/project/admin pages. Conversely the portal is CLIENT-only.
+  if (req.auth) {
+    const role = req.auth.user?.role;
+    const onPortal = isPortalPath(pathname);
+    if (role === "CLIENT") {
+      if (isProtectedPath(pathname) && !onPortal) {
+        return Response.redirect(new URL("/portail", origin));
+      }
+    } else if (onPortal) {
+      return Response.redirect(new URL("/", origin));
+    }
   }
 
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");

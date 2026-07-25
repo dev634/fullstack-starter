@@ -28,6 +28,17 @@ describe("capabilities — role ranking", () => {
     expect(meetsRole(undefined, "VIEWER")).toBe(false);
   });
 
+  it("ranks CLIENT below VIEWER and denies it content/admin capabilities", () => {
+    expect(rankOf("CLIENT")).toBeGreaterThan(0); // above "no role"
+    expect(rankOf("CLIENT")).toBeLessThan(rankOf("VIEWER"));
+    // A portal login (CLIENT) meets none of the default content/admin gates.
+    expect(meetsRole("CLIENT", "EDITOR")).toBe(false);
+    expect(meetsRole("CLIENT", "VIEWER")).toBe(false);
+    expect(meetsRole("CLIENT", "CLIENT")).toBe(true);
+    // But an unauthenticated caller (rank 0) still meets nothing, not even CLIENT.
+    expect(meetsRole(undefined, "CLIENT")).toBe(false);
+  });
+
   it("isRole recognizes only the four known roles", () => {
     expect(isRole("ADMIN")).toBe(true);
     expect(isRole("editor")).toBe(false);

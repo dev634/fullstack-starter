@@ -1,19 +1,20 @@
 import type { DefaultSession } from "next-auth";
+import type { Role } from "@/app/generated/prisma/client";
 
 declare module "next-auth" {
   interface User {
-    role?: "SUPERADMIN" | "ADMIN" | "EDITOR" | "VIEWER";
+    role?: Role;
   }
 
   interface Session {
     user: {
-      role?: "SUPERADMIN" | "ADMIN" | "EDITOR" | "VIEWER";
+      role?: Role;
     } & DefaultSession["user"];
   }
 }
 
 declare module "@auth/core/jwt" {
   interface JWT {
-    role?: "SUPERADMIN" | "ADMIN" | "EDITOR" | "VIEWER";
+    role?: Role;
   }
 }
