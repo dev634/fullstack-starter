@@ -142,11 +142,12 @@ export default function ScanDeliveryNoteModal({
               {!rows ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-gray-600 dark:text-gray-300">{t.materials.scan.instructions}</p>
+                  {/* No `capture`: on mobile this lets the user pick an existing
+                      image/document OR take a photo of the delivery note. */}
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif"
-                    capture="environment"
                     aria-label={t.materials.scan.chooseFile}
                     onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                     className="text-sm text-gray-500 dark:text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1.5 file:text-sm file:text-gray-900 dark:file:text-gray-100 file:cursor-pointer"
