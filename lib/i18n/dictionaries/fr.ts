@@ -247,6 +247,8 @@ const fr = {
         addTitle: "Ajouter un projet",
         addFor: "Pour {name}",
         addSubmit: "Ajouter le projet",
+        clientLabel: "Entreprise",
+        clientPlaceholder: "Choisir une entreprise…",
         editSubmit: "Modifier le projet",
         detail: {
             title: "Détail du projet",
