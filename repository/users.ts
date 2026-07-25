@@ -1,4 +1,74 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma, type Role } from "@/app/generated/prisma/client";
+
+/** All app users (without password hashes), for the management screen. */
+export async function findAll() {
+    try {
+        return await prisma.user.findMany({
+            select: { id: true, email: true, name: true, role: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+        });
+    } catch (error) {
+        console.log("Repository findAll (user) error:", error);
+        throw { type: "error", message: "Database Error fetching users." };
+    }
+}
+
+export async function findById(id: number) {
+    try {
+        return await prisma.user.findUnique({ where: { id } });
+    } catch (error) {
+        console.log("Repository findById (user) error:", error);
+        throw { type: "error", message: "Database Error fetching user." };
+    }
+}
+
+export async function create(data: { email: string; name: string | null; role: Role; password: string }) {
+    try {
+        return await prisma.user.create({
+            data,
+            select: { id: true, email: true, name: true, role: true, createdAt: true },
+        });
+    } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            throw { type: "duplicate", message: "A user with this email already exists." };
+        }
+        console.log("Repository create (user) error:", error);
+        throw { type: "error", message: "Database Error creating user." };
+    }
+}
+
+export async function updateProfile(id: number, data: { name: string | null; role: Role }) {
+    try {
+        return await prisma.user.update({
+            where: { id },
+            data,
+            select: { id: true, email: true, name: true, role: true, createdAt: true },
+        });
+    } catch (error) {
+        console.log("Repository updateProfile (user) error:", error);
+        throw { type: "error", message: "Database Error updating user." };
+    }
+}
+
+export async function remove(id: number) {
+    try {
+        return await prisma.user.delete({ where: { id } });
+    } catch (error) {
+        console.log("Repository remove (user) error:", error);
+        throw { type: "error", message: "Database Error deleting user." };
+    }
+}
+
+/** How many SUPERADMIN accounts exist — guards against removing the last one. */
+export async function countSuperadmins() {
+    try {
+        return await prisma.user.count({ where: { role: "SUPERADMIN" } });
+    } catch (error) {
+        console.log("Repository countSuperadmins error:", error);
+        throw { type: "error", message: "Database Error counting admins." };
+    }
+}
 
 export async function findByEmail(email: string) {
     try {
