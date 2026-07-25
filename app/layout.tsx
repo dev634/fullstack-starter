@@ -90,7 +90,7 @@ export default async function RootLayout({
               display: settings.logoUrl ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element -- external Cloudinary URL, not a local asset next/image can optimize at build time */}
-                  <img src={settings.logoUrl} alt={settings.appName} className="block h-6 w-auto" />
+                  <img src={settings.logoUrl} alt={settings.appName} className="block h-8 w-auto" />
                   <span>{settings.appName}</span>
                 </>
               ) : (

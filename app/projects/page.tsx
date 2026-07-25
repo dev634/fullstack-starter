@@ -68,12 +68,14 @@ export default async function ProjectsPage({
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-6 py-8">
       <div className="w-full max-w-5xl mx-auto flex flex-1 min-h-0 flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
-          <Title title={t.projects.list.title} className="text-3xl font-bold" />
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <Title title={t.projects.list.title} className="text-3xl font-bold" />
+            <ProjectsActionsMenu canEdit={canEdit} exportHref={exportHref} />
+          </div>
 
-          <ProjectsActionsMenu canEdit={canEdit} exportHref={exportHref} />
-
-          <div className="hidden md:flex items-center gap-2">
+          {/* Desktop action bar — its own row below the title. */}
+          <div className="hidden md:flex flex-wrap items-center gap-2">
             <a
               href={exportHref}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 no-underline hover:bg-[#d1d5dc] dark:hover:bg-gray-800"
