@@ -3,7 +3,8 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
-import { requireSession, requireRole } from "@/lib/authz";
+import { requireSession } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
@@ -22,7 +23,7 @@ export async function addClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -98,7 +99,7 @@ export async function updateClient(
   prevState: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -178,7 +179,7 @@ async function extractPhotoUrl(formData: FormData): Promise<string | undefined> 
  * restore doesn't lose it — it's only cleaned up on permanent deletion.
  */
 export async function deleteClient(id: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -213,7 +214,7 @@ export async function deleteClient(id: number) {
  * success/error payload for the caller.
  */
 export async function deleteClients(ids: number[]) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -245,7 +246,7 @@ export async function deleteClients(ids: number[]) {
 
 /** Bring a trashed client back into the normal listings. */
 export async function restoreClient(id: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -277,7 +278,7 @@ export async function restoreClient(id: number) {
  * Cloudinary photo, since there is no longer any way to restore it.
  */
 export async function permanentlyDeleteClient(id: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -326,7 +327,7 @@ export type ImportResult = {
  * rest of the batch.
  */
 export async function importClients(formData: FormData): Promise<ImportResult> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.import");
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };

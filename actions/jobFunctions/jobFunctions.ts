@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder } from "@/repository/jobFunctions";
 import { revalidatePath } from "next/cache";
@@ -14,7 +14,7 @@ export async function addJobFunction(
   prevState: JobFunctionActionState,
   formData: FormData
 ): Promise<JobFunctionActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -37,7 +37,7 @@ export async function addJobFunction(
 
 /** Persist a drag-and-drop reorder of the functions (ADMIN+). */
 export async function reorderJobFunctions(orderedIds: number[]) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -54,7 +54,7 @@ export async function reorderJobFunctions(orderedIds: number[]) {
 
 /** Delete a job function (ADMIN+). */
 export async function deleteJobFunction(id: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

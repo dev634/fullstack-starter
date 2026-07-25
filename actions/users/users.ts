@@ -2,6 +2,7 @@
 import bcrypt from "bcryptjs";
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createUserSchema, updateUserSchema } from "@/schemas/user";
@@ -16,15 +17,16 @@ import type { Role } from "@/app/generated/prisma/client";
 type Actor = { role: Role; email: string };
 
 /**
- * Gate on ADMIN+ and return the actor's role + email — needed for the
- * privilege guards below (an actor may never touch a role above their own).
+ * Gate on the configurable `users.manage` capability and return the actor's
+ * role + email — needed for the privilege guards below (whatever the matrix
+ * says, an actor may never grant or touch a role above their own).
  */
 async function requireManager(): Promise<{ actor: Actor } | { error: { type: "error"; message: string } }> {
   const session = await auth();
   const t = getDictionary(await getLocale());
   if (!session) return { error: { type: "error", message: t.errors.unauthorized } };
   const role = session.user?.role;
-  if (!hasMinRole(role, "ADMIN")) return { error: { type: "error", message: t.errors.forbidden } };
+  if (!(await can(role, "users.manage"))) return { error: { type: "error", message: t.errors.forbidden } };
   return { actor: { role: role as Role, email: session.user?.email ?? "" } };
 }
 

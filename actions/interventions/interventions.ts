@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createInterventionSchema, updateInterventionSchema, interventionStatusSchema } from "@/schemas/intervention";
 import { create, update, updateStatus, remove } from "@/repository/interventions";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ export async function addIntervention(
   prevState: InterventionActionState,
   formData: FormData
 ): Promise<InterventionActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -55,7 +55,7 @@ export async function editIntervention(
   prevState: InterventionActionState,
   formData: FormData
 ): Promise<InterventionActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -103,7 +103,7 @@ export async function changeInterventionStatus(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -128,7 +128,7 @@ export async function changeInterventionStatus(
 }
 
 export async function deleteIntervention(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

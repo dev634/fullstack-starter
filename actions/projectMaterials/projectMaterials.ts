@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
 import { create, update, remove } from "@/repository/projectMaterials";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ export async function addMaterial(
   prevState: ProjectMaterialActionState,
   formData: FormData
 ): Promise<ProjectMaterialActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -61,7 +61,7 @@ export async function editMaterial(
   prevState: ProjectMaterialActionState,
   formData: FormData
 ): Promise<ProjectMaterialActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -110,7 +110,7 @@ export async function editMaterial(
  * right project detail page without an extra round trip.
  */
 export async function deleteMaterial(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

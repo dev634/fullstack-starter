@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createSubcontractorCompanySchema, addSubcontractorPersonSchema } from "@/schemas/subcontractor";
 import { createCompany, removeCompany, addPerson, removePerson } from "@/repository/subcontractors";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ export async function addSubcontractorCompany(
   prevState: SubcontractorActionState,
   formData: FormData
 ): Promise<SubcontractorActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -52,7 +52,7 @@ export async function addSubcontractorCompany(
  * — a bare button, not a form — can revalidate the right project page.
  */
 export async function deleteSubcontractorCompany(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -75,7 +75,7 @@ export async function addSubcontractorPerson(
   prevState: SubcontractorActionState,
   formData: FormData
 ): Promise<SubcontractorActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -114,7 +114,7 @@ export async function addSubcontractorPerson(
 }
 
 export async function deleteSubcontractorPerson(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

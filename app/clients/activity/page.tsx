@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import { listActivity } from "@/repository/activity";
 import Title from "@/components/Title";
 import Link from "next/link";
@@ -17,7 +17,7 @@ type PageProps = {
 
 export default async function ActivityPage({ searchParams }: PageProps) {
   const session = await auth();
-  if (!hasMinRole(session?.user?.role, "EDITOR")) {
+  if (!(await can(session?.user?.role, "content.activity"))) {
     redirect("/clients");
   }
 

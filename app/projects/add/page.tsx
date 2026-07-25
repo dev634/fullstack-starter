@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import { redirect } from "next/navigation";
 import { findAll } from "@/repository/clients";
 import AddProjectWithClientForm from "@/forms/AddProjectWithClientForm";
@@ -10,7 +10,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 // company. Content creation → EDITOR+.
 export default async function AddProjectPage() {
   const session = await auth();
-  if (!hasMinRole(session?.user?.role, "EDITOR")) {
+  if (!(await can(session?.user?.role, "content.edit"))) {
     redirect("/projects");
   }
 

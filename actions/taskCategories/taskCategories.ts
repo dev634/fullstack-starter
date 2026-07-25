@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
 import { create, remove } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ export async function addTaskCategory(
   prevState: TaskCategoryActionState,
   formData: FormData
 ): Promise<TaskCategoryActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -52,7 +52,7 @@ export async function addTaskCategory(
  * looking them up) so the caller can revalidate the right project page.
  */
 export async function deleteTaskCategory(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

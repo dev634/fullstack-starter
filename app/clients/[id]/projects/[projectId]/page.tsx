@@ -10,7 +10,7 @@ import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/pr
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
@@ -109,7 +109,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
   const project = result.data!;
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
+  const canEdit = (await can(session?.user?.role, "content.edit"));
   const [tasks, taskGroups, taskCategories, materials, interventions, subcontractorCompanies, interims] =
     await Promise.all([
       findByProject(pid),

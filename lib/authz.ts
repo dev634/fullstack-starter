@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
+import { ROLE_RANK } from "@/lib/capabilities";
 
 /**
  * Guard actions behind an authenticated session. Returns an error payload
@@ -20,10 +21,9 @@ export type RoleCheckResult =
   | { error: { type: "error"; message: string }; email?: undefined }
   | { error: null; email: string };
 
-// Higher rank outranks every role below it — SUPERADMIN can do anything an
-// ADMIN can, so requireRole("ADMIN") also admits a SUPERADMIN session.
-// EDITOR sits between ADMIN and VIEWER.
-const ROLE_RANK = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 } as const;
+// ROLE_RANK now lives in lib/capabilities (client-safe, shared with the RBAC
+// matrix). Higher rank outranks every role below it — SUPERADMIN can do
+// anything an ADMIN can, so requireRole("ADMIN") also admits a SUPERADMIN.
 
 /**
  * Pure rank check, for page-level "show the edit UI" branching (session

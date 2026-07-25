@@ -1,10 +1,12 @@
+import { requireAdminTab } from "@/lib/adminAccess";
 import { findAll } from "@/repository/jobFunctions";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import JobFunctionsManager from "./_components/JobFunctionsManager";
 
-// Fonctions tab of the Administration area. ADMIN+ via the area layout.
+// Fonctions tab of the Administration area. Gated by functions.manage.
 export default async function AdminFonctionsPage() {
+  await requireAdminTab("functions");
   const functions = await findAll();
   const t = getDictionary(await getLocale());
 

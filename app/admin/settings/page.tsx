@@ -1,20 +1,15 @@
 import { getSettings } from "@/repository/appSettings";
 import AppSettingsForm from "@/forms/AppSettingsForm";
 import LogoUploadForm from "@/forms/LogoUploadForm";
-import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
-import { redirect } from "next/navigation";
+import { requireAdminTab } from "@/lib/adminAccess";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
 // Theme tab: logo, app name, primary/accent colors, and the live preview.
-// SUPERADMIN-only — the layout gates the area at ADMIN, so this tab guards
-// itself and sends admins back to the Fonctions tab.
+// Gated by settings.manage (locked to SUPERADMIN); a role without it is sent
+// to the first Administration tab it can open.
 export default async function AdminSettingsThemePage() {
-  const session = await auth();
-  if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
-    redirect("/admin/settings/fonctions");
-  }
+  await requireAdminTab("settings");
   const t = getDictionary(await getLocale());
   // Fetched fresh (not the cached lib/appSettings wrapper) — this is the
   // SUPERADMIN's own edit page, so it must reflect the very latest values.

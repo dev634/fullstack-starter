@@ -2,8 +2,10 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
+import { resolveAccessConfig } from "@/lib/capabilities";
 import { updateAppSettingsSchema } from "@/schemas/appSettings";
-import { getSettings, upsert, updateSectionOrder } from "@/repository/appSettings";
+import { getSettings, upsert, updateSectionOrder, updateAccessConfig } from "@/repository/appSettings";
 import { uploadLogo as uploadLogoToCloudinary, destroyLogo } from "@/lib/cloudinary";
 import { revalidateTag } from "next/cache";
 import { APP_SETTINGS_TAG } from "@/lib/appSettings";
@@ -15,6 +17,28 @@ import type { AppSettingsActionState } from "@/types/appSettings";
 // Local (not exported): a "use server" file may only export async functions,
 // and the client infers this return type from the action itself.
 type SectionOrderResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Persists the RBAC matrix (capability -> min role). The incoming map is
+ * resolved server-side (unknown/invalid entries dropped, locked capabilities
+ * forced back to their default) so a tampered payload can never lower the bar
+ * on settings.manage and lock the owner out. Gated by settings.manage itself
+ * (locked to SUPERADMIN).
+ */
+export async function setAccessConfig(config: Record<string, string>): Promise<SectionOrderResult> {
+  const roleCheck = await requireCapability("settings.manage");
+  if (roleCheck.error) return { ok: false, message: roleCheck.error.message };
+
+  const t = getDictionary(await getLocale());
+  try {
+    const resolved = resolveAccessConfig(config);
+    await updateAccessConfig(resolved, roleCheck.email);
+    revalidateTag(APP_SETTINGS_TAG, "max");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
 
 /**
  * Persists the drag-and-drop section order. Called imperatively from the

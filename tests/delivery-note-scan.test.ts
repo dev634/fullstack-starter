@@ -12,6 +12,7 @@ vi.mock("@/repository/projectFiles", () => ({ create: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
 vi.mock("@/lib/cloudinary", () => ({ uploadProjectFile: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";

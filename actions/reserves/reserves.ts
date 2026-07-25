@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
 import { create as createReserve, update as updateReserveRow, remove as removeReserve } from "@/repository/reserves";
 import { create as createPlan, findById as findPlanById, remove as removePlan } from "@/repository/reservePlans";
@@ -21,7 +21,7 @@ export async function addReservePlan(
   prevState: ReservePlanActionState,
   formData: FormData
 ): Promise<ReservePlanActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -50,7 +50,7 @@ export async function addReservePlan(
 
 /** Delete a plan (and its réserves) + its Cloudinary asset (ADMIN). */
 export async function deleteReservePlan(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -71,7 +71,7 @@ export async function addReserve(
   prevState: ReserveActionState,
   formData: FormData
 ): Promise<ReserveActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -96,7 +96,7 @@ export async function updateReserve(
   prevState: ReserveActionState,
   formData: FormData
 ): Promise<ReserveActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -121,7 +121,7 @@ export async function addReservePhoto(
   prevState: ReserveActionState,
   formData: FormData
 ): Promise<ReserveActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -149,7 +149,7 @@ export async function addReservePhoto(
 
 /** Delete a réserve photo + its Cloudinary asset (ADMIN). */
 export async function deleteReservePhoto(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -167,7 +167,7 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
 
 /** Delete a réserve (ADMIN). */
 export async function deleteReserve(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
