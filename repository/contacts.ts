@@ -1,17 +1,89 @@
 import { prisma } from "@/lib/prisma";
 
 /** Contacts of a client — primary first, then oldest first. Includes each
- * contact's job function (name) for display. */
+ * contact's job function (name), its linked project ids, and its portal login
+ * (if any) for the contact management UI. */
 export async function findByClient(clientId: number) {
     try {
         return await prisma.contact.findMany({
             where: { clientId },
             orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-            include: { jobFunction: { select: { id: true, name: true } } },
+            include: {
+                jobFunction: { select: { id: true, name: true } },
+                projects: { select: { id: true } },
+                user: { select: { id: true, email: true, role: true } },
+            },
         });
     } catch (error) {
         console.log("Repository findByClient (contact) error:", error);
         throw { type: "error", message: "Database Error fetching contacts." };
+    }
+}
+
+/**
+ * The contact tied to a client-portal login (matched by the login's email),
+ * with the ids of the projects it may see and its company. Drives all portal
+ * scoping — a CLIENT session resolves to exactly this set and nothing else.
+ */
+export async function findByUserEmail(email: string) {
+    try {
+        return await prisma.contact.findFirst({
+            where: { user: { email } },
+            include: {
+                projects: { select: { id: true } },
+                client: { select: { id: true, companyName: true } },
+            },
+        });
+    } catch (error) {
+        console.log("Repository findByUserEmail (contact) error:", error);
+        throw { type: "error", message: "Database Error fetching portal contact." };
+    }
+}
+
+/** A single contact by id (raw row) — used by the portal-login action. */
+export async function findById(id: number) {
+    try {
+        return await prisma.contact.findUnique({ where: { id } });
+    } catch (error) {
+        console.log("Repository findById (contact) error:", error);
+        throw { type: "error", message: "Database Error fetching contact." };
+    }
+}
+
+/** Attach a portal login (User id) to a contact. */
+export async function attachLogin(contactId: number, userId: number) {
+    try {
+        return await prisma.contact.update({ where: { id: contactId }, data: { userId } });
+    } catch (error) {
+        console.log("Repository attachLogin (contact) error:", error);
+        throw { type: "error", message: "Database Error attaching login." };
+    }
+}
+
+/**
+ * Set which of the contact's own company projects its portal login may see.
+ * `projectIds` is filtered to projects that actually belong to the contact's
+ * client, so a tampered payload can't link a project from another company.
+ */
+export async function setContactProjects(contactId: number, projectIds: number[]) {
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const contact = await tx.contact.findUniqueOrThrow({
+                where: { id: contactId },
+                select: { clientId: true },
+            });
+            const valid = await tx.project.findMany({
+                where: { id: { in: projectIds }, clientId: contact.clientId, deletedAt: null },
+                select: { id: true },
+            });
+            return tx.contact.update({
+                where: { id: contactId },
+                data: { projects: { set: valid.map((p) => ({ id: p.id })) } },
+            });
+        });
+    } catch (error) {
+        console.log("Repository setContactProjects error:", error);
+        throw { type: "error", message: "Database Error linking projects." };
     }
 }
 

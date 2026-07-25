@@ -1,7 +1,7 @@
 import z from "zod";
 import { optionalJobFunctionId } from "@/schemas/fields";
 
-export const userRoleSchema = z.enum(["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER"]);
+export const userRoleSchema = z.enum(["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER", "CLIENT"]);
 
 export const createUserSchema = z.object({
     email: z.string().trim().email("Adresse email invalide"),

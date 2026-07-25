@@ -7,6 +7,7 @@ import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
+import { ROLE_RANK } from "@/lib/capabilities";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 
@@ -22,7 +23,8 @@ type ManagedUser = {
 };
 type Editing = { mode: "add" } | { mode: "edit"; user: ManagedUser };
 
-const RANK: Record<Role, number> = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 };
+const RANK = ROLE_RANK;
+// CLIENT logins are created/managed from a contact, never assigned here.
 const ALL_ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER"];
 const initialState: UserActionState = { type: null, message: "" };
 
@@ -31,6 +33,7 @@ const roleBadge: Record<Role, string> = {
   ADMIN: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   EDITOR: "bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300",
   VIEWER: "bg-gray-200 text-gray-700 dark:bg-gray-600/40 dark:text-gray-300",
+  CLIENT: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
 };
 const inputClass =
   "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500";

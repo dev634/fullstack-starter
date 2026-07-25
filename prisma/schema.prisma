@@ -70,6 +70,12 @@ model Contact {
   jobFunction   JobFunction? @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
   jobFunctionId Int?
   isPrimary     Boolean      @default(false)
+  // Optional client-portal login for this contact (role CLIENT). SetNull so
+  // deleting the login doesn't delete the contact.
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId        Int?         @unique
+  // Projects of this contact's company the portal login may see (a subset).
+  projects      Project[]    @relation("ContactProjects")
   createdAt     DateTime     @default(now())
 
   @@index([clientId])
@@ -122,6 +128,8 @@ model Project {
   subcontractors SubcontractorCompany[]
   interims       Interim[]
   reservePlans   ReservePlan[]
+  // Contacts (client-portal logins) allowed to see this project.
+  linkedContacts Contact[]             @relation("ContactProjects")
 
   // Backs findByClient (the client detail page's project list) and the
   // Client onDelete: Cascade scan. Postgres does not auto-index FK columns.
@@ -434,6 +442,9 @@ enum Role {
   ADMIN
   EDITOR
   VIEWER
+  // External client-portal login, tied to a Contact; confined to /portail and
+  // scoped to the contact's linked projects. Below VIEWER in the hierarchy.
+  CLIENT
 }
 
 // A configurable list of job functions / trades (manœuvre, électricien, chef de
@@ -463,6 +474,8 @@ model User {
   // The user's job function, picked from the managed list (see JobFunction).
   jobFunction   JobFunction?         @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
   jobFunctionId Int?
+  // Set when this is a client-portal login (role CLIENT) tied to a contact.
+  contact       Contact?
   createdAt     DateTime             @default(now())
   resetTokens   PasswordResetToken[]
 

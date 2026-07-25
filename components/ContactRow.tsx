@@ -8,19 +8,26 @@ import EditContactForm from "@/forms/EditContactForm";
 import type { JobFunctionOption } from "@/forms/ContactFields";
 import type { Contact } from "@/app/generated/prisma/client";
 
-// The contact list joins in the (optional) job function name for display.
-type ContactWithFunction = Contact & { jobFunction: { name: string } | null };
+// The contact list joins in the job function name, the ids of its linked
+// (portal-visible) projects, and its portal login if any.
+type ContactWithFunction = Contact & {
+  jobFunction: { name: string } | null;
+  projects: { id: number }[];
+  user: { id: number; email: string; role: string } | null;
+};
 
 export default function ContactRow({
   contact,
   clientId,
   canEdit,
   functions,
+  projects,
 }: {
   contact: ContactWithFunction;
   clientId: number;
   canEdit: boolean;
   functions: JobFunctionOption[];
+  projects: { id: number; name: string }[];
 }) {
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
@@ -63,9 +70,12 @@ export default function ContactRow({
               email: contact.email,
               phone: contact.phone,
               jobFunctionId: contact.jobFunctionId,
+              linkedProjectIds: contact.projects.map((p) => p.id),
+              hasLogin: contact.user != null,
             }}
             clientId={clientId}
             functions={functions}
+            projects={projects}
           />
           <button
             type="button"

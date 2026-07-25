@@ -3,6 +3,32 @@ import { Prisma } from "@/app/generated/prisma/client";
 
 export type ProjectSortField = "name" | "status" | "createdAt";
 
+/**
+ * The (non-trashed) projects with the given ids — used by the client portal,
+ * which passes exactly the ids the logged-in contact is linked to. An empty
+ * list yields no rows.
+ */
+export async function findByIds(ids: number[]) {
+    try {
+        if (ids.length === 0) return [];
+        return await prisma.project.findMany({
+            where: { id: { in: ids }, deletedAt: null },
+            orderBy: [{ createdAt: "desc" }],
+            select: {
+                id: true,
+                name: true,
+                type: true,
+                status: true,
+                businessNumber: true,
+                client: { select: { id: true, companyName: true } },
+            },
+        });
+    } catch (error) {
+        console.log("Repository findByIds (project) error:", error);
+        throw { type: "error", message: "Database Error fetching projects." };
+    }
+}
+
 type ProjectSearchArgs = {
     q?: string;
     sortField?: ProjectSortField;

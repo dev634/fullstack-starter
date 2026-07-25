@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 
-/** All app users (without password hashes), for the management screen.
+/** App users for the management screen (without password hashes). Excludes
+ * CLIENT portal logins — those are managed from their contact, not here.
  * Includes each user's job function (id + name) for display + edit. */
 export async function findAll() {
     try {
         return await prisma.user.findMany({
+            where: { role: { not: "CLIENT" } },
             select: {
                 id: true,
                 email: true,
