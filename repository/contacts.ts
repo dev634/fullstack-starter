@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/prisma";
 
-/** Contacts of a client — primary first, then oldest first. */
+/** Contacts of a client — primary first, then oldest first. Includes each
+ * contact's job function (name) for display. */
 export async function findByClient(clientId: number) {
     try {
         return await prisma.contact.findMany({
             where: { clientId },
             orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+            include: { jobFunction: { select: { id: true, name: true } } },
         });
     } catch (error) {
         console.log("Repository findByClient (contact) error:", error);
@@ -23,7 +25,10 @@ export async function findAllWithClientEmail() {
         return await prisma.contact.findMany({
             where: { client: { deletedAt: null } },
             orderBy: [{ clientId: "asc" }, { isPrimary: "desc" }, { createdAt: "asc" }],
-            include: { client: { select: { email: true } } },
+            include: {
+                client: { select: { email: true } },
+                jobFunction: { select: { name: true } },
+            },
         });
     } catch (error) {
         console.log("Repository findAllWithClientEmail (contact) error:", error);
@@ -37,7 +42,7 @@ type ContactData = {
     lastName: string;
     email?: string;
     phone?: string;
-    role?: string;
+    jobFunctionId?: number | null;
     isPrimary?: boolean;
 };
 
@@ -61,7 +66,7 @@ export async function create(data: ContactData) {
                     lastName: data.lastName,
                     email: data.email || null,
                     phone: data.phone || null,
-                    role: data.role || null,
+                    jobFunctionId: data.jobFunctionId ?? null,
                     isPrimary: primary,
                 },
             });
@@ -77,7 +82,7 @@ type ContactUpdateData = {
     lastName: string;
     email?: string;
     phone?: string;
-    role?: string;
+    jobFunctionId?: number | null;
 };
 
 /** Edits a contact's own fields — never its primary flag (see setPrimary). */
@@ -90,7 +95,7 @@ export async function update(id: number, data: ContactUpdateData) {
                 lastName: data.lastName,
                 email: data.email || null,
                 phone: data.phone || null,
-                role: data.role || null,
+                jobFunctionId: data.jobFunctionId ?? null,
             },
         });
     } catch (error) {

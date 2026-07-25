@@ -58,18 +58,22 @@ model Client {
 // former firstName/lastName/email/phone were migrated onto a primary Contact.
 // onDelete Cascade: deleting the organisation removes its contacts.
 model Contact {
-  id        Int      @id @default(autoincrement())
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId  Int
-  firstName String
-  lastName  String
-  email     String?
-  phone     String?
-  role      String?
-  isPrimary Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id            Int          @id @default(autoincrement())
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId      Int
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  // The contact's job function, picked from the managed list (see JobFunction).
+  // SetNull so deleting a function just clears it from its contacts.
+  jobFunction   JobFunction? @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
+  jobFunctionId Int?
+  isPrimary     Boolean      @default(false)
+  createdAt     DateTime     @default(now())
 
   @@index([clientId])
+  @@index([jobFunctionId])
 }
 
 enum ProjectStatus {
@@ -439,17 +443,28 @@ model JobFunction {
   name      String   @unique
   // Manual display order, set by drag-and-drop on /fonctions.
   position  Int      @default(0)
+  // Project-detail section keys (see lib/projectSections.ts) HIDDEN from users
+  // who hold this function. Empty = hide nothing (see everything) — so a newly
+  // added section is visible by default until an admin hides it.
+  hiddenSections String[] @default([])
   createdAt DateTime @default(now())
+  users     User[]
+  contacts  Contact[]
 }
 
 model User {
-  id          Int                  @id @default(autoincrement())
-  email       String               @unique
-  password    String
-  name        String?
-  role        Role                 @default(ADMIN)
-  createdAt   DateTime             @default(now())
-  resetTokens PasswordResetToken[]
+  id            Int                  @id @default(autoincrement())
+  email         String               @unique
+  password      String
+  name          String?
+  role          Role                 @default(ADMIN)
+  // The user's job function, picked from the managed list (see JobFunction).
+  jobFunction   JobFunction?         @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
+  jobFunctionId Int?
+  createdAt     DateTime             @default(now())
+  resetTokens   PasswordResetToken[]
+
+  @@index([jobFunctionId])
 }
 
 model PasswordResetToken {

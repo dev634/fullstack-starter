@@ -10,7 +10,16 @@ import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 
-type ManagedUser = { id: number; email: string; name: string | null; role: Role; createdAt: Date };
+type JobFunctionOption = { id: number; name: string };
+type ManagedUser = {
+  id: number;
+  email: string;
+  name: string | null;
+  role: Role;
+  createdAt: Date;
+  jobFunctionId: number | null;
+  jobFunction: { name: string } | null;
+};
 type Editing = { mode: "add" } | { mode: "edit"; user: ManagedUser };
 
 const RANK: Record<Role, number> = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 };
@@ -30,10 +39,12 @@ export default function UsersManager({
   users,
   actorRole,
   actorEmail,
+  functions,
 }: {
   users: ManagedUser[];
   actorRole: Role;
   actorEmail: string;
+  functions: JobFunctionOption[];
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -43,6 +54,7 @@ export default function UsersManager({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("VIEWER");
+  const [jobFunctionId, setJobFunctionId] = useState<number | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string> | undefined>();
@@ -59,6 +71,7 @@ export default function UsersManager({
     setEmail("");
     setName("");
     setRole(assignableRoles[assignableRoles.length - 1] ?? "VIEWER");
+    setJobFunctionId(null);
     setPassword("");
     setError(null);
     setFieldErrors(undefined);
@@ -69,6 +82,7 @@ export default function UsersManager({
     setEmail(user.email);
     setName(user.name ?? "");
     setRole(user.role);
+    setJobFunctionId(user.jobFunctionId);
     setPassword("");
     setError(null);
     setFieldErrors(undefined);
@@ -83,6 +97,7 @@ export default function UsersManager({
       const fd = new FormData();
       fd.set("name", name.trim());
       fd.set("role", role);
+      fd.set("jobFunctionId", jobFunctionId ? String(jobFunctionId) : "");
       if (password) fd.set("password", password);
       let res: UserActionState;
       if (editing.mode === "add") {
@@ -148,7 +163,12 @@ export default function UsersManager({
                     </span>
                     {isSelf && <span className="shrink-0 text-xs text-gray-400">({t.users.you})</span>}
                   </span>
-                  {u.name && <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{u.email}</span>}
+                  {(() => {
+                    const secondary = [u.name ? u.email : null, u.jobFunction?.name].filter(Boolean).join(" · ");
+                    return secondary ? (
+                      <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{secondary}</span>
+                    ) : null;
+                  })()}
                 </span>
                 {manageable && (
                   <button
@@ -200,6 +220,19 @@ export default function UsersManager({
             <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={inputClass}>
               {assignableRoles.map((r) => (
                 <option key={r} value={r}>{t.users.roles[r]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.functionLabel}</label>
+            <select
+              value={jobFunctionId ?? ""}
+              onChange={(e) => setJobFunctionId(e.target.value ? Number(e.target.value) : null)}
+              className={inputClass}
+            >
+              <option value="">{t.users.functionNone}</option>
+              {functions.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
           </div>

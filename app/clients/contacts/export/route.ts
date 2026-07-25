@@ -15,7 +15,7 @@ export async function GET() {
       companyEmail: contact.client.email,
       firstName: contact.firstName,
       lastName: contact.lastName,
-      role: contact.role,
+      role: contact.jobFunction?.name ?? "",
       email: contact.email,
       phone: contact.phone,
       isPrimary: contact.isPrimary ? "true" : "false",

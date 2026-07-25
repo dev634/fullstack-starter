@@ -1,26 +1,30 @@
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { ContactActionState } from "@/types/contact";
 
+export type JobFunctionOption = { id: number; name: string };
+
 export type ContactDefaults = {
   firstName?: string;
   lastName?: string;
   email?: string | null;
   phone?: string | null;
-  role?: string | null;
+  jobFunctionId?: number | null;
 };
 
 const inputClass =
   "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500";
 
-/** Shared name/role/email/phone inputs for the add & edit contact forms. Presentational: it reads `t`/`state` from props, owns no state. */
+/** Shared name/function/email/phone inputs for the add & edit contact forms. Presentational: it reads `t`/`state`/`functions` from props, owns no state. */
 export default function ContactFields({
   t,
   state,
+  functions,
   defaults,
   autoFocus,
 }: {
   t: Dictionary;
   state: ContactActionState;
+  functions: JobFunctionOption[];
   defaults?: ContactDefaults;
   autoFocus?: boolean;
 }) {
@@ -40,7 +44,12 @@ export default function ContactFields({
           )}
         </div>
       </div>
-      <input type="text" name="role" defaultValue={defaults?.role ?? ""} placeholder={t.contacts.rolePlaceholder} aria-label={t.contacts.roleLabel} className={inputClass} />
+      <select name="jobFunctionId" defaultValue={defaults?.jobFunctionId ?? ""} aria-label={t.contacts.roleLabel} className={inputClass}>
+        <option value="">{t.contacts.functionNone}</option>
+        {functions.map((f) => (
+          <option key={f.id} value={f.id}>{f.name}</option>
+        ))}
+      </select>
       <input type="email" name="email" defaultValue={defaults?.email ?? ""} placeholder={t.contacts.emailPlaceholder} aria-label={t.contacts.emailLabel} className={inputClass} />
       <input type="text" name="phone" defaultValue={defaults?.phone ?? ""} placeholder={t.contacts.phonePlaceholder} aria-label={t.contacts.phoneLabel} className={inputClass} />
       {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
