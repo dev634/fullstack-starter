@@ -3,15 +3,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/components/LocaleProvider";
 
-// Tab navigation between the SUPERADMIN settings sub-pages (Theme / Section
-// order). Client component so it can highlight the active tab via the path.
-export default function AdminSettingsNav() {
+// Tab navigation for the Administration area. Fonctions + Utilisateurs are
+// ADMIN+; Theme + Section order are SUPERADMIN-only (hidden otherwise).
+// Client component so it can highlight the active tab via the path.
+export default function AdminSettingsNav({ isSuperadmin }: { isSuperadmin: boolean }) {
   const { t } = useTranslation();
   const pathname = usePathname();
 
   const tabs = [
-    { href: "/admin/settings", label: t.appSettings.tabs.theme },
-    { href: "/admin/settings/sections", label: t.appSettings.tabs.sections },
+    { href: "/admin/settings/fonctions", label: t.jobFunctions.title },
+    { href: "/admin/settings/utilisateurs", label: t.users.title },
+    ...(isSuperadmin
+      ? [
+          { href: "/admin/settings", label: t.appSettings.tabs.theme },
+          { href: "/admin/settings/sections", label: t.appSettings.tabs.sections },
+        ]
+      : []),
   ];
 
   return (
