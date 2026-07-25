@@ -1,6 +1,7 @@
 import { getClient } from '@/actions/clients/clients';
 import { auth } from '@/lib/auth';
 import { can } from "@/lib/access";
+import { blockClientFromApp } from "@/lib/portal";
 import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
 import { findAll as findJobFunctions } from '@/repository/jobFunctions';
@@ -39,6 +40,7 @@ type PageProps = {
 };
 
 export default async function ClientPage({ params }: PageProps) {
+  await blockClientFromApp();
   const { id } = await params;
   const clientId = parseInt(id, 10);
   const client = await getClient(clientId);

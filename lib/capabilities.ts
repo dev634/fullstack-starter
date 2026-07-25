@@ -8,6 +8,13 @@ export const ROLE_RANK = { SUPERADMIN: 5, ADMIN: 4, EDITOR: 3, VIEWER: 2, CLIENT
 export type Role = keyof typeof ROLE_RANK;
 export const ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER", "CLIENT"];
 
+// Roles a SUPERADMIN may set as a capability's minimum in the "Rôles & accès"
+// matrix. CLIENT is deliberately EXCLUDED: client-portal contributions are not
+// yet project-scoped, so a content capability set to CLIENT-min would grant
+// clients unscoped write access to any project. resolveAccessConfig also
+// rejects a CLIENT value, so even a tampered config can't lower a gate to it.
+export const MATRIX_MIN_ROLES: Role[] = ROLES.filter((r) => r !== "CLIENT");
+
 /** The capabilities whose required minimum role a SUPERADMIN can configure. */
 export const CAPABILITIES = [
   "content.edit",
@@ -62,6 +69,8 @@ export function hasCapability(
 /**
  * Merge a stored (partial, possibly stale) config over the defaults, ignoring
  * unknown/invalid entries and forcing locked capabilities to their default.
+ * A CLIENT value is rejected (falls back to the default): a capability may not
+ * be lowered to the client-portal role until client contributions are scoped.
  */
 export function resolveAccessConfig(stored: unknown): Record<Capability, Role> {
   const config = { ...DEFAULT_CAPABILITY_ROLE };
@@ -69,7 +78,7 @@ export function resolveAccessConfig(stored: unknown): Record<Capability, Role> {
   for (const cap of CAPABILITIES) {
     if (LOCKED_CAPABILITIES.includes(cap)) continue;
     const v = raw[cap];
-    if (isRole(v)) config[cap] = v;
+    if (isRole(v) && v !== "CLIENT") config[cap] = v;
   }
   return config;
 }

@@ -78,6 +78,12 @@ describe("resolveAccessConfig — defaults + merge", () => {
     const resolved = resolveAccessConfig({ "settings.manage": "EDITOR" });
     expect(resolved["settings.manage"]).toBe("SUPERADMIN");
   });
+
+  it("rejects a CLIENT value on any capability (client contributions aren't scoped yet)", () => {
+    const resolved = resolveAccessConfig({ "content.edit": "CLIENT", "content.trash": "CLIENT" });
+    expect(resolved["content.edit"]).toBe(DEFAULT_CAPABILITY_ROLE["content.edit"]);
+    expect(resolved["content.trash"]).toBe(DEFAULT_CAPABILITY_ROLE["content.trash"]);
+  });
 });
 
 describe("hasCapability — resolved config gate", () => {
