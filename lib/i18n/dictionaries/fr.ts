@@ -235,6 +235,7 @@ const fr = {
         },
         fields: {
             name: "Nom du projet",
+            businessNumber: "Numéro d'affaire",
             type: "Type de projet",
             status: "Statut",
             power: "Puissance (kWc)",
@@ -253,6 +254,7 @@ const fr = {
         detail: {
             title: "Détail du projet",
             notFound: "Ce projet n'existe pas...",
+            businessNumber: "N° d'affaire",
             power: "Puissance",
             budget: "Budget",
             address: "Adresse",
@@ -311,7 +313,7 @@ const fr = {
             back: "Retour",
             introPrefix: "Le fichier doit utiliser les mêmes colonnes que",
             introLink: "l'export CSV",
-            introSuffix: "(Name, Client Email, Type, Status, Power, Budget, Address, Start Date, End Date, Notes). Chaque ligne est rattachée à une entreprise existante via son email.",
+            introSuffix: "(Name, Business Number, Client Email, Type, Status, Power, Budget, Address, Start Date, End Date, Notes). Chaque ligne est rattachée à une entreprise existante via son email.",
             chooseFile: "Choisis un fichier CSV (mêmes colonnes que l'export)",
             importing: "Import en cours…",
             submit: "Importer",

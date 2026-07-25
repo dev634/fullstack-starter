@@ -36,6 +36,7 @@ export const CONTACT_CSV_COLUMNS: { key: string; header: string }[] = [
  */
 export const PROJECT_CSV_COLUMNS: { key: string; header: string }[] = [
   { key: "name", header: "Name" },
+  { key: "businessNumber", header: "Business Number" },
   { key: "clientEmail", header: "Client Email" },
   { key: "type", header: "Type" },
   { key: "status", header: "Status" },

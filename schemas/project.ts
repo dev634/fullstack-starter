@@ -32,6 +32,7 @@ const optionalDate = z
 export const createProjectSchema = z.object({
     clientId: z.coerce.number().int().positive(),
     name: z.string().min(1, "Project name is required"),
+    businessNumber: z.string().optional(),
     type: projectTypeSchema.default("AUTRE"),
     status: projectStatusSchema.default("ETUDE"),
     power: optionalNumber,

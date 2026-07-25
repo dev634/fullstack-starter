@@ -49,6 +49,7 @@ import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
   BoltIcon,
+  HashtagIcon,
   CurrencyEuroIcon,
   MapPinIcon,
   CalendarIcon,
@@ -205,6 +206,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </div>
 
           <dl className="px-4 py-2 sm:px-6">
+            {project.businessNumber && (
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                <HashtagIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.businessNumber}</dt>
+                <dd className="min-w-0 break-words text-sm">{project.businessNumber}</dd>
+              </div>
+            )}
             {project.power != null && (
               <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
                 <BoltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />

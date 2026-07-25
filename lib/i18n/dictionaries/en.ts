@@ -237,6 +237,7 @@ const en: Dictionary = {
         },
         fields: {
             name: "Project name",
+            businessNumber: "Business number",
             type: "Project type",
             status: "Status",
             power: "Power (kWp)",
@@ -255,6 +256,7 @@ const en: Dictionary = {
         detail: {
             title: "Project detail",
             notFound: "This project doesn't exist...",
+            businessNumber: "Business no.",
             power: "Power",
             budget: "Budget",
             address: "Address",
@@ -313,7 +315,7 @@ const en: Dictionary = {
             back: "Back",
             introPrefix: "The file must use the same columns as the",
             introLink: "CSV export",
-            introSuffix: "(Name, Client Email, Type, Status, Power, Budget, Address, Start Date, End Date, Notes). Each row is matched to an existing company by email.",
+            introSuffix: "(Name, Business Number, Client Email, Type, Status, Power, Budget, Address, Start Date, End Date, Notes). Each row is matched to an existing company by email.",
             chooseFile: "Choose a CSV file (same columns as the export)",
             importing: "Importing…",
             submit: "Import",
