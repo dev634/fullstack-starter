@@ -2,21 +2,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/components/LocaleProvider";
+import type { AdminAccess } from "@/lib/adminAccess";
 
-// Tab navigation for the Administration area. Fonctions + Utilisateurs are
-// ADMIN+; Theme + Section order are SUPERADMIN-only (hidden otherwise).
-// Client component so it can highlight the active tab via the path.
-export default function AdminSettingsNav({ isSuperadmin }: { isSuperadmin: boolean }) {
+// Tab navigation for the Administration area. Each tab is shown only when the
+// current role holds the matching capability (functions.manage / users.manage /
+// settings.manage), computed server-side and passed in as `access`. Client
+// component so it can highlight the active tab via the path.
+export default function AdminSettingsNav({ access }: { access: AdminAccess }) {
   const { t } = useTranslation();
   const pathname = usePathname();
 
   const tabs = [
-    { href: "/admin/settings/fonctions", label: t.jobFunctions.title },
-    { href: "/admin/settings/utilisateurs", label: t.users.title },
-    ...(isSuperadmin
+    ...(access.functions ? [{ href: "/admin/settings/fonctions", label: t.jobFunctions.title }] : []),
+    ...(access.users ? [{ href: "/admin/settings/utilisateurs", label: t.users.title }] : []),
+    ...(access.settings
       ? [
           { href: "/admin/settings", label: t.appSettings.tabs.theme },
           { href: "/admin/settings/sections", label: t.appSettings.tabs.sections },
+          { href: "/admin/settings/roles", label: t.appSettings.tabs.access },
         ]
       : []),
   ];

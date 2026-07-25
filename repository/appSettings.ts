@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
 
 type SettingsUpdate = {
     appName: string;
@@ -34,6 +35,26 @@ export async function upsert(data: SettingsUpdate) {
         throw {
             type: "error",
             message: "Database Error updating app settings.",
+        };
+    }
+}
+
+/**
+ * Persists the RBAC matrix (capability -> min role) as JSON — kept separate
+ * from the branding upsert so the two concerns don't clobber each other. The
+ * value is already resolved/validated (lib/capabilities) before it gets here.
+ */
+export async function updateAccessConfig(accessConfig: Prisma.InputJsonValue, updatedBy: string) {
+    try {
+        return await prisma.appSettings.update({
+            where: { id: 1 },
+            data: { accessConfig, updatedBy },
+        });
+    } catch (error) {
+        console.log("Repository updateAccessConfig (appSettings) error:", error);
+        throw {
+            type: "error",
+            message: "Database Error updating access config.",
         };
     }
 }

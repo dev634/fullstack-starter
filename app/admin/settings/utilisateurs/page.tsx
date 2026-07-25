@@ -1,13 +1,15 @@
 import { auth } from "@/lib/auth";
+import { requireAdminTab } from "@/lib/adminAccess";
 import { findAll } from "@/repository/users";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import UsersManager from "./_components/UsersManager";
 import type { Role } from "@/app/generated/prisma/client";
 
-// Utilisateurs tab of the Administration area. ADMIN+ via the area layout;
-// the actor's role/email drive the per-row privilege guards.
+// Utilisateurs tab of the Administration area. Gated by users.manage; the
+// actor's role/email drive the per-row privilege guards.
 export default async function AdminUsersPage() {
+  await requireAdminTab("users");
   const session = await auth();
   const users = await findAll();
   const t = getDictionary(await getLocale());

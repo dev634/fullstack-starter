@@ -6,7 +6,7 @@ import Navbar from "@/components/Navbar";
 import LogoutButton from "@/components/LogoutButton";
 import { LocaleProvider } from "@/components/LocaleProvider";
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { getAppSettings } from "@/lib/appSettings";
@@ -44,6 +44,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const adminAccess = await getAdminAccess(session?.user?.role);
   const locale = await getLocale();
   const t = getDictionary(locale);
   const settings = await getAppSettings();
@@ -100,10 +101,11 @@ export default async function RootLayout({
             links={session ? [
               { href: "/clients", display: t.nav.clients },
               { href: "/projects", display: t.nav.projects },
-              // Administration groups the Fonctions / Utilisateurs (ADMIN+) and
-              // Theme / Section order (SUPERADMIN) tabs behind one link.
-              ...(hasMinRole(session.user?.role, "ADMIN")
-                ? [{ href: "/admin/settings", display: t.nav.admin }]
+              // Administration groups the Fonctions / Utilisateurs / Theme /
+              // Section order / Rôles & accès tabs behind one link; shown when
+              // the role can open at least one of them, pointing at the first.
+              ...(adminAccess.any
+                ? [{ href: adminAccess.landing!, display: t.nav.admin }]
                 : []),
             ] : []}
             action={session ? <LogoutButton /> : undefined}

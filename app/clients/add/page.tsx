@@ -1,13 +1,13 @@
 import AddClientForm from "@/forms/AddClientForm";
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import { redirect } from "next/navigation";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function AddClientPage(){
     const session = await auth();
-    if (!hasMinRole(session?.user?.role, "EDITOR")) {
+    if (!(await can(session?.user?.role, "content.edit"))) {
         redirect("/clients");
     }
     const t = getDictionary(await getLocale());

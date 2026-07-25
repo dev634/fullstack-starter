@@ -688,6 +688,7 @@ const fr = {
         tabs: {
             theme: "Thème",
             sections: "Ordre des sections",
+            access: "Rôles & accès",
         },
         appNameLabel: "Nom de l'application",
         primaryColorLabel: "Couleur principale",
@@ -715,6 +716,54 @@ const fr = {
             saving: "Enregistrement…",
             saved: "Ordre enregistré",
             saveError: "Échec de l'enregistrement de l'ordre.",
+        },
+        access: {
+            title: "Rôles & accès",
+            subtitle: "Définissez le rôle minimum requis pour chaque action. Par défaut, ces valeurs reproduisent le comportement actuel — rien ne change tant que vous ne modifiez pas la matrice.",
+            actionColumn: "Action",
+            roleColumn: "Rôle minimum",
+            save: "Enregistrer",
+            saving: "Enregistrement…",
+            saved: "Accès enregistrés",
+            saveError: "Échec de l'enregistrement des accès.",
+            locked: "Verrouillé",
+            lockedNote: "Verrouillé sur Super administrateur pour éviter tout verrouillage du système.",
+            roles: {
+                SUPERADMIN: "Super administrateur",
+                ADMIN: "Administrateur",
+                EDITOR: "Éditeur",
+                VIEWER: "Lecteur",
+            },
+            capabilities: {
+                "content.edit": {
+                    label: "Créer / modifier le contenu",
+                    description: "Clients, projets, tâches, matériel, réserves…",
+                },
+                "content.trash": {
+                    label: "Corbeille",
+                    description: "Supprimer, restaurer et supprimer définitivement.",
+                },
+                "content.import": {
+                    label: "Importer",
+                    description: "Importer des clients, contacts et projets (CSV).",
+                },
+                "content.activity": {
+                    label: "Journal d'activité",
+                    description: "Consulter l'historique des modifications.",
+                },
+                "functions.manage": {
+                    label: "Gérer les fonctions",
+                    description: "Fonctions/métiers assignables aux utilisateurs.",
+                },
+                "users.manage": {
+                    label: "Gérer les utilisateurs",
+                    description: "Créer, modifier et supprimer les comptes.",
+                },
+                "settings.manage": {
+                    label: "Paramètres & accès",
+                    description: "Thème, ordre des sections et cette matrice.",
+                },
+            },
         },
     },
     files: {

@@ -2,7 +2,7 @@ import Button from "@/components/Button";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
+import { can } from "@/lib/access";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import ClientsActionsMenu from "./_components/ClientsActionsMenu";
@@ -38,7 +38,7 @@ export default async function ClientsPage({
   const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
+  const canEdit = (await can(session?.user?.role, "content.edit"));
   const t = getDictionary(await getLocale());
 
   // Shared query string for the current search/sort (used by pager + export).

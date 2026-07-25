@@ -19,6 +19,7 @@ vi.mock("@/lib/cloudinary", () => ({
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";

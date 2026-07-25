@@ -1,6 +1,6 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
-import { requireRole } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { remove, setCategory } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -17,7 +17,7 @@ export async function setTaskGroupCategory(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -42,7 +42,7 @@ export async function setTaskGroupCategory(
  * the caller can revalidate the right project detail page.
  */
 export async function deleteTaskGroup(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

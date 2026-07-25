@@ -690,6 +690,7 @@ const en: Dictionary = {
         tabs: {
             theme: "Theme",
             sections: "Section order",
+            access: "Roles & access",
         },
         appNameLabel: "App name",
         primaryColorLabel: "Primary color",
@@ -717,6 +718,54 @@ const en: Dictionary = {
             saving: "Saving…",
             saved: "Order saved",
             saveError: "Failed to save the order.",
+        },
+        access: {
+            title: "Roles & access",
+            subtitle: "Set the minimum role required for each action. The defaults mirror the app's current behavior — nothing changes until you edit the matrix.",
+            actionColumn: "Action",
+            roleColumn: "Minimum role",
+            save: "Save",
+            saving: "Saving…",
+            saved: "Access saved",
+            saveError: "Failed to save access.",
+            locked: "Locked",
+            lockedNote: "Locked to Super admin so the permission system can't be used to lock the owner out.",
+            roles: {
+                SUPERADMIN: "Super admin",
+                ADMIN: "Admin",
+                EDITOR: "Editor",
+                VIEWER: "Viewer",
+            },
+            capabilities: {
+                "content.edit": {
+                    label: "Create / edit content",
+                    description: "Clients, projects, tasks, materials, réserves…",
+                },
+                "content.trash": {
+                    label: "Trash",
+                    description: "Delete, restore, and permanently delete.",
+                },
+                "content.import": {
+                    label: "Import",
+                    description: "Import clients, contacts, and projects (CSV).",
+                },
+                "content.activity": {
+                    label: "Activity log",
+                    description: "View the history of changes.",
+                },
+                "functions.manage": {
+                    label: "Manage functions",
+                    description: "Job functions assignable to users.",
+                },
+                "users.manage": {
+                    label: "Manage users",
+                    description: "Create, edit, and delete accounts.",
+                },
+                "settings.manage": {
+                    label: "Settings & access",
+                    description: "Theme, section order, and this matrix.",
+                },
+            },
         },
     },
     files: {

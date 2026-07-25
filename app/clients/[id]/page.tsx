@@ -1,6 +1,6 @@
 import { getClient } from '@/actions/clients/clients';
 import { auth } from '@/lib/auth';
-import { hasMinRole } from '@/lib/authz';
+import { can } from "@/lib/access";
 import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
 import ContactRow from '@/components/ContactRow';
@@ -68,7 +68,7 @@ export default async function ClientPage({ params }: PageProps) {
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
     : null;
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
+  const canEdit = (await can(session?.user?.role, "content.edit"));
   const projects = await findByClient(clientId);
   const contacts = await findContactsByClient(clientId);
 

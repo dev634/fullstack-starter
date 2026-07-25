@@ -1,0 +1,72 @@
+// Client-safe RBAC primitives — no server imports, so both server gates
+// (lib/access.ts) and client UI can share the role ranks + capability list.
+
+export const ROLE_RANK = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 } as const;
+export type Role = keyof typeof ROLE_RANK;
+export const ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER"];
+
+/** The capabilities whose required minimum role a SUPERADMIN can configure. */
+export const CAPABILITIES = [
+  "content.edit",
+  "content.trash",
+  "content.import",
+  "content.activity",
+  "functions.manage",
+  "users.manage",
+  "settings.manage",
+] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+// Defaults = the app's current hardcoded behaviour, so switching to the
+// configurable system changes nothing until a SUPERADMIN edits the matrix.
+export const DEFAULT_CAPABILITY_ROLE: Record<Capability, Role> = {
+  "content.edit": "EDITOR",
+  "content.trash": "EDITOR",
+  "content.import": "EDITOR",
+  "content.activity": "EDITOR",
+  "functions.manage": "ADMIN",
+  "users.manage": "ADMIN",
+  "settings.manage": "SUPERADMIN",
+};
+
+// settings.manage gates the matrix itself + theme/section order — always
+// SUPERADMIN so no one can lower the bar on the permission system and lock the
+// owner out. Shown in the matrix read-only for transparency.
+export const LOCKED_CAPABILITIES: readonly Capability[] = ["settings.manage"];
+
+export function isRole(value: unknown): value is Role {
+  return typeof value === "string" && value in ROLE_RANK;
+}
+
+export function rankOf(role: string | undefined | null): number {
+  return role && role in ROLE_RANK ? ROLE_RANK[role as Role] : 0;
+}
+
+/** Does `role` meet a minimum role? */
+export function meetsRole(role: string | undefined | null, minRole: Role): boolean {
+  return rankOf(role) >= ROLE_RANK[minRole];
+}
+
+/** Does `role` satisfy a capability, given a resolved config? */
+export function hasCapability(
+  role: string | undefined | null,
+  cap: Capability,
+  config: Record<Capability, Role>
+): boolean {
+  return meetsRole(role, config[cap]);
+}
+
+/**
+ * Merge a stored (partial, possibly stale) config over the defaults, ignoring
+ * unknown/invalid entries and forcing locked capabilities to their default.
+ */
+export function resolveAccessConfig(stored: unknown): Record<Capability, Role> {
+  const config = { ...DEFAULT_CAPABILITY_ROLE };
+  const raw = (stored && typeof stored === "object" ? stored : {}) as Record<string, unknown>;
+  for (const cap of CAPABILITIES) {
+    if (LOCKED_CAPABILITIES.includes(cap)) continue;
+    const v = raw[cap];
+    if (isRole(v)) config[cap] = v;
+  }
+  return config;
+}

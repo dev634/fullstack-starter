@@ -1,7 +1,8 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireSession, requireRole } from "@/lib/authz";
+import { requireSession } from "@/lib/authz";
+import { requireCapability } from "@/lib/access";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
@@ -24,7 +25,7 @@ export async function addProject(
   prevState: ProjectActionState,
   formData: FormData
 ): Promise<ProjectActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -68,7 +69,7 @@ export async function updateProject(
   prevState: ProjectActionState,
   formData: FormData
 ): Promise<ProjectActionState> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -113,7 +114,7 @@ export async function updateProject(
  * can revalidate the right client detail page without an extra round trip.
  */
 export async function deleteProject(id: number, clientId: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -142,7 +143,7 @@ export async function deleteProject(id: number, clientId: number) {
 
 /** Bring a trashed project back into the normal listings. */
 export async function restoreProject(id: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -172,7 +173,7 @@ export async function restoreProject(id: number) {
  * Permanently delete a trashed project — irreversible.
  */
 export async function permanentlyDeleteProject(id: number) {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -218,7 +219,7 @@ export type ImportResult = {
  * rather than the whole batch.
  */
 export async function importProjects(formData: FormData): Promise<ImportResult> {
-  const roleCheck = await requireRole("EDITOR");
+  const roleCheck = await requireCapability("content.import");
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };

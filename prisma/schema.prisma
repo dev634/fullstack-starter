@@ -479,6 +479,9 @@ model AppSettings {
   // canonical default order; normalized on read so partial/stale values are
   // safe. Set by a SUPERADMIN via drag-and-drop on /admin/settings.
   projectSectionOrder String[] @default([])
+  // RBAC matrix: capability -> minimum role, as a JSON object (see
+  // lib/capabilities.ts). Empty = the defaults; merged/validated on read.
+  accessConfig Json     @default("{}")
   updatedAt    DateTime @updatedAt
   updatedBy    String?
 }
