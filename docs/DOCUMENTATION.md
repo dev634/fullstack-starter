@@ -152,9 +152,13 @@ Le comportement n'est pas figé : un Super administrateur peut configurer, dans 
 
 La capacité « Paramètres & accès » est **verrouillée sur Super administrateur** afin d'éviter tout verrouillage du système.
 
+![La matrice « Rôles & accès » : rôle minimum requis pour chaque capacité.](screenshots/admin-roles.png)
+
 ## Fonctions (métiers)
 
 Une liste de **fonctions** (manœuvre, électricien, chef de chantier…) est gérée dans **Administration → Fonctions**. Chaque fonction peut être **assignée** à un utilisateur ou à un contact, et sert aussi à **piloter la visibilité des sections** d'un projet (voir ci-dessous).
+
+![La gestion des fonctions (métiers), réordonnables par glisser-déposer.](screenshots/admin-fonctions.png)
 
 ## Visibilité des sections par fonction
 
@@ -168,13 +172,19 @@ Pour chaque fonction, un administrateur peut choisir **quelles sections de la pa
 - **Mot de passe oublié** : la page de connexion propose un lien ; un email (ou un lien en console, selon la configuration) permet de définir un nouveau mot de passe.
 - **Se déconnecter** : bouton « Déconnexion » dans la barre de navigation.
 
+![L'écran de connexion.](screenshots/login.png)
+
 ## Tableau de bord
 
 La page d'accueil présente une synthèse : nombre d'entreprises par statut (prospect, client, inactif) et les dernières entreprises ajoutées.
 
+![Le tableau de bord : indicateurs par statut et dernières entreprises ajoutées.](screenshots/dashboard.png)
+
 ## Entreprises (clients)
 
 La rubrique **Entreprises** liste les sociétés clientes.
+
+![La liste des entreprises, avec recherche, tri et actions (export, import, corbeille…).](screenshots/clients.png)
 
 - **Créer / modifier** une entreprise : nom, email, téléphone, site web, adresse, statut (Prospect / Client / Inactif), photo.
 - **Contacts** : chaque entreprise possède un ou plusieurs contacts (nom, email, téléphone, fonction). Un contact peut être marqué « principal ».
@@ -201,6 +211,8 @@ La page d'un projet est organisée en **sections dépliables**, dont l'ordre est
 - **Fichiers** — arborescence de dossiers et documents.
 
 Un **tableau de bord projet** synthétise l'avancement, et un bouton **« Générer rapport PDF »** produit un rapport imprimable.
+
+![La page d'un projet : en-tête, avancement et sections dépliables (tâches, matériel, réserves…).](screenshots/project.png)
 
 ## Tâches
 
@@ -257,6 +269,8 @@ Accessible via **Administration** dans la barre de navigation (selon les droits)
 - **Thème** *(Super admin)* — nom de l'application, logo, couleurs (aperçu en direct).
 - **Ordre des sections** *(Super admin)* — glisser-déposer pour ordonner les sections de la page projet.
 - **Rôles & accès** *(Super admin)* — la matrice capacité → rôle minimum décrite plus haut.
+
+![La gestion des utilisateurs : rôle, fonction et garde-fous de privilèges.](screenshots/admin-users.png)
 
 # Internationalisation
 
