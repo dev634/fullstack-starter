@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import { setAccessConfig } from "@/actions/appSettings/appSettings";
 import {
-  ROLES,
+  MATRIX_MIN_ROLES,
   CAPABILITIES,
   LOCKED_CAPABILITIES,
   type Role,
@@ -81,7 +81,7 @@ export default function AccessMatrixForm({ config }: Props) {
                     onChange={(e) => handleChange(cap, e.target.value as Role)}
                     className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 sm:w-48"
                   >
-                    {ROLES.map((role) => (
+                    {MATRIX_MIN_ROLES.map((role) => (
                       <option key={role} value={role}>
                         {a.roles[role]}
                       </option>

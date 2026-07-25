@@ -45,6 +45,7 @@ import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
 import { getHiddenSectionsForCurrentUser } from "@/lib/sectionVisibility";
+import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
@@ -78,6 +79,7 @@ type PageProps = {
 };
 
 export default async function ProjectDetailPage({ params, searchParams }: PageProps) {
+  await blockClientFromApp();
   const { id, projectId } = await params;
   const { folder: folderParam } = await searchParams;
   const clientId = parseInt(id, 10);
