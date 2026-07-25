@@ -1,12 +1,19 @@
 import { getSettings } from "@/repository/appSettings";
 import SectionOrderForm from "@/forms/SectionOrderForm";
+import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
+import { redirect } from "next/navigation";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
 
 // Section-order tab: drag-and-drop ordering of the project detail sections.
-// The SUPERADMIN gate and the page title live in the shared layout.
+// SUPERADMIN-only (the area layout only gates at ADMIN).
 export default async function AdminSettingsSectionsPage() {
+  const session = await auth();
+  if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
+    redirect("/admin/settings/fonctions");
+  }
   const t = getDictionary(await getLocale());
   const settings = await getSettings();
 

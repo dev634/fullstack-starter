@@ -47,7 +47,7 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
   try {
     const password = await bcrypt.hash(parsed.data.password, 10);
     const user = await create({ email: parsed.data.email, name: parsed.data.name ?? null, role: parsed.data.role, password });
-    revalidatePath("/utilisateurs");
+    revalidatePath("/admin/settings/utilisateurs");
     return { ...prevState, type: "success", message: t.users.messages.added, data: user };
   } catch (error) {
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
@@ -85,7 +85,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     if (parsed.data.password) {
       await updatePassword(target.id, await bcrypt.hash(parsed.data.password, 10));
     }
-    revalidatePath("/utilisateurs");
+    revalidatePath("/admin/settings/utilisateurs");
     return { ...prevState, type: "success", message: t.users.messages.updated, data: user };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
@@ -114,7 +114,7 @@ export async function deleteUser(id: number) {
     }
 
     const user = await remove(id);
-    revalidatePath("/utilisateurs");
+    revalidatePath("/admin/settings/utilisateurs");
     return { type: "success" as const, message: t.users.messages.deleted, data: user };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };

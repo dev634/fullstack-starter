@@ -126,8 +126,8 @@ export default function SectionOrderForm({ order, labels }: Props) {
         </SortableContext>
       </DndContext>
 
-      <div className="mt-4 flex items-center justify-end gap-3">
-        <span className="text-xs" aria-live="polite">
+      <div className="mt-4 flex flex-col gap-2">
+        <span className="min-h-4 text-right text-xs" aria-live="polite">
           {status === "saving" && (
             <span className="text-gray-500 dark:text-gray-400">{t.appSettings.sectionOrder.saving}</span>
           )}
@@ -140,7 +140,7 @@ export default function SectionOrderForm({ order, labels }: Props) {
           type="button"
           onClick={handleSave}
           disabled={!dirty || status === "saving"}
-          className={`rounded bg-primary px-4 py-2 text-sm font-bold text-white hover:bg-primary/90 cursor-pointer ${
+          className={`w-full rounded bg-primary px-4 py-2 text-center text-sm font-bold text-white hover:bg-primary/90 cursor-pointer ${
             !dirty || status === "saving" ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >

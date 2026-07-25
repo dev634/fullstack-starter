@@ -25,7 +25,7 @@ export async function addJobFunction(
 
   try {
     const created = await create(parsed.data.name);
-    revalidatePath("/fonctions");
+    revalidatePath("/admin/settings/fonctions");
     return { ...prevState, type: "success", message: t.jobFunctions.messages.added, data: created };
   } catch (error) {
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
@@ -45,7 +45,7 @@ export async function reorderJobFunctions(orderedIds: number[]) {
     const ids = orderedIds.filter((id) => Number.isInteger(id) && id > 0);
     if (ids.length === 0) return { type: "error" as const, message: t.errors.invalidId };
     await reorder(ids);
-    revalidatePath("/fonctions");
+    revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.reordered };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -61,7 +61,7 @@ export async function deleteJobFunction(id: number) {
   try {
     if (isNaN(id)) throw { type: "error", message: t.errors.invalidId };
     const deleted = await remove(id);
-    revalidatePath("/fonctions");
+    revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.deleted, data: deleted };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
