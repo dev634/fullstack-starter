@@ -34,6 +34,8 @@ function parse(md) {
     if (/^#\s/.test(line)) { flush(); blocks.push({ type: "h1", text: line.slice(2).trim() }); i++; continue; }
     if (/^##\s/.test(line)) { flush(); blocks.push({ type: "h2", text: line.slice(3).trim() }); i++; continue; }
     if (/^###\s/.test(line)) { flush(); blocks.push({ type: "h3", text: line.slice(4).trim() }); i++; continue; }
+    const img = line.match(/^!\[(.*)\]\(([^)]+)\)\s*$/);
+    if (img) { flush(); blocks.push({ type: "img", caption: img[1], src: img[2] }); i++; continue; }
     const ol = line.match(/^(\d+)\.\s+(.*)$/);
     if (ol) { flush(); blocks.push({ type: "li", ordinal: ol[1] + ".", text: ol[2] }); i++; continue; }
     if (/^[-*]\s+/.test(line)) { flush(); blocks.push({ type: "li", ordinal: null, text: line.replace(/^[-*]\s+/, "") }); i++; continue; }
@@ -84,6 +86,12 @@ function renderRuns(list, x, width, opts = {}) {
 }
 
 function ensure(h) { if (doc.y + h > BOTTOM) doc.addPage(); }
+
+// Read a PNG's pixel dimensions from its IHDR chunk (bytes 16–23).
+function pngSize(file) {
+  const b = fs.readFileSync(file);
+  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+}
 
 // ---------- COVER ----------
 doc.addPage();
@@ -157,6 +165,25 @@ for (const b of blocks) {
     doc.y = y0;
     renderRuns(runs(b.text), MARGIN + 24, CONTENT_W - 24, { y: y0, color: C.text });
     doc.moveDown(0.45);
+  } else if (b.type === "img") {
+    const file = path.join(REPO, "docs", b.src);
+    if (fs.existsSync(file)) {
+      const { w, h } = pngSize(file);
+      let iw = CONTENT_W, ih = (CONTENT_W * h) / w;
+      const MAXH = 360;
+      if (ih > MAXH) { ih = MAXH; iw = (MAXH * w) / h; }
+      const capH = b.caption ? 16 : 0;
+      if (doc.y + ih + capH + 10 > BOTTOM) doc.addPage();
+      const x = MARGIN + (CONTENT_W - iw) / 2;
+      const top = doc.y + 4;
+      doc.image(file, x, top, { width: iw, height: ih });
+      doc.lineWidth(0.5).strokeColor(C.rule).rect(x, top, iw, ih).stroke();
+      doc.y = top + ih + 3;
+      if (b.caption) {
+        doc.font("obl").fontSize(8.5).fillColor(C.muted).text(b.caption, MARGIN, doc.y, { width: CONTENT_W, align: "center" });
+      }
+      doc.moveDown(0.9);
+    }
   } else if (b.type === "code") {
     const lines = b.text.split("\n");
     doc.fontSize(9);
