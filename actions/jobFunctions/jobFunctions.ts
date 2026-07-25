@@ -3,7 +3,8 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
-import { create, remove, reorder } from "@/repository/jobFunctions";
+import { create, remove, reorder, updateHiddenSections } from "@/repository/jobFunctions";
+import { isProjectSectionKey } from "@/lib/projectSections";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -63,6 +64,27 @@ export async function deleteJobFunction(id: number) {
     const deleted = await remove(id);
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.deleted, data: deleted };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/**
+ * Set which project-detail sections are hidden from users holding this
+ * function. The incoming keys are filtered to known section keys server-side,
+ * so a tampered payload can't store arbitrary values.
+ */
+export async function setFunctionSections(id: number, hiddenSections: string[]) {
+  const roleCheck = await requireCapability("functions.manage");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const valid = Array.isArray(hiddenSections) ? [...new Set(hiddenSections.filter(isProjectSectionKey))] : [];
+    await updateHiddenSections(id, valid);
+    revalidatePath("/admin/settings/fonctions");
+    return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }

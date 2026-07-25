@@ -35,6 +35,16 @@ export async function remove(id: number) {
     }
 }
 
+/** Set the project-section keys hidden from users holding this function. */
+export async function updateHiddenSections(id: number, hiddenSections: string[]) {
+    try {
+        return await prisma.jobFunction.update({ where: { id }, data: { hiddenSections } });
+    } catch (error) {
+        console.log("Repository updateHiddenSections (jobFunction) error:", error);
+        throw { type: "error", message: "Database Error updating function sections." };
+    }
+}
+
 /** Persist a new order: each id's position becomes its index in the array. */
 export async function reorder(orderedIds: number[]) {
     try {

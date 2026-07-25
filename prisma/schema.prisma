@@ -443,6 +443,10 @@ model JobFunction {
   name      String   @unique
   // Manual display order, set by drag-and-drop on /fonctions.
   position  Int      @default(0)
+  // Project-detail section keys (see lib/projectSections.ts) HIDDEN from users
+  // who hold this function. Empty = hide nothing (see everything) — so a newly
+  // added section is visible by default until an admin hides it.
+  hiddenSections String[] @default([])
   createdAt DateTime @default(now())
   users     User[]
   contacts  Contact[]

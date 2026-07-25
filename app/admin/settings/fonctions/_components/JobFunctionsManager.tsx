@@ -19,11 +19,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
-import { Bars3Icon, TrashIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, TrashIcon, PlusIcon, EyeIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
-import { addJobFunction, deleteJobFunction, reorderJobFunctions } from "@/actions/jobFunctions/jobFunctions";
+import ModalShell from "@/components/ModalShell";
+import { addJobFunction, deleteJobFunction, reorderJobFunctions, setFunctionSections } from "@/actions/jobFunctions/jobFunctions";
+import { PROJECT_SECTION_KEYS, type ProjectSectionKey } from "@/lib/projectSections";
+import { projectSectionLabels } from "@/lib/projectSectionLabels";
 import type { JobFunctionActionState } from "@/types/jobFunction";
 import type { JobFunction } from "@/app/generated/prisma/client";
 
@@ -33,11 +36,17 @@ function SortableRow({
   fn,
   reorderLabel,
   deleteLabel,
+  configureLabel,
+  hiddenCount,
+  onConfigure,
   onDelete,
 }: {
   fn: JobFunction;
   reorderLabel: string;
   deleteLabel: string;
+  configureLabel: string;
+  hiddenCount: number;
+  onConfigure: () => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: fn.id });
@@ -60,6 +69,20 @@ function SortableRow({
         <Bars3Icon className="h-5 w-5" />
       </button>
       <span className="min-w-0 flex-1 truncate text-sm text-gray-900 dark:text-gray-100">{fn.name}</span>
+      <button
+        type="button"
+        onClick={onConfigure}
+        aria-label={configureLabel}
+        title={configureLabel}
+        className="relative shrink-0 cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-500/10 dark:text-gray-400"
+      >
+        <EyeIcon className="h-4 w-4" />
+        {hiddenCount > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-bold leading-none text-white">
+            {hiddenCount}
+          </span>
+        )}
+      </button>
       <button
         type="button"
         onClick={onDelete}
@@ -97,6 +120,45 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
   const [toDelete, setToDelete] = useState<JobFunction | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Per-function section visibility: which project sections a function's users
+  // may see. The modal edits the VISIBLE set; we persist the complement.
+  const sectionLabels = projectSectionLabels(t);
+  const [configuring, setConfiguring] = useState<JobFunction | null>(null);
+  const [visibleKeys, setVisibleKeys] = useState<Set<ProjectSectionKey>>(new Set());
+  const [configStatus, setConfigStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [configError, setConfigError] = useState("");
+
+  function openConfig(fn: JobFunction) {
+    const hidden = new Set(fn.hiddenSections as ProjectSectionKey[]);
+    setVisibleKeys(new Set(PROJECT_SECTION_KEYS.filter((k) => !hidden.has(k))));
+    setConfigStatus("idle");
+    setConfigError("");
+    setConfiguring(fn);
+  }
+
+  function toggleKey(key: ProjectSectionKey) {
+    setVisibleKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function saveConfig() {
+    if (!configuring) return;
+    setConfigStatus("saving");
+    const hidden = PROJECT_SECTION_KEYS.filter((k) => !visibleKeys.has(k));
+    const res = await setFunctionSections(configuring.id, hidden);
+    if (res.type === "success") {
+      setConfiguring(null);
+      router.refresh();
+    } else {
+      setConfigStatus("error");
+      setConfigError(res.message);
+    }
+  }
 
   useEffect(() => {
     if (state.type === "success") formRef.current?.reset();
@@ -189,6 +251,9 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
                     fn={fn}
                     reorderLabel={format(t.jobFunctions.reorderLabel, { name: fn.name })}
                     deleteLabel={format(t.jobFunctions.deleteLabel, { name: fn.name })}
+                    configureLabel={format(t.jobFunctions.sections.configureLabel, { name: fn.name })}
+                    hiddenCount={fn.hiddenSections.length}
+                    onConfigure={() => openConfig(fn)}
                     onDelete={() => setToDelete(fn)}
                   />
                 ))}
@@ -228,6 +293,55 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
           onConfirm={confirmDelete}
         />
       )}
+
+      <ModalShell
+        open={configuring !== null}
+        onClose={() => setConfiguring(null)}
+        title={t.jobFunctions.sections.title}
+      >
+        {configuring && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {format(t.jobFunctions.sections.subtitle, { name: configuring.name })}
+            </p>
+            <ul className="flex flex-col gap-1">
+              {PROJECT_SECTION_KEYS.map((key) => (
+                <li key={key}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-500/10">
+                    <input
+                      type="checkbox"
+                      checked={visibleKeys.has(key)}
+                      onChange={() => toggleKey(key)}
+                      className="h-4 w-4 accent-[var(--primary)]"
+                    />
+                    <span>{sectionLabels[key]}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            {configStatus === "error" && <p className="text-xs text-red-500">{configError || t.jobFunctions.sections.saveError}</p>}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfiguring(null)}
+                className="rounded bg-gray-100 px-4 py-2 font-bold text-gray-900 hover:bg-[#d1d5dc] dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+              >
+                {t.common.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={saveConfig}
+                disabled={configStatus === "saving"}
+                className={`rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer ${
+                  configStatus === "saving" ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              >
+                {configStatus === "saving" ? t.jobFunctions.sections.saving : t.common.save}
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalShell>
     </div>
   );
 }

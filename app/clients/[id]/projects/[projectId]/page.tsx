@@ -44,6 +44,7 @@ import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
+import { getHiddenSectionsForCurrentUser } from "@/lib/sectionVisibility";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
@@ -181,7 +182,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   // SUPERADMIN-configured display order of the collapsible sections below,
   // normalized so a partial/stale stored value is always safe.
   const appSettings = await getAppSettings();
-  const sectionOrder = normalizeSectionOrder(appSettings.projectSectionOrder);
+  // SUPERADMIN order, then drop any section the current user's job function
+  // hides (ADMIN+ are exempt and see them all).
+  const hiddenSections = await getHiddenSectionsForCurrentUser();
+  const sectionOrder = normalizeSectionOrder(appSettings.projectSectionOrder).filter(
+    (key) => !hiddenSections.has(key)
+  );
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">

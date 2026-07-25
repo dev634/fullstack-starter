@@ -640,11 +640,20 @@ const fr = {
         deleteLabel: "Supprimer {name}",
         deleteTitle: "Supprimer la fonction",
         deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
+        sections: {
+            configureLabel: "Configurer les sections visibles de {name}",
+            title: "Sections visibles",
+            subtitle: "Cochez les sections de la page projet visibles par les utilisateurs ayant la fonction « {name} ». Les administrateurs voient toujours tout.",
+            saving: "Enregistrement…",
+            saved: "Sections enregistrées.",
+            saveError: "Erreur lors de l'enregistrement des sections.",
+        },
         messages: {
             added: "Fonction ajoutée.",
             deleted: "Fonction supprimée.",
             duplicate: "Cette fonction existe déjà.",
             reordered: "Ordre mis à jour.",
+            sectionsSaved: "Sections mises à jour.",
         },
     },
     users: {

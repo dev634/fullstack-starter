@@ -23,6 +23,23 @@ export async function findAll() {
     }
 }
 
+/**
+ * The project-section keys hidden from a user, via their job function's
+ * `hiddenSections`. Empty when the user has no function (or it hides nothing).
+ */
+export async function findHiddenSectionsByEmail(email: string): Promise<string[]> {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email },
+            select: { jobFunction: { select: { hiddenSections: true } } },
+        });
+        return user?.jobFunction?.hiddenSections ?? [];
+    } catch (error) {
+        console.log("Repository findHiddenSectionsByEmail error:", error);
+        throw { type: "error", message: "Database Error fetching section visibility." };
+    }
+}
+
 export async function findById(id: number) {
     try {
         return await prisma.user.findUnique({ where: { id } });

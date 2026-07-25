@@ -642,11 +642,20 @@ const en: Dictionary = {
         deleteLabel: "Delete {name}",
         deleteTitle: "Delete the function",
         deleteText: "Delete “{name}”? This action is irreversible.",
+        sections: {
+            configureLabel: "Configure visible sections for {name}",
+            title: "Visible sections",
+            subtitle: "Check the project-page sections visible to users with the “{name}” function. Admins always see everything.",
+            saving: "Saving…",
+            saved: "Sections saved.",
+            saveError: "Error while saving the sections.",
+        },
         messages: {
             added: "Function added.",
             deleted: "Function deleted.",
             duplicate: "This function already exists.",
             reordered: "Order updated.",
+            sectionsSaved: "Sections updated.",
         },
     },
     users: {
