@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
-import { create, remove } from "@/repository/jobFunctions";
+import { create, remove, reorder } from "@/repository/jobFunctions";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -32,6 +32,23 @@ export async function addJobFunction(
       return { ...prevState, type: "error", message: t.jobFunctions.messages.duplicate };
     }
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Persist a drag-and-drop reorder of the functions (ADMIN+). */
+export async function reorderJobFunctions(orderedIds: number[]) {
+  const roleCheck = await requireRole("ADMIN");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    const ids = orderedIds.filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) return { type: "error" as const, message: t.errors.invalidId };
+    await reorder(ids);
+    revalidatePath("/fonctions");
+    return { type: "success" as const, message: t.jobFunctions.messages.reordered };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }
 }
 

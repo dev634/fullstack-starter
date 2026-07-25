@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 
-/** All job functions, alphabetically. */
+/** All job functions, in their manual (drag-and-drop) display order. */
 export async function findAll() {
     try {
-        return await prisma.jobFunction.findMany({ orderBy: { name: "asc" } });
+        return await prisma.jobFunction.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }] });
     } catch (error) {
         console.log("Repository findAll (jobFunction) error:", error);
         throw { type: "error", message: "Database Error fetching functions." };
@@ -13,7 +13,10 @@ export async function findAll() {
 
 export async function create(name: string) {
     try {
-        return await prisma.jobFunction.create({ data: { name } });
+        // New functions go to the end of the list.
+        const last = await prisma.jobFunction.findFirst({ orderBy: { position: "desc" }, select: { position: true } });
+        const position = (last?.position ?? -1) + 1;
+        return await prisma.jobFunction.create({ data: { name, position } });
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
             throw { type: "duplicate", message: "This function already exists." };
@@ -29,5 +32,17 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove (jobFunction) error:", error);
         throw { type: "error", message: "Database Error deleting function." };
+    }
+}
+
+/** Persist a new order: each id's position becomes its index in the array. */
+export async function reorder(orderedIds: number[]) {
+    try {
+        return await prisma.$transaction(
+            orderedIds.map((id, index) => prisma.jobFunction.update({ where: { id }, data: { position: index } }))
+        );
+    } catch (error) {
+        console.log("Repository reorder (jobFunction) error:", error);
+        throw { type: "error", message: "Database Error reordering functions." };
     }
 }

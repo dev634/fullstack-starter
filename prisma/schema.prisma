@@ -437,6 +437,8 @@ enum Role {
 model JobFunction {
   id        Int      @id @default(autoincrement())
   name      String   @unique
+  // Manual display order, set by drag-and-drop on /fonctions.
+  position  Int      @default(0)
   createdAt DateTime @default(now())
 }
 
