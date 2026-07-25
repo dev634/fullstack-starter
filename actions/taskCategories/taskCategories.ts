@@ -13,7 +13,7 @@ export async function addTaskCategory(
   prevState: TaskCategoryActionState,
   formData: FormData
 ): Promise<TaskCategoryActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -52,7 +52,7 @@ export async function addTaskCategory(
  * looking them up) so the caller can revalidate the right project page.
  */
 export async function deleteTaskCategory(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

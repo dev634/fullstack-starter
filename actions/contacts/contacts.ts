@@ -17,7 +17,7 @@ export async function addContact(
   prevState: ContactActionState,
   formData: FormData
 ): Promise<ContactActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -39,7 +39,7 @@ export async function editContact(
   prevState: ContactActionState,
   formData: FormData
 ): Promise<ContactActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -66,7 +66,7 @@ const PRIMARY_TRUE = /^(true|1|yes|oui)$/i;
  * the batch. Reuses the repository's primary-uniqueness handling.
  */
 export async function importContacts(formData: FormData): Promise<ImportResult> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
@@ -138,7 +138,7 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
 
 /** Bare action (called from a button, not a form) — makes a contact its client's primary. */
 export async function setPrimaryContact(id: number, clientId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -154,7 +154,7 @@ export async function setPrimaryContact(id: number, clientId: number) {
 
 /** Bare action — deletes a contact and revalidates the client detail page. */
 export async function deleteContact(id: number, clientId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

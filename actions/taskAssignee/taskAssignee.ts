@@ -24,7 +24,7 @@ export async function setAssignee(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

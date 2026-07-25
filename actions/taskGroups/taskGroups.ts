@@ -17,7 +17,7 @@ export async function setTaskGroupCategory(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -42,7 +42,7 @@ export async function setTaskGroupCategory(
  * the caller can revalidate the right project detail page.
  */
 export async function deleteTaskGroup(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

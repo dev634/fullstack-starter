@@ -13,7 +13,7 @@ export async function addMaterial(
   prevState: ProjectMaterialActionState,
   formData: FormData
 ): Promise<ProjectMaterialActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -61,7 +61,7 @@ export async function editMaterial(
   prevState: ProjectMaterialActionState,
   formData: FormData
 ): Promise<ProjectMaterialActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -110,7 +110,7 @@ export async function editMaterial(
  * right project detail page without an extra round trip.
  */
 export async function deleteMaterial(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

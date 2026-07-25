@@ -109,7 +109,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
   const project = result.data!;
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
+  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
   const [tasks, taskGroups, taskCategories, materials, interventions, subcontractorCompanies, interims] =
     await Promise.all([
       findByProject(pid),

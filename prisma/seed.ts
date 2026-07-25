@@ -79,6 +79,17 @@ async function main() {
       password: await bcrypt.hash("password123", 10),
     },
   });
+  const editor = await prisma.user.upsert({
+    where: { email: "editor@example.com" },
+    update: {},
+    create: {
+      email: "editor@example.com",
+      name: "Editor",
+      role: "EDITOR",
+      // Default dev password: "password123" — change it in real environments.
+      password: await bcrypt.hash("password123", 10),
+    },
+  });
   const viewer = await prisma.user.upsert({
     where: { email: "viewer@example.com" },
     update: {},
@@ -91,7 +102,7 @@ async function main() {
     },
   });
 
-  console.log({ alice, bob, superadmin, admin, viewer });
+  console.log({ alice, bob, superadmin, admin, editor, viewer });
 }
 
 main()

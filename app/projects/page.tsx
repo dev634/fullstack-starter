@@ -40,7 +40,7 @@ export default async function ProjectsPage({
   const { projects, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
+  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
   const locale = await getLocale();
   const t = getDictionary(locale);
 

@@ -13,7 +13,7 @@ export async function addIntervention(
   prevState: InterventionActionState,
   formData: FormData
 ): Promise<InterventionActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -55,7 +55,7 @@ export async function editIntervention(
   prevState: InterventionActionState,
   formData: FormData
 ): Promise<InterventionActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -103,7 +103,7 @@ export async function changeInterventionStatus(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -128,7 +128,7 @@ export async function changeInterventionStatus(
 }
 
 export async function deleteIntervention(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
