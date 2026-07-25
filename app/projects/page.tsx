@@ -1,6 +1,7 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
+import { blockClientFromApp } from "@/lib/portal";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
@@ -29,6 +30,7 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  await blockClientFromApp();
   const sp = await searchParams;
   const q = sp.q ?? "";
   const sortField: ProjectSortField = SORT_FIELDS.includes(sp.sort as ProjectSortField)

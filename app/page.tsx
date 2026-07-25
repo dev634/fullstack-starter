@@ -5,8 +5,10 @@ import StatusBadge from "@/components/StatusBadge";
 import { UsersIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
+import { blockClientFromApp } from "@/lib/portal";
 
 export default async function HomePage() {
+  await blockClientFromApp();
   const { total, byStatus, recent } = await getDashboardStats();
   const values: Record<string, number> = { total, ...byStatus };
   const t = getDictionary(await getLocale());
