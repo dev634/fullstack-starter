@@ -3,6 +3,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 
 export type ProjectFormValues = {
   name: string;
+  businessNumber: string;
   type: string;
   status: string;
   power: string;
@@ -41,6 +42,7 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
       <Input label={t.projects.fields.name} name="name" value={values.name} onChange={onChange} error={errors} fullWidth />
+      <Input label={t.projects.fields.businessNumber} name="businessNumber" value={values.businessNumber} onChange={onChange} error={errors} fullWidth />
 
       <div className="mb-7">
         <label htmlFor="type" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">{t.projects.fields.type}</label>

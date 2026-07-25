@@ -97,6 +97,8 @@ model Project {
   client         Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId       Int
   name           String
+  // Numéro d'affaire : référence métier libre du projet (nullable).
+  businessNumber String?
   type           ProjectType           @default(AUTRE)
   status         ProjectStatus         @default(ETUDE)
   // Puissance crête en kWc, budget en euros — nullable tant que non chiffrés.
