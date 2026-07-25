@@ -8,7 +8,7 @@ import { auth } from "@/lib/auth";
 
 const authMock = vi.mocked(auth);
 
-function sessionWithRole(role: "SUPERADMIN" | "ADMIN" | "VIEWER") {
+function sessionWithRole(role: "SUPERADMIN" | "ADMIN" | "EDITOR" | "VIEWER") {
   return { user: { email: `${role.toLowerCase()}@example.com`, role } } as never;
 }
 
@@ -49,6 +49,21 @@ describe("requireRole", () => {
     authMock.mockResolvedValue(sessionWithRole("SUPERADMIN"));
     const result = await requireRole("SUPERADMIN");
     expect(result.error).toBeNull();
+  });
+
+  it("rejects an EDITOR session for an ADMIN-gated action (EDITOR is below ADMIN)", async () => {
+    authMock.mockResolvedValue(sessionWithRole("EDITOR"));
+    const result = await requireRole("ADMIN");
+    expect(result.error).not.toBeNull();
+  });
+
+  it("admits an EDITOR session for an EDITOR-gated action, and outranks VIEWER", async () => {
+    authMock.mockResolvedValue(sessionWithRole("EDITOR"));
+    expect((await requireRole("EDITOR")).error).toBeNull();
+    authMock.mockResolvedValue(sessionWithRole("VIEWER"));
+    expect((await requireRole("EDITOR")).error).not.toBeNull();
+    authMock.mockResolvedValue(sessionWithRole("ADMIN"));
+    expect((await requireRole("EDITOR")).error).toBeNull();
   });
 });
 
