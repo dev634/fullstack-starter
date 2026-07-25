@@ -13,7 +13,7 @@ export async function addInterim(
   prevState: InterimActionState,
   formData: FormData
 ): Promise<InterimActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -52,7 +52,7 @@ export async function addInterim(
 }
 
 export async function deleteInterim(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

@@ -22,7 +22,8 @@ export type RoleCheckResult =
 
 // Higher rank outranks every role below it — SUPERADMIN can do anything an
 // ADMIN can, so requireRole("ADMIN") also admits a SUPERADMIN session.
-const ROLE_RANK = { SUPERADMIN: 3, ADMIN: 2, VIEWER: 1 } as const;
+// EDITOR sits between ADMIN and VIEWER.
+const ROLE_RANK = { SUPERADMIN: 4, ADMIN: 3, EDITOR: 2, VIEWER: 1 } as const;
 
 /**
  * Pure rank check, for page-level "show the edit UI" branching (session

@@ -426,7 +426,18 @@ model ProjectFile {
 enum Role {
   SUPERADMIN
   ADMIN
+  EDITOR
   VIEWER
+}
+
+// A configurable list of job functions / trades (manœuvre, électricien, chef de
+// chantier, …) managed by ADMIN/SUPERADMIN. A reference list, not tied to a
+// specific record yet — meant to become the source for the people "role"
+// fields (contacts, subcontractor personnel, intérimaires).
+model JobFunction {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
 }
 
 model User {

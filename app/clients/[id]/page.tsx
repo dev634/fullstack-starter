@@ -68,7 +68,7 @@ export default async function ClientPage({ params }: PageProps) {
     ? (data.website.startsWith("http") ? data.website : `https://${data.website}`)
     : null;
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
+  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
   const projects = await findByClient(clientId);
   const contacts = await findContactsByClient(clientId);
 

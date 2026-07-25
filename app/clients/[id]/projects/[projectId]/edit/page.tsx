@@ -16,7 +16,7 @@ type PageProps = {
 
 export default async function EditProjectPage({ params }: PageProps) {
     const session = await auth();
-    if (!hasMinRole(session?.user?.role, "ADMIN")) {
+    if (!hasMinRole(session?.user?.role, "EDITOR")) {
         redirect("/clients");
     }
 

@@ -19,7 +19,7 @@ export async function addFolder(
   prevState: ProjectFileActionState,
   formData: FormData
 ): Promise<ProjectFileActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -60,7 +60,7 @@ export async function uploadFile(
   prevState: ProjectFileActionState,
   formData: FormData
 ): Promise<ProjectFileActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -110,7 +110,7 @@ export async function uploadFile(
  * revalidate the right project detail page without an extra round trip.
  */
 export async function deleteFile(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -135,7 +135,7 @@ export async function deleteFile(id: number, clientId: number, projectId: number
 }
 
 export async function deleteFolder(id: number, clientId: number, projectId: number) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

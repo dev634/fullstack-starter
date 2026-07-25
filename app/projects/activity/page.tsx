@@ -17,7 +17,7 @@ type PageProps = {
 
 export default async function ProjectsActivityPage({ searchParams }: PageProps) {
   const session = await auth();
-  if (!hasMinRole(session?.user?.role, "ADMIN")) {
+  if (!hasMinRole(session?.user?.role, "EDITOR")) {
     redirect("/projects");
   }
 

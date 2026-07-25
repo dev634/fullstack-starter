@@ -15,7 +15,7 @@ export async function addTask(
   prevState: TaskActionState,
   formData: FormData
 ): Promise<TaskActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -63,7 +63,7 @@ export async function addTaskSeries(
   prevState: TaskActionState,
   formData: FormData
 ): Promise<TaskActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -116,7 +116,7 @@ export async function toggleTask(
   projectId: number,
   groupId?: number | null
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -140,7 +140,7 @@ export async function editTask(
   prevState: TaskActionState,
   formData: FormData
 ): Promise<TaskActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -184,7 +184,7 @@ export async function updateTaskQuantity(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -215,7 +215,7 @@ export async function setTaskCategory(
   clientId: number,
   projectId: number
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
@@ -240,7 +240,7 @@ export async function deleteTask(
   projectId: number,
   groupId?: number | null
 ) {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());

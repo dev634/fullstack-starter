@@ -12,7 +12,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 
 export default async function TrashPage() {
   const session = await auth();
-  if (!hasMinRole(session?.user?.role, "ADMIN")) {
+  if (!hasMinRole(session?.user?.role, "EDITOR")) {
     redirect("/clients");
   }
 

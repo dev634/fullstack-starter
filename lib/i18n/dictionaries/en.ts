@@ -40,6 +40,7 @@ const en: Dictionary = {
     nav: {
         clients: "Companies",
         projects: "Projects",
+        functions: "Functions",
         admin: "Admin",
         logout: "Log out",
         toggleMenu: "Toggle menu",
@@ -621,6 +622,21 @@ const en: Dictionary = {
             chooseFile: "Please choose a PDF file.",
             choosePhoto: "Please choose an image.",
             invalidId: "Invalid id.",
+        },
+    },
+    jobFunctions: {
+        title: "Functions",
+        subtitle: "Manage the list of job functions (labourer, electrician, site manager…) offered across the app.",
+        addPlaceholder: "New function",
+        add: "Add",
+        empty: "No function yet.",
+        deleteLabel: "Delete {name}",
+        deleteTitle: "Delete the function",
+        deleteText: "Delete “{name}”? This action is irreversible.",
+        messages: {
+            added: "Function added.",
+            deleted: "Function deleted.",
+            duplicate: "This function already exists.",
         },
     },
     appSettings: {

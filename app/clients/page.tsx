@@ -38,7 +38,7 @@ export default async function ClientsPage({
   const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
-  const canEdit = hasMinRole(session?.user?.role, "ADMIN");
+  const canEdit = hasMinRole(session?.user?.role, "EDITOR");
   const t = getDictionary(await getLocale());
 
   // Shared query string for the current search/sort (used by pager + export).

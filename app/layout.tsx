@@ -100,6 +100,9 @@ export default async function RootLayout({
             links={session ? [
               { href: "/clients", display: t.nav.clients },
               { href: "/projects", display: t.nav.projects },
+              ...(hasMinRole(session.user?.role, "ADMIN")
+                ? [{ href: "/fonctions", display: t.nav.functions }]
+                : []),
               ...(hasMinRole(session.user?.role, "SUPERADMIN")
                 ? [{ href: "/admin/settings", display: t.nav.admin }]
                 : []),

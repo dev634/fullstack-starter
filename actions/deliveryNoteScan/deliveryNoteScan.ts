@@ -22,7 +22,7 @@ export async function scanDeliveryNote(
   prevState: DeliveryNoteScanActionState,
   formData: FormData
 ): Promise<DeliveryNoteScanActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
@@ -50,7 +50,7 @@ export async function applyDeliveryNoteScan(
   prevState: ApplyDeliveryScanActionState,
   formData: FormData
 ): Promise<ApplyDeliveryScanActionState> {
-  const roleCheck = await requireRole("ADMIN");
+  const roleCheck = await requireRole("EDITOR");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
 
   const t = getDictionary(await getLocale());
