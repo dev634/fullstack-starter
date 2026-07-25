@@ -38,6 +38,7 @@ const fr = {
     nav: {
         clients: "Entreprises",
         projects: "Projets",
+        functions: "Fonctions",
         admin: "Administration",
         logout: "Déconnexion",
         toggleMenu: "Ouvrir/fermer le menu",
@@ -619,6 +620,21 @@ const fr = {
             chooseFile: "Merci de choisir un fichier PDF.",
             choosePhoto: "Merci de choisir une image.",
             invalidId: "Identifiant invalide.",
+        },
+    },
+    jobFunctions: {
+        title: "Fonctions",
+        subtitle: "Gérez la liste des fonctions (manœuvre, électricien, chef de chantier…) proposées dans l'application.",
+        addPlaceholder: "Nouvelle fonction",
+        add: "Ajouter",
+        empty: "Aucune fonction pour le moment.",
+        deleteLabel: "Supprimer {name}",
+        deleteTitle: "Supprimer la fonction",
+        deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
+        messages: {
+            added: "Fonction ajoutée.",
+            deleted: "Fonction supprimée.",
+            duplicate: "Cette fonction existe déjà.",
         },
     },
     appSettings: {
