@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "docs:pdf": "node scripts/build-docs-pdf.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
@@ -46,6 +47,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "pdfkit": "^0.19.1",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5",
