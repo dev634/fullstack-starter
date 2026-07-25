@@ -18,4 +18,19 @@ export const authConfig = {
     strategy: "jwt",
   },
   providers: [],
+  // Edge-safe (no DB/bcrypt): carry the role from the authorize() payload into
+  // the JWT and back onto the session. These MUST live here in the shared
+  // config — the proxy runs on `authConfig` alone, so without them
+  // `req.auth.user.role` is undefined in the proxy and the CLIENT-portal
+  // boundary can never fire (a client would then reach the whole app).
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) token.role = user.role;
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) session.user.role = token.role;
+      return session;
+    },
+  },
 } satisfies NextAuthConfig;

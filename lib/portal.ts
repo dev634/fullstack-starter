@@ -15,6 +15,17 @@ export type PortalContext = {
   projectIds: Set<number>;
 };
 
+/**
+ * Server-side belt-and-suspenders: bounce a CLIENT login out of a normal app
+ * page to the portal. The proxy is the primary boundary; this second layer runs
+ * inside the page render (where `auth()` always has the role) so a client can
+ * never see company/project data even if the proxy check ever regresses.
+ */
+export async function blockClientFromApp(): Promise<void> {
+  const session = await auth();
+  if (session?.user?.role === "CLIENT") redirect("/portail");
+}
+
 /** Resolve the portal scope for the current CLIENT session, or null. */
 export async function getPortalContext(): Promise<PortalContext | null> {
   const session = await auth();

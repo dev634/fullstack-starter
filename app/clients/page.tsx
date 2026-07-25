@@ -3,6 +3,7 @@ import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
+import { blockClientFromApp } from "@/lib/portal";
 import ClientsGrid from "./_components/ClientsGrid";
 import ClientsToolbar from "./_components/ClientsToolbar";
 import ClientsActionsMenu from "./_components/ClientsActionsMenu";
@@ -27,6 +28,7 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  await blockClientFromApp();
   const sp = await searchParams;
   const q = sp.q ?? "";
   const sortField: ClientSortField = SORT_FIELDS.includes(sp.sort as ClientSortField)
