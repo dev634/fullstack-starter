@@ -8,7 +8,7 @@ import ProjectsToolbar from "./_components/ProjectsToolbar";
 import ProjectCardActions from "./_components/ProjectCardActions";
 import ProjectsActionsMenu from "./_components/ProjectsActionsMenu";
 import Link from "next/link";
-import { UserIcon, BoltIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon } from "@heroicons/react/24/outline";
+import { UserIcon, BoltIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, TrashIcon, ClockIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -106,6 +106,15 @@ export default async function ProjectsPage({
               >
                 <ClockIcon className="h-4 w-4" />
                 {t.projects.list.activity}
+              </Link>
+            )}
+            {canEdit && (
+              <Link
+                href="/projects/add"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-primary px-4 py-2 text-sm text-white no-underline hover:bg-primary/90"
+              >
+                <PlusIcon className="h-4 w-4" />
+                {t.projects.addTitle}
               </Link>
             )}
           </div>

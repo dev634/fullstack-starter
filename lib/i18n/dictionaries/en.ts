@@ -249,6 +249,8 @@ const en: Dictionary = {
         addTitle: "Add a project",
         addFor: "For {name}",
         addSubmit: "Add project",
+        clientLabel: "Company",
+        clientPlaceholder: "Choose a company…",
         editSubmit: "Save changes",
         detail: {
             title: "Project detail",
