@@ -5,6 +5,7 @@ import { requireCapability } from "@/lib/access";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
 import { create, update, setPrimary, remove } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
+import { findAll as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -86,6 +87,12 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
   const errors: ImportRowError[] = [];
   const touchedClientIds = new Set<number>();
 
+  // Resolve the free-text "Role"/"Fonction" column to a managed job function
+  // by name (case-insensitive). Unknown names are left empty rather than
+  // creating new functions — the managed list stays the single source of truth.
+  const jobFunctions = await findAllJobFunctions();
+  const fnIdByName = new Map(jobFunctions.map((f) => [f.name.trim().toLowerCase(), f.id]));
+
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
     const rowNumber = i + 2; // +1 for 0-index, +1 for the header row
@@ -101,7 +108,7 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
         clientId: org.id,
         firstName: (record["First name"] ?? "").trim(),
         lastName: (record["Last name"] ?? "").trim(),
-        role: (record["Role"] ?? "").trim() || undefined,
+        jobFunctionId: fnIdByName.get((record["Role"] ?? "").trim().toLowerCase()) ?? undefined,
         email: (record["Email"] ?? "").trim() || undefined,
         phone: (record["Phone"] ?? "").trim() || undefined,
       });

@@ -48,7 +48,13 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
 
   try {
     const password = await bcrypt.hash(parsed.data.password, 10);
-    const user = await create({ email: parsed.data.email, name: parsed.data.name ?? null, role: parsed.data.role, password });
+    const user = await create({
+      email: parsed.data.email,
+      name: parsed.data.name ?? null,
+      role: parsed.data.role,
+      jobFunctionId: parsed.data.jobFunctionId ?? null,
+      password,
+    });
     revalidatePath("/admin/settings/utilisateurs");
     return { ...prevState, type: "success", message: t.users.messages.added, data: user };
   } catch (error) {
@@ -83,7 +89,11 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       return { ...prevState, type: "error", message: t.users.messages.lastSuperadmin };
     }
 
-    const user = await updateProfile(target.id, { name: parsed.data.name ?? null, role: parsed.data.role });
+    const user = await updateProfile(target.id, {
+      name: parsed.data.name ?? null,
+      role: parsed.data.role,
+      jobFunctionId: parsed.data.jobFunctionId ?? null,
+    });
     if (parsed.data.password) {
       await updatePassword(target.id, await bcrypt.hash(parsed.data.password, 10));
     }

@@ -1,11 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 
-/** All app users (without password hashes), for the management screen. */
+/** All app users (without password hashes), for the management screen.
+ * Includes each user's job function (id + name) for display + edit. */
 export async function findAll() {
     try {
         return await prisma.user.findMany({
-            select: { id: true, email: true, name: true, role: true, createdAt: true },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true,
+                jobFunctionId: true,
+                jobFunction: { select: { name: true } },
+            },
             orderBy: { createdAt: "asc" },
         });
     } catch (error) {
@@ -23,11 +32,25 @@ export async function findById(id: number) {
     }
 }
 
-export async function create(data: { email: string; name: string | null; role: Role; password: string }) {
+export async function create(data: {
+    email: string;
+    name: string | null;
+    role: Role;
+    password: string;
+    jobFunctionId?: number | null;
+}) {
     try {
         return await prisma.user.create({
-            data,
-            select: { id: true, email: true, name: true, role: true, createdAt: true },
+            data: { ...data, jobFunctionId: data.jobFunctionId ?? null },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true,
+                jobFunctionId: true,
+                jobFunction: { select: { name: true } },
+            },
         });
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -38,12 +61,23 @@ export async function create(data: { email: string; name: string | null; role: R
     }
 }
 
-export async function updateProfile(id: number, data: { name: string | null; role: Role }) {
+export async function updateProfile(
+    id: number,
+    data: { name: string | null; role: Role; jobFunctionId?: number | null }
+) {
     try {
         return await prisma.user.update({
             where: { id },
-            data,
-            select: { id: true, email: true, name: true, role: true, createdAt: true },
+            data: { ...data, jobFunctionId: data.jobFunctionId ?? null },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true,
+                jobFunctionId: true,
+                jobFunction: { select: { name: true } },
+            },
         });
     } catch (error) {
         console.log("Repository updateProfile (user) error:", error);

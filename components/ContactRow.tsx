@@ -5,22 +5,28 @@ import { format } from "@/lib/i18n/format";
 import { useRowAction } from "@/lib/useRowAction";
 import { deleteContact, setPrimaryContact } from "@/actions/contacts/contacts";
 import EditContactForm from "@/forms/EditContactForm";
+import type { JobFunctionOption } from "@/forms/ContactFields";
 import type { Contact } from "@/app/generated/prisma/client";
+
+// The contact list joins in the (optional) job function name for display.
+type ContactWithFunction = Contact & { jobFunction: { name: string } | null };
 
 export default function ContactRow({
   contact,
   clientId,
   canEdit,
+  functions,
 }: {
-  contact: Contact;
+  contact: ContactWithFunction;
   clientId: number;
   canEdit: boolean;
+  functions: JobFunctionOption[];
 }) {
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
 
   const fullName = `${contact.firstName} ${contact.lastName}`.trim();
-  const secondary = [contact.role, contact.email, contact.phone].filter(Boolean).join(" · ");
+  const secondary = [contact.jobFunction?.name, contact.email, contact.phone].filter(Boolean).join(" · ");
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
@@ -56,9 +62,10 @@ export default function ContactRow({
               lastName: contact.lastName,
               email: contact.email,
               phone: contact.phone,
-              role: contact.role,
+              jobFunctionId: contact.jobFunctionId,
             }}
             clientId={clientId}
+            functions={functions}
           />
           <button
             type="button"

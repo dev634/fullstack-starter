@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { UserPlusIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
-import ContactFields from "@/forms/ContactFields";
+import ContactFields, { type JobFunctionOption } from "@/forms/ContactFields";
 import type { ContactActionState } from "@/types/contact";
 
 const initialState: ContactActionState = {
@@ -12,7 +12,7 @@ const initialState: ContactActionState = {
   message: "",
 };
 
-export default function AddContactForm({ clientId }: { clientId: number }) {
+export default function AddContactForm({ clientId, functions }: { clientId: number; functions: JobFunctionOption[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<ContactActionState, FormData>(addContact, initialState);
@@ -42,7 +42,7 @@ export default function AddContactForm({ clientId }: { clientId: number }) {
       <ModalShell open={open} onClose={() => setOpen(false)} title={t.contacts.addToggle}>
         <form ref={formRef} action={formAction} className="flex flex-col gap-3">
           <input type="hidden" name="clientId" value={clientId} />
-          <ContactFields t={t} state={state} autoFocus />
+          <ContactFields t={t} state={state} functions={functions} autoFocus />
           <div className="flex justify-end gap-3">
             <button
               type="button"

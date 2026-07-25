@@ -5,7 +5,7 @@ import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import ModalShell from "@/components/ModalShell";
-import ContactFields from "@/forms/ContactFields";
+import ContactFields, { type JobFunctionOption } from "@/forms/ContactFields";
 import type { ContactActionState } from "@/types/contact";
 
 const initialState: ContactActionState = {
@@ -19,10 +19,18 @@ export type EditableContact = {
   lastName: string;
   email: string | null;
   phone: string | null;
-  role: string | null;
+  jobFunctionId: number | null;
 };
 
-export default function EditContactForm({ contact, clientId }: { contact: EditableContact; clientId: number }) {
+export default function EditContactForm({
+  contact,
+  clientId,
+  functions,
+}: {
+  contact: EditableContact;
+  clientId: number;
+  functions: JobFunctionOption[];
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<ContactActionState, FormData>(editContact, initialState);
@@ -50,7 +58,7 @@ export default function EditContactForm({ contact, clientId }: { contact: Editab
         <form action={formAction} className="flex flex-col gap-3">
           <input type="hidden" name="id" value={contact.id} />
           <input type="hidden" name="clientId" value={clientId} />
-          <ContactFields t={t} state={state} defaults={contact} />
+          <ContactFields t={t} state={state} functions={functions} defaults={contact} />
           <div className="flex justify-end gap-3">
             <button
               type="button"

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { can } from "@/lib/access";
 import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
+import { findAll as findJobFunctions } from '@/repository/jobFunctions';
 import ContactRow from '@/components/ContactRow';
 import CollapsibleSection from '@/components/CollapsibleSection';
 import AddContactForm from '@/forms/AddContactForm';
@@ -71,6 +72,8 @@ export default async function ClientPage({ params }: PageProps) {
   const canEdit = (await can(session?.user?.role, "content.edit"));
   const projects = await findByClient(clientId);
   const contacts = await findContactsByClient(clientId);
+  // Managed job functions offered in the contact add/edit dropdowns.
+  const jobFunctions = canEdit ? await findJobFunctions() : [];
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -163,12 +166,12 @@ export default async function ClientPage({ params }: PageProps) {
           icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
           title={t.contacts.heading}
           badge={contacts.length > 0 ? `(${contacts.length})` : undefined}
-          headerExtra={canEdit && <AddContactForm clientId={clientId} />}
+          headerExtra={canEdit && <AddContactForm clientId={clientId} functions={jobFunctions} />}
         >
         {contacts.length ? (
           <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} />
+              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} functions={jobFunctions} />
             ))}
           </ul>
         ) : (
