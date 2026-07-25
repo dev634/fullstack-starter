@@ -1,4 +1,5 @@
 import { getProject } from "@/actions/projects/projects";
+import { blockClientFromApp } from "@/lib/portal";
 import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
@@ -24,6 +25,7 @@ type PageProps = {
 };
 
 export default async function ProjectDashboardPage({ params }: PageProps) {
+  await blockClientFromApp();
   const { id, projectId } = await params;
   const clientId = parseInt(id, 10);
   const pid = parseInt(projectId, 10);

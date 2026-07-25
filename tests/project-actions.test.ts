@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/authz", () => ({
-  requireSession: vi.fn(),
   requireRole: vi.fn(),
 }));
 vi.mock("@/repository/projects", () => ({
@@ -21,11 +20,10 @@ vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue(
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addProject, updateProject, deleteProject, getProjectsForClient } from "@/actions/projects/projects";
-import { requireSession, requireRole } from "@/lib/authz";
+import { requireRole } from "@/lib/authz";
 import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
 import { createDefaults } from "@/repository/projectFolders";
 
-const requireSessionMock = vi.mocked(requireSession);
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
@@ -132,15 +130,15 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
-  it("getProjectsForClient refuses without a session", async () => {
-    requireSessionMock.mockResolvedValue({ type: "error", message: "Unauthorized." });
+  it("getProjectsForClient refuses a session below VIEWER", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await getProjectsForClient(1);
     expect(res.type).toBe("error");
     expect(findByClientMock).not.toHaveBeenCalled();
   });
 
-  it("getProjectsForClient returns projects for any authenticated session", async () => {
-    requireSessionMock.mockResolvedValue(null);
+  it("getProjectsForClient returns projects for a VIEWER-or-above session", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "viewer@example.com" });
     findByClientMock.mockResolvedValue([{ id: 1, name: "Toiture" }] as never);
     const res = await getProjectsForClient(1);
     expect(res.type).toBe("success");

@@ -3,7 +3,7 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
-import { requireSession } from "@/lib/authz";
+import { requireRole } from "@/lib/authz";
 import { requireCapability } from "@/lib/access";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
@@ -67,8 +67,8 @@ export async function addClient(
 }
 
 export async function getClient(id: number) {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("VIEWER");
+  if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
