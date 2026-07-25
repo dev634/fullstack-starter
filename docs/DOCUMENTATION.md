@@ -164,6 +164,8 @@ Une liste de **fonctions** (manœuvre, électricien, chef de chantier…) est g�
 
 Pour chaque fonction, un administrateur peut choisir **quelles sections de la page projet** sont visibles par les utilisateurs qui la portent (Tâches, Matériel, Réserves, Interventions, Sous-traitants, Intérimaires, Fichiers). Les administrateurs voient toujours toutes les sections.
 
+![Configuration des sections visibles pour une fonction.](screenshots/admin-sections-visibility.png)
+
 # Utilisation
 
 ## Connexion et mot de passe
@@ -193,12 +195,20 @@ La rubrique **Entreprises** liste les sociétés clientes.
 - **Corbeille** : la suppression place l'entreprise en corbeille (restaurable) ; la suppression définitive est irréversible.
 - **Activité** : un journal trace les créations, modifications et suppressions.
 
+![Le formulaire de création d'une entreprise.](screenshots/company-add.png)
+
+![La fiche d'une entreprise, avec ses contacts.](screenshots/client-detail.png)
+
+![L'import CSV : mêmes colonnes que l'export.](screenshots/import.png)
+
 ## Projets
 
 Chaque entreprise possède des **projets**. Un projet comporte :
 
 - un **nom**, un **numéro d'affaire**, un **type** (centrale au sol, ombrière, toiture, autre) et un **statut** (étude, signé, en cours, raccordement, terminé, annulé) ;
 - des informations : **puissance** (kWc), **budget** (€), **adresse du chantier**, **dates** de début et de fin, **notes**.
+
+![Le formulaire de création d'un projet.](screenshots/project-add.png)
 
 La page d'un projet est organisée en **sections dépliables**, dont l'ordre est configurable par un Super administrateur (Administration → Ordre des sections) :
 
@@ -214,6 +224,8 @@ Un **tableau de bord projet** synthétise l'avancement, et un bouton **« Géné
 
 ![La page d'un projet : en-tête, avancement et sections dépliables (tâches, matériel, réserves…).](screenshots/project.png)
 
+![Le tableau de bord d'un projet : avancement global, par catégorie et détaillé.](screenshots/project-dashboard.png)
+
 ## Tâches
 
 La section Tâches gère l'avancement du chantier :
@@ -223,6 +235,8 @@ La section Tâches gère l'avancement du chantier :
 - **Catégories** et **groupes** pour organiser les tâches.
 - **Assignation** : une tâche, une série ou une catégorie peut être confiée soit à un **sous-traitant**, soit à un **intérimaire** (exclusivement l'un ou l'autre).
 - **Matériel lié** : un matériau peut être rattaché à une tâche/série/catégorie, avec une quantité requise qui pilote l'indicateur de stock (rouge / orange / vert).
+
+![La section Tâches d'un projet, avec l'avancement.](screenshots/project-tasks.png)
 
 ## Réserves (snagging)
 
@@ -254,9 +268,15 @@ Depuis la fiche d'un contact (page d'une entreprise) :
 2. Cliquer sur **« Créer un accès portail »**. L'application crée un compte de connexion (rôle CLIENT) rattaché au contact et génère un **lien à usage unique** (valable 24 h).
 3. **Transmettre ce lien** au contact pour qu'il définisse son mot de passe.
 
+![Sur la fiche d'un contact : projets accessibles et création de l'accès portail.](screenshots/contact-portal.png)
+
 ## Côté client
 
 Une fois connecté, le contact arrive sur **`/portail`** et ne voit que **ses projets liés**. Il peut ouvrir chaque projet pour en consulter l'identité, l'avancement et les réserves. Toute tentative d'accès à une autre page le renvoie au portail. Les informations sensibles (budget, notes internes) ne lui sont pas montrées.
+
+![Le portail client : uniquement les projets rattachés au contact.](screenshots/portal.png)
+
+![La vue projet côté client (consultation).](screenshots/portal-project.png)
 
 *Note* : dans la version actuelle, le portail est en **consultation** ; les contributions du client (dépôt de fichier, commentaire…) constituent une évolution prévue, activable par la matrice des accès.
 
@@ -271,6 +291,10 @@ Accessible via **Administration** dans la barre de navigation (selon les droits)
 - **Rôles & accès** *(Super admin)* — la matrice capacité → rôle minimum décrite plus haut.
 
 ![La gestion des utilisateurs : rôle, fonction et garde-fous de privilèges.](screenshots/admin-users.png)
+
+![L'onglet Thème : nom, logo et couleurs de l'application, avec aperçu.](screenshots/admin-theme.png)
+
+![L'onglet Ordre des sections : glisser-déposer pour réordonner.](screenshots/admin-sections.png)
 
 # Internationalisation
 
