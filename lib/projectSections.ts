@@ -4,6 +4,7 @@
 // the key list here so adding a new section is a one-line change.
 
 export const PROJECT_SECTION_KEYS = [
+  "info",
   "tasks",
   "materials",
   "interventions",

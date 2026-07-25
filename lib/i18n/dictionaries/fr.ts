@@ -258,6 +258,8 @@ const fr = {
             address: "Adresse",
             dates: "Dates",
             notes: "Notes",
+            infoHeading: "Informations",
+            noInfo: "Aucune information renseignée pour ce projet.",
             tasksHeading: "Tâches",
             noTasks: "Aucune tâche pour ce projet.",
             materialsHeading: "Matériel",

@@ -260,6 +260,8 @@ const en: Dictionary = {
             address: "Address",
             dates: "Dates",
             notes: "Notes",
+            infoHeading: "Information",
+            noInfo: "No information filled in for this project.",
             tasksHeading: "Tasks",
             noTasks: "No tasks for this project.",
             materialsHeading: "Materials",

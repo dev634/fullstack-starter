@@ -8,6 +8,7 @@ import type { ProjectSectionKey } from "@/lib/projectSections";
  */
 export function projectSectionLabels(t: Dictionary): Record<ProjectSectionKey, string> {
   return {
+    info: t.projects.detail.infoHeading,
     tasks: t.projects.detail.tasksHeading,
     materials: t.projects.detail.materialsHeading,
     interventions: t.projects.detail.interventionsHeading,

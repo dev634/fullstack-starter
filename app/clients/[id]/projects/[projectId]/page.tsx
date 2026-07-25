@@ -64,6 +64,7 @@ import {
   WrenchScrewdriverIcon,
   BuildingOfficeIcon,
   UsersIcon,
+  InformationCircleIcon,
 } from "@heroicons/react/24/outline";
 
 type PageProps = {
@@ -204,47 +205,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </div>
           </div>
 
-          <dl className="px-4 py-2 sm:px-6">
-            {project.power != null && (
-              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-                <BoltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.power}</dt>
-                <dd className="min-w-0 text-sm">{project.power} kWc</dd>
-              </div>
-            )}
-            {project.budget != null && (
-              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-                <CurrencyEuroIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.budget}</dt>
-                <dd className="min-w-0 text-sm">{project.budget.toLocaleString(localeTag(locale))} €</dd>
-              </div>
-            )}
-            {project.address && (
-              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-                <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.address}</dt>
-                <dd className="min-w-0 break-words text-sm">{project.address}</dd>
-              </div>
-            )}
-            {(project.startDate || project.endDate) && (
-              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-                <CalendarIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.dates}</dt>
-                <dd className="min-w-0 text-sm">
-                  {project.startDate ? new Date(project.startDate).toLocaleDateString(localeTag(locale)) : "—"}
-                  {" → "}
-                  {project.endDate ? new Date(project.endDate).toLocaleDateString(localeTag(locale)) : "—"}
-                </dd>
-              </div>
-            )}
-            {project.notes && (
-              <div className="flex items-start gap-3 py-3">
-                <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.notes}</dt>
-                <dd className="min-w-0 whitespace-pre-wrap break-words text-sm">{project.notes}</dd>
-              </div>
-            )}
-          </dl>
-
           <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 px-4 py-4 sm:px-6">
             {canEdit && (
               <Link
@@ -307,7 +267,65 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             lib/projectSections.ts), then each is wrapped once in the shared
             card chrome and rendered in that order. */}
         {(() => {
+        const hasInfo =
+          project.power != null ||
+          project.budget != null ||
+          !!project.address ||
+          !!project.startDate ||
+          !!project.endDate ||
+          !!project.notes;
         const sectionContent: Record<ProjectSectionKey, ReactNode> = {
+        info: (
+          <CollapsibleSection
+            icon={<InformationCircleIcon className="h-5 w-5 text-blue-500" />}
+            title={t.projects.detail.infoHeading}
+          >
+          {hasInfo ? (
+            <dl className="px-4 py-2 sm:px-6">
+              {project.power != null && (
+                <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                  <BoltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.power}</dt>
+                  <dd className="min-w-0 text-sm">{project.power} kWc</dd>
+                </div>
+              )}
+              {project.budget != null && (
+                <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                  <CurrencyEuroIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.budget}</dt>
+                  <dd className="min-w-0 text-sm">{project.budget.toLocaleString(localeTag(locale))} €</dd>
+                </div>
+              )}
+              {project.address && (
+                <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                  <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.address}</dt>
+                  <dd className="min-w-0 break-words text-sm">{project.address}</dd>
+                </div>
+              )}
+              {(project.startDate || project.endDate) && (
+                <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                  <CalendarIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                  <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.dates}</dt>
+                  <dd className="min-w-0 text-sm">
+                    {project.startDate ? new Date(project.startDate).toLocaleDateString(localeTag(locale)) : "—"}
+                    {" → "}
+                    {project.endDate ? new Date(project.endDate).toLocaleDateString(localeTag(locale)) : "—"}
+                  </dd>
+                </div>
+              )}
+              {project.notes && (
+                <div className="flex items-start gap-3 py-3">
+                  <dt className="w-24 shrink-0 text-sm text-gray-500 dark:text-gray-400">{t.projects.detail.notes}</dt>
+                  <dd className="min-w-0 whitespace-pre-wrap break-words text-sm">{project.notes}</dd>
+                </div>
+              )}
+            </dl>
+          ) : (
+            <p className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400 sm:px-6">{t.projects.detail.noInfo}</p>
+          )}
+          </CollapsibleSection>
+        ),
         tasks: (
           <CollapsibleSection
             icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
