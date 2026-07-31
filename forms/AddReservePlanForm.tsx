@@ -11,7 +11,15 @@ const initialState: ReservePlanActionState = {
   message: "",
 };
 
-export default function AddReservePlanForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+export default function AddReservePlanForm({
+  clientId,
+  projectId,
+  folders,
+}: {
+  clientId: number;
+  projectId: number;
+  folders: { id: number; name: string }[];
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<ReservePlanActionState, FormData>(addReservePlan, initialState);
@@ -60,6 +68,14 @@ export default function AddReservePlanForm({ clientId, projectId }: { clientId: 
             aria-label={t.reserves.planNamePlaceholder}
             className={inputClass}
           />
+          {folders.length > 0 && (
+            <select name="folderId" defaultValue="" aria-label={t.reserves.folderLabel} className={inputClass}>
+              <option value="">{t.reserves.noFolder}</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          )}
           {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
           <div className="flex justify-end gap-3">
             <button
