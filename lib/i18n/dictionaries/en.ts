@@ -648,6 +648,17 @@ const en: Dictionary = {
         deleteFolder: "Delete folder “{name}”",
         deleteFolderText: "Delete folder “{name}”? Its plans move back to the root (not deleted).",
         moveToFolderLabel: "Move to",
+        exportPdf: "Export as PDF",
+        report: {
+            title: "Snag report",
+            generatedOn: "Issued on",
+            total: "Total",
+            summaryOpen: "Open",
+            summaryResolved: "Resolved",
+            noReserves: "No réserve on this plan.",
+            planUnavailable: "The plan could not be loaded.",
+            page: "Page {current} / {total}",
+        },
         messages: {
             planAdded: "Plan added.",
             planDeleted: "Plan deleted.",

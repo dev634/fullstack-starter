@@ -30,7 +30,10 @@ export default function CollapsibleSection({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          // A floor (not min-w-0) so the title can never be squeezed to nothing
+          // by its own header actions: once they no longer fit beside it, the
+          // row's flex-wrap pushes them onto their own line instead.
+          className="flex min-w-[8rem] flex-1 cursor-pointer items-center gap-2 text-left"
         >
           {open ? (
             <ChevronDownIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />

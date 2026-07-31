@@ -57,6 +57,7 @@ import {
   CalendarIcon,
   PencilSquareIcon,
   ArrowLeftIcon,
+  ArrowDownTrayIcon,
   ClipboardDocumentListIcon,
   CubeIcon,
   FolderIcon,
@@ -543,7 +544,27 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
             title={t.reserves.heading}
             badge={reservePlans.length > 0 ? `(${reservePlans.length})` : undefined}
-            headerExtra={canEdit && <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />}
+            headerExtra={
+              // Siblings, not a wrapper div: the header is a flex-wrap row, so
+              // each button must be its own item or they'd stay glued together
+              // and squeeze the section title off-screen on mobile.
+              <>
+                {/* Export is read-only: anyone who can open the project may
+                    download what the section already shows them. */}
+                {reservePlans.length > 0 && (
+                  <a
+                    href={`/clients/${clientId}/projects/${pid}/reserves/report`}
+                    className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
+                  >
+                    <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                    {t.reserves.exportPdf}
+                  </a>
+                )}
+                {canEdit && (
+                  <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
+                )}
+              </>
+            }
           >
             <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} folders={reserveFolders} canEdit={canEdit} />
           </CollapsibleSection>
