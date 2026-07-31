@@ -646,6 +646,17 @@ const fr = {
         deleteFolder: "Supprimer le dossier « {name} »",
         deleteFolderText: "Supprimer le dossier « {name} » ? Ses plans seront remis à la racine (non supprimés).",
         moveToFolderLabel: "Déplacer vers",
+        exportPdf: "Exporter en PDF",
+        report: {
+            title: "Rapport de réserves",
+            generatedOn: "Édité le",
+            total: "Total",
+            summaryOpen: "Ouvertes",
+            summaryResolved: "Levées",
+            noReserves: "Aucune réserve sur ce plan.",
+            planUnavailable: "Le plan n'a pas pu être chargé.",
+            page: "Page {current} / {total}",
+        },
         messages: {
             planAdded: "Plan ajouté.",
             planDeleted: "Plan supprimé.",
