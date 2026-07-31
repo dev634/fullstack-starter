@@ -9,6 +9,7 @@ import { findByProject as findInterimsByProject } from "@/repository/interims";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
+import { findByProject as findReserveFoldersByProject } from "@/repository/reservePlanFolders";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import Title from "@/components/Title";
@@ -175,11 +176,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     interims: interims.map((i) => ({ id: i.id, name: i.name })),
   };
 
-  const [subfolders, files, breadcrumb, reservePlans] = await Promise.all([
+  const [subfolders, files, breadcrumb, reservePlans, reserveFolders] = await Promise.all([
     findChildFolders(pid, currentFolderId),
     findFilesByFolder(pid, currentFolderId),
     getBreadcrumb(currentFolderId),
     findReservePlansByProject(pid),
+    findReserveFoldersByProject(pid),
   ]);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
@@ -541,9 +543,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
             title={t.reserves.heading}
             badge={reservePlans.length > 0 ? `(${reservePlans.length})` : undefined}
-            headerExtra={canEdit && <AddReservePlanForm clientId={clientId} projectId={pid} />}
+            headerExtra={canEdit && <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />}
           >
-            <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} canEdit={canEdit} />
+            <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} folders={reserveFolders} canEdit={canEdit} />
           </CollapsibleSection>
         ),
         };

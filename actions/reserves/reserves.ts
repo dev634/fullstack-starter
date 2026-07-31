@@ -4,7 +4,8 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
 import { create as createReserve, update as updateReserveRow, remove as removeReserve } from "@/repository/reserves";
-import { create as createPlan, findById as findPlanById, remove as removePlan } from "@/repository/reservePlans";
+import { create as createPlan, findById as findPlanById, remove as removePlan, setFolder as setPlanFolder } from "@/repository/reservePlans";
+import { create as createFolder, remove as removeFolder } from "@/repository/reservePlanFolders";
 import { create as createPhoto, findById as findPhotoById, remove as removePhoto } from "@/repository/reservePhotos";
 import { uploadReservePlan, destroyReservePlan, uploadReservePhoto, destroyReservePhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
@@ -37,14 +38,68 @@ export async function addReservePlan(
     return { ...prevState, type: "error", message: t.reserves.messages.chooseFile };
   }
 
+  const rawFolderId = Number(formData.get("folderId"));
+  const folderId = Number.isInteger(rawFolderId) && rawFolderId > 0 ? rawFolderId : null;
+
   try {
     const { url, publicId } = await uploadReservePlan(file, projectId);
     const name = rawName || file.name.replace(/\.pdf$/i, "") || "Plan";
-    const plan = await createPlan({ projectId, name, url, publicId });
+    const plan = await createPlan({ projectId, name, url, publicId, folderId });
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.planAdded, data: plan };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Create a folder to organise a project's reserve plans (content.edit). */
+export async function addReserveFolder(name: string, clientId: number, projectId: number) {
+  const roleCheck = await requireCapability("content.edit");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    const trimmed = (name ?? "").trim();
+    if (!trimmed) return { type: "error" as const, message: t.errors.validationError };
+    if (!Number.isInteger(projectId) || projectId <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const folder = await createFolder({ projectId, name: trimmed });
+    revalidatePath(projectPath(clientId, projectId));
+    return { type: "success" as const, message: t.reserves.messages.folderAdded, data: folder };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Delete a folder; its plans fall back to the project root (content.edit). */
+export async function deleteReserveFolder(id: number, clientId: number, projectId: number) {
+  const roleCheck = await requireCapability("content.edit");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    if (!Number.isInteger(projectId) || projectId <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const folder = await removeFolder(id, projectId);
+    revalidatePath(projectPath(clientId, projectId));
+    return { type: "success" as const, message: t.reserves.messages.folderDeleted, data: folder };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/** Move a plan into a folder (or back to the root when folderId is null). */
+export async function moveReservePlan(planId: number, folderId: number | null, clientId: number, projectId: number) {
+  const roleCheck = await requireCapability("content.edit");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (!Number.isInteger(planId) || planId <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    await setPlanFolder(planId, folderId, projectId);
+    revalidatePath(projectPath(clientId, projectId));
+    return { type: "success" as const, message: t.reserves.messages.planMoved };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }
 }
 
