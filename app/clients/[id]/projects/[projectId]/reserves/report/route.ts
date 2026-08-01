@@ -1,4 +1,5 @@
 import { requireAppUser } from "@/lib/routeGuard";
+import { canAccessSection } from "@/lib/sectionAccess";
 import { findById as findProjectById } from "@/repository/projects";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { findByProject as findReserveFoldersByProject } from "@/repository/reservePlanFolders";
@@ -26,6 +27,12 @@ export async function GET(
 ) {
   const gate = await requireAppUser();
   if (!gate.ok) return gate.response;
+
+  // The report IS the réserves section, in another format — a job function
+  // barred from that section must not be able to download it either.
+  if (!(await canAccessSection("reserves"))) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
   const { id, projectId } = await params;
   const clientId = Number(id);

@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterventionSchema, updateInterventionSchema, interventionStatusSchema } from "@/schemas/intervention";
 import { create, update, updateStatus, remove } from "@/repository/interventions";
 import { revalidatePath } from "next/cache";
@@ -15,6 +16,8 @@ export async function addIntervention(
 ): Promise<InterventionActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("interventions");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -57,6 +60,8 @@ export async function editIntervention(
 ): Promise<InterventionActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("interventions");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -105,6 +110,8 @@ export async function changeInterventionStatus(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("interventions");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   const parsedStatus = interventionStatusSchema.safeParse(status);
@@ -130,6 +137,8 @@ export async function changeInterventionStatus(
 export async function deleteIntervention(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("interventions");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

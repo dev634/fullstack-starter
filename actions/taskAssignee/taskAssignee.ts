@@ -1,6 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { parseAssignee, ASSIGNEE_TARGET_KINDS, type AssigneeTargetKind } from "@/schemas/taskAssignee";
 import { setAssignee as setTaskAssigneeRepo } from "@/repository/tasks";
 import { setAssignee as setGroupAssigneeRepo } from "@/repository/taskGroups";
@@ -26,6 +27,8 @@ export async function setAssignee(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("tasks");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   if (!ASSIGNEE_TARGET_KINDS.includes(targetKind)) {

@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createSubcontractorCompanySchema, addSubcontractorPersonSchema } from "@/schemas/subcontractor";
 import { createCompany, removeCompany, addPerson, removePerson } from "@/repository/subcontractors";
 import { revalidatePath } from "next/cache";
@@ -15,6 +16,8 @@ export async function addSubcontractorCompany(
 ): Promise<SubcontractorActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("subcontractors");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -54,6 +57,8 @@ export async function addSubcontractorCompany(
 export async function deleteSubcontractorCompany(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("subcontractors");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -77,6 +82,8 @@ export async function addSubcontractorPerson(
 ): Promise<SubcontractorActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("subcontractors");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -116,6 +123,8 @@ export async function addSubcontractorPerson(
 export async function deleteSubcontractorPerson(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("subcontractors");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

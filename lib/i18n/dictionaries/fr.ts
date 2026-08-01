@@ -701,9 +701,9 @@ const fr = {
         deleteTitle: "Supprimer la fonction",
         deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
         sections: {
-            configureLabel: "Configurer les sections visibles de {name}",
-            title: "Sections visibles",
-            subtitle: "Cochez les sections de la page projet visibles par les utilisateurs ayant la fonction « {name} ». Les administrateurs voient toujours tout.",
+            configureLabel: "Configurer les sections accessibles à {name}",
+            title: "Sections accessibles",
+            subtitle: "Cochez les sections auxquelles les utilisateurs ayant la fonction « {name} » ont accès. Une section décochée n'est pas seulement masquée : ses actions sont refusées côté serveur. Les administrateurs conservent l'accès à tout.",
             saving: "Enregistrement…",
             saved: "Sections enregistrées.",
             saveError: "Erreur lors de l'enregistrement des sections.",

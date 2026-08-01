@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/repository/reserves", () => ({ create: vi.fn(), update: vi.fn(), remove: vi.fn() }));
 vi.mock("@/repository/reservePlans", () => ({ create: vi.fn(), findById: vi.fn(), remove: vi.fn() }));
@@ -16,11 +17,13 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { addReserve, updateReserve, deleteReserve, addReservePhoto } from "@/actions/reserves/reserves";
 import { requireRole } from "@/lib/authz";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { create, update, remove } from "@/repository/reserves";
 import { create as createPhoto } from "@/repository/reservePhotos";
 import { uploadReservePhoto } from "@/lib/cloudinary";
 
 const requireRoleMock = vi.mocked(requireRole);
+const requireSectionMock = vi.mocked(requireSectionAccess);
 const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
@@ -46,6 +49,21 @@ const validFields = {
 
 describe("reserve actions", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("addReserve refuses a job function barred from the réserves section", async () => {
+    // The role says "may write"; the function says "may touch this section at
+    // all". Passing the first must not be enough — that was the old behaviour,
+    // where hiddenSections only filtered one page's render.
+    requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+    // Once, not permanently: this mock is shared and would otherwise bar the
+    // section for every test that follows.
+    requireSectionMock.mockResolvedValueOnce({ error: { type: "error", message: "forbidden" } } as never);
+
+    const res = await addReserve(initial, form(validFields));
+
+    expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
+  });
 
   it("addReserve refuses a non-ADMIN", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);

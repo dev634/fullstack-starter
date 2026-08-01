@@ -1,6 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
 import { applyScanItems } from "@/repository/projectMaterials";
@@ -24,6 +25,8 @@ export async function scanDeliveryNote(
 ): Promise<DeliveryNoteScanActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("materials");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const file = formData.get("file");
@@ -52,6 +55,8 @@ export async function applyDeliveryNoteScan(
 ): Promise<ApplyDeliveryScanActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("materials");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);

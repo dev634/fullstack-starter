@@ -224,6 +224,52 @@ describe("authorization coverage across server actions", () => {
     ).toEqual([]);
   });
 
+  it("gates every section-owned action behind its section, not just a role", () => {
+    // The capability matrix answers "may I write?"; it says nothing about
+    // "may I touch Matériel at all?". Without this, a job function barred from
+    // a section still reaches every mutation in it — which is what
+    // JobFunction.hiddenSections used to be: a filter on one page's render.
+    const OWNED_BY_SECTION = [
+      "actions/tasks/tasks.ts",
+      "actions/taskGroups/taskGroups.ts",
+      "actions/taskCategories/taskCategories.ts",
+      "actions/taskAssignee/taskAssignee.ts",
+      "actions/projectMaterials/projectMaterials.ts",
+      "actions/deliveryNoteScan/deliveryNoteScan.ts",
+      "actions/interventions/interventions.ts",
+      "actions/subcontractors/subcontractors.ts",
+      "actions/interims/interims.ts",
+      "actions/projectFiles/projectFiles.ts",
+      "actions/reserves/reserves.ts",
+    ];
+
+    const ungated: string[] = [];
+    for (const file of OWNED_BY_SECTION) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
+      for (const fn of fns) {
+        if (!fn.exported) continue;
+        if (!fn.calls.has("requireSectionAccess")) ungated.push(`${file}::${fn.name}`);
+      }
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These actions belong to a project section but never check it:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd requireSectionAccess("<section>") from @/lib/sectionAccess, ` +
+          `next to the existing capability check.`
+        : undefined
+    ).toEqual([]);
+  });
+
   it("gates every action that writes to the users table", () => {
     // Privilege escalation is the highest-value target: these must never be
     // reachable without users.manage, whatever the allowlist says.

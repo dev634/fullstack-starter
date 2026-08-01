@@ -703,9 +703,9 @@ const en: Dictionary = {
         deleteTitle: "Delete the function",
         deleteText: "Delete “{name}”? This action is irreversible.",
         sections: {
-            configureLabel: "Configure visible sections for {name}",
-            title: "Visible sections",
-            subtitle: "Check the project-page sections visible to users with the “{name}” function. Admins always see everything.",
+            configureLabel: "Configure the sections {name} can access",
+            title: "Accessible sections",
+            subtitle: "Check the sections users with the “{name}” function may access. An unchecked section is not merely hidden: its actions are refused server-side. Admins keep access to everything.",
             saving: "Saving…",
             saved: "Sections saved.",
             saveError: "Error while saving the sections.",
