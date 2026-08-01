@@ -47,7 +47,7 @@ import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
-import { getHiddenSectionsForCurrentUser } from "@/lib/sectionVisibility";
+import { getHiddenSections } from "@/lib/sectionAccess";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
@@ -196,7 +196,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const appSettings = await getAppSettings();
   // SUPERADMIN order, then drop any section the current user's job function
   // hides (ADMIN+ are exempt and see them all).
-  const hiddenSections = await getHiddenSectionsForCurrentUser();
+  const hiddenSections = await getHiddenSections();
   const sectionOrder = normalizeSectionOrder(appSettings.projectSectionOrder).filter(
     (key) => !hiddenSections.has(key)
   );

@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
 import { create, remove } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
@@ -15,6 +16,8 @@ export async function addTaskCategory(
 ): Promise<TaskCategoryActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("tasks");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -54,6 +57,8 @@ export async function addTaskCategory(
 export async function deleteTaskCategory(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("tasks");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

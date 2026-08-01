@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseAssignee } from "@/schemas/taskAssignee";
 
+vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/repository/tasks", () => ({ setAssignee: vi.fn() }));
 vi.mock("@/repository/taskGroups", () => ({ setAssignee: vi.fn() }));

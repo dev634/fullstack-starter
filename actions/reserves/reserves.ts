@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
 import { create as createReserve, update as updateReserveRow, remove as removeReserve } from "@/repository/reserves";
 import { create as createPlan, findById as findPlanById, remove as removePlan, setFolder as setPlanFolder } from "@/repository/reservePlans";
@@ -24,6 +25,8 @@ export async function addReservePlan(
 ): Promise<ReservePlanActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const projectId = Number(formData.get("projectId"));
@@ -56,6 +59,8 @@ export async function addReservePlan(
 export async function addReserveFolder(name: string, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -74,6 +79,8 @@ export async function addReserveFolder(name: string, clientId: number, projectId
 export async function deleteReserveFolder(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -91,6 +98,8 @@ export async function deleteReserveFolder(id: number, clientId: number, projectI
 export async function moveReservePlan(planId: number, folderId: number | null, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -107,6 +116,8 @@ export async function moveReservePlan(planId: number, folderId: number | null, c
 export async function deleteReservePlan(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -128,6 +139,8 @@ export async function addReserve(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const clientId = Number(formData.get("clientId"));
@@ -153,6 +166,8 @@ export async function updateReserve(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const clientId = Number(formData.get("clientId"));
@@ -178,6 +193,8 @@ export async function addReservePhoto(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
   const t = getDictionary(await getLocale());
   const clientId = Number(formData.get("clientId"));
@@ -206,6 +223,8 @@ export async function addReservePhoto(
 export async function deleteReservePhoto(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -224,6 +243,8 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
 export async function deleteReserve(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
