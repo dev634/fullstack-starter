@@ -5,6 +5,15 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 vi.mock("@/lib/auth", () => ({ signIn: vi.fn(), signOut: vi.fn() }));
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
 vi.mock("@/lib/email", () => ({ sendPasswordResetEmail: vi.fn() }));
+// The reset email is branded from the app settings (name, colour, logo).
+vi.mock("@/lib/appSettings", () => ({
+  getAppSettings: vi.fn().mockResolvedValue({
+    appName: "Devadn",
+    primaryColor: "#3b82f6",
+    logoUrl: null,
+  }),
+  APP_SETTINGS_TAG: "app-settings",
+}));
 vi.mock("@/repository/users", () => ({
   findByEmail: vi.fn(),
   createResetToken: vi.fn(),

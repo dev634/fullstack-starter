@@ -598,6 +598,16 @@ const fr = {
             invalidId: "Identifiant de contact invalide.",
         },
     },
+    emails: {
+        passwordReset: {
+            subject: "Réinitialise ton mot de passe",
+            preview: "Choisis un nouveau mot de passe — ce lien expire dans 1 heure.",
+            heading: "Réinitialisation du mot de passe",
+            intro: "Tu as demandé à réinitialiser ton mot de passe. Clique sur le bouton ci-dessous pour en choisir un nouveau.",
+            cta: "Choisir un nouveau mot de passe",
+            footnote: "Ce lien expire dans 1 heure. Si tu n'es pas à l'origine de cette demande, ignore cet email : ton mot de passe reste inchangé.",
+        },
+    },
     reserves: {
         heading: "Réserves",
         addPlanToggle: "Ajouter un plan",

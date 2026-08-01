@@ -9,6 +9,7 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { isLoginRateLimited } from "@/lib/loginRateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
+import { getAppSettings } from "@/lib/appSettings";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -158,7 +159,15 @@ export async function requestPasswordReset(
       await createResetToken(user.id, token, expiresAt);
       const resetUrl = `${baseUrl}/reset-password?token=${token}`;
       try {
-        await sendPasswordResetEmail(user.email, resetUrl);
+        const settings = await getAppSettings();
+        await sendPasswordResetEmail(user.email, resetUrl, {
+          brand: {
+            name: settings.appName,
+            primaryColor: settings.primaryColor,
+            logoUrl: settings.logoUrl,
+          },
+          strings: t.emails.passwordReset,
+        });
       } catch (error) {
         // A provider outage must not escape this action. Letting it throw
         // crashed the page — and, worse, turned this form into an account
