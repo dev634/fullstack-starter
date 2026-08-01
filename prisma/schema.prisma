@@ -129,6 +129,10 @@ model Project {
   interims       Interim[]
   reservePlans   ReservePlan[]
   reservePlanFolders ReservePlanFolder[]
+  // Monotonic issuer for réserve numbers. A counter, not max(number)+1: the
+  // highest existing number drops when a réserve is deleted, which would hand
+  // its number to a different défaut — and a report already sent cites it.
+  reserveCounter Int                   @default(0)
   // Contacts (client-portal logins) allowed to see this project.
   linkedContacts Contact[]             @relation("ContactProjects")
 
@@ -186,6 +190,15 @@ model Reserve {
   id          Int            @id @default(autoincrement())
   plan        ReservePlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
   planId      Int
+  // Denormalised from the plan (a plan never changes project) purely so the
+  // unique constraint below can exist: uniqueness has to be enforced by the
+  // database, or two people pinning at the same moment get the same number.
+  projectId   Int
+  // Stable reference for the whole project, assigned once at creation and
+  // never recomputed. It must NOT be a render-time index: a snagging report
+  // sent to a contractor cites "réserve 7", so deleting réserve 3 must not
+  // silently turn that into réserve 6. Numbers are therefore not reused.
+  number      Int
   x           Float
   y           Float
   description String
@@ -195,6 +208,7 @@ model Reserve {
   createdAt   DateTime       @default(now())
   photos      ReservePhoto[]
 
+  @@unique([projectId, number])
   @@index([planId])
 }
 

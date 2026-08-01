@@ -8,6 +8,8 @@
 
 export type ReportReserve = {
   id: number;
+  /** Stable project-wide reference, assigned at creation (never a render index). */
+  number: number;
   x: number;
   y: number;
   description: string;

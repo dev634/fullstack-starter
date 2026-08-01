@@ -18,18 +18,46 @@ type ReserveUpdateData = {
     longitude?: number | null;
 };
 
+/**
+ * Create a réserve, drawing its number from the project's counter.
+ *
+ * The number comes from `Project.reserveCounter`, incremented in the same
+ * transaction — NOT from max(number) + 1. The highest existing number falls
+ * when a réserve is deleted, so max+1 would hand a retired number to a new
+ * défaut, and a snagging report already sent to a contractor cites it.
+ *
+ * The increment is a single atomic UPDATE, so concurrent pins queue on that row
+ * and each gets its own value: no collision to retry, and the unique constraint
+ * on (projectId, number) is left as a backstop rather than a control flow.
+ */
 export async function create(data: ReserveCreateData) {
     try {
-        return await prisma.reserve.create({
-            data: {
-                planId: data.planId,
-                x: data.x,
-                y: data.y,
-                description: data.description,
-                status: data.status ?? "OPEN",
-                latitude: data.latitude ?? null,
-                longitude: data.longitude ?? null,
-            },
+        return await prisma.$transaction(async (tx) => {
+            const plan = await tx.reservePlan.findUnique({
+                where: { id: data.planId },
+                select: { projectId: true },
+            });
+            if (!plan) throw { type: "error", message: "Plan not found." };
+
+            const project = await tx.project.update({
+                where: { id: plan.projectId },
+                data: { reserveCounter: { increment: 1 } },
+                select: { reserveCounter: true },
+            });
+
+            return await tx.reserve.create({
+                data: {
+                    planId: data.planId,
+                    projectId: plan.projectId,
+                    number: project.reserveCounter,
+                    x: data.x,
+                    y: data.y,
+                    description: data.description,
+                    status: data.status ?? "OPEN",
+                    latitude: data.latitude ?? null,
+                    longitude: data.longitude ?? null,
+                },
+            });
         });
     } catch (error) {
         console.log("Repository create (reserve) error:", error);
