@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useState, useTransition, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { MapPinIcon, TrashIcon, XMarkIcon, PhotoIcon, FolderIcon } from "@heroicons/react/24/outline";
+import { MapPinIcon, TrashIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { planPageImageUrl } from "@/lib/cloudinary-url";
@@ -14,8 +14,6 @@ import {
   deleteReserve,
   addReservePhoto,
   deleteReservePhoto,
-  addReserveFolder,
-  deleteReserveFolder,
   moveReservePlan,
 } from "@/actions/reserves/reserves";
 import type { Reserve, ReservePlan, ReservePhoto, ReserveStatus } from "@/app/generated/prisma/client";
@@ -55,39 +53,11 @@ export default function ReservesSection({
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [planToDelete, setPlanToDelete] = useState<PlanWithReserves | null>(null);
 
-  // Folder organisation of plans.
+  // Folder organisation of plans. Creating/deleting folders lives in the
+  // section header (forms/AddReserveFolderForm) next to "add a plan"; here we
+  // only group by folder and move a plan between them.
   const rootPlans = plans.filter((p) => p.folderId == null);
   const plansInFolder = (folderId: number) => plans.filter((p) => p.folderId === folderId);
-  const [foldersOpen, setFoldersOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [folderError, setFolderError] = useState<string | null>(null);
-
-  function createFolder() {
-    const name = newFolderName.trim();
-    if (!name) return;
-    setFolderError(null);
-    startTransition(async () => {
-      const res = await addReserveFolder(name, clientId, projectId);
-      if (res.type !== "success") {
-        setFolderError(res.message);
-        return;
-      }
-      setNewFolderName("");
-      router.refresh();
-    });
-  }
-
-  function removeFolder(id: number) {
-    setFolderError(null);
-    startTransition(async () => {
-      const res = await deleteReserveFolder(id, clientId, projectId);
-      if (res.type !== "success") {
-        setFolderError(res.message);
-        return;
-      }
-      router.refresh();
-    });
-  }
 
   function movePlanToFolder(folderId: number | null) {
     if (!selectedPlan) return;
@@ -283,31 +253,28 @@ export default function ReservesSection({
                     ))}
                   </optgroup>
                 )}
+                {/* Empty folders are listed too, with a disabled placeholder:
+                    hiding them made a freshly created folder look like it had
+                    never been saved. */}
                 {folders.map((f) => {
                   const fp = plansInFolder(f.id);
-                  return fp.length > 0 ? (
+                  return (
                     <optgroup key={f.id} label={f.name}>
-                      {fp.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {format(t.reserves.reserveCount, { count: p.reserves.length })}
-                        </option>
-                      ))}
+                      {fp.length > 0 ? (
+                        fp.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} · {format(t.reserves.reserveCount, { count: p.reserves.length })}
+                          </option>
+                        ))
+                      ) : (
+                        <option disabled>{t.reserves.emptyFolder}</option>
+                      )}
                     </optgroup>
-                  ) : null;
+                  );
                 })}
               </>
             )}
           </select>
-        )}
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setFoldersOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 px-2.5 py-2 text-sm hover:bg-[#d1d5dc] dark:hover:bg-gray-700 cursor-pointer"
-          >
-            <FolderIcon className="h-4 w-4" />
-            {t.reserves.folders}
-          </button>
         )}
         {canEdit && selectedPlan && (
           <button
@@ -572,57 +539,6 @@ export default function ReservesSection({
           onConfirm={confirmRemovePlan}
         />
       )}
-
-      {/* Folder management */}
-      <ModalShell open={foldersOpen} onClose={() => setFoldersOpen(false)} title={t.reserves.folders}>
-        <div className="flex flex-col gap-3">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createFolder(); } }}
-              placeholder={t.reserves.newFolderPlaceholder}
-              className={inputClass}
-            />
-            <button
-              type="button"
-              onClick={createFolder}
-              disabled={pending || !newFolderName.trim()}
-              className={`shrink-0 rounded bg-primary px-4 py-2 text-sm font-bold text-white hover:bg-primary/90 cursor-pointer ${
-                pending || !newFolderName.trim() ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-            >
-              {t.reserves.addFolderSubmit}
-            </button>
-          </div>
-          {folderError && <p className="text-xs text-red-500">{folderError}</p>}
-          {folders.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t.reserves.noFoldersYet}</p>
-          ) : (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded border border-gray-300 dark:border-gray-700">
-              {folders.map((f) => (
-                <li key={f.id} className="flex items-center justify-between gap-3 bg-white dark:bg-gray-800 px-3 py-2">
-                  <span className="min-w-0 truncate text-sm">
-                    {f.name}
-                    <span className="ml-1.5 text-xs text-gray-400">({plansInFolder(f.id).length})</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeFolder(f.id)}
-                    disabled={pending}
-                    aria-label={format(t.reserves.deleteFolder, { name: f.name })}
-                    title={format(t.reserves.deleteFolderText, { name: f.name })}
-                    className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </ModalShell>
     </div>
   );
 }
