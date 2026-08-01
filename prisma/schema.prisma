@@ -155,14 +155,24 @@ enum ReserveStatus {
 // Optional folder to organise a project's reserve plans (e.g. "Bâtiment A").
 // A flat, one-level grouping — a plan belongs to at most one folder.
 model ReservePlanFolder {
-  id        Int           @id @default(autoincrement())
-  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int                 @id @default(autoincrement())
+  project   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId Int
   name      String
-  createdAt DateTime      @default(now())
+  // Self-referential nesting, mirroring ProjectFolder in the Files module.
+  // onDelete: Cascade so removing a folder takes its subfolders with it; the
+  // plans inside them fall back to the project root via ReservePlan's own
+  // SetNull, so nothing is ever deleted with the folder tree.
+  parent    ReservePlanFolder?  @relation("ReserveFolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId  Int?
+  children  ReservePlanFolder[] @relation("ReserveFolderChildren")
+  createdAt DateTime            @default(now())
   plans     ReservePlan[]
 
-  @@index([projectId])
+  // Composite backs findChildren (WHERE projectId AND parentId); the standalone
+  // parentId backs the self-referential cascade scan on delete.
+  @@index([projectId, parentId])
+  @@index([parentId])
 }
 
 model ReservePlan {

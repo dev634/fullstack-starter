@@ -42,14 +42,21 @@ export default function ReservesSection({
   clientId,
   projectId,
   plans,
-  folders,
+  subfolders,
+  breadcrumb,
+  allFolders,
   currentFolderId,
   canEdit,
 }: {
   clientId: number;
   projectId: number;
   plans: PlanWithReserves[];
-  folders: { id: number; name: string }[];
+  /** Direct child folders of the current level. */
+  subfolders: { id: number; name: string }[];
+  /** Root→current chain, for the breadcrumb (empty at the root). */
+  breadcrumb: { id: number; name: string }[];
+  /** Every folder in the project — the "move to folder" target list. */
+  allFolders: { id: number; name: string }[];
   /** Folder being browsed, or null for the project root (from ?rfolder=). */
   currentFolderId: number | null;
   canEdit: boolean;
@@ -58,12 +65,9 @@ export default function ReservesSection({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  // Folders are flat (one level), so the browser shows either the root — where
-  // the folders live alongside unfiled plans — or the inside of one folder.
-  const currentFolder = folders.find((f) => f.id === currentFolderId) ?? null;
-  const visiblePlans = plans.filter((p) =>
-    currentFolder ? p.folderId === currentFolder.id : p.folderId == null
-  );
+  // Plans shown at this level are those filed directly in the current folder
+  // (or unfiled, at the root). Subfolders are navigated into, not expanded.
+  const visiblePlans = plans.filter((p) => (p.folderId ?? null) === currentFolderId);
 
   // Selection is derived, not stored: navigating into a folder whose plans
   // don't include the previous pick falls back to the first one here, so no
@@ -79,13 +83,17 @@ export default function ReservesSection({
 
   const plansInFolder = (folderId: number) => plans.filter((p) => p.folderId === folderId);
 
-  // Back to the project root, keeping any other section's query state (the
-  // Files module browses through ?folder= on this same page).
+  // Build a browse href for a given réserve folder (null = root), keeping any
+  // other section's query state — the Files module browses through ?folder= on
+  // this same page and must not be reset.
   const searchParams = useSearchParams();
-  const rootParams = new URLSearchParams(searchParams.toString());
-  rootParams.delete(RESERVE_FOLDER_PARAM);
-  const rootQuery = rootParams.toString();
-  const rootHref = `/clients/${clientId}/projects/${projectId}${rootQuery ? `?${rootQuery}` : ""}`;
+  const folderHref = (folderId: number | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (folderId == null) params.delete(RESERVE_FOLDER_PARAM);
+    else params.set(RESERVE_FOLDER_PARAM, String(folderId));
+    const q = params.toString();
+    return `/clients/${clientId}/projects/${projectId}${q ? `?${q}` : ""}`;
+  };
 
   function movePlanToFolder(planId: number, folderId: number | null) {
     startTransition(async () => {
@@ -254,37 +262,45 @@ export default function ReservesSection({
 
   return (
     <div className="flex flex-col">
-      {/* Breadcrumb — same navigation shape as the Files module. */}
+      {/* Breadcrumb — same navigation shape as the Files module, now multi-level. */}
       <div className="flex flex-wrap items-center gap-1 border-b border-gray-300 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
         <Link
-          href={rootHref}
+          href={folderHref(null)}
           className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
           aria-label={t.files.home}
         >
           <HomeIcon className="h-4 w-4" />
         </Link>
-        {currentFolder && (
-          <span className="flex items-center gap-1">
-            <ChevronRightIcon className="h-3.5 w-3.5" />
-            <span className="truncate text-gray-700 dark:text-gray-200">{currentFolder.name}</span>
-          </span>
-        )}
+        {breadcrumb.map((crumb, i) => {
+          const isLast = i === breadcrumb.length - 1;
+          return (
+            <span key={crumb.id} className="flex items-center gap-1">
+              <ChevronRightIcon className="h-3.5 w-3.5" />
+              {isLast ? (
+                <span className="truncate text-gray-700 dark:text-gray-200">{crumb.name}</span>
+              ) : (
+                <Link href={folderHref(crumb.id)} className="truncate hover:text-gray-700 dark:hover:text-gray-200">
+                  {crumb.name}
+                </Link>
+              )}
+            </span>
+          );
+        })}
       </div>
 
-      {/* Folders (root only — they are flat) then the plans of the current level. */}
-      {(!currentFolder && folders.length > 0) || visiblePlans.length > 0 ? (
+      {/* Subfolders of this level, then the plans filed directly in it. */}
+      {subfolders.length > 0 || visiblePlans.length > 0 ? (
         <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-          {!currentFolder &&
-            folders.map((f) => (
-              <ReserveFolderRow
-                key={`folder-${f.id}`}
-                folder={f}
-                clientId={clientId}
-                projectId={projectId}
-                planCount={plansInFolder(f.id).length}
-                canEdit={canEdit}
-              />
-            ))}
+          {subfolders.map((f) => (
+            <ReserveFolderRow
+              key={`folder-${f.id}`}
+              folder={f}
+              clientId={clientId}
+              projectId={projectId}
+              planCount={plansInFolder(f.id).length}
+              canEdit={canEdit}
+            />
+          ))}
           {visiblePlans.map((p) => (
             <li
               key={`plan-${p.id}`}
@@ -304,7 +320,7 @@ export default function ReservesSection({
                   {format(t.reserves.reserveCount, { count: p.reserves.length })}
                 </span>
               </button>
-              {canEdit && folders.length > 0 && (
+              {canEdit && allFolders.length > 0 && (
                 <select
                   value={p.folderId ?? ""}
                   onChange={(e) => movePlanToFolder(p.id, e.target.value ? Number(e.target.value) : null)}
@@ -313,7 +329,7 @@ export default function ReservesSection({
                   className="hidden shrink-0 rounded border border-gray-300 bg-white p-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:block"
                 >
                   <option value="">{t.reserves.noFolder}</option>
-                  {folders.map((f) => (
+                  {allFolders.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
                     </option>
@@ -335,7 +351,7 @@ export default function ReservesSection({
         </ul>
       ) : (
         <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-          {currentFolder ? t.projects.detail.emptyFolder : t.reserves.noPlans}
+          {currentFolderId != null ? t.projects.detail.emptyFolder : t.reserves.noPlans}
         </div>
       )}
 
