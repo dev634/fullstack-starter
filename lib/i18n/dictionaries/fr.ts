@@ -467,6 +467,7 @@ const fr = {
         },
         messages: {
             added: "Matériel ajouté.",
+            accumulated: "Quantité ajoutée au matériel existant.",
             updated: "Matériel mis à jour.",
             deleted: "Matériel supprimé.",
             invalidId: "Identifiant de matériel invalide.",
