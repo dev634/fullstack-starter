@@ -1,5 +1,6 @@
 import { requireAppUser } from "@/lib/routeGuard";
 import { canAccessSection } from "@/lib/sectionAccess";
+import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { findByProject as findReserveFoldersByProject } from "@/repository/reservePlanFolders";
@@ -48,7 +49,15 @@ export async function GET(
     const project = await findProjectById(pid);
     // Same visibility rule as the detail page: a trashed project, or one
     // reached through the wrong client in the URL, is "not found".
-    if (!project || project.deletedAt || project.clientId !== clientId) {
+    // Out of scope reads as "not found" for the same reason the page does:
+    // a distinct status would confirm the project exists.
+    const access = await getAccessContext();
+    if (
+      !project ||
+      project.deletedAt ||
+      project.clientId !== clientId ||
+      !canReachProject(access, project.id)
+    ) {
       return new Response("Not Found", { status: 404 });
     }
 

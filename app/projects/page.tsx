@@ -1,4 +1,5 @@
 import { search, type ProjectSortField } from "@/repository/projects";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
@@ -39,7 +40,7 @@ export default async function ProjectsPage({
   const dir = sp.dir === "asc" ? "asc" : "desc";
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
-  const { projects, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
+  const { projects, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE, projectIds: projectIdFilter(await getAccessContext()) });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));

@@ -1,4 +1,5 @@
 import { search, type ProjectSortField } from "@/repository/projects";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
 import { requireAppUser } from "@/lib/routeGuard";
 
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
     : "createdAt";
   const dir = params.get("dir") === "asc" ? "asc" : "desc";
 
-  const { projects } = await search({ q, sortField, dir, page: 1, pageSize: 100000 });
+  const { projects } = await search({ q, sortField, dir, page: 1, pageSize: 100000, projectIds: projectIdFilter(await getAccessContext()) });
 
   const rows = projects.map((project) => {
     const flat: Record<string, unknown> = {

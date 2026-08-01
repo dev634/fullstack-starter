@@ -1,4 +1,5 @@
 import { search, type ClientSortField } from "@/repository/clients";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { CLIENT_CSV_COLUMNS, csvCell } from "@/lib/csv";
 import { requireAppUser } from "@/lib/routeGuard";
 
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
     : "companyName";
   const dir = params.get("dir") === "desc" ? "desc" : "asc";
 
-  const { clients } = await search({ q, sortField, dir, page: 1, pageSize: 100000 });
+  const { clients } = await search({ q, sortField, dir, page: 1, pageSize: 100000, projectIds: projectIdFilter(await getAccessContext()) });
 
   const header = CLIENT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
   const rows = clients.map((client) =>

@@ -702,6 +702,12 @@ const en: Dictionary = {
         deleteLabel: "Delete {name}",
         deleteTitle: "Delete the function",
         deleteText: "Delete “{name}”? This action is irreversible.",
+        scope: {
+            title: "Project scope",
+            hint: "Which chantiers users with this function may reach. Filtering happens in the query: a project out of scope is not found, direct URL included.",
+            all: "Every project",
+            assigned: "Only the projects they are assigned to",
+        },
         sections: {
             configureLabel: "Configure the sections {name} can access",
             title: "Accessible sections",

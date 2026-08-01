@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
-import { create, remove, reorder, updateHiddenSections } from "@/repository/jobFunctions";
+import { create, remove, reorder, updateHiddenSections , updateProjectScope } from "@/repository/jobFunctions";
 import { isProjectSectionKey } from "@/lib/projectSections";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -83,6 +83,28 @@ export async function setFunctionSections(id: number, hiddenSections: string[]) 
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
     const valid = Array.isArray(hiddenSections) ? [...new Set(hiddenSections.filter(isProjectSectionKey))] : [];
     await updateHiddenSections(id, valid);
+    revalidatePath("/admin/settings/fonctions");
+    return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/**
+ * Set a function's project scope. Same gate as the section config — both are
+ * halves of the same question, "what may this function reach".
+ */
+export async function setFunctionScope(id: number, scope: string) {
+  const roleCheck = await requireCapability("functions.manage");
+  if (roleCheck.error) return roleCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    // Anything unrecognised falls back to the permissive default rather than
+    // silently locking people out of every chantier.
+    const valid = scope === "ASSIGNED" ? "ASSIGNED" : "ALL";
+    await updateProjectScope(id, valid);
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
   } catch (error) {

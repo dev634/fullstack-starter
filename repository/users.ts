@@ -29,16 +29,41 @@ export async function findAll() {
  * The project-section keys hidden from a user, via their job function's
  * `hiddenSections`. Empty when the user has no function (or it hides nothing).
  */
-export async function findHiddenSectionsByEmail(email: string): Promise<string[]> {
+export type AccessScope = {
+    hiddenSections: string[];
+    projectScope: "ALL" | "ASSIGNED";
+    assignedProjectIds: number[];
+};
+
+/**
+ * Everything the access context needs about one user, in a single query: the
+ * sections their function withholds, whether that function restricts them to
+ * assigned projects, and which projects those are.
+ *
+ * One round-trip on purpose — this runs on every request that renders or
+ * filters project data.
+ */
+export async function findAccessScopeByEmail(email: string): Promise<AccessScope | null> {
     try {
         const user = await prisma.user.findUnique({
             where: { email },
-            select: { jobFunction: { select: { hiddenSections: true } } },
+            select: {
+                jobFunction: { select: { hiddenSections: true, projectScope: true } },
+                assignedProjects: { select: { id: true } },
+            },
         });
-        return user?.jobFunction?.hiddenSections ?? [];
+        if (!user) return null;
+
+        return {
+            hiddenSections: user.jobFunction?.hiddenSections ?? [],
+            // No function means no restriction — a user must not lose access
+            // just because nobody has given them a job title yet.
+            projectScope: user.jobFunction?.projectScope ?? "ALL",
+            assignedProjectIds: user.assignedProjects.map((p) => p.id),
+        };
     } catch (error) {
-        console.log("Repository findHiddenSectionsByEmail error:", error);
-        throw { type: "error", message: "Database Error fetching section visibility." };
+        console.log("Repository findAccessScopeByEmail error:", error);
+        throw { type: "error", message: "Database Error fetching access scope." };
     }
 }
 

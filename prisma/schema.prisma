@@ -135,6 +135,8 @@ model Project {
   reserveCounter Int                   @default(0)
   // Contacts (client-portal logins) allowed to see this project.
   linkedContacts Contact[]             @relation("ContactProjects")
+  // Internal users assigned to this project (see JobFunction.projectScope).
+  assignedUsers  User[]                @relation("UserProjects")
 
   // Backs findByClient (the client detail page's project list) and the
   // Client onDelete: Cascade scan. Postgres does not auto-index FK columns.
@@ -484,6 +486,14 @@ enum Role {
 // chantier, …) managed by ADMIN/SUPERADMIN. A reference list, not tied to a
 // specific record yet — meant to become the source for the people "role"
 // fields (contacts, subcontractor personnel, intérimaires).
+/// Whether a job function sees every project or only the ones its holders are
+/// assigned to. ALL is the default so adding this changes nothing for existing
+/// functions — a permission model must never widen or narrow silently.
+enum ProjectScope {
+  ALL
+  ASSIGNED
+}
+
 model JobFunction {
   id        Int      @id @default(autoincrement())
   name      String   @unique
@@ -493,6 +503,9 @@ model JobFunction {
   // who hold this function. Empty = hide nothing (see everything) — so a newly
   // added section is visible by default until an admin hides it.
   hiddenSections String[] @default([])
+  // Data axis, alongside hiddenSections' feature axis: which projects the
+  // holders of this function may reach at all.
+  projectScope ProjectScope @default(ALL)
   createdAt DateTime @default(now())
   users     User[]
   contacts  Contact[]
@@ -511,6 +524,10 @@ model User {
   contact       Contact?
   createdAt     DateTime             @default(now())
   resetTokens   PasswordResetToken[]
+  // Projects this user is assigned to. Only consulted when their function's
+  // projectScope is ASSIGNED; mirrors the Contact↔Project link the client
+  // portal already scopes with.
+  assignedProjects Project[]          @relation("UserProjects")
 
   @@index([jobFunctionId])
 }

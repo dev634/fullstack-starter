@@ -1,4 +1,5 @@
 import { getClient } from '@/actions/clients/clients';
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
 import { can } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
@@ -72,7 +73,7 @@ export default async function ClientPage({ params }: PageProps) {
     : null;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
-  const projects = await findByClient(clientId);
+  const projects = await findByClient(clientId, projectIdFilter(await getAccessContext()));
   const contacts = await findContactsByClient(clientId);
   // Managed job functions offered in the contact add/edit dropdowns.
   const jobFunctions = canEdit ? await findJobFunctions() : [];

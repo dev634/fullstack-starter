@@ -1,4 +1,5 @@
 import { getProject } from "@/actions/projects/projects";
+import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
@@ -43,7 +44,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
     );
   }
 
-  if (isEmpty || result.data?.clientId !== clientId) {
+  // Same scope rule as the project page — a dashboard is just another view
+  // of the same chantier.
+  const access = await getAccessContext();
+  const outOfScope = result.data ? !canReachProject(access, result.data.id) : false;
+
+  if (isEmpty || result.data?.clientId !== clientId || outOfScope) {
     return (
       <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
         <Title title={t.projectDashboard.title} />
