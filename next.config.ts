@@ -12,8 +12,18 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   // Don't leak full URLs (which may carry tokens) to third parties.
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Lock down powerful browser features we don't use.
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // Lock down powerful browser features. `geolocation=(self)` — not `()` —
+  // because the réserves module reads the device position to stamp a snag with
+  // GPS coordinates (see captureLocation in components/ReservesSection.tsx).
+  // Denying it outright silently broke that button in production: the browser
+  // rejects the call before the permission prompt ever appears.
+  // camera/microphone stay fully denied: nothing here opens a media stream —
+  // the delivery-note scan is a plain file input, not getUserMedia.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
+  // Sever the window.opener link with cross-origin popups, and stop other
+  // origins embedding our responses as subresources.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   // Force HTTPS for a year (the app is served behind TLS in production).
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
