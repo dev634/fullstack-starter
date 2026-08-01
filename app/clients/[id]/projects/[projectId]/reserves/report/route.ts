@@ -1,4 +1,4 @@
-import { requireAppUser } from "@/lib/routeGuard";
+import { requireAppUser } from "@/lib/requireAppUser";
 import { canAccessSection } from "@/lib/sectionAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";

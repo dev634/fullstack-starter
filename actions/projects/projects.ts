@@ -1,7 +1,7 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireSession } from "@/lib/authz";
+import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireClientAccess } from "@/lib/access";
 import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
@@ -312,8 +312,8 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
 }
 
 export async function getProjectsForClient(clientId: number) {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("VIEWER");
+  if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -328,8 +328,8 @@ export async function getProjectsForClient(clientId: number) {
 }
 
 export async function getProject(id: number) {
-  const unauthorized = await requireSession();
-  if (unauthorized) return unauthorized;
+  const roleCheck = await requireRole("VIEWER");
+  if (roleCheck.error) return roleCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

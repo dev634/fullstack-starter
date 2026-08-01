@@ -1,6 +1,6 @@
 import { findAllWithClientEmail } from "@/repository/contacts";
 import { CONTACT_CSV_COLUMNS, csvCell } from "@/lib/csv";
-import { requireAppUser } from "@/lib/routeGuard";
+import { requireAppUser } from "@/lib/requireAppUser";
 
 /**
  * Export every contact (of non-trashed organisations) as a CSV download, with
