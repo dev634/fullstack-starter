@@ -24,7 +24,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
-import { addJobFunction, deleteJobFunction, reorderJobFunctions, setFunctionSections } from "@/actions/jobFunctions/jobFunctions";
+import { addJobFunction, deleteJobFunction, reorderJobFunctions, setFunctionSections, setFunctionScope } from "@/actions/jobFunctions/jobFunctions";
 import { PROJECT_SECTION_KEYS, type ProjectSectionKey } from "@/lib/projectSections";
 import { projectSectionLabels } from "@/lib/projectSectionLabels";
 import type { JobFunctionActionState } from "@/types/jobFunction";
@@ -126,12 +126,14 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
   const sectionLabels = projectSectionLabels(t);
   const [configuring, setConfiguring] = useState<JobFunction | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<ProjectSectionKey>>(new Set());
+  const [scope, setScope] = useState<"ALL" | "ASSIGNED">("ALL");
   const [configStatus, setConfigStatus] = useState<"idle" | "saving" | "error">("idle");
   const [configError, setConfigError] = useState("");
 
   function openConfig(fn: JobFunction) {
     const hidden = new Set(fn.hiddenSections as ProjectSectionKey[]);
     setVisibleKeys(new Set(PROJECT_SECTION_KEYS.filter((k) => !hidden.has(k))));
+    setScope(fn.projectScope === "ASSIGNED" ? "ASSIGNED" : "ALL");
     setConfigStatus("idle");
     setConfigError("");
     setConfiguring(fn);
@@ -150,7 +152,13 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
     if (!configuring) return;
     setConfigStatus("saving");
     const hidden = PROJECT_SECTION_KEYS.filter((k) => !visibleKeys.has(k));
-    const res = await setFunctionSections(configuring.id, hidden);
+    // Sections and scope are one decision for the admin, so a failure in
+    // either must leave the modal open rather than half-applying silently.
+    const [sectionsRes, scopeRes] = await Promise.all([
+      setFunctionSections(configuring.id, hidden),
+      setFunctionScope(configuring.id, scope),
+    ]);
+    const res = sectionsRes.type === "success" ? scopeRes : sectionsRes;
     if (res.type === "success") {
       setConfiguring(null);
       router.refresh();
@@ -319,6 +327,22 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
                 </li>
               ))}
             </ul>
+            <fieldset className="mt-2 flex flex-col gap-1 border-t border-gray-300 pt-3 dark:border-gray-700">
+              <legend className="mb-1 text-sm font-medium">{t.jobFunctions.scope.title}</legend>
+              <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">{t.jobFunctions.scope.hint}</p>
+              {(["ALL", "ASSIGNED"] as const).map((value) => (
+                <label key={value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-500/10">
+                  <input
+                    type="radio"
+                    name="projectScope"
+                    checked={scope === value}
+                    onChange={() => setScope(value)}
+                    className="h-4 w-4 accent-[var(--primary)]"
+                  />
+                  <span>{value === "ALL" ? t.jobFunctions.scope.all : t.jobFunctions.scope.assigned}</span>
+                </label>
+              ))}
+            </fieldset>
             {configStatus === "error" && <p className="text-xs text-red-500">{configError || t.jobFunctions.sections.saveError}</p>}
             <div className="flex justify-end gap-3">
               <button

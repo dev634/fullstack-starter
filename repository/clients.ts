@@ -83,11 +83,18 @@ export async function search({
   dir = "asc",
   page = 1,
   pageSize = 9,
-}: SearchArgs) {
+  projectIds,
+}: SearchArgs & { projectIds?: number[] }) {
   const term = q.trim();
   const insensitive = Prisma.QueryMode.insensitive;
   const where: Prisma.ClientWhereInput = {
     deletedAt: null,
+    // A restricted user reaches a company only through a project they hold, so
+    // an EMPTY allowlist must yield no company at all. Hence a presence check
+    // on the parameter, never a truthiness one.
+    ...(projectIds !== undefined
+      ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+      : {}),
     ...(term
       ? {
           OR: [

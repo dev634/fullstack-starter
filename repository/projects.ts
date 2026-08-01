@@ -48,11 +48,16 @@ export async function search({
     dir = "desc",
     page = 1,
     pageSize = 12,
-}: ProjectSearchArgs) {
+    projectIds,
+}: ProjectSearchArgs & { projectIds?: number[] }) {
     const term = q.trim();
     const where: Prisma.ProjectWhereInput = {
         deletedAt: null,
         client: { deletedAt: null },
+        // Restricted callers pass the projects they're assigned to. undefined
+        // means unrestricted; an EMPTY array must still match nothing, so this
+        // is a presence check, not a truthiness one.
+        ...(projectIds !== undefined ? { id: { in: projectIds } } : {}),
         ...(term
             ? {
                 OR: [
@@ -129,10 +134,16 @@ export async function create(data: ProjectData) {
 }
 
 /** Projects for a client, most recently created first. Excludes trashed projects. */
-export async function findByClient(clientId: number) {
+export async function findByClient(clientId: number, projectIds?: number[]) {
     try {
         return await prisma.project.findMany({
-            where: { clientId, deletedAt: null },
+            where: {
+                clientId,
+                deletedAt: null,
+                // Restricted callers only see the chantiers they hold, even
+                // inside a company they can otherwise reach.
+                ...(projectIds !== undefined ? { id: { in: projectIds } } : {}),
+            },
             orderBy: { createdAt: "desc" },
         });
     } catch (error) {

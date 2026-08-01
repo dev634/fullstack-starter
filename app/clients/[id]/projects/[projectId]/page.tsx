@@ -48,6 +48,7 @@ import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
 import { getHiddenSections } from "@/lib/sectionAccess";
+import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
@@ -110,7 +111,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     );
   }
 
-  if (isEmpty || result.data?.clientId !== clientId) {
+  // A project outside the caller's scope is "not found", not "forbidden": a
+  // distinct error would confirm the project exists, letting someone map the
+  // company's chantiers by walking ids.
+  const access = await getAccessContext();
+  const outOfScope = result.data ? !canReachProject(access, result.data.id) : false;
+
+  if (isEmpty || result.data?.clientId !== clientId || outOfScope) {
     return (
       <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
         <Title title={t.projects.detail.title} />

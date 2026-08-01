@@ -45,6 +45,16 @@ export async function updateHiddenSections(id: number, hiddenSections: string[])
     }
 }
 
+/** Set whether holders of this function see every project or only assigned ones. */
+export async function updateProjectScope(id: number, projectScope: "ALL" | "ASSIGNED") {
+    try {
+        return await prisma.jobFunction.update({ where: { id }, data: { projectScope } });
+    } catch (error) {
+        console.log("Repository updateProjectScope error:", error);
+        throw { type: "error", message: "Database Error updating project scope." };
+    }
+}
+
 /** Persist a new order: each id's position becomes its index in the array. */
 export async function reorder(orderedIds: number[]) {
     try {

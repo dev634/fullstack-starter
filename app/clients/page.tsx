@@ -1,4 +1,5 @@
 import Button from "@/components/Button";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
@@ -37,7 +38,7 @@ export default async function ClientsPage({
   const dir = sp.dir === "desc" ? "desc" : "asc";
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
 
-  const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE });
+  const { clients, total } = await search({ q, sortField, dir, page, pageSize: PAGE_SIZE, projectIds: projectIdFilter(await getAccessContext()) });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));

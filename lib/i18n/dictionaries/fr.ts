@@ -700,6 +700,12 @@ const fr = {
         deleteLabel: "Supprimer {name}",
         deleteTitle: "Supprimer la fonction",
         deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
+        scope: {
+            title: "Portée des chantiers",
+            hint: "Détermine quels chantiers les utilisateurs de cette fonction peuvent atteindre. Le filtrage est appliqué en base : un chantier hors portée est introuvable, y compris par URL directe.",
+            all: "Tous les chantiers",
+            assigned: "Uniquement les chantiers qui leur sont affectés",
+        },
         sections: {
             configureLabel: "Configurer les sections accessibles à {name}",
             title: "Sections accessibles",

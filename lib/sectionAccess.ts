@@ -1,7 +1,5 @@
-import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
-import { findHiddenSectionsByEmail } from "@/repository/users";
-import { isProjectSectionKey, type ProjectSectionKey } from "@/lib/projectSections";
+import { getAccessContext } from "@/lib/accessContext";
+import { type ProjectSectionKey } from "@/lib/projectSections";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
@@ -27,12 +25,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 
 /** Sections the current user may not touch. Empty for ADMIN+ and unassigned users. */
 export async function getHiddenSections(): Promise<Set<ProjectSectionKey>> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email || hasMinRole(session?.user?.role, "ADMIN")) return new Set();
-
-  const hidden = await findHiddenSectionsByEmail(email);
-  return new Set(hidden.filter(isProjectSectionKey));
+  return (await getAccessContext()).hiddenSections;
 }
 
 /** Page-level branching: may the current user see this section? */
