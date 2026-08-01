@@ -37,6 +37,7 @@ import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import ReservesSection from "@/components/ReservesSection";
 import AddReservePlanForm from "@/forms/AddReservePlanForm";
+import AddReserveFolderForm from "@/forms/AddReserveFolderForm";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -559,6 +560,16 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     <ArrowDownTrayIcon className="h-3.5 w-3.5" />
                     {t.reserves.exportPdf}
                   </a>
+                )}
+                {canEdit && (
+                  <AddReserveFolderForm
+                    clientId={clientId}
+                    projectId={pid}
+                    folders={reserveFolders.map((f) => ({
+                      ...f,
+                      planCount: reservePlans.filter((p) => p.folderId === f.id).length,
+                    }))}
+                  />
                 )}
                 {canEdit && (
                   <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
