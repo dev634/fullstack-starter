@@ -660,7 +660,7 @@ const en: Dictionary = {
         noFoldersYet: "No folder yet.",
         deleteFolder: "Delete folder “{name}”",
         deleteFolderText: "Delete folder “{name}”? Its plans move back to the root (not deleted).",
-        moveToFolderLabel: "Move to",
+        moveToFolderLabel: "Move “{name}” to a folder",
         exportPdf: "Export as PDF",
         report: {
             title: "Snag report",

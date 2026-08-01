@@ -38,6 +38,7 @@ import UploadFileForm from "@/forms/UploadFileForm";
 import ReservesSection from "@/components/ReservesSection";
 import AddReservePlanForm from "@/forms/AddReservePlanForm";
 import AddReserveFolderForm from "@/forms/AddReserveFolderForm";
+import { parseReserveFolderId } from "@/lib/reserveFolderParam";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -77,18 +78,22 @@ type PageProps = {
     projectId: string;
   }>;
   searchParams: Promise<{
+    /** Files module browser. */
     folder?: string;
+    /** Réserves browser — a separate param so both can be open at once. */
+    rfolder?: string;
   }>;
 };
 
 export default async function ProjectDetailPage({ params, searchParams }: PageProps) {
   await blockClientFromApp();
   const { id, projectId } = await params;
-  const { folder: folderParam } = await searchParams;
+  const { folder: folderParam, rfolder: reserveFolderParam } = await searchParams;
   const clientId = parseInt(id, 10);
   const pid = parseInt(projectId, 10);
   const parsedFolderId = folderParam ? parseInt(folderParam, 10) : NaN;
   const currentFolderId = Number.isNaN(parsedFolderId) ? null : parsedFolderId;
+  const currentReserveFolderId = parseReserveFolderId(reserveFolderParam);
 
   const result = await getProject(pid);
   const isError = result.type === "error";
@@ -561,23 +566,21 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     {t.reserves.exportPdf}
                   </a>
                 )}
-                {canEdit && (
-                  <AddReserveFolderForm
-                    clientId={clientId}
-                    projectId={pid}
-                    folders={reserveFolders.map((f) => ({
-                      ...f,
-                      planCount: reservePlans.filter((p) => p.folderId === f.id).length,
-                    }))}
-                  />
-                )}
+                {canEdit && <AddReserveFolderForm clientId={clientId} projectId={pid} />}
                 {canEdit && (
                   <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
                 )}
               </>
             }
           >
-            <ReservesSection clientId={clientId} projectId={pid} plans={reservePlans} folders={reserveFolders} canEdit={canEdit} />
+            <ReservesSection
+              clientId={clientId}
+              projectId={pid}
+              plans={reservePlans}
+              folders={reserveFolders}
+              currentFolderId={currentReserveFolderId}
+              canEdit={canEdit}
+            />
           </CollapsibleSection>
         ),
         };

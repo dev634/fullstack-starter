@@ -658,7 +658,7 @@ const fr = {
         noFoldersYet: "Aucun dossier pour le moment.",
         deleteFolder: "Supprimer le dossier « {name} »",
         deleteFolderText: "Supprimer le dossier « {name} » ? Ses plans seront remis à la racine (non supprimés).",
-        moveToFolderLabel: "Déplacer vers",
+        moveToFolderLabel: "Déplacer « {name} » vers un dossier",
         exportPdf: "Exporter en PDF",
         report: {
             title: "Rapport de réserves",
