@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // @prisma/client looks unused because nothing imports it by name: the app
+  // imports the generated client from "@/app/generated/prisma/client" instead.
+  // But that generated code imports "@prisma/client/runtime/*" at runtime, so
+  // dropping the dependency would break every query in production.
+  // This finding is a trap, not a cleanup — keep it silenced.
+  "ignoreDependencies": ["@prisma/client"],
+
+  // Prisma output: generated on every `prisma generate`, never hand-edited.
+  "ignore": ["app/generated/**"]
+}
