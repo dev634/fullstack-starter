@@ -6,7 +6,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
-import { addUser, updateUser, deleteUser } from "@/actions/users/users";
+import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
 import { ROLE_RANK } from "@/lib/capabilities";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
@@ -20,7 +20,9 @@ type ManagedUser = {
   createdAt: Date;
   jobFunctionId: number | null;
   jobFunction: { name: string } | null;
+  assignedProjects: { id: number }[];
 };
+export type AssignableProject = { id: number; name: string; companyName: string };
 type Editing = { mode: "add" } | { mode: "edit"; user: ManagedUser };
 
 const RANK = ROLE_RANK;
@@ -43,11 +45,13 @@ export default function UsersManager({
   actorRole,
   actorEmail,
   functions,
+  projects,
 }: {
   users: ManagedUser[];
   actorRole: Role;
   actorEmail: string;
   functions: JobFunctionOption[];
+  projects: AssignableProject[];
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -58,6 +62,7 @@ export default function UsersManager({
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("VIEWER");
   const [jobFunctionId, setJobFunctionId] = useState<number | null>(null);
+  const [assigned, setAssigned] = useState<Set<number>>(new Set());
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string> | undefined>();
@@ -86,6 +91,7 @@ export default function UsersManager({
     setName(user.name ?? "");
     setRole(user.role);
     setJobFunctionId(user.jobFunctionId);
+    setAssigned(new Set(user.assignedProjects.map((p) => p.id)));
     setPassword("");
     setError(null);
     setFieldErrors(undefined);
@@ -109,6 +115,19 @@ export default function UsersManager({
       } else {
         fd.set("id", String(editing.user.id));
         res = await updateUser(initialState, fd);
+      }
+      // Assignments are stored on the user, not in the profile form, so they
+      // are saved right after — only once the profile itself succeeded, to
+      // avoid assigning projects to a user whose creation just failed.
+      if (res.type === "success") {
+        const targetId = editing.mode === "edit" ? editing.user.id : (res.data as { id?: number } | undefined)?.id;
+        if (targetId) {
+          const assignRes = await setUserProjectAssignments(targetId, [...assigned]);
+          if (assignRes.type === "error") {
+            setError(assignRes.message);
+            return;
+          }
+        }
       }
       if (res.type !== "success") {
         setError(res.message);
@@ -238,6 +257,51 @@ export default function UsersManager({
                 <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t.users.assignedProjectsLabel}
+            </label>
+            <p className="mb-1 text-xs text-gray-400">{t.users.assignedProjectsHint}</p>
+            {projects.length === 0 ? (
+              <p className="text-xs text-gray-400">{t.users.assignedProjectsEmpty}</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto rounded border border-gray-300 dark:border-gray-700">
+                {Object.entries(
+                  projects.reduce<Record<string, AssignableProject[]>>((acc, p) => {
+                    (acc[p.companyName] ||= []).push(p);
+                    return acc;
+                  }, {})
+                ).map(([company, list]) => (
+                  <div key={company}>
+                    <p className="sticky top-0 bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                      {company}
+                    </p>
+                    {list.map((project) => (
+                      <label
+                        key={project.id}
+                        className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-500/10"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={assigned.has(project.id)}
+                          onChange={() =>
+                            setAssigned((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(project.id)) next.delete(project.id);
+                              else next.add(project.id);
+                              return next;
+                            })
+                          }
+                          className="h-4 w-4 accent-[var(--primary)]"
+                        />
+                        <span className="truncate">{project.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.passwordLabel}</label>

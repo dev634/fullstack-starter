@@ -281,3 +281,18 @@ export async function countByStatus(clientId?: number) {
         };
     }
 }
+
+/** Every live project with its company name — the picker used to assign users. */
+export async function findAllAssignable() {
+    try {
+        const projects = await prisma.project.findMany({
+            where: { deletedAt: null, client: { deletedAt: null } },
+            select: { id: true, name: true, client: { select: { companyName: true } } },
+            orderBy: [{ client: { companyName: "asc" } }, { name: "asc" }],
+        });
+        return projects.map((p) => ({ id: p.id, name: p.name, companyName: p.client.companyName }));
+    } catch (error) {
+        console.log("Repository findAllAssignable error:", error);
+        throw { type: "error", message: "Database Error fetching projects." };
+    }
+}
