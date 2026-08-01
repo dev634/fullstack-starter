@@ -52,32 +52,105 @@ jobs:
     permissions:
       contents: read
       packages: read
+      # Needed by the failure notice below, which opens an issue.
+      issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # Keep the compose file on the VPS in sync with the repo.
-      - name: Copy compose file to VPS
-        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          source: docker-compose.prod.yml
-          target: ${{ secrets.VPS_APP_DIR }}
+      # Plain ssh/scp rather than a third-party action, for two reasons.
+      #
+      # Retries: the SSH hop to the VPS fails on a transient network blip often
+      # enough to matter (run 30709116013 died on "dial tcp: i/o timeout" at the
+      # very first step), and GitHub Actions has no native per-step retry — you
+      # cannot wrap an action in a loop, only a script.
+      #
+      # Supply chain: these steps handle VPS_SSH_KEY, the most valuable secret
+      # in this repo. Two fewer third-party actions see it.
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Trust on first use, as the previous action did. Pin the host key in
+          # a secret instead if you ever want to close that window.
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              break
+            fi
+            echo "ssh-keyscan attempt $attempt failed"
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 10))
+          done
 
-      - name: Pull image and restart on VPS
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+      - name: Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          # ssh spells the port -p, scp spells it -P (where -p means "preserve
+          # times"), so the shared options deliberately carry neither.
+          COMMON="-i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes"
+
+          # The whole deploy retries as one unit: copying the compose file then
+          # restarting is a single operation, and half of it is not a deploy.
+          for attempt in 1 2 3; do
+            echo "::group::Deploy attempt $attempt"
+            # The registry token goes over ssh's stdin into --password-stdin, so
+            # it never appears in the remote command line (where `ps` would show
+            # it for the life of the login).
+            if scp $COMMON -P "$VPS_PORT" docker-compose.prod.yml "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/" 2>&1 &&
+               printf '%s' "$GHCR_TOKEN" | ssh $COMMON -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
+                 set -e
+                 cd '$VPS_APP_DIR'
+                 docker login ghcr.io -u '$GHCR_USER' --password-stdin
+                 docker compose -f docker-compose.prod.yml pull web
+                 docker compose -f docker-compose.prod.yml up -d
+                 docker logout ghcr.io
+                 docker image prune -f
+               " 2>&1; then
+              echo "::endgroup::"
+              echo "Deployed on attempt $attempt"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Attempt $attempt failed"
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 20))
+          done
+
+      # A failed deploy leaves production silently one version behind — the run
+      # goes red in a tab nobody has open. This makes it land somewhere you
+      # actually look.
+      - name: Open an issue if the deploy failed
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
           script: |
-            set -e
-            cd "${{ secrets.VPS_APP_DIR }}"
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.prod.yml pull web
-            docker compose -f docker-compose.prod.yml up -d
-            docker logout ghcr.io
-            docker image prune -f
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Déploiement échoué — ${context.sha.slice(0, 7)}`,
+              labels: ["deploy-failure"],
+              body: [
+                `Le déploiement de \`${context.sha}\` a échoué.`,
+                ``,
+                `**La production tourne donc encore sur la version précédente.**`,
+                ``,
+                `- Run : ${run}`,
+                `- Déclenché par : @${context.actor}`,
+                ``,
+                `Relancer le run suffit si la cause était transitoire (coupure réseau vers le VPS).`,
+                `Les trois tentatives automatiques ayant déjà échoué, vérifier que le VPS répond avant de relancer.`,
+              ].join("\n"),
+            });
