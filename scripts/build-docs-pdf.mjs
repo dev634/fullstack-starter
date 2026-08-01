@@ -1,5 +1,9 @@
-// Generate docs/DOCUMENTATION.pdf from docs/DOCUMENTATION.md.
-// Pure JS (pdfkit) — no headless browser. Run with: npm run docs:pdf
+// Render a markdown doc to PDF. Pure JS (pdfkit) — no headless browser.
+//
+//   node scripts/build-docs-pdf.mjs [source.md] [output.pdf] [title] [subtitle]
+//
+// Defaults to the main documentation, so `npm run docs:pdf` keeps working;
+// other docs pass their own arguments rather than copying this script.
 import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
@@ -7,12 +11,13 @@ import { fileURLToPath } from "url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..");
-const SRC = path.join(REPO, "docs/DOCUMENTATION.md");
-const OUT = path.join(REPO, "docs/DOCUMENTATION.pdf");
+const [srcArg, outArg, titleArg, subtitleArg] = process.argv.slice(2);
+const SRC = path.resolve(REPO, srcArg ?? "docs/DOCUMENTATION.md");
+const OUT = path.resolve(REPO, outArg ?? "docs/DOCUMENTATION.pdf");
 
 const BRAND = "Devadn";
-const TITLE = "Documentation";
-const SUBTITLE = "Gestion d'entreprises, projets et chantiers photovoltaïques";
+const TITLE = titleArg ?? "Documentation";
+const SUBTITLE = subtitleArg ?? "Gestion d'entreprises, projets et chantiers photovoltaïques";
 
 // ---- palette ----
 const C = { text: "#111827", muted: "#6b7280", primary: "#2563eb", rule: "#d1d5db", codeBg: "#f3f4f6", codeText: "#1f2937" };

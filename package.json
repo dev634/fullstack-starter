@@ -12,7 +12,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "docs:pdf": "node scripts/build-docs-pdf.mjs"
+    "docs:pdf": "node scripts/build-docs-pdf.mjs",
+    "docs:security": "node scripts/build-docs-pdf.mjs docs/SECURITE-SSH.md docs/SECURITE-SSH.pdf \"Sécurité serveur\" \"Durcissement SSH et fail2ban\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
