@@ -1,10 +1,17 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createSubcontractorCompanySchema, addSubcontractorPersonSchema } from "@/schemas/subcontractor";
-import { createCompany, removeCompany, addPerson, removePerson } from "@/repository/subcontractors";
+import {
+  createCompany,
+  removeCompany,
+  addPerson,
+  removePerson,
+  findCompanyProjectId,
+  findPersonProjectId,
+} from "@/repository/subcontractors";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -30,6 +37,9 @@ export async function addSubcontractorCompany(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const company = await createCompany({ projectId: parsed.data.projectId, name: parsed.data.name });
@@ -65,6 +75,10 @@ export async function deleteSubcontractorCompany(id: number, clientId: number, p
     if (isNaN(id)) {
       throw { type: "error", message: t.subcontractors.messages.invalidId };
     }
+    const realProjectId = await findCompanyProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const company = await removeCompany(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.subcontractors.messages.companyDeleted, data: company };
@@ -98,6 +112,12 @@ export async function addSubcontractorPerson(
   }
 
   try {
+    const realProjectId = await findCompanyProjectId(parsed.data.companyId);
+    if (realProjectId === null) {
+      return { ...prevState, type: "error", message: t.subcontractors.messages.invalidId };
+    }
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const person = await addPerson({
       companyId: parsed.data.companyId,
       name: parsed.data.name,
@@ -131,6 +151,10 @@ export async function deleteSubcontractorPerson(id: number, clientId: number, pr
     if (isNaN(id)) {
       throw { type: "error", message: t.subcontractors.messages.invalidId };
     }
+    const realProjectId = await findPersonProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const person = await removePerson(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.subcontractors.messages.personDeleted, data: person };

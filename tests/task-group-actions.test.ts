@@ -4,8 +4,14 @@ vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolv
 vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: () => true,
+  projectIdFilter: () => undefined,
+}));
 vi.mock("@/repository/taskGroups", () => ({
   remove: vi.fn(),
+  findProjectId: vi.fn().mockResolvedValue(2),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));

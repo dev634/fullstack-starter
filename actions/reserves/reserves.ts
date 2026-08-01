@@ -1,13 +1,27 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
-import { create as createReserve, update as updateReserveRow, remove as removeReserve } from "@/repository/reserves";
+import {
+  create as createReserve,
+  update as updateReserveRow,
+  remove as removeReserve,
+  findProjectId as findReserveProjectId,
+} from "@/repository/reserves";
 import { create as createPlan, findById as findPlanById, remove as removePlan, setFolder as setPlanFolder } from "@/repository/reservePlans";
-import { create as createFolder, remove as removeFolder } from "@/repository/reservePlanFolders";
-import { create as createPhoto, findById as findPhotoById, remove as removePhoto } from "@/repository/reservePhotos";
+import {
+  create as createFolder,
+  remove as removeFolder,
+  findProjectId as findReserveFolderProjectId,
+} from "@/repository/reservePlanFolders";
+import {
+  create as createPhoto,
+  findById as findPhotoById,
+  remove as removePhoto,
+  findProjectId as findPhotoProjectId,
+} from "@/repository/reservePhotos";
 import { uploadReservePlan, destroyReservePlan, uploadReservePhoto, destroyReservePhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -37,6 +51,8 @@ export async function addReservePlan(
   if (isNaN(projectId) || isNaN(clientId)) {
     return { ...prevState, type: "error", message: t.errors.invalidId };
   }
+  const scopeCheck = await requireProjectAccess(projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
   if (!(file instanceof File) || file.size === 0) {
     return { ...prevState, type: "error", message: t.reserves.messages.chooseFile };
   }
@@ -67,6 +83,8 @@ export async function addReserveFolder(name: string, clientId: number, projectId
     const trimmed = (name ?? "").trim();
     if (!trimmed) return { type: "error" as const, message: t.errors.validationError };
     if (!Number.isInteger(projectId) || projectId <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(projectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const folder = await createFolder({ projectId, name: trimmed });
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.folderAdded, data: folder };
@@ -85,8 +103,11 @@ export async function deleteReserveFolder(id: number, clientId: number, projectI
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
-    if (!Number.isInteger(projectId) || projectId <= 0) return { type: "error" as const, message: t.errors.invalidId };
-    const folder = await removeFolder(id, projectId);
+    const realProjectId = await findReserveFolderProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
+    const folder = await removeFolder(id, realProjectId);
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.folderDeleted, data: folder };
   } catch (error) {
@@ -104,7 +125,11 @@ export async function moveReservePlan(planId: number, folderId: number | null, c
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(planId) || planId <= 0) return { type: "error" as const, message: t.errors.invalidId };
-    await setPlanFolder(planId, folderId, projectId);
+    const plan = await findPlanById(planId);
+    if (!plan) return { type: "error" as const, message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(plan.projectId);
+    if (scopeCheck.error) return scopeCheck.error;
+    await setPlanFolder(planId, folderId, plan.projectId);
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.planMoved };
   } catch (error) {
@@ -123,6 +148,9 @@ export async function deleteReservePlan(id: number, clientId: number, projectId:
   try {
     if (isNaN(id)) throw { type: "error", message: t.errors.invalidId };
     const existing = await findPlanById(id);
+    if (!existing) return { type: "error" as const, message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(existing.projectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const plan = await removePlan(id);
     await destroyReservePlan(existing?.publicId);
     revalidatePath(projectPath(clientId, projectId));
@@ -151,6 +179,10 @@ export async function addReserve(
   }
 
   try {
+    const plan = await findPlanById(parsed.data.planId);
+    if (!plan) return { ...prevState, type: "error", message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(plan.projectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const reserve = await createReserve(parsed.data);
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.added, data: reserve };
@@ -178,6 +210,10 @@ export async function updateReserve(
   }
 
   try {
+    const realProjectId = await findReserveProjectId(parsed.data.id);
+    if (realProjectId === null) return { ...prevState, type: "error", message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const reserve = await updateReserveRow(parsed.data.id, parsed.data);
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.updated, data: reserve };
@@ -205,12 +241,16 @@ export async function addReservePhoto(
   if (isNaN(reserveId) || isNaN(projectId) || isNaN(clientId)) {
     return { ...prevState, type: "error", message: t.reserves.messages.invalidId };
   }
+  const realProjectId = await findReserveProjectId(reserveId);
+  if (realProjectId === null) return { ...prevState, type: "error", message: t.reserves.messages.invalidId };
+  const scopeCheck = await requireProjectAccess(realProjectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
   if (!(file instanceof File) || file.size === 0) {
     return { ...prevState, type: "error", message: t.reserves.messages.choosePhoto };
   }
 
   try {
-    const { url, publicId } = await uploadReservePhoto(file, projectId);
+    const { url, publicId } = await uploadReservePhoto(file, realProjectId);
     const photo = await createPhoto({ reserveId, url, publicId });
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.photoAdded, data: photo };
@@ -229,6 +269,10 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) throw { type: "error", message: t.reserves.messages.invalidId };
+    const realProjectId = await findPhotoProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.reserves.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const existing = await findPhotoById(id);
     const photo = await removePhoto(id);
     await destroyReservePhoto(existing?.publicId);
@@ -249,6 +293,10 @@ export async function deleteReserve(id: number, clientId: number, projectId: num
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) throw { type: "error", message: t.reserves.messages.invalidId };
+    const realProjectId = await findReserveProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.reserves.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const reserve = await removeReserve(id);
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.deleted, data: reserve };

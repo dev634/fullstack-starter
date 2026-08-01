@@ -1,12 +1,13 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createFolderSchema } from "@/schemas/projectFile";
 import {
   create as createFolder,
   remove as removeFolder,
+  findById as findFolderById,
   collectDescendantFilePublicIds,
 } from "@/repository/projectFolders";
 import { create as createFile, remove as removeFile, findById as findFileById } from "@/repository/projectFiles";
@@ -36,6 +37,9 @@ export async function addFolder(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const folder = await createFolder({
@@ -81,6 +85,8 @@ export async function uploadFile(
   if (!(file instanceof File) || file.size === 0) {
     return { ...prevState, type: "error", message: t.files.messages.chooseFileToUpload };
   }
+  const scopeCheck = await requireProjectAccess(projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const uploaded = await uploadProjectFile(file, projectId);
@@ -129,6 +135,8 @@ export async function deleteFile(id: number, clientId: number, projectId: number
     if (!file) {
       throw { type: "error", message: t.files.messages.fileNotFound };
     }
+    const scopeCheck = await requireProjectAccess(file.projectId);
+    if (scopeCheck.error) return scopeCheck.error;
     await destroyProjectFile(file.publicId, file.mimeType);
     await removeFile(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
@@ -152,7 +160,11 @@ export async function deleteFolder(id: number, clientId: number, projectId: numb
     if (isNaN(id)) {
       throw { type: "error", message: t.files.messages.invalidFolderId };
     }
-    const files = await collectDescendantFilePublicIds(projectId, id);
+    const folder = await findFolderById(id);
+    if (!folder) throw { type: "error", message: t.files.messages.invalidFolderId };
+    const scopeCheck = await requireProjectAccess(folder.projectId);
+    if (scopeCheck.error) return scopeCheck.error;
+    const files = await collectDescendantFilePublicIds(folder.projectId, id);
     await Promise.all(files.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
     await removeFolder(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);

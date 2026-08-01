@@ -63,6 +63,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The material's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const material = await prisma.projectMaterial.findUnique({ where: { id }, select: { projectId: true } });
+        return material?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (material) error:", error);
+        throw { type: "error", message: "Database Error fetching material." };
+    }
+}
+
 type MaterialUpdateData = {
     name: string;
     quantity: number;

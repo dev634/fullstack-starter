@@ -4,7 +4,9 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireSession } from "@/lib/authz";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireClientAccess } from "@/lib/access";
+import { getAccessContext } from "@/lib/accessContext";
+import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
@@ -80,11 +82,17 @@ export async function getClient(id: number) {
     }
 
     const client = await findById(id);
+    // A trashed client is invisible to the normal detail page (looks like
+    // "not found"); the trash page reads the repository directly instead. A
+    // client outside the caller's scope reads the same way — a distinct
+    // response would confirm it exists to someone who shouldn't know that.
+    const access = await getAccessContext();
+    const reachable =
+      access.projectIds === null || (await hasProjectAmong(id, [...access.projectIds]));
+    const visible = client && !client.deletedAt && reachable;
     return {
       type: "success",
-      // A trashed client is invisible to the normal detail page (looks like
-      // "not found"); the trash page reads the repository directly instead.
-      data: client?.deletedAt ? null : client,
+      data: visible ? client : null,
     };
   } catch (error) {
     console.log("Action getClient error:", error);
@@ -115,6 +123,8 @@ export async function updateClient(
         message: t.errors.invalidId,
       };
     }
+    const scopeCheck = await requireClientAccess(id);
+    if (scopeCheck.error) return { type: "error", message: scopeCheck.error.message };
 
     const existing = await findById(id);
     // Resolve the new photo state: a freshly uploaded file wins; otherwise an
@@ -190,6 +200,8 @@ export async function deleteClient(id: number) {
         message: t.errors.invalidId,
       };
     }
+    const scopeCheck = await requireClientAccess(id);
+    if (scopeCheck.error) return { type: "error", message: scopeCheck.error.message };
     const existing = await findById(id);
     const client = await softDelete(id);
     await logActivity({
@@ -223,7 +235,13 @@ export async function deleteClients(ids: number[]) {
     if (valid.length === 0) {
       return { type: "error" as const, message: t.clients.messages.noneSelected };
     }
+    let deleted = 0;
     for (const id of valid) {
+      // A client outside the caller's scope is silently skipped, not
+      // errored — a restricted actor selecting a mixed batch must not be
+      // able to tell which ids in it belonged to companies they can't reach.
+      const scopeCheck = await requireClientAccess(id);
+      if (scopeCheck.error) continue;
       const existing = await findById(id);
       await softDelete(id);
       await logActivity({
@@ -232,9 +250,10 @@ export async function deleteClients(ids: number[]) {
         clientName: existing?.companyName ?? `#${id}`,
         actorEmail: roleCheck.email,
       });
+      deleted++;
     }
     revalidatePath("/clients");
-    return { type: "success" as const, message: format(t.clients.messages.deletedBulk, { count: valid.length }) };
+    return { type: "success" as const, message: format(t.clients.messages.deletedBulk, { count: deleted }) };
   } catch (error) {
     console.log("Action deleteClients error:", error);
     return {
@@ -254,6 +273,8 @@ export async function restoreClient(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.errors.invalidId };
     }
+    const scopeCheck = await requireClientAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
     const client = await restore(id);
     await logActivity({
       action: "RESTORED",
@@ -286,6 +307,8 @@ export async function permanentlyDeleteClient(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.errors.invalidId };
     }
+    const scopeCheck = await requireClientAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
     // Collect the project files BEFORE deleting the client — deleting cascades
     // through projects to files, so afterwards the rows (and their publicIds)

@@ -1,6 +1,6 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
@@ -67,6 +67,9 @@ export async function applyDeliveryNoteScan(
 
   const { projectId, clientId, supplier, items } = parsed.data;
   const file = formData.get("file");
+
+  const scopeCheck = await requireProjectAccess(projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     await applyScanItems(projectId, items, supplier);

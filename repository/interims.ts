@@ -42,6 +42,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The interim's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const interim = await prisma.interim.findUnique({ where: { id }, select: { projectId: true } });
+        return interim?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (interim) error:", error);
+        throw { type: "error", message: "Database Error fetching interim." };
+    }
+}
+
 export async function remove(id: number) {
     try {
         return await prisma.interim.delete({ where: { id } });

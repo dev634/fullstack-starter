@@ -39,6 +39,34 @@ export async function findCompaniesByProject(projectId: number) {
     }
 }
 
+/** The company's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findCompanyProjectId(id: number): Promise<number | null> {
+    try {
+        const company = await prisma.subcontractorCompany.findUnique({ where: { id }, select: { projectId: true } });
+        return company?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findCompanyProjectId (subcontractor) error:", error);
+        throw { type: "error", message: "Database Error fetching subcontractor company." };
+    }
+}
+
+/**
+ * A person's real project id (via its company — SubcontractorPerson has no
+ * projectId column of its own), or null if it doesn't exist.
+ */
+export async function findPersonProjectId(id: number): Promise<number | null> {
+    try {
+        const person = await prisma.subcontractorPerson.findUnique({
+            where: { id },
+            select: { company: { select: { projectId: true } } },
+        });
+        return person?.company.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findPersonProjectId (subcontractor) error:", error);
+        throw { type: "error", message: "Database Error fetching subcontractor personnel." };
+    }
+}
+
 /** Deletes the company and, via cascade, every person under it. */
 export async function removeCompany(id: number) {
     try {

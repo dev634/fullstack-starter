@@ -65,6 +65,17 @@ export async function create(data: ReserveCreateData) {
     }
 }
 
+/** The réserve's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const reserve = await prisma.reserve.findUnique({ where: { id }, select: { projectId: true } });
+        return reserve?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (reserve) error:", error);
+        throw { type: "error", message: "Database Error fetching réserve." };
+    }
+}
+
 /** Edits a réserve's description/status/GPS — never its position on the plan. */
 export async function update(id: number, data: ReserveUpdateData) {
     try {

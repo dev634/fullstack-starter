@@ -1,9 +1,9 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireClientAccess } from "@/lib/access";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
-import { create, update, setPrimary, remove, setContactProjects } from "@/repository/contacts";
+import { create, update, setPrimary, remove, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
 import { findAll as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords } from "@/lib/csv";
@@ -26,6 +26,9 @@ export async function addContact(
   if (!parsed.success) {
     return { ...prevState, type: "zodError", message: t.errors.validationError, fieldsForm: makeObjectFromZodError(parsed.error, t) };
   }
+
+  const scopeCheck = await requireClientAccess(parsed.data.clientId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const contact = await create(parsed.data);
@@ -50,6 +53,10 @@ export async function editContact(
   }
 
   try {
+    const existingContact = await findContactById(parsed.data.id);
+    if (!existingContact) return { ...prevState, type: "error", message: t.contacts.messages.invalidId };
+    const scopeCheck = await requireClientAccess(existingContact.clientId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const contact = await update(parsed.data.id, parsed.data);
     // Portal project links (checkbox group) — the repository re-checks each id
     // belongs to this contact's company, so a tampered list can't cross tenants.
@@ -109,6 +116,8 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
       if (!companyEmail) throw { type: "error", message: t.contacts.import.missingCompanyEmail };
       const org = await findByEmail(companyEmail);
       if (!org) throw { type: "error", message: t.contacts.import.unknownCompanyEmail };
+      const scopeCheck = await requireClientAccess(org.id);
+      if (scopeCheck.error) throw new Error(scopeCheck.error.message);
 
       const isPrimary = PRIMARY_TRUE.test((record["Primary"] ?? "").trim());
       const parsed = createContactSchema.safeParse({
@@ -158,8 +167,12 @@ export async function setPrimaryContact(id: number, clientId: number) {
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id) || isNaN(clientId)) throw { type: "error", message: t.contacts.messages.invalidId };
-    await setPrimary(id, clientId);
-    revalidatePath(`/clients/${clientId}`);
+    const existingContact = await findContactById(id);
+    if (!existingContact) return { type: "error" as const, message: t.contacts.messages.invalidId };
+    const scopeCheck = await requireClientAccess(existingContact.clientId);
+    if (scopeCheck.error) return scopeCheck.error;
+    await setPrimary(id, existingContact.clientId);
+    revalidatePath(`/clients/${existingContact.clientId}`);
     return { type: "success" as const, message: t.contacts.messages.primaryUpdated };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -174,6 +187,10 @@ export async function deleteContact(id: number, clientId: number) {
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) throw { type: "error", message: t.contacts.messages.invalidId };
+    const existingContact = await findContactById(id);
+    if (!existingContact) return { type: "error" as const, message: t.contacts.messages.invalidId };
+    const scopeCheck = await requireClientAccess(existingContact.clientId);
+    if (scopeCheck.error) return scopeCheck.error;
     const contact = await remove(id);
     revalidatePath(`/clients/${clientId}`);
     return { type: "success" as const, message: t.contacts.messages.deleted, data: contact };

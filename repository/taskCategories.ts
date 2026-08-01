@@ -38,6 +38,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The category's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const category = await prisma.projectTaskCategory.findUnique({ where: { id }, select: { projectId: true } });
+        return category?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (task category) error:", error);
+        throw { type: "error", message: "Database Error fetching task category." };
+    }
+}
+
 /** Sets a category's assignee (subcontractor company OR intérimaire). */
 export async function setAssignee(id: number, data: { assignedCompanyId: number | null; assignedInterimId: number | null }) {
     try {

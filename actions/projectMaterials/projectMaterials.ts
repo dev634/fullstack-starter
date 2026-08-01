@@ -1,10 +1,10 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
-import { create, update, remove } from "@/repository/projectMaterials";
+import { create, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -30,6 +30,9 @@ export async function addMaterial(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const material = await create({
@@ -82,6 +85,10 @@ export async function editMaterial(
   }
 
   try {
+    const realProjectId = await findMaterialProjectId(parsed.data.id);
+    if (realProjectId === null) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const material = await update(parsed.data.id, {
       name: parsed.data.name,
       quantity: parsed.data.quantity,
@@ -125,6 +132,10 @@ export async function deleteMaterial(id: number, clientId: number, projectId: nu
     if (isNaN(id)) {
       throw { type: "error", message: t.materials.messages.invalidId };
     }
+    const realProjectId = await findMaterialProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.materials.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const material = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.materials.messages.deleted, data: material };

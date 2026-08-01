@@ -5,15 +5,21 @@ vi.mock("@/lib/authz", () => ({
   requireSession: vi.fn(),
   requireRole: vi.fn(),
 }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: () => true,
+  projectIdFilter: () => undefined,
+}));
 vi.mock("@/repository/projectFolders", () => ({
   create: vi.fn(),
   remove: vi.fn(),
   collectDescendantFilePublicIds: vi.fn(),
+  findById: vi.fn().mockResolvedValue({ id: 1, projectId: 2 }),
 }));
 vi.mock("@/repository/projectFiles", () => ({
   create: vi.fn(),
   remove: vi.fn(),
-  findById: vi.fn(),
+  findById: vi.fn().mockResolvedValue({ id: 1, projectId: 2 }),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadProjectFile: vi.fn(),

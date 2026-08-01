@@ -45,6 +45,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The intervention's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const intervention = await prisma.intervention.findUnique({ where: { id }, select: { projectId: true } });
+        return intervention?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (intervention) error:", error);
+        throw { type: "error", message: "Database Error fetching intervention." };
+    }
+}
+
 type InterventionUpdateData = {
     scheduledAt: string;
     description: string;

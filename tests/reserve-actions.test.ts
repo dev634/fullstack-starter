@@ -2,9 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
-vi.mock("@/repository/reserves", () => ({ create: vi.fn(), update: vi.fn(), remove: vi.fn() }));
-vi.mock("@/repository/reservePlans", () => ({ create: vi.fn(), findById: vi.fn(), remove: vi.fn() }));
-vi.mock("@/repository/reservePhotos", () => ({ create: vi.fn(), findById: vi.fn(), remove: vi.fn() }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: vi.fn().mockReturnValue(true),
+  projectIdFilter: vi.fn().mockReturnValue(undefined),
+}));
+vi.mock("@/repository/reserves", () => ({
+  create: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  findProjectId: vi.fn().mockResolvedValue(2),
+}));
+vi.mock("@/repository/reservePlans", () => ({ create: vi.fn(), findById: vi.fn().mockResolvedValue({ id: 5, projectId: 2 }), remove: vi.fn() }));
+vi.mock("@/repository/reservePhotos", () => ({
+  create: vi.fn(),
+  findById: vi.fn(),
+  remove: vi.fn(),
+  findProjectId: vi.fn().mockResolvedValue(2),
+}));
 vi.mock("@/lib/cloudinary", () => ({
   uploadReservePlan: vi.fn(),
   destroyReservePlan: vi.fn(),
@@ -18,12 +33,15 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addReserve, updateReserve, deleteReserve, addReservePhoto } from "@/actions/reserves/reserves";
 import { requireRole } from "@/lib/authz";
 import { requireSectionAccess } from "@/lib/sectionAccess";
-import { create, update, remove } from "@/repository/reserves";
+import { canReachProject } from "@/lib/accessContext";
+import { create, update, remove, findProjectId as findReserveProjectId } from "@/repository/reserves";
 import { create as createPhoto } from "@/repository/reservePhotos";
 import { uploadReservePhoto } from "@/lib/cloudinary";
 
 const requireRoleMock = vi.mocked(requireRole);
 const requireSectionMock = vi.mocked(requireSectionAccess);
+const canReachProjectMock = vi.mocked(canReachProject);
+const findReserveProjectIdMock = vi.mocked(findReserveProjectId);
 const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
@@ -152,5 +170,49 @@ describe("reserve actions", () => {
     const res = await addReservePhoto(initial, fd);
     expect(res.type).toBe("error");
     expect(uploadReservePhotoMock).not.toHaveBeenCalled();
+  });
+
+  // Regression coverage for the finding in docs/PENTEST-2026-08.md (F1): a
+  // caller restricted to specific projects must not be able to write to a
+  // réserve outside that set by simply claiming a different projectId in the
+  // request — the check has to run against the réserve's REAL project,
+  // resolved from the database, not the caller-supplied form field.
+  describe("project-scope enforcement (F1 regression)", () => {
+    it("updateReserve refuses when the réserve's real project is outside the caller's scope, even if the role/section checks pass", async () => {
+      requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+      // The réserve actually belongs to project 99 — not the caller's project.
+      findReserveProjectIdMock.mockResolvedValue(99);
+      canReachProjectMock.mockReturnValueOnce(false);
+
+      const res = await updateReserve(initial, form({ ...validFields, id: "9", status: "RESOLVED" }));
+
+      expect(res.type).toBe("error");
+      expect(updateMock).not.toHaveBeenCalled();
+      // The check ran against the RESOLVED project (99), not the form's claim (2).
+      expect(canReachProjectMock).toHaveBeenCalledWith(expect.anything(), 99);
+    });
+
+    it("deleteReserve refuses when the réserve's real project is outside the caller's scope", async () => {
+      requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+      findReserveProjectIdMock.mockResolvedValue(99);
+      canReachProjectMock.mockReturnValueOnce(false);
+
+      const res = await deleteReserve(9, 1, 2);
+
+      expect((res as { type: string }).type).toBe("error");
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("updateReserve proceeds once the resolved project IS in the caller's scope", async () => {
+      requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+      findReserveProjectIdMock.mockResolvedValue(2);
+      canReachProjectMock.mockReturnValueOnce(true);
+      updateMock.mockResolvedValue({ id: 9 } as never);
+
+      const res = await updateReserve(initial, form({ ...validFields, id: "9", status: "RESOLVED" }));
+
+      expect(res.type).toBe("success");
+      expect(updateMock).toHaveBeenCalledWith(9, expect.objectContaining({ status: "RESOLVED" }));
+    });
   });
 });

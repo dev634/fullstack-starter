@@ -1,10 +1,10 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterimSchema } from "@/schemas/interim";
-import { create, remove } from "@/repository/interims";
+import { create, remove, findProjectId as findInterimProjectId } from "@/repository/interims";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -30,6 +30,9 @@ export async function addInterim(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const interim = await create({
@@ -65,6 +68,10 @@ export async function deleteInterim(id: number, clientId: number, projectId: num
     if (isNaN(id)) {
       throw { type: "error", message: t.interims.messages.invalidId };
     }
+    const realProjectId = await findInterimProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.interims.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const interim = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.interims.messages.deleted, data: interim };
