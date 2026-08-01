@@ -1,7 +1,17 @@
 'use client'
 import { useRef, useState, useTransition, type MouseEvent } from "react";
-import { useRouter } from "next/navigation";
-import { MapPinIcon, TrashIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  MapPinIcon,
+  TrashIcon,
+  XMarkIcon,
+  PhotoIcon,
+  HomeIcon,
+  ChevronRightIcon,
+} from "@heroicons/react/24/outline";
+import ReserveFolderRow from "@/components/ReserveFolderRow";
+import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { planPageImageUrl } from "@/lib/cloudinary-url";
@@ -33,36 +43,53 @@ export default function ReservesSection({
   projectId,
   plans,
   folders,
+  currentFolderId,
   canEdit,
 }: {
   clientId: number;
   projectId: number;
   plans: PlanWithReserves[];
   folders: { id: number; name: string }[];
+  /** Folder being browsed, or null for the project root (from ?rfolder=). */
+  currentFolderId: number | null;
   canEdit: boolean;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(plans[0]?.id ?? null);
-  const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? plans[0] ?? null;
+  // Folders are flat (one level), so the browser shows either the root — where
+  // the folders live alongside unfiled plans — or the inside of one folder.
+  const currentFolder = folders.find((f) => f.id === currentFolderId) ?? null;
+  const visiblePlans = plans.filter((p) =>
+    currentFolder ? p.folderId === currentFolder.id : p.folderId == null
+  );
+
+  // Selection is derived, not stored: navigating into a folder whose plans
+  // don't include the previous pick falls back to the first one here, so no
+  // effect is needed and the viewer can never show a plan from another folder.
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const selectedPlan =
+    visiblePlans.find((p) => p.id === selectedPlanId) ?? visiblePlans[0] ?? null;
 
   // Plan add lives in the section header (AddReservePlanForm); here we only
-  // choose/delete a plan and pin réserves on it.
+  // browse/choose/delete a plan and pin réserves on it.
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [planToDelete, setPlanToDelete] = useState<PlanWithReserves | null>(null);
 
-  // Folder organisation of plans. Creating/deleting folders lives in the
-  // section header (forms/AddReserveFolderForm) next to "add a plan"; here we
-  // only group by folder and move a plan between them.
-  const rootPlans = plans.filter((p) => p.folderId == null);
   const plansInFolder = (folderId: number) => plans.filter((p) => p.folderId === folderId);
 
-  function movePlanToFolder(folderId: number | null) {
-    if (!selectedPlan) return;
+  // Back to the project root, keeping any other section's query state (the
+  // Files module browses through ?folder= on this same page).
+  const searchParams = useSearchParams();
+  const rootParams = new URLSearchParams(searchParams.toString());
+  rootParams.delete(RESERVE_FOLDER_PARAM);
+  const rootQuery = rootParams.toString();
+  const rootHref = `/clients/${clientId}/projects/${projectId}${rootQuery ? `?${rootQuery}` : ""}`;
+
+  function movePlanToFolder(planId: number, folderId: number | null) {
     startTransition(async () => {
-      await moveReservePlan(selectedPlan.id, folderId, clientId, projectId);
+      await moveReservePlan(planId, folderId, clientId, projectId);
       router.refresh();
     });
   }
@@ -226,90 +253,97 @@ export default function ReservesSection({
       : "bg-rose-600 border-white dark:border-gray-900";
 
   return (
-    <div className="flex flex-col gap-4 px-4 py-4 sm:px-6">
-      {/* Plan chooser + actions */}
-      <div className="flex flex-wrap items-center gap-2">
-        {plans.length > 0 && (
-          <select
-            value={selectedPlan?.id ?? ""}
-            onChange={(e) => setSelectedPlanId(Number(e.target.value))}
-            aria-label={t.reserves.planSelectLabel}
-            className="min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
-          >
-            {folders.length === 0 ? (
-              plans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {format(t.reserves.reserveCount, { count: p.reserves.length })}
-                </option>
-              ))
-            ) : (
-              <>
-                {rootPlans.length > 0 && (
-                  <optgroup label={t.reserves.noFolder}>
-                    {rootPlans.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} · {format(t.reserves.reserveCount, { count: p.reserves.length })}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {/* Empty folders are listed too, with a disabled placeholder:
-                    hiding them made a freshly created folder look like it had
-                    never been saved. */}
-                {folders.map((f) => {
-                  const fp = plansInFolder(f.id);
-                  return (
-                    <optgroup key={f.id} label={f.name}>
-                      {fp.length > 0 ? (
-                        fp.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} · {format(t.reserves.reserveCount, { count: p.reserves.length })}
-                          </option>
-                        ))
-                      ) : (
-                        <option disabled>{t.reserves.emptyFolder}</option>
-                      )}
-                    </optgroup>
-                  );
-                })}
-              </>
-            )}
-          </select>
-        )}
-        {canEdit && selectedPlan && (
-          <button
-            type="button"
-            onClick={() => setPlanToDelete(selectedPlan)}
-            aria-label={format(t.reserves.deletePlan, { name: selectedPlan.name })}
-            className="shrink-0 cursor-pointer rounded border border-gray-300 p-2 text-red-500 hover:bg-red-500/10 dark:border-gray-600 dark:text-red-400"
-          >
-            <TrashIcon className="h-4 w-4" />
-          </button>
+    <div className="flex flex-col">
+      {/* Breadcrumb — same navigation shape as the Files module. */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-gray-300 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+        <Link
+          href={rootHref}
+          className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+          aria-label={t.files.home}
+        >
+          <HomeIcon className="h-4 w-4" />
+        </Link>
+        {currentFolder && (
+          <span className="flex items-center gap-1">
+            <ChevronRightIcon className="h-3.5 w-3.5" />
+            <span className="truncate text-gray-700 dark:text-gray-200">{currentFolder.name}</span>
+          </span>
         )}
       </div>
 
-      {/* Move the selected plan to a folder */}
-      {canEdit && selectedPlan && folders.length > 0 && (
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span className="shrink-0">{t.reserves.moveToFolderLabel}</span>
-          <select
-            value={selectedPlan.folderId ?? ""}
-            onChange={(e) => movePlanToFolder(e.target.value ? Number(e.target.value) : null)}
-            disabled={pending}
-            className="min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1.5 text-sm text-gray-900 dark:text-gray-100"
-          >
-            <option value="">{t.reserves.noFolder}</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
+      {/* Folders (root only — they are flat) then the plans of the current level. */}
+      {(!currentFolder && folders.length > 0) || visiblePlans.length > 0 ? (
+        <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+          {!currentFolder &&
+            folders.map((f) => (
+              <ReserveFolderRow
+                key={`folder-${f.id}`}
+                folder={f}
+                clientId={clientId}
+                projectId={projectId}
+                planCount={plansInFolder(f.id).length}
+                canEdit={canEdit}
+              />
             ))}
-          </select>
-        </label>
+          {visiblePlans.map((p) => (
+            <li
+              key={`plan-${p.id}`}
+              className={`flex items-center gap-3 px-4 py-2.5 sm:px-6 ${
+                selectedPlan?.id === p.id ? "bg-blue-50 dark:bg-gray-700/40" : ""
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedPlanId(p.id)}
+                aria-current={selectedPlan?.id === p.id}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-sm hover:opacity-80"
+              >
+                <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
+                <span className="truncate">{p.name}</span>
+                <span className="shrink-0 text-xs text-gray-400">
+                  {format(t.reserves.reserveCount, { count: p.reserves.length })}
+                </span>
+              </button>
+              {canEdit && folders.length > 0 && (
+                <select
+                  value={p.folderId ?? ""}
+                  onChange={(e) => movePlanToFolder(p.id, e.target.value ? Number(e.target.value) : null)}
+                  disabled={pending}
+                  aria-label={format(t.reserves.moveToFolderLabel, { name: p.name })}
+                  className="hidden shrink-0 rounded border border-gray-300 bg-white p-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:block"
+                >
+                  <option value="">{t.reserves.noFolder}</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => setPlanToDelete(p)}
+                  aria-label={format(t.reserves.deletePlan, { name: p.name })}
+                  className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 dark:text-red-400"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+          {currentFolder ? t.projects.detail.emptyFolder : t.reserves.noPlans}
+        </div>
       )}
 
-      {/* Plan viewer */}
-      {!selectedPlan ? (
-        <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">{t.reserves.noPlans}</p>
-      ) : (
+      <div className="flex flex-col gap-4 px-4 py-4 sm:px-6">
+
+      {/* Plan viewer. Nothing to say when no plan is selected — the browser
+          above already shows the empty state for the current level. */}
+      {!selectedPlan ? null : (
         <div className="flex flex-col gap-2">
           {canEdit && <p className="text-xs text-gray-500 dark:text-gray-400">{t.reserves.addHint}</p>}
           <div className="relative select-none overflow-hidden rounded border border-gray-300 dark:border-gray-700">
@@ -539,6 +573,7 @@ export default function ReservesSection({
           onConfirm={confirmRemovePlan}
         />
       )}
+      </div>
     </div>
   );
 }
