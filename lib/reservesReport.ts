@@ -136,9 +136,9 @@ export type ReservesReportInput = {
  * section per plan (grouped by folder) showing the annotated plan followed by
  * a numbered card per réserve.
  *
- * Réserve numbering mirrors the on-screen pins exactly — the caller must pass
- * each plan's reserves in the same order the UI renders them (createdAt asc),
- * or the plan annotations and the cards will disagree.
+ * Réserve numbers come from the stored `number` field, not from the render
+ * order, so the plan annotations, the cards and a report printed months ago all
+ * cite the same reference even after other réserves have been deleted.
  */
 export async function buildReservesReport(input: ReservesReportInput): Promise<Buffer> {
   const { project, companyName, folders, plans, labels, locale } = input;
@@ -200,8 +200,8 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
       }
 
       doc.y += 16;
-      for (const [index, reserve] of plan.reserves.entries()) {
-        renderReserveCard(doc, { reserve, number: index + 1, labels, images, ensureSpace });
+      for (const reserve of plan.reserves) {
+        renderReserveCard(doc, { reserve, labels, images, ensureSpace });
       }
     }
   }
@@ -325,7 +325,7 @@ function renderPlanImage(
   doc.rect(x, y, w, h).lineWidth(0.5).strokeColor(COLORS.line).stroke();
 
   const radius = 8;
-  plan.reserves.forEach((reserve, index) => {
+  plan.reserves.forEach((reserve) => {
     // x/y are stored relative (0..1) so they survive any rescale.
     const cx = x + reserve.x * w;
     const cy = y + reserve.y * h;
@@ -333,7 +333,7 @@ function renderPlanImage(
     doc.circle(cx, cy, radius).fillColor(color).fill();
     doc.circle(cx, cy, radius).lineWidth(1.2).strokeColor(COLORS.white).stroke();
     doc.font("bold").fontSize(8).fillColor(COLORS.white);
-    doc.text(String(index + 1), cx - radius, cy - 3.6, {
+    doc.text(String(reserve.number), cx - radius, cy - 3.6, {
       width: radius * 2,
       align: "center",
       lineBreak: false,
@@ -349,13 +349,12 @@ function renderReserveCard(
   doc: PDFKit.PDFDocument,
   args: {
     reserve: ReportReserve;
-    number: number;
     labels: ReportLabels;
     images: Map<string, Buffer>;
     ensureSpace: (needed: number) => void;
   }
 ) {
-  const { reserve, number, labels, images, ensureSpace } = args;
+  const { reserve, labels, images, ensureSpace } = args;
   const photoUrl = reserve.photos[0]?.url;
   const photo = photoUrl ? images.get(photoKey(photoUrl)) : undefined;
 
@@ -371,7 +370,7 @@ function renderReserveCard(
   // Numbered badge, same colour coding as the pin on the plan.
   doc.circle(MARGIN + 10, top + 10, 10).fillColor(color).fill();
   doc.font("bold").fontSize(9).fillColor(COLORS.white);
-  doc.text(String(number), MARGIN, top + 6.6, { width: 20, align: "center", lineBreak: false });
+  doc.text(String(reserve.number), MARGIN, top + 6.6, { width: 20, align: "center", lineBreak: false });
 
   doc.font("bold").fontSize(9).fillColor(color);
   doc.text(

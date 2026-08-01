@@ -10,9 +10,11 @@ import {
 } from "@/lib/reservesReportData";
 import { buildReservesReport, type ReportLabels, type ImageFetcher } from "@/lib/reservesReport";
 
+let nextNumber = 1;
 function reserve(over: Partial<ReportReserve> = {}): ReportReserve {
   return {
     id: 1,
+    number: nextNumber++,
     x: 0.5,
     y: 0.5,
     description: "Fissure sur le mur",

@@ -32,7 +32,7 @@ type ReserveWithPhotos = Reserve & { photos: ReservePhoto[] };
 type PlanWithReserves = ReservePlan & { reserves: ReserveWithPhotos[] };
 type Editor =
   | { mode: "new"; x: number; y: number }
-  | { mode: "edit"; reserveId: number; index: number };
+  | { mode: "edit"; reserveId: number; number: number };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const inputClass =
@@ -127,9 +127,9 @@ export default function ReservesSection({
     setEditor({ mode: "new", x, y });
   }
 
-  function openReserve(reserve: ReserveWithPhotos, index: number) {
+  function openReserve(reserve: ReserveWithPhotos) {
     resetEditorFields(reserve);
-    setEditor({ mode: "edit", reserveId: reserve.id, index });
+    setEditor({ mode: "edit", reserveId: reserve.id, number: reserve.number });
   }
 
   function captureLocation() {
@@ -242,7 +242,7 @@ export default function ReservesSection({
   }
 
   // Live editing réserve derived from props so its photos refresh after an
-  // upload/delete (the `editor` only holds its id + index, never a stale copy).
+  // upload/delete (the `editor` only holds its id + number, never a stale copy).
   const editingReserve =
     editor?.mode === "edit" ? selectedPlan?.reserves.find((r) => r.id === editor.reserveId) : undefined;
   const photos = editingReserve?.photos ?? [];
@@ -354,16 +354,16 @@ export default function ReservesSection({
               onClick={handlePlanClick}
               className={`block w-full ${canEdit ? "cursor-crosshair" : ""}`}
             />
-            {selectedPlan.reserves.map((reserve, index) => (
+            {selectedPlan.reserves.map((reserve) => (
               <button
                 key={reserve.id}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  openReserve(reserve, index);
+                  openReserve(reserve);
                 }}
                 style={{ left: `${reserve.x * 100}%`, top: `${reserve.y * 100}%` }}
-                aria-label={`${index + 1} — ${reserve.description}`}
+                aria-label={`${reserve.number} — ${reserve.description}`}
                 title={reserve.description}
                 className="absolute -translate-x-1/2 -translate-y-full cursor-pointer"
               >
@@ -372,7 +372,7 @@ export default function ReservesSection({
                 <span
                   className={`flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 text-xs font-bold text-white shadow ${pinColor(reserve.status)}`}
                 >
-                  <span className="-rotate-45">{index + 1}</span>
+                  <span className="-rotate-45">{reserve.number}</span>
                 </span>
               </button>
             ))}
@@ -395,7 +395,7 @@ export default function ReservesSection({
         onClose={closeEditor}
         title={
           editor?.mode === "edit"
-            ? `${t.reserves.editReserveTitle} n°${editor.index + 1}`
+            ? `${t.reserves.editReserveTitle} n°${editor.number}`
             : t.reserves.newReserveTitle
         }
       >
