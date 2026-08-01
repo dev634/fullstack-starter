@@ -6,7 +6,7 @@ import { can } from "@/lib/access";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createUserSchema, updateUserSchema } from "@/schemas/user";
-import { create, updateProfile, remove, findById, countSuperadmins } from "@/repository/users";
+import { create, updateProfile, remove, findById, countSuperadmins, setUserProjects } from "@/repository/users";
 import { updatePassword } from "@/repository/users";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -128,6 +128,37 @@ export async function deleteUser(id: number) {
     const user = await remove(id);
     revalidatePath("/admin/settings/utilisateurs");
     return { type: "success" as const, message: t.users.messages.deleted, data: user };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/**
+ * Assign a user to projects. Same gate as the rest of user management, plus the
+ * same privilege rule: you may not manage someone who outranks you.
+ */
+export async function setUserProjectAssignments(userId: number, projectIds: number[]) {
+  const gate = await requireManager();
+  if ("error" in gate) return gate.error;
+  const { actor } = gate;
+  const t = getDictionary(await getLocale());
+
+  try {
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return { type: "error" as const, message: t.errors.invalidId };
+    }
+    const target = await findById(userId);
+    if (!target) return { type: "error" as const, message: t.errors.invalidId };
+    if (!hasMinRole(actor.role, target.role)) {
+      return { type: "error" as const, message: t.users.messages.cannotManageHigher };
+    }
+
+    const ids = Array.isArray(projectIds)
+      ? [...new Set(projectIds.filter((n) => Number.isInteger(n) && n > 0))]
+      : [];
+    await setUserProjects(userId, ids);
+    revalidatePath("/admin/settings/utilisateurs");
+    return { type: "success" as const, message: t.users.messages.updated };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }

@@ -9,6 +9,7 @@ export async function findAll() {
         return await prisma.user.findMany({
             where: { role: { not: "CLIENT" } },
             select: {
+                assignedProjects: { select: { id: true } },
                 id: true,
                 email: true,
                 name: true,
@@ -225,5 +226,29 @@ export async function updatePassword(userId: number, hashedPassword: string) {
             type: "error",
             message: "Database Error updating password."
         };
+    }
+}
+
+/**
+ * Set which projects a user is assigned to.
+ *
+ * Ids are re-read from the database rather than trusted: a tampered payload
+ * must not be able to link a trashed project, or an id that doesn't exist.
+ * Only consulted when the user's job function scope is ASSIGNED, but stored
+ * regardless so switching the function on doesn't lose the assignments.
+ */
+export async function setUserProjects(userId: number, projectIds: number[]) {
+    try {
+        const valid = await prisma.project.findMany({
+            where: { id: { in: projectIds }, deletedAt: null },
+            select: { id: true },
+        });
+        return await prisma.user.update({
+            where: { id: userId },
+            data: { assignedProjects: { set: valid.map((p) => ({ id: p.id })) } },
+        });
+    } catch (error) {
+        console.log("Repository setUserProjects error:", error);
+        throw { type: "error", message: "Database Error assigning projects." };
     }
 }
