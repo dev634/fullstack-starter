@@ -469,6 +469,7 @@ const en: Dictionary = {
         },
         messages: {
             added: "Material added.",
+            accumulated: "Quantity added to the existing material.",
             updated: "Material updated.",
             deleted: "Material deleted.",
             invalidId: "Invalid material ID.",
