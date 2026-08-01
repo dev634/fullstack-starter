@@ -79,6 +79,29 @@ describe("requestPasswordReset", () => {
     expect(res.message).toMatch(/si un compte existe/i);
   });
 
+  it("still returns the generic message when the email provider fails (no enumeration, no crash)", async () => {
+    // Regression: sendPasswordResetEmail used to be awaited outside a try, so a
+    // provider rejection (Resend 422 on a malformed `from`) escaped the action.
+    // The page 500'd — and since it only threw for addresses that exist, the
+    // form became an account-enumeration oracle: unknown address -> success
+    // message, known address -> server error.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    findByEmailMock.mockResolvedValue({ id: 1, email: "alice@example.com" } as never);
+    sendEmailMock.mockRejectedValueOnce(new Error("Resend 422 validation_error"));
+
+    const existing = await requestPasswordReset(initial, formOf({ email: "alice@example.com" }));
+
+    findByEmailMock.mockResolvedValue(null);
+    const unknown = await requestPasswordReset(initial, formOf({ email: "nobody@example.com" }));
+
+    expect(existing.type).toBe("success");
+    // Indistinguishable from the unknown-account response — that is the point.
+    expect(existing.type).toBe(unknown.type);
+    expect(existing.message).toBe(unknown.message);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("returns the same generic message when the account doesn't exist (no enumeration)", async () => {
     findByEmailMock.mockResolvedValue(null);
     const res = await requestPasswordReset(initial, formOf({ email: "nobody@example.com" }));
