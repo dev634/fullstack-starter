@@ -1,13 +1,20 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { requireAppUser } from "@/lib/routeGuard";
 
 const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
 
 /**
  * Export the (filtered/sorted) projects as a CSV download. Honours the same
- * ?q/?sort/?dir query used by the list. Protected by the /projects middleware.
+ * ?q/?sort/?dir query used by the list.
+ *
+ * The /projects proxy rule gates this too; the in-handler check is the second
+ * layer, because this response streams every project across every client.
  */
 export async function GET(request: Request) {
+  const gate = await requireAppUser();
+  if (!gate.ok) return gate.response;
+
   const params = new URL(request.url).searchParams;
   const q = params.get("q") ?? "";
   const sortRaw = params.get("sort");

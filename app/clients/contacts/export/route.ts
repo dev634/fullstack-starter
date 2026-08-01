@@ -1,12 +1,19 @@
 import { findAllWithClientEmail } from "@/repository/contacts";
 import { CONTACT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { requireAppUser } from "@/lib/routeGuard";
 
 /**
  * Export every contact (of non-trashed organisations) as a CSV download, with
  * the owning organisation's email as the link column so the file round-trips
- * through /clients/contacts/import. Protected by the /clients middleware.
+ * through /clients/contacts/import.
+ *
+ * The /clients proxy rule gates this too; the in-handler check is the second
+ * layer, because this response streams every contact's personal details.
  */
 export async function GET() {
+  const gate = await requireAppUser();
+  if (!gate.ok) return gate.response;
+
   const contacts = await findAllWithClientEmail();
 
   const header = CONTACT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");

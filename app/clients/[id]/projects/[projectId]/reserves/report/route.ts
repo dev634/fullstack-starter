@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { requireAppUser } from "@/lib/routeGuard";
 import { findById as findProjectById } from "@/repository/projects";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { findByProject as findReserveFoldersByProject } from "@/repository/reservePlanFolders";
@@ -24,13 +24,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string; projectId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-  if (session.user.role === "CLIENT") {
-    return new Response("Forbidden", { status: 403 });
-  }
+  const gate = await requireAppUser();
+  if (!gate.ok) return gate.response;
 
   const { id, projectId } = await params;
   const clientId = Number(id);

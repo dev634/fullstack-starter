@@ -1,13 +1,20 @@
 import { search, type ClientSortField } from "@/repository/clients";
 import { CLIENT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { requireAppUser } from "@/lib/routeGuard";
 
 const SORT_FIELDS: ClientSortField[] = ["companyName", "email", "city"];
 
 /**
  * Export the (filtered/sorted) clients as a CSV download. Honours the same
- * ?q/?sort/?dir query used by the list. Protected by the /clients middleware.
+ * ?q/?sort/?dir query used by the list.
+ *
+ * The /clients proxy rule gates this too; the in-handler check is the second
+ * layer, because this response streams every organisation's contact details.
  */
 export async function GET(request: Request) {
+  const gate = await requireAppUser();
+  if (!gate.ok) return gate.response;
+
   const params = new URL(request.url).searchParams;
   const q = params.get("q") ?? "";
   const sortRaw = params.get("sort");
