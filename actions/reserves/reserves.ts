@@ -72,7 +72,12 @@ export async function addReservePlan(
 }
 
 /** Create a folder to organise a project's reserve plans (content.edit). */
-export async function addReserveFolder(name: string, clientId: number, projectId: number) {
+export async function addReserveFolder(
+  name: string,
+  clientId: number,
+  projectId: number,
+  parentId?: number | null
+) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
@@ -85,7 +90,19 @@ export async function addReserveFolder(name: string, clientId: number, projectId
     if (!Number.isInteger(projectId) || projectId <= 0) return { type: "error" as const, message: t.errors.invalidId };
     const scopeCheck = await requireProjectAccess(projectId);
     if (scopeCheck.error) return scopeCheck.error;
-    const folder = await createFolder({ projectId, name: trimmed });
+
+    // A parent, if given, must belong to THIS project — otherwise a stray id
+    // could graft a folder under another project's tree.
+    let validParentId: number | null = null;
+    if (parentId != null) {
+      if (!Number.isInteger(parentId) || parentId <= 0) return { type: "error" as const, message: t.errors.invalidId };
+      if ((await findReserveFolderProjectId(parentId)) !== projectId) {
+        return { type: "error" as const, message: t.errors.invalidId };
+      }
+      validParentId = parentId;
+    }
+
+    const folder = await createFolder({ projectId, name: trimmed, parentId: validParentId });
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.folderAdded, data: folder };
   } catch (error) {

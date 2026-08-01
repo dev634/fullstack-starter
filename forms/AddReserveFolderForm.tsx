@@ -15,9 +15,12 @@ import { addReserveFolder } from "@/actions/reserves/reserves";
 export default function AddReserveFolderForm({
   clientId,
   projectId,
+  parentId,
 }: {
   clientId: number;
   projectId: number;
+  /** Create inside the folder currently being browsed (null = project root). */
+  parentId: number | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -31,7 +34,7 @@ export default function AddReserveFolderForm({
     if (!trimmed) return;
     setError(null);
     startTransition(async () => {
-      const res = await addReserveFolder(trimmed, clientId, projectId);
+      const res = await addReserveFolder(trimmed, clientId, projectId, parentId);
       if (res.type !== "success") {
         setError(res.message);
         return;

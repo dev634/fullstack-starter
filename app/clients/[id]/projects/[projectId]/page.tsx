@@ -9,7 +9,11 @@ import { findByProject as findInterimsByProject } from "@/repository/interims";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
-import { findByProject as findReserveFoldersByProject } from "@/repository/reservePlanFolders";
+import {
+  findByProject as findReserveFoldersByProject,
+  findChildren as findReserveChildFolders,
+  getBreadcrumb as getReserveBreadcrumb,
+} from "@/repository/reservePlanFolders";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import Title from "@/components/Title";
@@ -190,12 +194,24 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     interims: interims.map((i) => ({ id: i.id, name: i.name })),
   };
 
-  const [subfolders, files, breadcrumb, reservePlans, reserveFolders] = await Promise.all([
+  const [
+    subfolders,
+    files,
+    breadcrumb,
+    reservePlans,
+    reserveFolders,
+    reserveSubfolders,
+    reserveBreadcrumb,
+  ] = await Promise.all([
     findChildFolders(pid, currentFolderId),
     findFilesByFolder(pid, currentFolderId),
     getBreadcrumb(currentFolderId),
     findReservePlansByProject(pid),
+    // Full flat list — for the plan "move to folder" target list + counts.
     findReserveFoldersByProject(pid),
+    // Current level's children + its path, for the nested browser.
+    findReserveChildFolders(pid, currentReserveFolderId),
+    getReserveBreadcrumb(currentReserveFolderId),
   ]);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
@@ -573,7 +589,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     {t.reserves.exportPdf}
                   </a>
                 )}
-                {canEdit && <AddReserveFolderForm clientId={clientId} projectId={pid} />}
+                {canEdit && (
+                  <AddReserveFolderForm clientId={clientId} projectId={pid} parentId={currentReserveFolderId} />
+                )}
                 {canEdit && (
                   <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
                 )}
@@ -584,7 +602,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               clientId={clientId}
               projectId={pid}
               plans={reservePlans}
-              folders={reserveFolders}
+              subfolders={reserveSubfolders}
+              breadcrumb={reserveBreadcrumb}
+              allFolders={reserveFolders}
               currentFolderId={currentReserveFolderId}
               canEdit={canEdit}
             />
