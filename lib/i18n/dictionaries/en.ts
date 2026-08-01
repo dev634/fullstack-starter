@@ -600,6 +600,16 @@ const en: Dictionary = {
             invalidId: "Invalid contact id.",
         },
     },
+    emails: {
+        passwordReset: {
+            subject: "Reset your password",
+            preview: "Choose a new password — this link expires in 1 hour.",
+            heading: "Password reset",
+            intro: "You asked to reset your password. Use the button below to choose a new one.",
+            cta: "Choose a new password",
+            footnote: "This link expires in 1 hour. If you didn't request it, ignore this email — your password stays unchanged.",
+        },
+    },
     reserves: {
         heading: "Reserves",
         addPlanToggle: "Add a plan",

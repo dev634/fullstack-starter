@@ -5,20 +5,25 @@
  * deploy (before the key is configured) can still exercise the full flow.
  */
 
+import { renderEmail, type EmailBrand } from "@/lib/email/render";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 type SendEmailArgs = {
   to: string;
   subject: string;
   html: string;
+  /** Plain-text alternative. Always send one: clients that prefer text render
+   * it, and its absence is a spam signal. `renderEmail` produces both. */
+  text?: string;
 };
 
-export async function sendEmail({ to, subject, html }: SendEmailArgs): Promise<void> {
+export async function sendEmail({ to, subject, html, text }: SendEmailArgs): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
   if (!apiKey) {
-    console.log(`[email:dev-fallback] To: ${to} | Subject: ${subject}\n${html}`);
+    console.log(`[email:dev-fallback] To: ${to} | Subject: ${subject}\n${text ?? html}`);
     return;
   }
 
@@ -28,7 +33,7 @@ export async function sendEmail({ to, subject, html }: SendEmailArgs): Promise<v
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to, subject, html }),
+    body: JSON.stringify({ from, to, subject, html, ...(text ? { text } : {}) }),
   });
 
   if (!res.ok) {
@@ -38,14 +43,36 @@ export async function sendEmail({ to, subject, html }: SendEmailArgs): Promise<v
   }
 }
 
-export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  await sendEmail({
-    to,
-    subject: "Réinitialise ton mot de passe",
-    html: `
-      <p>Tu as demandé à réinitialiser ton mot de passe.</p>
-      <p><a href="${resetUrl}">Clique ici pour choisir un nouveau mot de passe</a>.</p>
-      <p>Ce lien expire dans 1 heure. Si tu n'es pas à l'origine de cette demande, ignore cet email.</p>
-    `,
+/**
+ * Password-reset email, rendered through the shared layout so it picks up the
+ * app's configured name, logo and primary colour.
+ *
+ * The strings arrive already localised: the caller is a server action that has
+ * resolved the request's dictionary, and this module stays presentational so it
+ * can be rendered (and tested) without a request context.
+ */
+export async function sendPasswordResetEmail(
+  to: string,
+  resetUrl: string,
+  options: { brand: EmailBrand; strings: PasswordResetStrings }
+): Promise<void> {
+  const { brand, strings } = options;
+  const { html, text } = renderEmail(brand, {
+    preview: strings.preview,
+    heading: strings.heading,
+    paragraphs: [strings.intro],
+    cta: { label: strings.cta, url: resetUrl },
+    footnote: strings.footnote,
   });
+
+  await sendEmail({ to, subject: strings.subject, html, text });
 }
+
+export type PasswordResetStrings = {
+  subject: string;
+  preview: string;
+  heading: string;
+  intro: string;
+  cta: string;
+  footnote: string;
+};
