@@ -38,6 +38,22 @@
     "recharts": "^3.9.2",
     "zod": "^4.4.1"
   },
+  "_overridesComment": [
+    "next bundles postcss 8.4.31 and sharp 0.34.5, both carrying advisories",
+    "(postcss: GHSA-qx2v-qp2m-jg93 / 6g55-p6wh-862q / r28c-9q8g-f849; sharp:",
+    "GHSA-f88m-g3jw-g9cj, the libvips CVEs). No published Next release ships",
+    "patched versions, so `npm audit fix --force` proposes next@9.3.3 — a",
+    "seven-major downgrade that would destroy the app. NEVER run it here.",
+    "sharp matters in production: Next optimises remote images at runtime and",
+    "users upload their own images to the allowed Cloudinary host, so a",
+    "crafted upload would reach libvips. These overrides are the surgical fix;",
+    "sharp is pushed past next's declared ^0.34.5, which is why the build and",
+    "the /_next/image path are verified whenever they change."
+  ],
+  "overrides": {
+    "postcss": "^8.5.25",
+    "sharp": "^0.35.3"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
