@@ -1,10 +1,10 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
-import { create, remove } from "@/repository/taskCategories";
+import { create, remove, findProjectId as findCategoryProjectId } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -30,6 +30,9 @@ export async function addTaskCategory(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const category = await create({ projectId: parsed.data.projectId, name: parsed.data.name });
@@ -65,6 +68,10 @@ export async function deleteTaskCategory(id: number, clientId: number, projectId
     if (isNaN(id)) {
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
+    const realProjectId = await findCategoryProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const category = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.category.messages.deleted, data: category };

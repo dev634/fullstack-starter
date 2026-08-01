@@ -1,10 +1,19 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema } from "@/schemas/task";
-import { create, createMany, toggle, updateQuantity, update, remove, setCategory } from "@/repository/tasks";
+import {
+  create,
+  createMany,
+  toggle,
+  updateQuantity,
+  update,
+  remove,
+  setCategory,
+  findProjectId as findTaskProjectId,
+} from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -32,6 +41,9 @@ export async function addTask(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const task = await create({
@@ -83,6 +95,9 @@ export async function addTaskSeries(
     };
   }
 
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+
   try {
     const { projectId, clientId, name, pattern, from, to, categoryId } = parsed.data;
     const group = await createGroup({ projectId, name, pattern, categoryId });
@@ -131,6 +146,10 @@ export async function toggleTask(
     if (isNaN(id)) {
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
+    const realProjectId = await findTaskProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
@@ -165,6 +184,10 @@ export async function editTask(
   }
 
   try {
+    const realProjectId = await findTaskProjectId(parsed.data.id);
+    if (realProjectId === null) return { ...prevState, type: "error", message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const task = await update(parsed.data.id, {
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
@@ -203,6 +226,10 @@ export async function updateTaskQuantity(
     if (isNaN(id)) {
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
+    const realProjectId = await findTaskProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const task = await updateQuantity(id, quantityDone);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
@@ -236,6 +263,10 @@ export async function setTaskCategory(
     if (isNaN(id)) {
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
+    const realProjectId = await findTaskProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const task = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
@@ -263,6 +294,10 @@ export async function deleteTask(
     if (isNaN(id)) {
       throw { type: "error", message: t.tasks.messages.invalidId };
     }
+    const realProjectId = await findTaskProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);

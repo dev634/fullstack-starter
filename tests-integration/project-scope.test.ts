@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { search as searchProjects, findByClient } from "@/repository/projects";
+import { search as searchProjects, findByClient, hasProjectAmong } from "@/repository/projects";
 import { search as searchClients } from "@/repository/clients";
 import { findAccessScopeByEmail } from "@/repository/users";
 
@@ -140,5 +140,30 @@ describe("project scoping by job function", () => {
 
     const scoped = await findByClient(client.id, [projects[0].id]);
     expect(scoped.map((p) => p.name)).toEqual(["Visible"]);
+  });
+
+  describe("hasProjectAmong (requireClientAccess, docs/PENTEST-2026-08.md F1)", () => {
+    it("is true when one of the client's projects is in the allowed set", async () => {
+      const { client, projects } = await makeCompanyWithProjects("ZzyxReachable SARL", ["Chantier X"]);
+      await expect(hasProjectAmong(client.id, [projects[0].id])).resolves.toBe(true);
+    });
+
+    it("is false for a client reached only through a DIFFERENT company's project id", async () => {
+      const a = await makeCompanyWithProjects("ZzyxOwn SARL", ["Chantier own"]);
+      const b = await makeCompanyWithProjects("ZzyxForeign SARL", ["Chantier foreign"]);
+      // The caller's allowed set is company A's project — company B must stay unreachable.
+      await expect(hasProjectAmong(b.client.id, [a.projects[0].id])).resolves.toBe(false);
+    });
+
+    it("is false for an empty allowed set", async () => {
+      const { client } = await makeCompanyWithProjects("ZzyxEmptySet SARL", ["Chantier"]);
+      await expect(hasProjectAmong(client.id, [])).resolves.toBe(false);
+    });
+
+    it("ignores a trashed project — it must not keep a client reachable once its only project is gone", async () => {
+      const { client, projects } = await makeCompanyWithProjects("ZzyxTrashed SARL", ["Chantier trashed"]);
+      await prisma.project.update({ where: { id: projects[0].id }, data: { deletedAt: new Date() } });
+      await expect(hasProjectAmong(client.id, [projects[0].id])).resolves.toBe(false);
+    });
   });
 });

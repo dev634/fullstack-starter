@@ -3,9 +3,14 @@ import { parseAssignee } from "@/schemas/taskAssignee";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
-vi.mock("@/repository/tasks", () => ({ setAssignee: vi.fn() }));
-vi.mock("@/repository/taskGroups", () => ({ setAssignee: vi.fn() }));
-vi.mock("@/repository/taskCategories", () => ({ setAssignee: vi.fn() }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: () => true,
+  projectIdFilter: () => undefined,
+}));
+vi.mock("@/repository/tasks", () => ({ setAssignee: vi.fn(), findProjectId: vi.fn().mockResolvedValue(2) }));
+vi.mock("@/repository/taskGroups", () => ({ setAssignee: vi.fn(), findProjectId: vi.fn().mockResolvedValue(2) }));
+vi.mock("@/repository/taskCategories", () => ({ setAssignee: vi.fn(), findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));

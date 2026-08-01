@@ -5,6 +5,11 @@ vi.mock("@/lib/authz", () => ({
   requireSession: vi.fn(),
   requireRole: vi.fn(),
 }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: () => true,
+  projectIdFilter: () => undefined,
+}));
 vi.mock("@/lib/deliveryNoteScan", () => ({ extractDeliveryNoteItems: vi.fn() }));
 vi.mock("@/repository/projectMaterials", () => ({
   applyScanItems: vi.fn(),

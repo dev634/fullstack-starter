@@ -13,6 +13,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The folder's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const folder = await prisma.reservePlanFolder.findUnique({ where: { id }, select: { projectId: true } });
+        return folder?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (reservePlanFolder) error:", error);
+        throw { type: "error", message: "Database Error fetching folder." };
+    }
+}
+
 export async function create(data: { projectId: number; name: string }) {
     try {
         return await prisma.reservePlanFolder.create({ data });

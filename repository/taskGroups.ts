@@ -60,6 +60,17 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/** The group's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const group = await prisma.projectTaskGroup.findUnique({ where: { id }, select: { projectId: true } });
+        return group?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (task group) error:", error);
+        throw { type: "error", message: "Database Error fetching task group." };
+    }
+}
+
 /** Assigns (or clears, when categoryId is null) the category an existing series belongs to. */
 export async function setCategory(id: number, categoryId: number | null) {
     try {

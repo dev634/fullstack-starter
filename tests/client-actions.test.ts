@@ -17,20 +17,26 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyProjectFile: vi.fn(),
 }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
+vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn() }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
+import { addClient, getClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { findById, softDelete, restore, permanentlyRemove } from "@/repository/clients";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
+import { findAccessScopeByEmail } from "@/repository/users";
+import { hasProjectAmong } from "@/repository/projects";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
 
 const authMock = vi.mocked(auth);
+const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
+const hasProjectAmongMock = vi.mocked(hasProjectAmong);
 const createClientMock = vi.mocked(createClient);
 const findByIdMock = vi.mocked(findById);
 const softDeleteMock = vi.mocked(softDelete);
@@ -146,5 +152,61 @@ describe("client action auth guard + delegation", () => {
     ] as never);
     await permanentlyDeleteClient(1);
     expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/9/devis", "application/pdf");
+  });
+
+  // Regression coverage for a project-scope gap found while fixing
+  // docs/PENTEST-2026-08.md (F1): an EDITOR restricted to specific projects
+  // must not be able to read or delete a client company reached only through
+  // projects outside that set, even though role alone would let them.
+  describe("project-scope enforcement (F1 regression)", () => {
+    const scopedEditor = { user: { role: "EDITOR", email: "chef@example.com" } };
+
+    it("getClient masks a client the caller has no project under, as not found", async () => {
+      authMock.mockResolvedValue(scopedEditor as never);
+      findAccessScopeByEmailMock.mockResolvedValue({
+        hiddenSections: [],
+        projectScope: "ASSIGNED",
+        assignedProjectIds: [202],
+      });
+      hasProjectAmongMock.mockResolvedValue(false); // client 490 has no project in {202}
+      findByIdMock.mockResolvedValue({ id: 490, companyName: "Entreprise non assignee" } as never);
+
+      const res = await getClient(490);
+
+      expect(res.type).toBe("success");
+      expect(res.data).toBeNull();
+      expect(hasProjectAmongMock).toHaveBeenCalledWith(490, [202]);
+    });
+
+    it("deleteClient refuses a client the caller has no project under", async () => {
+      authMock.mockResolvedValue(scopedEditor as never);
+      findAccessScopeByEmailMock.mockResolvedValue({
+        hiddenSections: [],
+        projectScope: "ASSIGNED",
+        assignedProjectIds: [202],
+      });
+      hasProjectAmongMock.mockResolvedValue(false);
+
+      const res = await deleteClient(490);
+
+      expect((res as { type: string }).type).toBe("error");
+      expect(softDeleteMock).not.toHaveBeenCalled();
+    });
+
+    it("getClient still resolves the client once one of its projects IS in scope", async () => {
+      authMock.mockResolvedValue(scopedEditor as never);
+      findAccessScopeByEmailMock.mockResolvedValue({
+        hiddenSections: [],
+        projectScope: "ASSIGNED",
+        assignedProjectIds: [202],
+      });
+      hasProjectAmongMock.mockResolvedValue(true);
+      findByIdMock.mockResolvedValue({ id: 489, companyName: "Entreprise assignee" } as never);
+
+      const res = await getClient(489);
+
+      expect(res.type).toBe("success");
+      expect(res.data).toEqual(expect.objectContaining({ id: 489 }));
+    });
   });
 });

@@ -1,11 +1,11 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { parseAssignee, ASSIGNEE_TARGET_KINDS, type AssigneeTargetKind } from "@/schemas/taskAssignee";
-import { setAssignee as setTaskAssigneeRepo } from "@/repository/tasks";
-import { setAssignee as setGroupAssigneeRepo } from "@/repository/taskGroups";
-import { setAssignee as setCategoryAssigneeRepo } from "@/repository/taskCategories";
+import { setAssignee as setTaskAssigneeRepo, findProjectId as findTaskProjectId } from "@/repository/tasks";
+import { setAssignee as setGroupAssigneeRepo, findProjectId as findGroupProjectId } from "@/repository/taskGroups";
+import { setAssignee as setCategoryAssigneeRepo, findProjectId as findCategoryProjectId } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -39,6 +39,16 @@ export async function setAssignee(
     if (isNaN(targetId)) {
       throw { type: "error", message: t.errors.invalidId };
     }
+    const realProjectId =
+      targetKind === "task"
+        ? await findTaskProjectId(targetId)
+        : targetKind === "group"
+          ? await findGroupProjectId(targetId)
+          : await findCategoryProjectId(targetId);
+    if (realProjectId === null) return { type: "error" as const, message: t.errors.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
+
     const parsed = parseAssignee(assignee);
     if (targetKind === "task") await setTaskAssigneeRepo(targetId, parsed);
     else if (targetKind === "group") await setGroupAssigneeRepo(targetId, parsed);

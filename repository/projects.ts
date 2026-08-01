@@ -170,6 +170,27 @@ export async function findById(id: number) {
     }
 }
 
+/**
+ * Whether the client has at least one (non-trashed) project among the given
+ * ids — used by requireClientAccess (lib/access.ts) to decide if a
+ * caller restricted to specific projects may reach a client-level action at
+ * all, the same reachability rule already used to filter the client
+ * list/export (repository/clients.ts::search).
+ */
+export async function hasProjectAmong(clientId: number, projectIds: number[]): Promise<boolean> {
+    if (projectIds.length === 0) return false;
+    try {
+        const found = await prisma.project.findFirst({
+            where: { clientId, id: { in: projectIds }, deletedAt: null },
+            select: { id: true },
+        });
+        return found !== null;
+    } catch (error) {
+        console.log("Repository hasProjectAmong (project) error:", error);
+        throw { type: "error", message: "Database Error checking project access." };
+    }
+}
+
 export async function update(id: number, data: ProjectData) {
     try {
         const project = await prisma.project.update({

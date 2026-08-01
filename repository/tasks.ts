@@ -71,6 +71,21 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/**
+ * The task's real project id, or null if it doesn't exist — resolved from
+ * the row itself so callers can check project-scope access against the
+ * task's actual project rather than trusting a caller-supplied one.
+ */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const task = await prisma.projectTask.findUnique({ where: { id }, select: { projectId: true } });
+        return task?.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (task) error:", error);
+        throw { type: "error", message: "Database Error fetching task." };
+    }
+}
+
 export async function toggle(id: number, done: boolean) {
     try {
         return await prisma.projectTask.update({ where: { id }, data: { done } });

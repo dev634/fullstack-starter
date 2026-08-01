@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
+vi.mock("@/lib/accessContext", () => ({
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  canReachProject: () => true,
+  projectIdFilter: () => undefined,
+}));
 vi.mock("@/lib/authz", () => ({
   requireSession: vi.fn(),
   requireRole: vi.fn(),
@@ -14,6 +19,7 @@ vi.mock("@/repository/tasks", () => ({
   remove: vi.fn(),
   findByProject: vi.fn(),
   setCategory: vi.fn(),
+  findProjectId: vi.fn().mockResolvedValue(1),
 }));
 vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));

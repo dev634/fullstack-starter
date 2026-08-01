@@ -18,6 +18,24 @@ export async function findById(id: number) {
     }
 }
 
+/**
+ * The photo's real project id (via its réserve — ReservePhoto has no
+ * projectId column of its own), or null if it doesn't exist — see
+ * repository/tasks.ts::findProjectId.
+ */
+export async function findProjectId(id: number): Promise<number | null> {
+    try {
+        const photo = await prisma.reservePhoto.findUnique({
+            where: { id },
+            select: { reserve: { select: { projectId: true } } },
+        });
+        return photo?.reserve.projectId ?? null;
+    } catch (error) {
+        console.log("Repository findProjectId (reservePhoto) error:", error);
+        throw { type: "error", message: "Database Error fetching photo." };
+    }
+}
+
 /** Deletes a photo row and returns it (for Cloudinary cleanup). */
 export async function remove(id: number) {
     try {

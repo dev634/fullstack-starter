@@ -1,10 +1,16 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterventionSchema, updateInterventionSchema, interventionStatusSchema } from "@/schemas/intervention";
-import { create, update, updateStatus, remove } from "@/repository/interventions";
+import {
+  create,
+  update,
+  updateStatus,
+  remove,
+  findProjectId as findInterventionProjectId,
+} from "@/repository/interventions";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -30,6 +36,9 @@ export async function addIntervention(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const intervention = await create({
@@ -76,6 +85,10 @@ export async function editIntervention(
   }
 
   try {
+    const realProjectId = await findInterventionProjectId(parsed.data.id);
+    if (realProjectId === null) return { ...prevState, type: "error", message: t.interventions.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
     const intervention = await update(parsed.data.id, {
       scheduledAt: parsed.data.scheduledAt,
       description: parsed.data.description,
@@ -123,6 +136,10 @@ export async function changeInterventionStatus(
     if (isNaN(id)) {
       throw { type: "error", message: t.interventions.messages.invalidId };
     }
+    const realProjectId = await findInterventionProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.interventions.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const intervention = await updateStatus(id, parsedStatus.data);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.interventions.messages.updated, data: intervention };
@@ -145,6 +162,10 @@ export async function deleteIntervention(id: number, clientId: number, projectId
     if (isNaN(id)) {
       throw { type: "error", message: t.interventions.messages.invalidId };
     }
+    const realProjectId = await findInterventionProjectId(id);
+    if (realProjectId === null) return { type: "error" as const, message: t.interventions.messages.invalidId };
+    const scopeCheck = await requireProjectAccess(realProjectId);
+    if (scopeCheck.error) return scopeCheck.error;
     const intervention = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.interventions.messages.deleted, data: intervention };

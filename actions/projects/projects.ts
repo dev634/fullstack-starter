@@ -2,7 +2,8 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireSession } from "@/lib/authz";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireProjectAccess, requireClientAccess } from "@/lib/access";
+import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
@@ -39,6 +40,9 @@ export async function addProject(
       fieldsForm: makeObjectFromZodError(parsed.error, t),
     };
   }
+
+  const scopeCheck = await requireClientAccess(parsed.data.clientId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
     const project = await create(parsed.data);
@@ -84,6 +88,9 @@ export async function updateProject(
     };
   }
 
+  const scopeCheck = await requireProjectAccess(parsed.data.id);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+
   try {
     const project = await update(parsed.data.id, parsed.data);
     await logActivity({
@@ -122,6 +129,8 @@ export async function deleteProject(id: number, clientId: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
+    const scopeCheck = await requireProjectAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
     const project = await softDelete(id);
     await logActivity({
@@ -151,6 +160,8 @@ export async function restoreProject(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
+    const scopeCheck = await requireProjectAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
     const project = await restore(id);
     await logActivity({
       action: "RESTORED",
@@ -181,6 +192,8 @@ export async function permanentlyDeleteProject(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
+    const scopeCheck = await requireProjectAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
     // Clean up the Cloudinary blobs before the DB rows cascade-delete —
     // otherwise the files are orphaned in Cloudinary forever.
@@ -257,6 +270,10 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
       if (!client) {
         throw new Error(t.projects.messages.unknownClientEmail);
       }
+      const scopeCheck = await requireClientAccess(client.id);
+      if (scopeCheck.error) {
+        throw new Error(scopeCheck.error.message);
+      }
       const parsed = createProjectSchema.safeParse({ ...data, clientId: client.id });
       if (!parsed.success) {
         throw new Error(t.projects.messages.invalidRow);
@@ -300,7 +317,7 @@ export async function getProjectsForClient(clientId: number) {
 
   const t = getDictionary(await getLocale());
   try {
-    const projects = await findByClient(clientId);
+    const projects = await findByClient(clientId, projectIdFilter(await getAccessContext()));
     return { type: "success" as const, data: projects };
   } catch (error) {
     return {
@@ -321,8 +338,12 @@ export async function getProject(id: number) {
     }
     const project = await findById(id);
     // A trashed project is invisible to the normal detail page (looks like
-    // "not found"); the trash page reads the repository directly instead.
-    return { type: "success" as const, data: project?.deletedAt ? null : project };
+    // "not found"); the trash page reads the repository directly instead. A
+    // project outside the caller's scope reads the same way — a distinct
+    // response would confirm it exists to someone who shouldn't know that.
+    const access = await getAccessContext();
+    const visible = project && !project.deletedAt && canReachProject(access, project.id);
+    return { type: "success" as const, data: visible ? project : null };
   } catch (error) {
     return {
       type: "error" as const,
