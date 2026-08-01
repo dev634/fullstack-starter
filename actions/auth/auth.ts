@@ -157,7 +157,16 @@ export async function requestPasswordReset(
       const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
       await createResetToken(user.id, token, expiresAt);
       const resetUrl = `${baseUrl}/reset-password?token=${token}`;
-      await sendPasswordResetEmail(user.email, resetUrl);
+      try {
+        await sendPasswordResetEmail(user.email, resetUrl);
+      } catch (error) {
+        // A provider outage must not escape this action. Letting it throw
+        // crashed the page — and, worse, turned this form into an account
+        // enumeration oracle: an unknown address returned the generic success
+        // below while a known one produced a server error. The response has to
+        // be identical either way, so swallow it here and log server-side.
+        console.error("Password reset email failed to send:", error);
+      }
     } else if (!baseUrl) {
       console.error("Password reset skipped: AUTH_URL is not set in production.");
     }
