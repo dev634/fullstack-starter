@@ -121,7 +121,7 @@ export async function addSubcontractorPerson(
     const person = await addPerson({
       companyId: parsed.data.companyId,
       name: parsed.data.name,
-      role: parsed.data.role,
+      jobFunctionId: parsed.data.jobFunctionId,
       phone: parsed.data.phone,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);

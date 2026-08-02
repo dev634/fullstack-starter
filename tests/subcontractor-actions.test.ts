@@ -5,7 +5,7 @@ vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
@@ -112,15 +112,15 @@ describe("addSubcontractorPerson", () => {
     expect(addPersonMock).not.toHaveBeenCalled();
   });
 
-  it("adds the person, including optional role/phone, when authorized", async () => {
+  it("adds the person, including optional jobFunctionId/phone, when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     addPersonMock.mockResolvedValue({ id: 1 } as never);
     const res = await addSubcontractorPerson(
       initial,
-      formOf({ companyId: "3", clientId: "1", projectId: "2", name: "Jean Dupont", role: "Chef d'équipe", phone: "0600000000" })
+      formOf({ companyId: "3", clientId: "1", projectId: "2", name: "Jean Dupont", jobFunctionId: "4", phone: "0600000000" })
     );
     expect(addPersonMock).toHaveBeenCalledWith(
-      expect.objectContaining({ companyId: 3, name: "Jean Dupont", role: "Chef d'équipe", phone: "0600000000" })
+      expect.objectContaining({ companyId: 3, name: "Jean Dupont", jobFunctionId: 4, phone: "0600000000" })
     );
     expect(res.type).toBe("success");
   });

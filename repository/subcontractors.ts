@@ -22,12 +22,17 @@ export async function createCompany(data: CompanyData) {
     }
 }
 
-/** Subcontractor companies for a project, oldest first, with their personnel included. */
+/** Subcontractor companies for a project, oldest first, with their personnel (and each person's job function) included. */
 export async function findCompaniesByProject(projectId: number) {
     try {
         return await prisma.subcontractorCompany.findMany({
             where: { projectId },
-            include: { personnel: { orderBy: { createdAt: "asc" } } },
+            include: {
+                personnel: {
+                    orderBy: { createdAt: "asc" },
+                    include: { jobFunction: { select: { id: true, name: true } } },
+                },
+            },
             orderBy: { createdAt: "asc" },
         });
     } catch (error) {
@@ -83,7 +88,7 @@ export async function removeCompany(id: number) {
 type PersonData = {
     companyId: number;
     name: string;
-    role?: string;
+    jobFunctionId?: number | null;
     phone?: string;
 };
 
@@ -93,7 +98,7 @@ export async function addPerson(data: PersonData) {
             data: {
                 companyId: data.companyId,
                 name: data.name,
-                role: data.role || null,
+                jobFunctionId: data.jobFunctionId ?? null,
                 phone: data.phone || null,
             },
         });

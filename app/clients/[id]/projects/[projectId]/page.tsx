@@ -491,6 +491,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                   clientId={clientId}
                   projectId={pid}
                   canEdit={canEdit}
+                  functions={jobFunctions}
                 />
               ))}
             </ul>

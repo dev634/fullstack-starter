@@ -516,8 +516,8 @@ const fr = {
         person: {
             nameLabel: "Nom",
             namePlaceholder: "Nom du personnel…",
-            roleLabel: "Poste",
-            rolePlaceholder: "Poste",
+            roleLabel: "Fonction",
+            functionNone: "Aucune",
             phoneLabel: "Téléphone",
             phonePlaceholder: "Téléphone",
             deletePerson: "Supprimer {name}",
