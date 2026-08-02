@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { buildBreadcrumb } from "@/lib/breadcrumb";
 
 /** Reserve-plan folders of a project, oldest first. */
 export async function findByProject(projectId: number) {
@@ -37,7 +38,7 @@ export async function findChildren(projectId: number, parentId: number | null) {
     }
 }
 
-export async function findById(id: number) {
+async function findById(id: number) {
     try {
         return await prisma.reservePlanFolder.findUnique({ where: { id } });
     } catch (error) {
@@ -47,17 +48,8 @@ export async function findById(id: number) {
 }
 
 /** Root→current chain for the breadcrumb; walks `parentId` up to the root. */
-export async function getBreadcrumb(folderId: number | null): Promise<{ id: number; name: string }[]> {
-    const chain: { id: number; name: string }[] = [];
-    let current = folderId;
-    // Bounded so a corrupt parent cycle can't loop forever.
-    for (let hops = 0; current != null && hops < 100; hops++) {
-        const folder = await findById(current);
-        if (!folder) break;
-        chain.unshift({ id: folder.id, name: folder.name });
-        current = folder.parentId;
-    }
-    return chain;
+export function getBreadcrumb(folderId: number | null) {
+    return buildBreadcrumb(folderId, findById);
 }
 
 export async function create(data: { projectId: number; name: string; parentId?: number | null }) {
