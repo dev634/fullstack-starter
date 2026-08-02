@@ -1,0 +1,12 @@
+[Unit]
+Description=Safety-net redeploy from GHCR (pull-based) in case a webhook is missed
+
+[Timer]
+OnBootSec=2min
+# The webhook triggers instant deploys; this poll is just a backstop, so it
+# runs infrequently. `pull` is a no-op when the image hasn't changed.
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

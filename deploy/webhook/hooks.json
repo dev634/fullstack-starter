@@ -1,0 +1,20 @@
+[
+  {
+    "id": "deploy",
+    "execute-command": "/opt/fullstack-starter/deploy-pull.sh",
+    "command-working-directory": "/opt/fullstack-starter",
+    "response-message": "deploy triggered",
+    "include-command-output-in-response": true,
+    "include-command-output-in-response-on-error": true,
+    "trigger-rule": {
+      "match": {
+        "type": "value",
+        "value": "{{ getenv "DEPLOY_HOOK_TOKEN" }}",
+        "parameter": {
+          "source": "header",
+          "name": "X-Deploy-Token"
+        }
+      }
+    }
+  }
+]

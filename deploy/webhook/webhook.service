@@ -1,0 +1,17 @@
+[Unit]
+Description=Deploy webhook receiver (triggers the pull-based deploy over HTTPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=deploy
+# DEPLOY_HOOK_TOKEN lives here (root-owned, chmod 600) — never in the repo.
+EnvironmentFile=/etc/fullstack-deploy.env
+# -template enables {{ getenv "…" }} in hooks.json; binds to localhost only,
+# Caddy fronts it on 443. Hook is served at /hooks/deploy.
+ExecStart=/usr/bin/webhook -hooks /opt/fullstack-starter/webhook/hooks.json -template -ip 127.0.0.1 -port 9000 -verbose
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

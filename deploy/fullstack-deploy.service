@@ -1,0 +1,10 @@
+[Unit]
+Description=Pull the latest fullstack-starter image from GHCR and redeploy
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+ExecStart=/opt/fullstack-starter/deploy-pull.sh
