@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically redeploy fullstack-starter from GHCR (pull-based)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

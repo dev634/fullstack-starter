@@ -1,12 +1,17 @@
-name: Deploy
+# Builds the app image and pushes it to GHCR on every merge to main.
+# Deployment is PULL-BASED: the VPS pulls this image itself via a systemd timer
+# (see deploy/README.md). There is no inbound SSH from CI — the host's edge
+# network intermittently dropped GitHub runner IPs on the non-standard SSH port
+# (HTTPS/443 always worked), which made SSH-based deploys unreliable.
+name: Build and push image
 
 on:
   push:
     branches: [main]
 
-# Never run two deploys at once.
+# Never build two images for main at once.
 concurrency:
-  group: deploy-main
+  group: build-main
   cancel-in-progress: false
 
 jobs:
@@ -45,125 +50,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-      # Needed by the failure notice below, which opens an issue.
-      issues: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # Plain ssh/scp rather than a third-party action, for two reasons.
-      #
-      # Retries: the SSH hop to the VPS fails on a transient network blip often
-      # enough to matter (run 30709116013 died on "dial tcp: i/o timeout" at the
-      # very first step), and GitHub Actions has no native per-step retry — you
-      # cannot wrap an action in a loop, only a script.
-      #
-      # Supply chain: these steps handle VPS_SSH_KEY, the most valuable secret
-      # in this repo. Two fewer third-party actions see it.
-      - name: Prepare SSH
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          # Best-effort host-key pinning (trust on first use). ssh-keyscan is a
-          # separate probe that fails on a transient runner<->VPS blip; when it
-          # does, DON'T abort the deploy — the Deploy step below connects with
-          # StrictHostKeyChecking=accept-new (pins the key on first contact,
-          # refuses a CHANGED key) and is itself wrapped in a retry loop. So we
-          # pin here when reachable and fall through otherwise, instead of
-          # killing the whole run on a keyscan hiccup. To close the TOFU window
-          # entirely, put the key in a VPS_KNOWN_HOSTS secret and write it here.
-          for attempt in 1 2 3; do
-            if ssh-keyscan -4 -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
-              break
-            fi
-            echo "ssh-keyscan attempt $attempt failed (non-fatal)"
-            [ "$attempt" -eq 3 ] || sleep $((attempt * 10))
-          done
-
-      - name: Deploy to VPS
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          # ssh spells the port -p, scp spells it -P (where -p means "preserve
-          # times"), so the shared options deliberately carry neither.
-          # accept-new pins an unknown host key on first contact but refuses a
-          # CHANGED one — so the deploy survives an empty known_hosts (a failed
-          # best-effort keyscan) without ever disabling host-key checking.
-          # -4 forces IPv4. GitHub's Azure runners are dual-stack and prefer
-          # IPv6; if the VPS's AAAA route is flaky while its IPv4 is solid, the
-          # SSH SYN is silently dropped over v6 (Connection timed out) while
-          # HTTPS and connections from other networks stay fine. Pinning v4
-          # removes that variable — the VPS answers SSH on v4 (confirmed).
-          COMMON="-4 -i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
-
-          # The whole deploy retries as one unit: copying the compose file then
-          # restarting is a single operation, and half of it is not a deploy.
-          for attempt in 1 2 3; do
-            echo "::group::Deploy attempt $attempt"
-            # The registry token goes over ssh's stdin into --password-stdin, so
-            # it never appears in the remote command line (where `ps` would show
-            # it for the life of the login).
-            if scp $COMMON -P "$VPS_PORT" docker-compose.prod.yml "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/" 2>&1 &&
-               printf '%s' "$GHCR_TOKEN" | ssh $COMMON -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
-                 set -e
-                 cd '$VPS_APP_DIR'
-                 docker login ghcr.io -u '$GHCR_USER' --password-stdin
-                 docker compose -f docker-compose.prod.yml pull web
-                 docker compose -f docker-compose.prod.yml up -d
-                 docker logout ghcr.io
-                 docker image prune -f
-               " 2>&1; then
-              echo "::endgroup::"
-              echo "Deployed on attempt $attempt"
-              exit 0
-            fi
-            echo "::endgroup::"
-            echo "Attempt $attempt failed"
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep $((attempt * 20))
-          done
-
-      # A failed deploy leaves production silently one version behind — the run
-      # goes red in a tab nobody has open. This makes it land somewhere you
-      # actually look.
-      - name: Open an issue if the deploy failed
-        if: failure()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Déploiement échoué — ${context.sha.slice(0, 7)}`,
-              labels: ["deploy-failure"],
-              body: [
-                `Le déploiement de \`${context.sha}\` a échoué.`,
-                ``,
-                `**La production tourne donc encore sur la version précédente.**`,
-                ``,
-                `- Run : ${run}`,
-                `- Déclenché par : @${context.actor}`,
-                ``,
-                `Relancer le run suffit si la cause était transitoire (coupure réseau vers le VPS).`,
-                `Les trois tentatives automatiques ayant déjà échoué, vérifier que le VPS répond avant de relancer.`,
-              ].join("\n"),
-            });
