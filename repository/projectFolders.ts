@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { buildBreadcrumb } from "@/lib/breadcrumb";
 
 type FolderData = {
     projectId: number;
@@ -70,16 +71,9 @@ export async function findById(id: number) {
 }
 
 /** Ancestor chain from the root down to the given folder, for breadcrumb display. */
-export async function getBreadcrumb(folderId: number | null): Promise<{ id: number; name: string }[]> {
-    const chain: { id: number; name: string }[] = [];
-    let current = folderId;
-    while (current != null) {
-        const folder = await findById(current);
-        if (!folder) break;
-        chain.unshift({ id: folder.id, name: folder.name });
-        current = folder.parentId;
-    }
-    return chain;
+export function getBreadcrumb(folderId: number | null) {
+    // Shared walker — also gives this module the cycle bound it lacked before.
+    return buildBreadcrumb(folderId, findById);
 }
 
 async function collectDescendantFolderIds(projectId: number, folderId: number): Promise<number[]> {
