@@ -3,6 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireClientAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
@@ -28,6 +29,8 @@ export async function addProject(
 ): Promise<ProjectActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -75,6 +78,8 @@ export async function updateProject(
 ): Promise<ProjectActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -123,6 +128,8 @@ export async function updateProject(
 export async function deleteProject(id: number, clientId: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -154,6 +161,8 @@ export async function deleteProject(id: number, clientId: number) {
 export async function restoreProject(id: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -186,6 +195,8 @@ export async function restoreProject(id: number) {
 export async function permanentlyDeleteProject(id: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -236,6 +247,10 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
+  }
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) {
+    return { type: "error", message: areaCheck.error.message, created: 0, total: 0, errors: [] };
   }
 
   const file = formData.get("file");

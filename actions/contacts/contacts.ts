@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireClientAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
 import { create, update, setPrimary, remove, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
@@ -20,6 +21,8 @@ export async function addContact(
 ): Promise<ContactActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("clients.contacts");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const parsed = createContactSchema.safeParse(formDataToObject(formData));
@@ -45,6 +48,8 @@ export async function editContact(
 ): Promise<ContactActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("clients.contacts");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const parsed = updateContactSchema.safeParse(formDataToObject(formData));
@@ -85,6 +90,10 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
+  }
+  const areaCheck = await requireAreaAccess("clients.contacts");
+  if (areaCheck.error) {
+    return { type: "error", message: areaCheck.error.message, created: 0, total: 0, errors: [] };
   }
 
   const file = formData.get("file");
@@ -163,6 +172,8 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
 export async function setPrimaryContact(id: number, clientId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients.contacts");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -183,6 +194,8 @@ export async function setPrimaryContact(id: number, clientId: number) {
 export async function deleteContact(id: number, clientId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients.contacts");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

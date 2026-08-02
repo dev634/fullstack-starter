@@ -3,6 +3,7 @@ import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import ImportProjectsForm from "./_components/ImportProjectsForm";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -13,6 +14,11 @@ export default async function ImportProjectsPage() {
   if (!(await can(session?.user?.role, "content.import"))) {
     redirect("/projects");
   }
+
+  // The whole "projects" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach.
+  await requireAreaOrRedirect("projects");
+
   const t = getDictionary(await getLocale());
 
   return (

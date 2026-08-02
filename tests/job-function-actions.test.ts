@@ -2,23 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
-vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn() }));
+vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { reorderJobFunctions, addJobFunction, setFunctionSections } from "@/actions/jobFunctions/jobFunctions";
+import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas } from "@/actions/jobFunctions/jobFunctions";
 import { requireRole } from "@/lib/authz";
-import { reorder, create, updateHiddenSections } from "@/repository/jobFunctions";
+import { reorder, create, updateHiddenSections, updateHiddenAreas } from "@/repository/jobFunctions";
 
 const requireRoleMock = vi.mocked(requireRole);
 const reorderMock = vi.mocked(reorder);
 const createMock = vi.mocked(create);
 const updateHiddenSectionsMock = vi.mocked(updateHiddenSections);
+const updateHiddenAreasMock = vi.mocked(updateHiddenAreas);
 
 describe("job function actions", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -67,5 +68,27 @@ describe("job function actions", () => {
     const res = await setFunctionSections(0, ["tasks"]);
     expect((res as { type: string }).type).toBe("error");
     expect(updateHiddenSectionsMock).not.toHaveBeenCalled();
+  });
+
+  it("setFunctionAreas refuses a non-ADMIN", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);
+    const res = await setFunctionAreas(1, ["clients"]);
+    expect((res as { type: string }).type).toBe("error");
+    expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+  });
+
+  it("setFunctionAreas keeps only known area keys, deduped", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    updateHiddenAreasMock.mockResolvedValue({} as never);
+    const res = await setFunctionAreas(5, ["clients", "clients", "bogus", "admin.users", "<script>"]);
+    expect((res as { type: string }).type).toBe("success");
+    expect(updateHiddenAreasMock).toHaveBeenCalledWith(5, ["clients", "admin.users"]);
+  });
+
+  it("setFunctionAreas rejects an invalid id", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    const res = await setFunctionAreas(0, ["clients"]);
+    expect((res as { type: string }).type).toBe("error");
+    expect(updateHiddenAreasMock).not.toHaveBeenCalled();
   });
 });

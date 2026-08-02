@@ -7,6 +7,7 @@ import LogoutButton from "@/components/LogoutButton";
 import { LocaleProvider } from "@/components/LocaleProvider";
 import { auth } from "@/lib/auth";
 import { getAdminAccess } from "@/lib/adminAccess";
+import { canAccessArea } from "@/lib/areaAccess";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { getAppSettings } from "@/lib/appSettings";
@@ -46,6 +47,12 @@ export default async function RootLayout({
   const session = await auth();
   const isClient = session?.user?.role === "CLIENT";
   const adminAccess = await getAdminAccess(session?.user?.role);
+  // Nav links for the two other top-level rubriques are gated the same way —
+  // server-side, via the caller's job function — so a hidden rubrique's link
+  // never renders even before its page-level redirect would catch it. Skipped
+  // for CLIENT/anonymous sessions, which never see these links anyway.
+  const canSeeClients = !isClient && !!session && (await canAccessArea("clients"));
+  const canSeeProjects = !isClient && !!session && (await canAccessArea("projects"));
   const locale = await getLocale();
   const t = getDictionary(locale);
   const settings = await getAppSettings();
@@ -106,12 +113,14 @@ export default async function RootLayout({
                   ? // Client-portal logins only ever see their own projects.
                     [{ href: "/portail", display: t.portal.myProjects }]
                   : [
-                      { href: "/clients", display: t.nav.clients },
-                      { href: "/projects", display: t.nav.projects },
+                      ...(canSeeClients ? [{ href: "/clients", display: t.nav.clients }] : []),
+                      ...(canSeeProjects ? [{ href: "/projects", display: t.nav.projects }] : []),
                       // Administration groups the Fonctions / Utilisateurs /
                       // Theme / Section order / Rôles & accès tabs behind one
                       // link; shown when the role can open at least one, and
-                      // points at the first accessible tab.
+                      // points at the first accessible tab. adminAccess.any
+                      // already folds in both the RBAC capability and the
+                      // job function's hiddenAreas (see getAdminAccess).
                       ...(adminAccess.any
                         ? [{ href: adminAccess.landing!, display: t.nav.admin }]
                         : []),

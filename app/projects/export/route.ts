@@ -1,5 +1,6 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
+import { canAccessArea } from "@/lib/areaAccess";
 import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
 import { requireAppUser } from "@/lib/requireAppUser";
 
@@ -11,10 +12,14 @@ const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
  *
  * The /projects proxy rule gates this too; the in-handler check is the second
  * layer, because this response streams every project across every client.
+ * requireAppUser only checks role/session — a caller whose job function
+ * hides the `projects` rubrique must be refused here too, or the CSV becomes
+ * a way around that restriction by direct URL.
  */
 export async function GET(request: Request) {
   const gate = await requireAppUser();
   if (!gate.ok) return gate.response;
+  if (!(await canAccessArea("projects"))) return new Response("Forbidden", { status: 403 });
 
   const params = new URL(request.url).searchParams;
   const q = params.get("q") ?? "";

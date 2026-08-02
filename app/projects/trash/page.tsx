@@ -4,6 +4,7 @@ import { findTrashed } from "@/repository/projects";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon, BoltIcon } from "@heroicons/react/24/outline";
 import TrashProjectActions from "./_components/TrashProjectActions";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -14,6 +15,10 @@ export default async function ProjectsTrashPage() {
   if (!(await can(session?.user?.role, "content.trash"))) {
     redirect("/projects");
   }
+
+  // The whole "projects" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach.
+  await requireAreaOrRedirect("projects");
 
   const trashed = await findTrashed();
   const t = getDictionary(await getLocale());

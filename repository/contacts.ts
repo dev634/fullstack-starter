@@ -91,13 +91,37 @@ export async function setContactProjects(contactId: number, projectIds: number[]
  * Every contact of a non-trashed organisation, each with its org's email
  * (the link column used by the CSV export/import). Grouped by organisation,
  * primary first.
+ *
+ * `projectIds`, when given, scopes the result to organisations reachable
+ * through one of those projects — the same reachability rule as
+ * repository/clients.ts::search, applied here so a restricted caller's CSV
+ * export can't pull contacts (personal data: email/phone) belonging to a
+ * company outside their scope. An EMPTY allowlist yields no contact at all
+ * (presence check on the parameter, never a truthiness one — see
+ * repository/clients.ts::search for why). `undefined` means unrestricted.
+ *
+ * `select` is explicit and limited to exactly the columns the CSV export
+ * uses — Contact carries personal fields (email/phone), so this never leaks
+ * more than the export needs (e.g. the internal `userId` portal-login link).
  */
-export async function findAllWithClientEmail() {
+export async function findAllWithClientEmail(projectIds?: number[]) {
     try {
         return await prisma.contact.findMany({
-            where: { client: { deletedAt: null } },
+            where: {
+                client: {
+                    deletedAt: null,
+                    ...(projectIds !== undefined
+                        ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+                        : {}),
+                },
+            },
             orderBy: [{ clientId: "asc" }, { isPrimary: "desc" }, { createdAt: "asc" }],
-            include: {
+            select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+                isPrimary: true,
                 client: { select: { email: true } },
                 jobFunction: { select: { name: true } },
             },

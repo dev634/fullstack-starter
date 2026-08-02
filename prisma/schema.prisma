@@ -513,6 +513,11 @@ model JobFunction {
   // who hold this function. Empty = hide nothing (see everything) — so a newly
   // added section is visible by default until an admin hides it.
   hiddenSections String[] @default([])
+  // Top-level app area / sub-part keys (see lib/appAreas.ts) HIDDEN from users
+  // who hold this function — a mirror of hiddenSections applied to the whole app
+  // instead of a single project. Empty = hide nothing. Free strings validated
+  // application-side, not a Postgres enum, exactly like hiddenSections.
+  hiddenAreas String[] @default([])
   // Data axis, alongside hiddenSections' feature axis: which projects the
   // holders of this function may reach at all.
   projectScope ProjectScope @default(ALL)

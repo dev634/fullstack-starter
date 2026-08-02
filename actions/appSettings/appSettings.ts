@@ -3,6 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
 import { requireCapability } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { resolveAccessConfig } from "@/lib/capabilities";
 import { updateAppSettingsSchema } from "@/schemas/appSettings";
 import { getSettings, upsert, updateSectionOrder, updateAccessConfig } from "@/repository/appSettings";
@@ -28,6 +29,8 @@ type SectionOrderResult = { ok: true } | { ok: false; message: string };
 export async function setAccessConfig(config: Record<string, string>): Promise<SectionOrderResult> {
   const roleCheck = await requireCapability("settings.manage");
   if (roleCheck.error) return { ok: false, message: roleCheck.error.message };
+  const areaCheck = await requireAreaAccess("admin.settings");
+  if (areaCheck.error) return { ok: false, message: areaCheck.error.message };
 
   const t = getDictionary(await getLocale());
   try {
@@ -49,6 +52,8 @@ export async function setAccessConfig(config: Record<string, string>): Promise<S
 export async function updateProjectSectionOrder(order: string[]): Promise<SectionOrderResult> {
   const roleCheck = await requireRole("SUPERADMIN");
   if (roleCheck.error) return { ok: false, message: roleCheck.error.message };
+  const areaCheck = await requireAreaAccess("admin.settings");
+  if (areaCheck.error) return { ok: false, message: areaCheck.error.message };
 
   const t = getDictionary(await getLocale());
   try {
@@ -66,6 +71,8 @@ export async function updateSettings(
 ): Promise<AppSettingsActionState> {
   const roleCheck = await requireRole("SUPERADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("admin.settings");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const raw = formDataToObject(formData);
@@ -106,6 +113,8 @@ export async function uploadLogo(
 ): Promise<AppSettingsActionState> {
   const roleCheck = await requireRole("SUPERADMIN");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("admin.settings");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const file = formData.get("logo");
@@ -140,6 +149,8 @@ export async function uploadLogo(
 export async function removeLogo(): Promise<AppSettingsActionState> {
   const roleCheck = await requireRole("SUPERADMIN");
   if (roleCheck.error) return { type: "error", message: roleCheck.error.message };
+  const areaCheck = await requireAreaAccess("admin.settings");
+  if (areaCheck.error) return { type: "error", message: areaCheck.error.message };
 
   const t = getDictionary(await getLocale());
   try {

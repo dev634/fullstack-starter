@@ -28,19 +28,21 @@ export async function findAll() {
 }
 
 /**
- * The project-section keys hidden from a user, via their job function's
- * `hiddenSections`. Empty when the user has no function (or it hides nothing).
+ * The project-section and app-area keys hidden from a user, via their job
+ * function's `hiddenSections`/`hiddenAreas`. Empty when the user has no
+ * function (or it hides nothing).
  */
 export type AccessScope = {
     hiddenSections: string[];
+    hiddenAreas: string[];
     projectScope: "ALL" | "ASSIGNED";
     assignedProjectIds: number[];
 };
 
 /**
  * Everything the access context needs about one user, in a single query: the
- * sections their function withholds, whether that function restricts them to
- * assigned projects, and which projects those are.
+ * sections and top-level areas their function withholds, whether that
+ * function restricts them to assigned projects, and which projects those are.
  *
  * One round-trip on purpose — this runs on every request that renders or
  * filters project data.
@@ -50,7 +52,7 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
         const user = await prisma.user.findUnique({
             where: { email },
             select: {
-                jobFunction: { select: { hiddenSections: true, projectScope: true } },
+                jobFunction: { select: { hiddenSections: true, hiddenAreas: true, projectScope: true } },
                 assignedProjects: { select: { id: true } },
             },
         });
@@ -58,6 +60,7 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
 
         return {
             hiddenSections: user.jobFunction?.hiddenSections ?? [],
+            hiddenAreas: user.jobFunction?.hiddenAreas ?? [],
             // No function means no restriction — a user must not lose access
             // just because nobody has given them a job title yet.
             projectScope: user.jobFunction?.projectScope ?? "ALL",

@@ -3,6 +3,7 @@ import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
@@ -32,6 +33,12 @@ export default async function ProjectsPage({
   searchParams: Promise<SearchParams>;
 }) {
   await blockClientFromApp();
+
+  // The whole "projects" rubrique can be hidden by the caller's job function
+  // — bounce to the first rubrique they can actually reach, mirroring how a
+  // disallowed Administration tab redirects (lib/adminAccess.ts).
+  await requireAreaOrRedirect("projects");
+
   const sp = await searchParams;
   const q = sp.q ?? "";
   const sortField: ProjectSortField = SORT_FIELDS.includes(sp.sort as ProjectSortField)

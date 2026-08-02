@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findAll } from "@/repository/clients";
 import AddProjectWithClientForm from "@/forms/AddProjectWithClientForm";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -13,6 +14,10 @@ export default async function AddProjectPage() {
   if (!(await can(session?.user?.role, "content.edit"))) {
     redirect("/projects");
   }
+
+  // The whole "projects" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach.
+  await requireAreaOrRedirect("projects");
 
   const clients = await findAll({ companyName: "asc" });
   const t = getDictionary(await getLocale());

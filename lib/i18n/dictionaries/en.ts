@@ -107,6 +107,10 @@ const en: Dictionary = {
         resetLinkInvalidOrExpired: "This reset link is invalid or has expired.",
         passwordUpdated: "Password updated. You can now sign in.",
     },
+    accessDenied: {
+        title: "Access denied",
+        message: "You don't have access to any section. Contact your administrator.",
+    },
     photoUpload: {
         mustBeImage: "The file must be an image.",
         maxSize: "The image must be 5 MB or smaller.",
@@ -703,6 +707,10 @@ const en: Dictionary = {
         deleteLabel: "Delete {name}",
         deleteTitle: "Delete the function",
         deleteText: "Delete “{name}”? This action is irreversible.",
+        configureLabel: "Configure {name}'s access",
+        configTitle: "Function access",
+        configSubtitle: "Configure what users with the “{name}” function can access.",
+        configSaveError: "Error while saving the configuration.",
         scope: {
             title: "Project scope",
             hint: "Which chantiers users with this function may reach. Filtering happens in the query: a project out of scope is not found, direct URL included.",
@@ -710,12 +718,16 @@ const en: Dictionary = {
             assigned: "Only the projects they are assigned to",
         },
         sections: {
-            configureLabel: "Configure the sections {name} can access",
             title: "Accessible sections",
-            subtitle: "Check the sections users with the “{name}” function may access. An unchecked section is not merely hidden: its actions are refused server-side. Admins keep access to everything.",
             saving: "Saving…",
             saved: "Sections saved.",
-            saveError: "Error while saving the sections.",
+        },
+        areas: {
+            title: "Application areas",
+            subtitle: "Unchecking an area hides it from the nav; its sub-parts and pages become inaccessible, direct URL included.",
+            statsLabel: "Statistics",
+            infoLabel: "Information",
+            settingsLabel: "Settings",
         },
         messages: {
             added: "Function added.",

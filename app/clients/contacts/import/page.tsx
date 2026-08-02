@@ -3,6 +3,7 @@ import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import ImportContactsForm from "./_components/ImportContactsForm";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -13,6 +14,11 @@ export default async function ImportContactsPage() {
   if (!(await can(session?.user?.role, "content.import"))) {
     redirect("/clients");
   }
+
+  // "clients.contacts" is a sub-part of the "clients" rubrique and can be
+  // hidden independently by the caller's job function (see lib/appAreas.ts).
+  await requireAreaOrRedirect("clients.contacts");
+
   const t = getDictionary(await getLocale());
 
   return (

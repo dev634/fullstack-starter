@@ -3,6 +3,7 @@ import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import ImportClientsForm from "./_components/ImportClientsForm";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -13,6 +14,12 @@ export default async function ImportClientsPage() {
   if (!(await can(session?.user?.role, "content.import"))) {
     redirect("/clients");
   }
+
+  // The whole "clients" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach, same as the list
+  // and detail pages.
+  await requireAreaOrRedirect("clients");
+
   const t = getDictionary(await getLocale());
 
   return (

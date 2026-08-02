@@ -5,6 +5,7 @@ import ClientAvatar from "@/components/ClientAvatar";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import TrashItemActions from "./_components/TrashItemActions";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -15,6 +16,11 @@ export default async function TrashPage() {
   if (!(await can(session?.user?.role, "content.trash"))) {
     redirect("/clients");
   }
+
+  // The whole "clients" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach, same as the list
+  // and detail pages.
+  await requireAreaOrRedirect("clients");
 
   const trashed = await findTrashed();
   const t = getDictionary(await getLocale());

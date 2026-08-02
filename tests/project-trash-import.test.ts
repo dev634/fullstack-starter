@@ -5,7 +5,7 @@ vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));

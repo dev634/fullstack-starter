@@ -105,6 +105,10 @@ const fr = {
         resetLinkInvalidOrExpired: "Ce lien de réinitialisation est invalide ou a expiré.",
         passwordUpdated: "Mot de passe mis à jour. Tu peux maintenant te connecter.",
     },
+    accessDenied: {
+        title: "Accès refusé",
+        message: "Vous n'avez accès à aucune rubrique. Contactez votre administrateur.",
+    },
     photoUpload: {
         mustBeImage: "Le fichier doit être une image.",
         maxSize: "L'image doit faire 5 Mo maximum.",
@@ -701,6 +705,10 @@ const fr = {
         deleteLabel: "Supprimer {name}",
         deleteTitle: "Supprimer la fonction",
         deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
+        configureLabel: "Configurer l'accès de {name}",
+        configTitle: "Accès de la fonction",
+        configSubtitle: "Configurez ce à quoi les utilisateurs ayant la fonction « {name} » ont accès.",
+        configSaveError: "Erreur lors de l'enregistrement de la configuration.",
         scope: {
             title: "Portée des chantiers",
             hint: "Détermine quels chantiers les utilisateurs de cette fonction peuvent atteindre. Le filtrage est appliqué en base : un chantier hors portée est introuvable, y compris par URL directe.",
@@ -708,12 +716,16 @@ const fr = {
             assigned: "Uniquement les chantiers qui leur sont affectés",
         },
         sections: {
-            configureLabel: "Configurer les sections accessibles à {name}",
             title: "Sections accessibles",
-            subtitle: "Cochez les sections auxquelles les utilisateurs ayant la fonction « {name} » ont accès. Une section décochée n'est pas seulement masquée : ses actions sont refusées côté serveur. Les administrateurs conservent l'accès à tout.",
             saving: "Enregistrement…",
             saved: "Sections enregistrées.",
-            saveError: "Erreur lors de l'enregistrement des sections.",
+        },
+        areas: {
+            title: "Rubriques de l'application",
+            subtitle: "Décocher une rubrique la masque du menu et de la navigation ; ses sous-parties et pages associées deviennent inaccessibles, y compris par URL directe.",
+            statsLabel: "Statistiques",
+            infoLabel: "Informations",
+            settingsLabel: "Paramètres",
         },
         messages: {
             added: "Fonction ajoutée.",

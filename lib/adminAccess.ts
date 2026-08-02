@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getAccessConfig } from "@/lib/access";
 import { hasMinRole } from "@/lib/authz";
+import { canAccessArea } from "@/lib/areaAccess";
 
 // Administration-area access helpers. Kept separate from lib/access (the pure
 // capability guards used by server actions) because these pull in the auth
@@ -24,9 +25,13 @@ export type AdminAccess = {
 
 export async function getAdminAccess(role: string | undefined): Promise<AdminAccess> {
   const config = await getAccessConfig();
-  const functions = hasMinRole(role, config["functions.manage"]);
-  const users = hasMinRole(role, config["users.manage"]);
-  const settings = hasMinRole(role, config["settings.manage"]);
+  // Visibility of each tab = the RBAC capability (role) AND not withheld by
+  // the caller's job function (hiddenAreas — admin.users/functions/settings).
+  // The function can only ever narrow a tab a role's capability already
+  // allows, never grant one it doesn't — see lib/areaAccess.ts.
+  const functions = hasMinRole(role, config["functions.manage"]) && (await canAccessArea("admin.functions"));
+  const users = hasMinRole(role, config["users.manage"]) && (await canAccessArea("admin.users"));
+  const settings = hasMinRole(role, config["settings.manage"]) && (await canAccessArea("admin.settings"));
   const landing = functions
     ? "/admin/settings/fonctions"
     : users
