@@ -1,30 +1,11 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/auth.config";
+import { isProtectedPath, isPortalPath } from "@/lib/routeGuard";
 
 // Next.js 16 renamed the `middleware` file convention to `proxy`.
 // We only need the edge-safe config here (no providers run in the proxy).
 const { auth } = NextAuth(authConfig);
-
-// Same route set the auth-gate matcher covered before the CSP nonce was
-// added below — kept as an explicit check (rather than narrowing
-// config.matcher) because the matcher now has to run on every page for the
-// nonce, but sign-in/reset/API routes must stay reachable while logged out.
-const PROTECTED_PATHS = [
-  /^\/$/,
-  /^\/clients(\/.*)?$/,
-  /^\/projects(\/.*)?$/,
-  /^\/admin(\/.*)?$/,
-  /^\/portail(\/.*)?$/,
-];
-
-function isProtectedPath(pathname: string): boolean {
-  return PROTECTED_PATHS.some((re) => re.test(pathname));
-}
-
-function isPortalPath(pathname: string): boolean {
-  return /^\/portail(\/.*)?$/.test(pathname);
-}
 
 // Per-request nonce so script-src/style-src can drop 'unsafe-inline' (a
 // static CSP, e.g. in next.config.ts, can't carry a per-request value —

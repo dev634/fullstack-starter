@@ -189,11 +189,21 @@ export async function setPrimary(id: number, clientId: number) {
     }
 }
 
-/** Deletes a contact; if it was the primary, promotes the oldest remaining contact so the client keeps one. */
+/**
+ * Deletes a contact; if it was the primary, promotes the oldest remaining
+ * contact so the client keeps one. Also deletes its portal login (if any) —
+ * a Contact.userId is 1:1 and exists only to authenticate as this contact, so
+ * leaving it behind after the contact is gone would let a revoked contact
+ * keep signing in indefinitely (the account just fails to resolve a portal
+ * scope; it stays otherwise fully authenticatable).
+ */
 export async function remove(id: number) {
     try {
         return await prisma.$transaction(async (tx) => {
             const contact = await tx.contact.delete({ where: { id } });
+            if (contact.userId) {
+                await tx.user.delete({ where: { id: contact.userId } });
+            }
             if (contact.isPrimary) {
                 const next = await tx.contact.findFirst({
                     where: { clientId: contact.clientId },

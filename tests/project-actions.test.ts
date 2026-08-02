@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/authz", () => ({
-  requireSession: vi.fn(),
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
@@ -26,12 +25,11 @@ vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue(
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addProject, updateProject, deleteProject, getProject, getProjectsForClient } from "@/actions/projects/projects";
-import { requireSession, requireRole } from "@/lib/authz";
+import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
 import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
 import { createDefaults } from "@/repository/projectFolders";
 
-const requireSessionMock = vi.mocked(requireSession);
 const requireRoleMock = vi.mocked(requireRole);
 const canReachProjectMock = vi.mocked(canReachProject);
 const getAccessContextMock = vi.mocked(getAccessContext);
@@ -140,15 +138,15 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
-  it("getProjectsForClient refuses without a session", async () => {
-    requireSessionMock.mockResolvedValue({ type: "error", message: "Unauthorized." });
+  it("getProjectsForClient refuses a session below VIEWER", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await getProjectsForClient(1);
     expect(res.type).toBe("error");
     expect(findByClientMock).not.toHaveBeenCalled();
   });
 
-  it("getProjectsForClient returns projects for any authenticated session", async () => {
-    requireSessionMock.mockResolvedValue(null);
+  it("getProjectsForClient returns projects for a VIEWER-or-above session", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "viewer@example.com" });
     findByClientMock.mockResolvedValue([{ id: 1, name: "Toiture" }] as never);
     const res = await getProjectsForClient(1);
     expect(res.type).toBe("success");
@@ -171,7 +169,7 @@ describe("project actions", () => {
     });
 
     it("getProject masks a project outside the caller's scope as not found, not as an error", async () => {
-      requireSessionMock.mockResolvedValue(null);
+      requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
       findByIdMock.mockResolvedValue({ id: 203, name: "Chantier d'un autre client", deletedAt: null } as never);
       getAccessContextMock.mockResolvedValue({
         email: "chef@example.com",
@@ -188,7 +186,7 @@ describe("project actions", () => {
     });
 
     it("getProject returns the project once it IS in the caller's scope", async () => {
-      requireSessionMock.mockResolvedValue(null);
+      requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
       findByIdMock.mockResolvedValue({ id: 202, name: "Mon chantier", deletedAt: null } as never);
       canReachProjectMock.mockReturnValueOnce(true);
 

@@ -25,7 +25,7 @@ const GUARD_CALLS = new Set([
   "can", // page/action-level capability check
   "requirePortalContext", // client portal, scoped
   "getPortalContext",
-  "requireAppUser", // route handlers (lib/routeGuard)
+  "requireAppUser", // route handlers (lib/requireAppUser)
 ]);
 
 /**
@@ -218,7 +218,7 @@ describe("authorization coverage across server actions", () => {
       unguarded.length
         ? `These route handlers answer without checking the session:\n` +
           unguarded.map((k) => `  - ${k}`).join("\n") +
-          `\n\nCall requireAppUser() from @/lib/routeGuard, or add the route to ` +
+          `\n\nCall requireAppUser() from @/lib/requireAppUser, or add the route to ` +
           `PUBLIC_ROUTES with the reason.`
         : undefined
     ).toEqual([]);

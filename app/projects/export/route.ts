@@ -1,7 +1,7 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
-import { requireAppUser } from "@/lib/routeGuard";
+import { requireAppUser } from "@/lib/requireAppUser";
 
 const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
 

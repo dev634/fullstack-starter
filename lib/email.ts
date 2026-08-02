@@ -23,6 +23,13 @@ export async function sendEmail({ to, subject, html, text }: SendEmailArgs): Pro
   const from = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
   if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      // Never log the email body in production — it may carry a live
+      // password-reset link/token, and anyone with log access could use it
+      // to take over the account. Fail loudly instead of a silent "sent".
+      console.error("sendEmail skipped: RESEND_API_KEY is not set in production.");
+      throw { type: "error", message: "Failed to send the email. Please try again." };
+    }
     console.log(`[email:dev-fallback] To: ${to} | Subject: ${subject}\n${text ?? html}`);
     return;
   }

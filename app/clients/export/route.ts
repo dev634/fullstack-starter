@@ -1,7 +1,7 @@
 import { search, type ClientSortField } from "@/repository/clients";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { CLIENT_CSV_COLUMNS, csvCell } from "@/lib/csv";
-import { requireAppUser } from "@/lib/routeGuard";
+import { requireAppUser } from "@/lib/requireAppUser";
 
 const SORT_FIELDS: ClientSortField[] = ["companyName", "email", "city"];
 
