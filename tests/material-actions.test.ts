@@ -12,6 +12,7 @@ vi.mock("@/lib/accessContext", () => ({
 }));
 vi.mock("@/repository/projectMaterials", () => ({
   create: vi.fn(),
+  createOrAccumulate: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
   findByProject: vi.fn(),
@@ -23,10 +24,10 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { addMaterial, editMaterial, deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
 import { requireRole } from "@/lib/authz";
-import { create, update, remove } from "@/repository/projectMaterials";
+import { createOrAccumulate, update, remove } from "@/repository/projectMaterials";
 
 const requireRoleMock = vi.mocked(requireRole);
-const createMock = vi.mocked(create);
+const createMock = vi.mocked(createOrAccumulate);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const initial = { type: null, message: "" } as const;
@@ -65,7 +66,7 @@ describe("material actions", () => {
 
   it("addMaterial accepts a zero quantity — a valid out-of-stock state", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     const res = await addMaterial(initial, formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: "0" }));
     expect(res.type).toBe("success");
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ quantity: 0 }));
@@ -73,7 +74,7 @@ describe("material actions", () => {
 
   it("addMaterial creates the material when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     const res = await addMaterial(
       initial,
       formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "24", unit: "pièce" })
@@ -86,7 +87,7 @@ describe("material actions", () => {
 
   it("addMaterial passes optional supplier/reference through", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -116,7 +117,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskId/requiredQuantity through when linked to a task", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -146,7 +147,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskGroupId/requiredQuantity through when linked to a series", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -176,7 +177,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskCategoryId/requiredQuantity through when linked to a category", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ id: 1 } as never);
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({

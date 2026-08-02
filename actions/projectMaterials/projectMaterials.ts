@@ -4,7 +4,7 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
-import { create, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
+import { createOrAccumulate, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -35,7 +35,7 @@ export async function addMaterial(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const material = await create({
+    const { material, accumulated } = await createOrAccumulate({
       projectId: parsed.data.projectId,
       name: parsed.data.name,
       quantity: parsed.data.quantity,
@@ -51,7 +51,8 @@ export async function addMaterial(
     return {
       ...prevState,
       type: "success",
-      message: t.materials.messages.added,
+      // Same reference + supplier tops up the existing line, like a scan does.
+      message: accumulated ? t.materials.messages.accumulated : t.materials.messages.added,
       data: material,
     };
   } catch (error) {

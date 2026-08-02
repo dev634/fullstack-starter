@@ -13,6 +13,68 @@ type MaterialData = {
     requiredQuantity?: number | null;
 };
 
+/**
+ * Add a material, accumulating into an existing line when it is the same item.
+ *
+ * "Same item" = same project + same reference + same supplier, matching how a
+ * delivery-note scan tops up an existing material instead of listing it twice.
+ * A reference is required to accumulate: without one there is no reliable key,
+ * and merging every supplier's unreferenced items into one line would be worse
+ * than a duplicate. When it does match, only the quantity moves — the existing
+ * line keeps its own name, unit, task link and required quantity.
+ *
+ * Wrapped in a transaction so a match-then-increment can't race with a
+ * concurrent add of the same reference.
+ */
+export async function createOrAccumulate(
+    data: MaterialData
+): Promise<{ material: Awaited<ReturnType<typeof create>>; accumulated: boolean }> {
+    const reference = data.reference?.trim();
+    if (!reference) {
+        return { material: await create(data), accumulated: false };
+    }
+
+    try {
+        return await prisma.$transaction(async (tx) => {
+            const existing = await tx.projectMaterial.findFirst({
+                where: {
+                    projectId: data.projectId,
+                    reference,
+                    supplierName: data.supplierName?.trim() || null,
+                },
+                select: { id: true },
+            });
+
+            if (existing) {
+                const material = await tx.projectMaterial.update({
+                    where: { id: existing.id },
+                    data: { quantity: { increment: data.quantity } },
+                });
+                return { material, accumulated: true };
+            }
+
+            const material = await tx.projectMaterial.create({
+                data: {
+                    projectId: data.projectId,
+                    name: data.name,
+                    quantity: data.quantity,
+                    unit: data.unit || null,
+                    supplierName: data.supplierName?.trim() || null,
+                    reference,
+                    taskId: data.taskId ?? null,
+                    taskGroupId: data.taskGroupId ?? null,
+                    taskCategoryId: data.taskCategoryId ?? null,
+                    requiredQuantity: data.requiredQuantity ?? null,
+                },
+            });
+            return { material, accumulated: false };
+        });
+    } catch (error) {
+        console.log("Repository createOrAccumulate material error:", error);
+        throw { type: "error", message: "Database Error creating material." };
+    }
+}
+
 export async function create(data: MaterialData) {
     try {
         return await prisma.projectMaterial.create({
