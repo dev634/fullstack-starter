@@ -74,7 +74,12 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
 
 export async function findById(id: number) {
     try {
-        return await prisma.user.findUnique({ where: { id } });
+        return await prisma.user.findUnique({
+            where: { id },
+            // Explicit select, excludes password — only id/email/role are
+            // read by callers (privilege + self-delete checks in actions/users/users.ts).
+            select: { id: true, email: true, role: true },
+        });
     } catch (error) {
         console.log("Repository findById (user) error:", error);
         throw { type: "error", message: "Database Error fetching user." };
@@ -192,9 +197,12 @@ export async function createResetToken(userId: number, token: string, expiresAt:
 export async function findValidResetToken(token: string) {
     try {
         // Look up by the hash of the presented token — never the token itself.
+        // The nested user select excludes password; callers only ever read
+        // userId/id off the token row itself, but the relation is kept (id
+        // only) since it's part of the established return shape.
         return await prisma.passwordResetToken.findFirst({
             where: { token: hashResetToken(token), usedAt: null, expiresAt: { gt: new Date() } },
-            include: { user: true },
+            include: { user: { select: { id: true } } },
         });
     } catch (error) {
         console.log("Repository findValidResetToken error:", error);

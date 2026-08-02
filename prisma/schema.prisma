@@ -610,6 +610,9 @@ model ActivityLog {
   clientName String
   actorEmail String
   createdAt  DateTime       @default(now())
+
+  // Append-only, never purged, always read ORDER BY createdAt DESC — index it.
+  @@index([createdAt])
 }
 
 // Same snapshot approach as ActivityLog, for the projects module.
@@ -620,4 +623,6 @@ model ProjectActivityLog {
   projectName String
   actorEmail  String
   createdAt   DateTime       @default(now())
+
+  @@index([createdAt])
 }

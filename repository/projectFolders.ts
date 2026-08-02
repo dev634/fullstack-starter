@@ -77,14 +77,33 @@ export function getBreadcrumb(folderId: number | null) {
 }
 
 async function collectDescendantFolderIds(projectId: number, folderId: number): Promise<number[]> {
-    const children = await prisma.projectFolder.findMany({
-        where: { projectId, parentId: folderId },
-        select: { id: true },
+    // One flat query for the whole project's folder tree, then walk it in
+    // memory — the previous version issued one findMany per folder in the
+    // subtree (N+1 as the tree gets deep/wide).
+    const all = await prisma.projectFolder.findMany({
+        where: { projectId },
+        select: { id: true, parentId: true },
     });
-    const nested = await Promise.all(
-        children.map((child) => collectDescendantFolderIds(projectId, child.id))
-    );
-    return [folderId, ...nested.flat()];
+
+    const childrenByParent = new Map<number, number[]>();
+    for (const folder of all) {
+        if (folder.parentId === null) continue;
+        const children = childrenByParent.get(folder.parentId);
+        if (children) children.push(folder.id);
+        else childrenByParent.set(folder.parentId, [folder.id]);
+    }
+
+    const ids: number[] = [folderId];
+    const queue: number[] = [folderId];
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (current === undefined) break;
+        for (const childId of childrenByParent.get(current) ?? []) {
+            ids.push(childId);
+            queue.push(childId);
+        }
+    }
+    return ids;
 }
 
 /**
