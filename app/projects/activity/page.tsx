@@ -4,6 +4,7 @@ import { listActivity } from "@/repository/projectActivity";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -20,6 +21,10 @@ export default async function ProjectsActivityPage({ searchParams }: PageProps) 
   if (!(await can(session?.user?.role, "content.activity"))) {
     redirect("/projects");
   }
+
+  // The whole "projects" rubrique can be hidden by the caller's job function —
+  // bounce to the first rubrique they can actually reach.
+  await requireAreaOrRedirect("projects");
 
   const sp = await searchParams;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
