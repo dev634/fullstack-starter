@@ -50,3 +50,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Ping the VPS to pull the just-pushed image immediately (over HTTPS/443,
+      # which the host never blocks — unlike inbound SSH). Best-effort: if the
+      # webhook is briefly unreachable the deploy still lands via the systemd
+      # timer's periodic pull, so a hiccup here must not fail the build.
+      - name: Trigger deploy on the VPS (pull via webhook)
+        continue-on-error: true
+        run: |
+          curl -fsS --max-time 300 -X POST \
+            -H "X-Deploy-Token: ${{ secrets.DEPLOY_HOOK_TOKEN }}" \
+            https://devadn.com/deploy-hook
