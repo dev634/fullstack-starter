@@ -76,15 +76,20 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Trust on first use, as the previous action did. Pin the host key in
-          # a secret instead if you ever want to close that window.
+          # Best-effort host-key pinning (trust on first use). ssh-keyscan is a
+          # separate probe that fails on a transient runner<->VPS blip; when it
+          # does, DON'T abort the deploy — the Deploy step below connects with
+          # StrictHostKeyChecking=accept-new (pins the key on first contact,
+          # refuses a CHANGED key) and is itself wrapped in a retry loop. So we
+          # pin here when reachable and fall through otherwise, instead of
+          # killing the whole run on a keyscan hiccup. To close the TOFU window
+          # entirely, put the key in a VPS_KNOWN_HOSTS secret and write it here.
           for attempt in 1 2 3; do
             if ssh-keyscan -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
               break
             fi
-            echo "ssh-keyscan attempt $attempt failed"
-            [ "$attempt" -eq 3 ] && exit 1
-            sleep $((attempt * 10))
+            echo "ssh-keyscan attempt $attempt failed (non-fatal)"
+            [ "$attempt" -eq 3 ] || sleep $((attempt * 10))
           done
 
       - name: Deploy to VPS
@@ -99,7 +104,10 @@ jobs:
           set -euo pipefail
           # ssh spells the port -p, scp spells it -P (where -p means "preserve
           # times"), so the shared options deliberately carry neither.
-          COMMON="-i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes"
+          # accept-new pins an unknown host key on first contact but refuses a
+          # CHANGED one — so the deploy survives an empty known_hosts (a failed
+          # best-effort keyscan) without ever disabling host-key checking.
+          COMMON="-i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 
           # The whole deploy retries as one unit: copying the compose file then
           # restarting is a single operation, and half of it is not a deploy.
