@@ -85,7 +85,7 @@ jobs:
           # killing the whole run on a keyscan hiccup. To close the TOFU window
           # entirely, put the key in a VPS_KNOWN_HOSTS secret and write it here.
           for attempt in 1 2 3; do
-            if ssh-keyscan -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+            if ssh-keyscan -4 -T 20 -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
               break
             fi
             echo "ssh-keyscan attempt $attempt failed (non-fatal)"
@@ -107,7 +107,12 @@ jobs:
           # accept-new pins an unknown host key on first contact but refuses a
           # CHANGED one — so the deploy survives an empty known_hosts (a failed
           # best-effort keyscan) without ever disabling host-key checking.
-          COMMON="-i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+          # -4 forces IPv4. GitHub's Azure runners are dual-stack and prefer
+          # IPv6; if the VPS's AAAA route is flaky while its IPv4 is solid, the
+          # SSH SYN is silently dropped over v6 (Connection timed out) while
+          # HTTPS and connections from other networks stay fine. Pinning v4
+          # removes that variable — the VPS answers SSH on v4 (confirmed).
+          COMMON="-4 -i $HOME/.ssh/deploy_key -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 
           # The whole deploy retries as one unit: copying the compose file then
           # restarting is a single operation, and half of it is not a deploy.
