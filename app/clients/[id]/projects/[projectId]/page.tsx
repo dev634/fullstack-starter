@@ -6,7 +6,7 @@ import { findByProject as findMaterialsByProject } from "@/repository/projectMat
 import { findByProject as findInterventionsByProject } from "@/repository/interventions";
 import { findCompaniesByProject } from "@/repository/subcontractors";
 import { findByProject as findInterimsByProject } from "@/repository/interims";
-import { findAll as findJobFunctions } from "@/repository/jobFunctions";
+import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
