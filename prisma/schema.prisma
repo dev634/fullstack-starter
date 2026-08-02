@@ -4,12 +4,18 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../app/generated/prisma"
+  // Enables declaring PostgreSQL extensions in the datasource below, so the
+  // pg_trgm extension is part of the schema and does not read as drift.
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
+  // Trigram matching for the case-insensitive `contains` (ILIKE '%term%')
+  // list searches; backs the GIN indexes declared on Client/Project below.
+  extensions = [pg_trgm]
 }
 
 enum ClientStatus {
@@ -52,6 +58,12 @@ model Client {
   deletedAt   DateTime?
   projects    Project[]
   contacts    Contact[]
+
+  // GIN trigram indexes serving the case-insensitive `contains` filter in
+  // repository/clients.ts::search (ILIKE '%term%'), which a btree cannot
+  // accelerate. Require the pg_trgm extension declared on the datasource.
+  @@index([companyName(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_companyName_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_email_trgm_idx")
 }
 
 // A person attached to an organisation — many per organisation. Each Client's
@@ -141,6 +153,9 @@ model Project {
   // Backs findByClient (the client detail page's project list) and the
   // Client onDelete: Cascade scan. Postgres does not auto-index FK columns.
   @@index([clientId])
+  // GIN trigram index serving the case-insensitive `contains` filter on name
+  // in repository/projects.ts::search (ILIKE '%term%'). Requires pg_trgm.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Project_name_trgm_idx")
 }
 
 enum ReserveStatus {
