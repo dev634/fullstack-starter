@@ -6,7 +6,7 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
 import { create, update, setPrimary, remove, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
-import { findAll as findAllJobFunctions } from "@/repository/jobFunctions";
+import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";

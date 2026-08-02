@@ -6,7 +6,7 @@ import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
-import { findAll as findJobFunctions } from '@/repository/jobFunctions';
+import { findAllOptions as findJobFunctions } from '@/repository/jobFunctions';
 import ContactRow from '@/components/ContactRow';
 import CollapsibleSection from '@/components/CollapsibleSection';
 import AddContactForm from '@/forms/AddContactForm';

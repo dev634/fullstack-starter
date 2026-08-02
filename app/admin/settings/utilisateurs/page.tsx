@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { requireAdminTab } from "@/lib/adminAccess";
 import { findAll } from "@/repository/users";
-import { findAll as findJobFunctions } from "@/repository/jobFunctions";
+import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findAllAssignable } from "@/repository/projects";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";

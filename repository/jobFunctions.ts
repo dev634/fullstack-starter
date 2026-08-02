@@ -11,6 +11,23 @@ export async function findAll() {
     }
 }
 
+/**
+ * Just id + name, in display order — for populating dropdowns. Avoids
+ * serializing the whole JobFunction row (hiddenSections / hiddenAreas /
+ * projectScope — the access posture) to the client, unlike findAll().
+ */
+export async function findAllOptions() {
+    try {
+        return await prisma.jobFunction.findMany({
+            select: { id: true, name: true },
+            orderBy: [{ position: "asc" }, { name: "asc" }],
+        });
+    } catch (error) {
+        console.log("Repository findAllOptions (jobFunction) error:", error);
+        throw { type: "error", message: "Database Error fetching functions." };
+    }
+}
+
 export async function create(name: string) {
     try {
         // New functions go to the end of the list.
