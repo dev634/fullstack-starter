@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 
 /** App users for the management screen (without password hashes). Excludes
@@ -171,8 +172,9 @@ export async function findByEmail(email: string) {
 export async function createResetToken(userId: number, token: string, expiresAt: Date) {
     try {
         await prisma.passwordResetToken.deleteMany({ where: { userId, usedAt: null } });
+        // Store only the hash — the raw token lives solely in the emailed URL.
         return await prisma.passwordResetToken.create({
-            data: { userId, token, expiresAt },
+            data: { userId, token: hashResetToken(token), expiresAt },
         });
     } catch (error) {
         console.log("Repository createResetToken error:", error);
@@ -186,8 +188,9 @@ export async function createResetToken(userId: number, token: string, expiresAt:
 /** A token that hasn't been used yet and hasn't expired, with its user. */
 export async function findValidResetToken(token: string) {
     try {
+        // Look up by the hash of the presented token — never the token itself.
         return await prisma.passwordResetToken.findFirst({
-            where: { token, usedAt: null, expiresAt: { gt: new Date() } },
+            where: { token: hashResetToken(token), usedAt: null, expiresAt: { gt: new Date() } },
             include: { user: true },
         });
     } catch (error) {
