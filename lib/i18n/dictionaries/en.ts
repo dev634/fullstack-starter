@@ -518,8 +518,8 @@ const en: Dictionary = {
         person: {
             nameLabel: "Name",
             namePlaceholder: "Personnel name…",
-            roleLabel: "Role",
-            rolePlaceholder: "Role",
+            roleLabel: "Function",
+            functionNone: "None",
             phoneLabel: "Phone",
             phonePlaceholder: "Phone",
             deletePerson: "Delete {name}",

@@ -7,7 +7,7 @@ import { useRowAction } from "@/lib/useRowAction";
 import type { SubcontractorPerson } from "@/app/generated/prisma/client";
 
 type ProjectSubcontractorPersonRowProps = {
-  person: SubcontractorPerson;
+  person: SubcontractorPerson & { jobFunction: { id: number; name: string } | null };
   clientId: number;
   projectId: number;
   canEdit: boolean;
@@ -17,7 +17,7 @@ export default function ProjectSubcontractorPersonRow({ person, clientId, projec
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
 
-  const secondary = [person.role, person.phone].filter(Boolean).join(" · ");
+  const secondary = [person.jobFunction?.name, person.phone].filter(Boolean).join(" · ");
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">

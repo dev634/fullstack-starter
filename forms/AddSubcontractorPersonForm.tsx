@@ -3,6 +3,7 @@ import { addSubcontractorPerson } from "@/actions/subcontractors/subcontractors"
 import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { SubcontractorActionState } from "@/types/subcontractor";
+import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
 
 const initialState: SubcontractorActionState = {
   type: null,
@@ -13,10 +14,12 @@ export default function AddSubcontractorPersonForm({
   companyId,
   clientId,
   projectId,
+  functions,
 }: {
   companyId: number;
   clientId: number;
   projectId: number;
+  functions: JobFunctionOption[];
 }) {
   const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<SubcontractorActionState, FormData>(
@@ -50,13 +53,14 @@ export default function AddSubcontractorPersonForm({
           <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
         )}
       </div>
-      <input
-        type="text"
-        name="role"
-        placeholder={t.subcontractors.person.rolePlaceholder}
+      <select
+        name="jobFunctionId"
+        defaultValue=""
         aria-label={t.subcontractors.person.roleLabel}
-        className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[120px]"
-      />
+        className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 sm:w-auto sm:min-w-[120px]"
+      >
+        <JobFunctionOptions functions={functions} noneLabel={t.subcontractors.person.functionNone} />
+      </select>
       <input
         type="text"
         name="phone"

@@ -433,15 +433,19 @@ model SubcontractorCompany {
 }
 
 model SubcontractorPerson {
-  id        Int                  @id @default(autoincrement())
-  company   SubcontractorCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId Int
-  name      String
-  role      String?
-  phone     String?
-  createdAt DateTime             @default(now())
+  id            Int                  @id @default(autoincrement())
+  company       SubcontractorCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  name          String
+  // The person's job function, picked from the managed list (see JobFunction).
+  // SetNull so deleting a function just clears it from its subcontractor people.
+  jobFunction   JobFunction?         @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
+  jobFunctionId Int?
+  phone         String?
+  createdAt     DateTime             @default(now())
 
   @@index([companyId])
+  @@index([jobFunctionId])
 }
 
 // A temp/agency worker (intérimaire) attached directly to the project — a
@@ -530,6 +534,7 @@ model JobFunction {
   users     User[]
   contacts  Contact[]
   interims  Interim[]
+  subcontractorPeople SubcontractorPerson[]
 }
 
 model User {

@@ -9,11 +9,12 @@ import { deleteSubcontractorCompany } from "@/actions/subcontractors/subcontract
 import ProjectSubcontractorPersonRow from "@/components/ProjectSubcontractorPersonRow";
 import AddSubcontractorPersonForm from "@/forms/AddSubcontractorPersonForm";
 import type { SubcontractorPerson } from "@/app/generated/prisma/client";
+import type { JobFunctionOption } from "@/forms/JobFunctionOptions";
 
 type SubcontractorCompanyWithPersonnel = {
   id: number;
   name: string;
-  personnel: SubcontractorPerson[];
+  personnel: (SubcontractorPerson & { jobFunction: { id: number; name: string } | null })[];
 };
 
 type ProjectSubcontractorCompanyRowProps = {
@@ -21,9 +22,10 @@ type ProjectSubcontractorCompanyRowProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
+  functions: JobFunctionOption[];
 };
 
-export default function ProjectSubcontractorCompanyRow({ company, clientId, projectId, canEdit }: ProjectSubcontractorCompanyRowProps) {
+export default function ProjectSubcontractorCompanyRow({ company, clientId, projectId, canEdit, functions }: ProjectSubcontractorCompanyRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { confirming, setConfirming, pending, error, handleDelete } = useDeleteConfirm(() =>
@@ -79,7 +81,7 @@ export default function ProjectSubcontractorCompanyRow({ company, clientId, proj
             </p>
           )}
           {canEdit && (
-            <AddSubcontractorPersonForm companyId={company.id} clientId={clientId} projectId={projectId} />
+            <AddSubcontractorPersonForm companyId={company.id} clientId={clientId} projectId={projectId} functions={functions} />
           )}
         </>
       )}
