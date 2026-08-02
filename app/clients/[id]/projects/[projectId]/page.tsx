@@ -6,6 +6,7 @@ import { findByProject as findMaterialsByProject } from "@/repository/projectMat
 import { findByProject as findInterventionsByProject } from "@/repository/interventions";
 import { findCompaniesByProject } from "@/repository/subcontractors";
 import { findByProject as findInterimsByProject } from "@/repository/interims";
+import { findAll as findJobFunctions } from "@/repository/jobFunctions";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
@@ -133,7 +134,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
-  const [tasks, taskGroups, taskCategories, materials, interventions, subcontractorCompanies, interims] =
+  const [tasks, taskGroups, taskCategories, materials, interventions, subcontractorCompanies, interims, jobFunctions] =
     await Promise.all([
       findByProject(pid),
       findTaskGroupsByProject(pid),
@@ -142,6 +143,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       findInterventionsByProject(pid),
       findCompaniesByProject(pid),
       findInterimsByProject(pid),
+      // Managed job functions offered in the intérimaire add form's dropdown.
+      canEdit ? findJobFunctions() : Promise.resolve([]),
     ]);
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
@@ -503,7 +506,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
             title={t.projects.detail.interimsHeading}
             badge={interims.length > 0 ? `(${interims.length})` : undefined}
-            headerExtra={canEdit && <AddInterimForm clientId={clientId} projectId={pid} />}
+            headerExtra={canEdit && <AddInterimForm clientId={clientId} projectId={pid} functions={jobFunctions} />}
           >
           {interims.length ? (
             <ul className="divide-y divide-gray-300 dark:divide-gray-700">

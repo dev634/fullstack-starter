@@ -5,7 +5,7 @@ vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
@@ -51,15 +51,15 @@ describe("addInterim", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
-  it("creates the interim, passing role/agency through when authorized", async () => {
+  it("creates the interim, passing jobFunctionId/agency through when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     createMock.mockResolvedValue({ id: 1 } as never);
     const res = await addInterim(
       initial,
-      formOf({ clientId: "1", projectId: "2", name: "Jean Dupont", role: "Poseur", agency: "Manpower" })
+      formOf({ clientId: "1", projectId: "2", name: "Jean Dupont", jobFunctionId: "3", agency: "Manpower" })
     );
     expect(createMock).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 2, name: "Jean Dupont", role: "Poseur", agency: "Manpower" })
+      expect.objectContaining({ projectId: 2, name: "Jean Dupont", jobFunctionId: 3, agency: "Manpower" })
     );
     expect(res.type).toBe("success");
   });

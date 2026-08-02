@@ -10,8 +10,8 @@ import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/ac
 import { ROLE_RANK } from "@/lib/capabilities";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
+import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
 
-type JobFunctionOption = { id: number; name: string };
 type ManagedUser = {
   id: number;
   email: string;
@@ -252,10 +252,7 @@ export default function UsersManager({
               onChange={(e) => setJobFunctionId(e.target.value ? Number(e.target.value) : null)}
               className={inputClass}
             >
-              <option value="">{t.users.functionNone}</option>
-              {functions.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-              ))}
+              <JobFunctionOptions functions={functions} noneLabel={t.users.functionNone} />
             </select>
           </div>
           <div>

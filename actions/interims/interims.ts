@@ -38,7 +38,7 @@ export async function addInterim(
     const interim = await create({
       projectId: parsed.data.projectId,
       name: parsed.data.name,
-      role: parsed.data.role,
+      jobFunctionId: parsed.data.jobFunctionId,
       agency: parsed.data.agency,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
