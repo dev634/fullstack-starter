@@ -45,5 +45,11 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# The git commit this image was built from, passed in by CI as a build-arg and
+# surfaced by /api/health so you can tell exactly which version is live.
+# Declared late so it only busts this tiny layer, not the COPYs above.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]
