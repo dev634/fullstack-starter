@@ -5,6 +5,7 @@ import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireRole } from "@/lib/authz";
 import { requireCapability, requireClientAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
@@ -27,6 +28,8 @@ export async function addClient(
 ): Promise<ClientActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const clientDatas = formDataToObject(formData) as CreateClientInput;
@@ -109,6 +112,8 @@ export async function updateClient(
 ): Promise<ClientActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const clientDatas = formDataToObject(formData) as UpdateClientInput;
@@ -191,6 +196,8 @@ async function extractPhotoUrl(formData: FormData): Promise<string | undefined> 
 export async function deleteClient(id: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -228,6 +235,8 @@ export async function deleteClient(id: number) {
 export async function deleteClients(ids: number[]) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -267,6 +276,8 @@ export async function deleteClients(ids: number[]) {
 export async function restoreClient(id: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -301,6 +312,8 @@ export async function restoreClient(id: number) {
 export async function permanentlyDeleteClient(id: number) {
   const roleCheck = await requireCapability("content.trash");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -354,6 +367,10 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
   const t = getDictionary(await getLocale());
   if (roleCheck.error) {
     return { type: "error", message: roleCheck.error.message, created: 0, total: 0, errors: [] };
+  }
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) {
+    return { type: "error", message: areaCheck.error.message, created: 0, total: 0, errors: [] };
   }
 
   const file = formData.get("file");

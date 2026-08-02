@@ -4,7 +4,7 @@ vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: vi.fn().mockReturnValue(true),
   projectIdFilter: vi.fn().mockReturnValue(undefined),
 }));
@@ -175,6 +175,7 @@ describe("project actions", () => {
         email: "chef@example.com",
         role: "EDITOR",
         hiddenSections: new Set(),
+        hiddenAreas: new Set(),
         projectIds: new Set([202]), // assigned only to project 202
       } as never);
       canReachProjectMock.mockReturnValueOnce(false);

@@ -2,9 +2,11 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
-import { create, remove, reorder, updateHiddenSections , updateProjectScope } from "@/repository/jobFunctions";
+import { create, remove, reorder, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
 import { isProjectSectionKey } from "@/lib/projectSections";
+import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -17,6 +19,8 @@ export async function addJobFunction(
 ): Promise<JobFunctionActionState> {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
   const parsed = createJobFunctionSchema.safeParse(formDataToObject(formData));
@@ -40,6 +44,8 @@ export async function addJobFunction(
 export async function reorderJobFunctions(orderedIds: number[]) {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -57,6 +63,8 @@ export async function reorderJobFunctions(orderedIds: number[]) {
 export async function deleteJobFunction(id: number) {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -77,6 +85,8 @@ export async function deleteJobFunction(id: number) {
 export async function setFunctionSections(id: number, hiddenSections: string[]) {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -91,12 +101,39 @@ export async function setFunctionSections(id: number, hiddenSections: string[]) 
 }
 
 /**
+ * Set which top-level app rubriques (and sub-parts) are hidden from users
+ * holding this function — the exact mirror of setFunctionSections, applied to
+ * lib/appAreas.ts's tree instead of a project's sections. Incoming keys are
+ * filtered to known area keys server-side via normalizeHiddenAreas, so a
+ * tampered payload can't store arbitrary values.
+ */
+export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
+  const roleCheck = await requireCapability("functions.manage");
+  if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return areaCheck.error;
+
+  const t = getDictionary(await getLocale());
+  try {
+    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const valid = Array.isArray(hiddenAreas) ? normalizeHiddenAreas(hiddenAreas) : [];
+    await updateHiddenAreas(id, valid);
+    revalidatePath("/admin/settings/fonctions");
+    return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
+  } catch (error) {
+    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/**
  * Set a function's project scope. Same gate as the section config — both are
  * halves of the same question, "what may this function reach".
  */
 export async function setFunctionScope(id: number, scope: string) {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("admin.functions");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

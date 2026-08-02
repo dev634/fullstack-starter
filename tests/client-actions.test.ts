@@ -165,6 +165,7 @@ describe("client action auth guard + delegation", () => {
       authMock.mockResolvedValue(scopedEditor as never);
       findAccessScopeByEmailMock.mockResolvedValue({
         hiddenSections: [],
+        hiddenAreas: [],
         projectScope: "ASSIGNED",
         assignedProjectIds: [202],
       });
@@ -182,6 +183,7 @@ describe("client action auth guard + delegation", () => {
       authMock.mockResolvedValue(scopedEditor as never);
       findAccessScopeByEmailMock.mockResolvedValue({
         hiddenSections: [],
+        hiddenAreas: [],
         projectScope: "ASSIGNED",
         assignedProjectIds: [202],
       });
@@ -197,6 +199,7 @@ describe("client action auth guard + delegation", () => {
       authMock.mockResolvedValue(scopedEditor as never);
       findAccessScopeByEmailMock.mockResolvedValue({
         hiddenSections: [],
+        hiddenAreas: [],
         projectScope: "ASSIGNED",
         assignedProjectIds: [202],
       });

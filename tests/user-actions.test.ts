@@ -8,6 +8,12 @@ vi.mock("@/repository/users", () => ({
   findById: vi.fn(),
   countSuperadmins: vi.fn(),
   updatePassword: vi.fn(),
+  // Read by requireAreaAccess (via getAccessContext) for every ADMIN actor —
+  // unmocked, this call is `undefined` (the module mock below replaces the
+  // whole file) and throws before the action's own logic ever runs. An
+  // unresolved value here reads the same as "no job function", i.e.
+  // unrestricted, which is what every actor in this file's fixtures is.
+  findAccessScopeByEmail: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));

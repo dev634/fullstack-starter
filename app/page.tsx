@@ -6,12 +6,25 @@ import { UsersIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { blockClientFromApp } from "@/lib/portal";
+import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 
 export default async function HomePage() {
   await blockClientFromApp();
-  const { total, byStatus, recent } = await getDashboardStats();
-  const values: Record<string, number> = { total, ...byStatus };
+
+  // The dashboard itself can be hidden by the caller's job function — bounce
+  // to the first rubrique they can actually reach instead of rendering an
+  // empty shell (server-side: this runs before any dashboard data is read).
+  await requireAreaOrRedirect("dashboard");
+
+  const showStats = await canAccessArea("dashboard.stats");
+  const showRecent = await canAccessArea("dashboard.recent");
   const t = getDictionary(await getLocale());
+
+  const { total, byStatus, recent }: Awaited<ReturnType<typeof getDashboardStats>> =
+    showStats || showRecent
+      ? await getDashboardStats()
+      : { total: 0, byStatus: {}, recent: [] };
+  const values: Record<string, number> = { total, ...byStatus };
 
   const METRICS: { key: "total" | "PROSPECT" | "CLIENT" | "INACTIVE"; label: string; className: string }[] = [
     { key: "total", label: t.dashboard.totalClients, className: "text-gray-900 dark:text-gray-100" },
@@ -35,56 +48,60 @@ export default async function HomePage() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {METRICS.map((m) => (
-            <div key={m.key} className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] p-5 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
-              <p className="text-sm text-gray-500 dark:text-gray-400">{m.label}</p>
-              <p className={`mt-1 text-3xl font-semibold ${m.className}`}>{values[m.key] ?? 0}</p>
-            </div>
-          ))}
-        </div>
+        {showStats && (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {METRICS.map((m) => (
+              <div key={m.key} className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] p-5 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
+                <p className="text-sm text-gray-500 dark:text-gray-400">{m.label}</p>
+                <p className={`mt-1 text-3xl font-semibold ${m.className}`}>{values[m.key] ?? 0}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Recent clients */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{t.dashboard.recentlyAdded}</h2>
-            <Link href="/clients" className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-              {t.dashboard.viewAll} <ArrowRightIcon className="h-4 w-4" />
-            </Link>
-          </div>
+        {showRecent && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">{t.dashboard.recentlyAdded}</h2>
+              <Link href="/clients" className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                {t.dashboard.viewAll} <ArrowRightIcon className="h-4 w-4" />
+              </Link>
+            </div>
 
-          {recent.length ? (
-            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:ring-blue-600">
-              <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
-                {recent.map((client) => (
-                  <li key={client.id}>
-                    <Link
-                      href={`/clients/${client.id}`}
-                      className="flex items-center gap-4 px-4 py-3 text-gray-900 dark:text-gray-100 transition-colors hover:bg-[#d1d5dc] dark:hover:bg-[#374151]"
-                    >
-                      <ClientAvatar
-                        photoUrl={client.photoUrl}
-                        name={client.companyName}
-                        size={40}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate font-medium">{client.companyName}</span>
-                          <StatusBadge status={client.status} />
+            {recent.length ? (
+              <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:ring-blue-600">
+                <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-xl">
+                  {recent.map((client) => (
+                    <li key={client.id}>
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="flex items-center gap-4 px-4 py-3 text-gray-900 dark:text-gray-100 transition-colors hover:bg-[#d1d5dc] dark:hover:bg-[#374151]"
+                      >
+                        <ClientAvatar
+                          photoUrl={client.photoUrl}
+                          name={client.companyName}
+                          size={40}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate font-medium">{client.companyName}</span>
+                            <StatusBadge status={client.status} />
+                          </span>
+                          <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.email}</span>
                         </span>
-                        <span className="block truncate text-sm text-gray-500 dark:text-gray-400">{client.email}</span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
-              {t.dashboard.noClientsYet}
-            </div>
-          )}
-        </section>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
+                {t.dashboard.noClientsYet}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

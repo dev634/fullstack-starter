@@ -45,6 +45,16 @@ export async function updateHiddenSections(id: number, hiddenSections: string[])
     }
 }
 
+/** Set the top-level app-area keys hidden from users holding this function. */
+export async function updateHiddenAreas(id: number, hiddenAreas: string[]) {
+    try {
+        return await prisma.jobFunction.update({ where: { id }, data: { hiddenAreas } });
+    } catch (error) {
+        console.log("Repository updateHiddenAreas (jobFunction) error:", error);
+        throw { type: "error", message: "Database Error updating function areas." };
+    }
+}
+
 /** Set whether holders of this function see every project or only assigned ones. */
 export async function updateProjectScope(id: number, projectScope: "ALL" | "ASSIGNED") {
     try {

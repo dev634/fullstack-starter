@@ -3,6 +3,7 @@ import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
 import { can } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
+import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
 import { findAll as findJobFunctions } from '@/repository/jobFunctions';
@@ -42,6 +43,12 @@ type PageProps = {
 
 export default async function ClientPage({ params }: PageProps) {
   await blockClientFromApp();
+
+  // The whole "clients" rubrique (this detail page's parent) can be hidden by
+  // the caller's job function — treat it exactly like the list page: bounce
+  // to the first rubrique they can actually reach.
+  await requireAreaOrRedirect("clients");
+
   const { id } = await params;
   const clientId = parseInt(id, 10);
   const client = await getClient(clientId);
@@ -73,10 +80,24 @@ export default async function ClientPage({ params }: PageProps) {
     : null;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
-  const projects = await findByClient(clientId, projectIdFilter(await getAccessContext()));
-  const contacts = await findContactsByClient(clientId);
+
+  // Sub-parts of this page, individually hideable by the caller's job
+  // function (see lib/appAreas.ts). Data is only fetched for a block that
+  // will actually render — both for the query cost and so a hidden block
+  // never even has its data in the response.
+  const showInfo = await canAccessArea("clients.info");
+  const showContacts = await canAccessArea("clients.contacts");
+  const showProjects = await canAccessArea("clients.projects");
+
+  // Contacts' own "link to project" picker needs the project list even when
+  // the Projects block itself is hidden — that's a different rubrique from
+  // this feature, so its data dependency is OR'd rather than tied to it.
+  const projects = (showProjects || showContacts)
+    ? await findByClient(clientId, projectIdFilter(await getAccessContext()))
+    : [];
+  const contacts = showContacts ? await findContactsByClient(clientId) : [];
   // Managed job functions offered in the contact add/edit dropdowns.
-  const jobFunctions = canEdit ? await findJobFunctions() : [];
+  const jobFunctions = showContacts && canEdit ? await findJobFunctions() : [];
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -101,42 +122,44 @@ export default async function ClientPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Details */}
-        <dl className="px-4 py-2 sm:px-6">
-          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-            <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.email}</dt>
-            <dd className="min-w-0 break-all text-sm text-primary">{data.email || "—"}</dd>
-          </div>
-          {data.phone && (
+        {/* Details (Coordonnées) — hideable via lib/appAreas.ts's "clients.info" */}
+        {showInfo && (
+          <dl className="px-4 py-2 sm:px-6">
             <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-              <PhoneIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.phone}</dt>
-              <dd className="min-w-0 break-all text-sm">{data.phone}</dd>
+              <EnvelopeIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.email}</dt>
+              <dd className="min-w-0 break-all text-sm text-primary">{data.email || "—"}</dd>
             </div>
-          )}
-          {websiteHref && (
+            {data.phone && (
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                <PhoneIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.phone}</dt>
+                <dd className="min-w-0 break-all text-sm">{data.phone}</dd>
+              </div>
+            )}
+            {websiteHref && (
+              <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+                <LinkIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.website}</dt>
+                <dd className="min-w-0 break-all text-sm">
+                  <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    {data.website}
+                  </a>
+                </dd>
+              </div>
+            )}
             <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-              <LinkIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.website}</dt>
-              <dd className="min-w-0 break-all text-sm">
-                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                  {data.website}
-                </a>
-              </dd>
+              <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.address}</dt>
+              <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
             </div>
-          )}
-          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-            <MapPinIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.fields.address}</dt>
-            <dd className="min-w-0 break-words text-sm">{data.address || "—"}</dd>
-          </div>
-          <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
-            <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
-            <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.detail.locality}</dt>
-            <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>
-          </div>
-        </dl>
+            <div className="flex items-center gap-3 border-b border-gray-300 dark:border-gray-700 py-3 last:border-b-0">
+              <GlobeAltIcon className="h-5 w-5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <dt className="w-20 shrink-0 text-sm text-gray-500 dark:text-gray-400 sm:w-24">{t.clients.detail.locality}</dt>
+              <dd className="min-w-0 break-words text-sm">{locality || "—"}</dd>
+            </div>
+          </dl>
+        )}
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2.5 border-t border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 px-4 py-4 sm:px-6">
@@ -162,7 +185,8 @@ export default async function ClientPage({ params }: PageProps) {
       </div>
       </div>
 
-      {/* Contacts */}
+      {/* Contacts — hideable via lib/appAreas.ts's "clients.contacts" */}
+      {showContacts && (
       <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
       <div className="overflow-hidden rounded-xl">
         <CollapsibleSection
@@ -185,8 +209,10 @@ export default async function ClientPage({ params }: PageProps) {
         </CollapsibleSection>
       </div>
       </div>
+      )}
 
-      {/* Projects */}
+      {/* Projects — hideable via lib/appAreas.ts's "clients.projects" */}
+      {showProjects && (
       <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600">
       <div className="overflow-hidden rounded-xl">
         <CollapsibleSection
@@ -248,6 +274,7 @@ export default async function ClientPage({ params }: PageProps) {
         </CollapsibleSection>
       </div>
       </div>
+      )}
 
       </div>
     </main>

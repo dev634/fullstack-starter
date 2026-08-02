@@ -270,6 +270,47 @@ describe("authorization coverage across server actions", () => {
     ).toEqual([]);
   });
 
+  it("gates every clients/projects/contacts mutation behind its area, not just a role", () => {
+    // requireCapability answers "may I write?"; it says nothing about "does my
+    // job function even show me Clients/Projects/Contacts at all". Without
+    // this, a function whose hiddenAreas hides clients/projects/contacts
+    // still reaches every mutation in it — the same gap requireSectionAccess
+    // already closes for project-content mutations above.
+    const AREA_BY_FILE: Record<string, string> = {
+      "actions/clients/clients.ts": "clients",
+      "actions/projects/projects.ts": "projects",
+      "actions/contacts/contacts.ts": "clients.contacts",
+    };
+    // Reads are exempt — only mutations must check the area.
+    const READS = new Set(["getClient", "getProjectsForClient", "getProject"]);
+
+    const ungated: string[] = [];
+    for (const file of Object.keys(AREA_BY_FILE)) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
+      for (const fn of fns) {
+        if (!fn.exported || READS.has(fn.name)) continue;
+        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
+      }
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These actions mutate a rubrique but never check its area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd requireAreaAccess("<area>") from @/lib/areaAccess, ` +
+          `next to the existing capability check.`
+        : undefined
+    ).toEqual([]);
+  });
+
   it("gates every action that writes to the users table", () => {
     // Privilege escalation is the highest-value target: these must never be
     // reachable without users.manage, whatever the allowlist says.
@@ -279,5 +320,80 @@ describe("authorization coverage across server actions", () => {
       expect(action.guarded, `${action.key} must be gated`).toBe(true);
       expect(action.key in INTENTIONALLY_PUBLIC, `${action.key} must never be allowlisted as public`).toBe(false);
     }
+  });
+
+  it("gates every CSV export route behind its area, not just requireAppUser", () => {
+    // requireAppUser only checks role/session — a caller whose job function
+    // hides the rubrique a CSV belongs to must be refused here too, or the
+    // export becomes a way around that restriction by direct URL. Mirrors
+    // the mutation-area test below, but for GET route handlers.
+    const AREA_BY_ROUTE: Record<string, string> = {
+      "app/clients/export/route.ts": "clients",
+      "app/projects/export/route.ts": "projects",
+      "app/clients/contacts/export/route.ts": "clients.contacts",
+    };
+
+    const ungated: string[] = [];
+    for (const file of Object.keys(AREA_BY_ROUTE)) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      const getFn = fns.find((f) => f.exported && f.name === "GET");
+      expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
+      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These export routes never check the caller's area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd canAccessArea("<area>") from @/lib/areaAccess, next to requireAppUser().`
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("gates every Administration mutation behind its area, not just its capability/role", () => {
+    // Same gap as the clients/projects/contacts area test above, but for the
+    // Administration mutations (users, functions, settings):
+    // requireCapability/requireRole answer "may I write?", not "does my job
+    // function even show me this Admin tab at all?". Without this, a function
+    // whose hiddenAreas hides admin.users/functions/settings still reaches
+    // every mutation in it.
+    const AREA_BY_FILE: Record<string, string> = {
+      "actions/users/users.ts": "admin.users",
+      "actions/jobFunctions/jobFunctions.ts": "admin.functions",
+      "actions/appSettings/appSettings.ts": "admin.settings",
+    };
+
+    const ungated: string[] = [];
+    for (const file of Object.keys(AREA_BY_FILE)) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
+      for (const fn of fns) {
+        if (!fn.exported) continue;
+        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
+      }
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These Administration mutations never check their area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd requireAreaAccess("<area>") from @/lib/areaAccess, ` +
+          `next to the existing capability/role check.`
+        : undefined
+    ).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { can } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createUserSchema, updateUserSchema } from "@/schemas/user";
@@ -34,6 +35,8 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
   const gate = await requireManager();
   if ("error" in gate) return { ...prevState, ...gate.error };
   const { actor } = gate;
+  const areaCheck = await requireAreaAccess("admin.users");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const t = getDictionary(await getLocale());
 
   const parsed = createUserSchema.safeParse(formDataToObject(formData));
@@ -69,6 +72,8 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
   const gate = await requireManager();
   if ("error" in gate) return { ...prevState, ...gate.error };
   const { actor } = gate;
+  const areaCheck = await requireAreaAccess("admin.users");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const t = getDictionary(await getLocale());
 
   const parsed = updateUserSchema.safeParse(formDataToObject(formData));
@@ -108,6 +113,8 @@ export async function deleteUser(id: number) {
   const gate = await requireManager();
   if ("error" in gate) return gate.error;
   const { actor } = gate;
+  const areaCheck = await requireAreaAccess("admin.users");
+  if (areaCheck.error) return areaCheck.error;
   const t = getDictionary(await getLocale());
 
   try {
@@ -141,6 +148,8 @@ export async function setUserProjectAssignments(userId: number, projectIds: numb
   const gate = await requireManager();
   if ("error" in gate) return gate.error;
   const { actor } = gate;
+  const areaCheck = await requireAreaAccess("admin.users");
+  if (areaCheck.error) return areaCheck.error;
   const t = getDictionary(await getLocale());
 
   try {
