@@ -125,6 +125,9 @@ export async function findAllWithClientEmail(projectIds?: number[]) {
                 client: { select: { email: true } },
                 jobFunction: { select: { name: true } },
             },
+            // Bounded like the other bulk exports in this codebase — an unbounded
+            // findMany here would load every contact row into memory at once.
+            take: 10000,
         });
     } catch (error) {
         console.log("Repository findAllWithClientEmail (contact) error:", error);
