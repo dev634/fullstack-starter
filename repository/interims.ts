@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 type InterimData = {
     projectId: number;
     name: string;
-    role?: string;
+    jobFunctionId?: number | null;
     agency?: string;
 };
 
@@ -13,7 +13,7 @@ export async function create(data: InterimData) {
             data: {
                 projectId: data.projectId,
                 name: data.name,
-                role: data.role || null,
+                jobFunctionId: data.jobFunctionId ?? null,
                 agency: data.agency || null,
             },
         });
@@ -26,12 +26,15 @@ export async function create(data: InterimData) {
     }
 }
 
-/** Interims (temp workers) for a project, oldest first. */
+/** Interims (temp workers) for a project, oldest first. Includes each interim's job function (name). */
 export async function findByProject(projectId: number) {
     try {
         return await prisma.interim.findMany({
             where: { projectId },
             orderBy: { createdAt: "asc" },
+            include: {
+                jobFunction: { select: { id: true, name: true } },
+            },
         });
     } catch (error) {
         console.log("Repository findByProject (interim) error:", error);

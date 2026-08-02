@@ -1,7 +1,8 @@
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { ContactActionState } from "@/types/contact";
+import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
 
-export type JobFunctionOption = { id: number; name: string };
+export type { JobFunctionOption };
 
 export type ContactDefaults = {
   firstName?: string;
@@ -45,10 +46,7 @@ export default function ContactFields({
         </div>
       </div>
       <select name="jobFunctionId" defaultValue={defaults?.jobFunctionId ?? ""} aria-label={t.contacts.roleLabel} className={inputClass}>
-        <option value="">{t.contacts.functionNone}</option>
-        {functions.map((f) => (
-          <option key={f.id} value={f.id}>{f.name}</option>
-        ))}
+        <JobFunctionOptions functions={functions} noneLabel={t.contacts.functionNone} />
       </select>
       <input type="email" name="email" defaultValue={defaults?.email ?? ""} placeholder={t.contacts.emailPlaceholder} aria-label={t.contacts.emailLabel} className={inputClass} />
       <input type="text" name="phone" defaultValue={defaults?.phone ?? ""} placeholder={t.contacts.phonePlaceholder} aria-label={t.contacts.phoneLabel} className={inputClass} />

@@ -7,7 +7,7 @@ import { useRowAction } from "@/lib/useRowAction";
 import type { Interim } from "@/app/generated/prisma/client";
 
 type ProjectInterimRowProps = {
-  interim: Interim;
+  interim: Interim & { jobFunction: { id: number; name: string } | null };
   clientId: number;
   projectId: number;
   canEdit: boolean;
@@ -17,7 +17,7 @@ export default function ProjectInterimRow({ interim, clientId, projectId, canEdi
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
 
-  const secondary = [interim.role, interim.agency].filter(Boolean).join(" · ");
+  const secondary = [interim.jobFunction?.name, interim.agency].filter(Boolean).join(" · ");
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">

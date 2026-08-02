@@ -5,13 +5,22 @@ import { UserPlusIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
 import type { InterimActionState } from "@/types/interim";
+import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
 
 const initialState: InterimActionState = {
   type: null,
   message: "",
 }
 
-export default function AddInterimForm({ clientId, projectId }: { clientId: number; projectId: number }) {
+export default function AddInterimForm({
+  clientId,
+  projectId,
+  functions,
+}: {
+  clientId: number;
+  projectId: number;
+  functions: JobFunctionOption[];
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState<InterimActionState, FormData>(addInterim, initialState);
@@ -57,13 +66,14 @@ export default function AddInterimForm({ clientId, projectId }: { clientId: numb
               <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
             )}
           </div>
-          <input
-            type="text"
-            name="role"
-            placeholder={t.interims.rolePlaceholder}
+          <select
+            name="jobFunctionId"
+            defaultValue=""
             aria-label={t.interims.roleLabel}
-            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-          />
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+          >
+            <JobFunctionOptions functions={functions} noneLabel={t.interims.functionNone} />
+          </select>
           <input
             type="text"
             name="agency"
