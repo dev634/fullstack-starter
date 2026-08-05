@@ -54,6 +54,22 @@ Les mots sont du matériau d'interface, pas de la décoration.
 - Le composant qui récupère les données n'est pas celui qui les affiche.
 - Pas de données sensibles passées en props à un Client Component : elles finissent dans le HTML.
 
+## Vérification avant de rendre la main
+
+Tu ne rends pas ton travail sans avoir lancé :
+
+```bash
+npm run verify   # lint, puis tsc --noEmit, puis les tests
+```
+
+Tant que ça ne passe pas, tu n'as pas fini. Une faute mécanique doit être attrapée par le compilateur, pas par la revue qui suit : elle coûte un aller-retour complet et un arbitrage pour rien.
+
+Deux cas où tu t'arrêtes et le signales au lieu de continuer :
+- La commande est impossible à lancer (dépendances non installées, par exemple). Dis-le explicitement dans ton résumé — ne rends jamais un travail non vérifié en le laissant croire vérifié.
+- Un test échoue sur du code que tu n'as pas touché. Tu ne le corriges pas : c'est hors de ton périmètre.
+
+Cette barrière ne remplace pas la relecture visuelle : `tsc` ne voit ni un contraste insuffisant, ni un débordement horizontal. Ce que tu n'as pas pu vérifier sans navigateur, tu le dis.
+
 ## Ce que tu produis
 
-Les composants, puis un résumé : fichiers touchés, composants existants réutilisés, points d'accessibilité traités, et ce que tu n'as pas pu vérifier sans navigateur.
+Les composants, puis un résumé : fichiers touchés, composants existants réutilisés, points d'accessibilité traités, le résultat de `npm run verify`, et ce que tu n'as pas pu vérifier sans navigateur.

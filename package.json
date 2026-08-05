@@ -10,6 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run lint && npm run typecheck && npm test",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "docs:pdf": "node scripts/build-docs-pdf.mjs",

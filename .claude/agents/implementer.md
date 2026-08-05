@@ -33,6 +33,20 @@ Next.js App Router, TypeScript strict, Tailwind CSS, Prisma + PostgreSQL, Node.j
 
 **Validation.** Toute entrée externe (body de route, searchParams, form data, webhook) est validée par un schéma avant usage. Jamais de confiance dans une donnée qui vient du client.
 
+## Vérification avant de rendre la main
+
+Tu ne rends pas ton travail sans avoir lancé :
+
+```bash
+npm run verify   # lint, puis tsc --noEmit, puis les tests
+```
+
+Tant que ça ne passe pas, tu n'as pas fini. Une faute mécanique — type qui ne colle pas, import manquant, test cassé — doit être attrapée par le compilateur, pas par la revue qui suit : elle coûte un aller-retour complet et un arbitrage pour rien.
+
+Deux cas où tu t'arrêtes et le signales au lieu de continuer :
+- La commande est impossible à lancer (dépendances non installées, par exemple). Dis-le explicitement dans ton résumé — ne rends jamais un travail non vérifié en le laissant croire vérifié.
+- Un test échoue sur du code que tu n'as pas touché. Tu ne le corriges pas : c'est hors de ton périmètre.
+
 ## Ce que tu produis
 
-Le code, puis un résumé court : fichiers créés, fichiers modifiés, commandes à lancer, décisions prises qui méritent discussion.
+Le code, puis un résumé court : fichiers créés, fichiers modifiés, commandes à lancer, décisions prises qui méritent discussion. Termine par le résultat de `npm run verify`.
