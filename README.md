@@ -23,17 +23,32 @@ Step-by-step guide for a Hostinger VPS (or any Ubuntu/Debian VPS): see
 
 ## CI/CD
 
+> ### ⚠️ The SSH-based deploy described below is gone — read this first
+>
+> The CI **no longer connects to the VPS**. `deploy.yml` only builds and pushes the
+> image to GHCR, then pings an HTTPS webhook; **the VPS pulls the image itself**
+> (webhook + systemd timer as a net). The host's network intermittently dropped the
+> GitHub runner IP ranges on the non-standard SSH port, which no amount of retrying
+> fixed.
+>
+> Consequences for everything below: the `VPS_HOST` / `VPS_USER` / `VPS_SSH_KEY` /
+> `VPS_APP_DIR` / `VPS_PORT` secrets are **no longer used** (the only deploy secret is
+> `DEPLOY_HOOK_TOKEN`), no CI deploy key goes into `authorized_keys`, and
+> `docker-compose.prod.yml` is **not** copied to the VPS by the workflow anymore.
+>
+> **Current procedure: [`deploy/README.md`](deploy/README.md).** Human SSH access to the
+> VPS is unaffected ([`docs/SECURITE-SSH.md`](docs/SECURITE-SSH.md)).
+
 Two GitHub Actions workflows:
 
 - **`.github/workflows/ci.yml`** — runs on every PR and push to `main`:
   `npm ci` → `prisma generate` → `lint` → `tsc --noEmit` → `next build`.
-- **`.github/workflows/deploy.yml`** — runs on push to `main`:
-  builds a Docker image, pushes it to **GHCR** (`ghcr.io/dev634/fullstack-starter`),
-  then connects to the VPS over SSH to pull the new image and restart the stack.
-  Database migrations (`prisma migrate deploy`) run automatically on container
-  start via `docker-entrypoint.sh`.
+- **`.github/workflows/deploy.yml`** — runs on push to `main`: builds a Docker image
+  and pushes it to **GHCR** (`ghcr.io/dev634/fullstack-starter`), then triggers the
+  VPS-side pull over HTTPS. Database migrations (`prisma migrate deploy`) run
+  automatically on container start via `docker-entrypoint.sh`.
 
-### Required GitHub secrets
+### Required GitHub secrets *(obsolete — see the warning above)*
 
 | Secret          | Description                                                        |
 | --------------- | ------------------------------------------------------------------ |
