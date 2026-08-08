@@ -6,8 +6,9 @@ import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
 import type { TaskActionState } from "@/types/task";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
+import type { ProjectTask } from "@/app/generated/prisma/client";
 
-const initialState: TaskActionState = {
+const initialState: TaskActionState<ProjectTask> = {
   type: null,
   message: "",
 }
@@ -21,11 +22,14 @@ export default function AddTaskForm({
   clientId: number;
   projectId: number;
   categories?: TaskCategoryOption[];
-  onCreated?: () => void;
+  onCreated?: (revealCategoryId: number | null) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(addTask, initialState);
+  const [state, formAction, isPending] = useActionState<TaskActionState<ProjectTask>, FormData>(
+    addTask,
+    initialState
+  );
   const formRef = useRef<HTMLFormElement>(null);
 
   const onCreatedRef = useRef(onCreated);
@@ -36,7 +40,7 @@ export default function AddTaskForm({
   useEffect(() => {
     if (state.type !== "success") return;
     formRef.current?.reset();
-    onCreatedRef.current?.();
+    onCreatedRef.current?.(state.data?.categoryId ?? null);
   }, [state]);
 
   const [lastHandledState, setLastHandledState] = useState(state);
