@@ -44,7 +44,7 @@ qui reste à vérifier.
 |---|---|---|
 | Autorisation sur chaque handler | Proxy protège `/api/**` ; `/api/auth` et `/api/health` publics par exception (`lib/routeGuard.ts`) | ✅ |
 | CSRF | Aucun handler mutant : tout passe par des Server Actions (vérification d'origine Next.js) | ✅ |
-| **Routes d'export gardées ET bornées** | `canAccessArea` sur les 3 exports CSV + `take` borné | ✅ |
+| **Routes d'export/téléchargement gardées ET bornées** | `canAccessArea` sur les 3 exports CSV + `take` borné ; `GET /api/assets/[kind]/[id]` (téléchargement/affichage des fichiers de projet, plans et photos de réserves) rejoue le même ordre de gardes (identité → rubrique → section → résolution en base → accès projet) — voir `docs/CONVENTIONS.md` | ✅ |
 
 ## V5 — Manipulation de fichiers
 
@@ -52,7 +52,8 @@ qui reste à vérifier.
 |---|---|---|
 | Type de fichier vérifié serveur | MIME **et** extension (`lib/cloudinary.ts`) ; **magic bytes + extension sur le chemin de scan** | ✅ |
 | SSRF sur récupération distante | Allowlist `res.cloudinary.com` + timeout + plafond de taille | ✅ |
-| **URL Cloudinary publiques** | tous les fichiers projet (plans, photos de réserves, bulletins archivés) sont accessibles par URL directe **sans aucune garde**. Le nettoyage EXIF de l’archive retire la donnée la plus sensible, mais ne referme pas l’accès — c’est la prochaine feature : Cloudinary en privé + route Next qui vérifie l’accès avant de streamer | ⚠️ **écart connu, feature planifiée** |
+| **URL Cloudinary publiques — nouveaux uploads** | `deliveryType` gardé (`AUTHENTICATED`) dès la création pour ProjectFile/ReservePlan/ReservePhoto ; livrés uniquement par `GET /api/assets/[kind]/[id]`, qui signe l'URL côté serveur et re-vérifie l'accès à chaque requête (jamais l'URL Cloudinary brute vers le client) | ✅ |
+| **URL Cloudinary publiques — données existantes avant cette migration** | les lignes créées avant ce changement restent en `deliveryType = 'UPLOAD'` et leur asset Cloudinary reste joignable par son ancienne URL publique, sans aucune garde, **jusqu'à ce que `scripts/retype-existing-guarded-assets.mjs --execute` ait tourné avec zéro échec** (idempotent, ré-exécutable). Le nombre de lignes encore concernées est exposé en clair (compteur agrégé) sur `GET /api/health` (`pendingGuardedAssets`), justement pour que ce point ne reste pas silencieusement faux | ⚠️ **écart connu, tant que le script de bascule n'a pas terminé avec zéro échec** |
 
 ## V6 — Authentification
 

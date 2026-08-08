@@ -30,13 +30,21 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addReserve, updateReserve, deleteReserve, addReservePhoto } from "@/actions/reserves/reserves";
+import {
+  addReserve,
+  updateReserve,
+  deleteReserve,
+  addReservePhoto,
+  deleteReservePlan,
+  deleteReservePhoto,
+} from "@/actions/reserves/reserves";
 import { requireRole } from "@/lib/authz";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { canReachProject } from "@/lib/accessContext";
 import { create, update, remove, findProjectId as findReserveProjectId } from "@/repository/reserves";
-import { create as createPhoto } from "@/repository/reservePhotos";
-import { uploadReservePhoto } from "@/lib/cloudinary";
+import { create as createPhoto, findById as findPhotoById } from "@/repository/reservePhotos";
+import { findById as findPlanById } from "@/repository/reservePlans";
+import { uploadReservePhoto, destroyReservePlan, destroyReservePhoto } from "@/lib/cloudinary";
 
 const requireRoleMock = vi.mocked(requireRole);
 const requireSectionMock = vi.mocked(requireSectionAccess);
@@ -47,6 +55,10 @@ const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const createPhotoMock = vi.mocked(createPhoto);
 const uploadReservePhotoMock = vi.mocked(uploadReservePhoto);
+const findPlanByIdMock = vi.mocked(findPlanById);
+const findPhotoByIdMock = vi.mocked(findPhotoById);
+const destroyReservePlanMock = vi.mocked(destroyReservePlan);
+const destroyReservePhotoMock = vi.mocked(destroyReservePhoto);
 const initial = { type: null, message: "" } as const;
 
 function form(fields: Record<string, string>): FormData {
@@ -146,9 +158,16 @@ describe("reserve actions", () => {
     expect(createPhotoMock).not.toHaveBeenCalled();
   });
 
-  it("addReservePhoto uploads the file and stores the photo row", async () => {
+  it("addReservePhoto uploads the file and stores the photo row, guarded fields included", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
-    uploadReservePhotoMock.mockResolvedValue({ url: "https://cdn/p.jpg", publicId: "pid" } as never);
+    uploadReservePhotoMock.mockResolvedValue({
+      url: "https://cdn/p.jpg",
+      publicId: "pid",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+      format: "jpg",
+      version: "1700000000",
+    } as never);
     createPhotoMock.mockResolvedValue({ id: 3 } as never);
     const fd = new FormData();
     fd.set("clientId", "1");
@@ -158,7 +177,15 @@ describe("reserve actions", () => {
     const res = await addReservePhoto(initial, fd);
     expect(res.type).toBe("success");
     expect(uploadReservePhotoMock).toHaveBeenCalled();
-    expect(createPhotoMock).toHaveBeenCalledWith({ reserveId: 9, url: "https://cdn/p.jpg", publicId: "pid" });
+    expect(createPhotoMock).toHaveBeenCalledWith({
+      reserveId: 9,
+      url: "https://cdn/p.jpg",
+      publicId: "pid",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+      format: "jpg",
+      version: "1700000000",
+    });
   });
 
   it("addReservePhoto rejects a request with no file", async () => {
@@ -170,6 +197,57 @@ describe("reserve actions", () => {
     const res = await addReservePhoto(initial, fd);
     expect(res.type).toBe("error");
     expect(uploadReservePhotoMock).not.toHaveBeenCalled();
+  });
+
+  // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
+  // defaults `type` to "upload" when it isn't passed, so a destroy call that
+  // only knows a bare publicId quietly does NOTHING on an asset re-typed to
+  // "authenticated" — no error, the blob just stays orphaned. deleteReservePlan
+  // / deleteReservePhoto must read the stored deliveryType/resourceType off
+  // the row and pass them through to lib/cloudinary's destroy functions.
+  describe("guarded destroy passes the stored deliveryType + resourceType", () => {
+    it("deleteReservePlan", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findPlanByIdMock.mockResolvedValueOnce({
+        id: 5,
+        projectId: 2,
+        publicId: "projects/2/reserve-plans/plan",
+        deliveryType: "AUTHENTICATED",
+        resourceType: "IMAGE",
+      } as never);
+
+      const res = await deleteReservePlan(5, 1, 2);
+
+      expect(res.type).toBe("success");
+      expect(destroyReservePlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicId: "projects/2/reserve-plans/plan",
+          deliveryType: "AUTHENTICATED",
+          resourceType: "IMAGE",
+        })
+      );
+    });
+
+    it("deleteReservePhoto", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findPhotoByIdMock.mockResolvedValueOnce({
+        id: 3,
+        publicId: "projects/2/reserve-photos/p",
+        deliveryType: "AUTHENTICATED",
+        resourceType: "IMAGE",
+      } as never);
+
+      const res = await deleteReservePhoto(3, 1, 2);
+
+      expect((res as { type: string }).type).toBe("success");
+      expect(destroyReservePhotoMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicId: "projects/2/reserve-photos/p",
+          deliveryType: "AUTHENTICATED",
+          resourceType: "IMAGE",
+        })
+      );
+    });
   });
 
   // Regression coverage for the finding in docs/PENTEST-2026-08.md (F1): a

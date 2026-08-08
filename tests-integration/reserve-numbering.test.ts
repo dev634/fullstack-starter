@@ -35,6 +35,8 @@ async function makeProjectWithPlan() {
       name: "Plan A",
       url: "https://res.cloudinary.com/demo/image/upload/v1/x.pdf",
       publicId: "x",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
     },
   });
   return { client, project, plan };
@@ -86,6 +88,8 @@ describe("réserve numbering against a real Postgres", () => {
         name: "Plan B",
         url: "https://res.cloudinary.com/demo/image/upload/v1/y.pdf",
         publicId: "y",
+        deliveryType: "AUTHENTICATED",
+        resourceType: "IMAGE",
       },
     });
 

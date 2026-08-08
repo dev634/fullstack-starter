@@ -13,7 +13,24 @@ const version = (process.env.GIT_SHA ?? "unknown").slice(0, 7);
 export async function GET() {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    return Response.json({ status: "ok", db: "ok", version, timestamp: new Date().toISOString() });
+    // How many ProjectFile/ReservePlan/ReservePhoto rows still point at a
+    // publicly-reachable Cloudinary asset (deliveryType = 'UPLOAD') — i.e.
+    // whether scripts/retype-existing-guarded-assets.mjs has finished. A
+    // single aggregate count, on purpose: this route is public, so no
+    // per-model breakdown or row-level detail — just enough to tell "not run
+    // yet" apart from "done".
+    const [pendingFiles, pendingPlans, pendingPhotos] = await Promise.all([
+      prisma.projectFile.count({ where: { deliveryType: "UPLOAD" } }),
+      prisma.reservePlan.count({ where: { deliveryType: "UPLOAD" } }),
+      prisma.reservePhoto.count({ where: { deliveryType: "UPLOAD" } }),
+    ]);
+    return Response.json({
+      status: "ok",
+      db: "ok",
+      version,
+      timestamp: new Date().toISOString(),
+      pendingGuardedAssets: pendingFiles + pendingPlans + pendingPhotos,
+    });
   } catch (error) {
     console.error("Health check failed:", error);
     return Response.json(

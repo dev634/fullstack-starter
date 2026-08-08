@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { v2 as cloudinary } from "cloudinary";
 import {
   groupPlansForReport,
   summarizeReserves,
@@ -6,9 +7,30 @@ import {
   slugify,
   reportFileName,
   type ReportPlan,
+  type ReportPhoto,
   type ReportReserve,
 } from "@/lib/reservesReportData";
-import { buildReservesReport, type ReportLabels, type ImageFetcher } from "@/lib/reservesReport";
+import { buildReservesReport, fetchRemoteImage, type ReportLabels, type ImageFetcher } from "@/lib/reservesReport";
+import type { DeliveryAsset } from "@/lib/cloudinaryDelivery";
+
+// buildReservesReport now signs its own delivery URLs (buildDeliveryUrl) —
+// fixed, fake credentials make that fully deterministic here, independent of
+// whatever CLOUDINARY_URL happens to be set to in this environment. Same
+// rationale as tests/cloudinaryDelivery.test.ts.
+beforeAll(() => {
+  cloudinary.config({ cloud_name: "demo", api_key: "123456789", api_secret: "test-secret", secure: true });
+});
+
+function asset(over: Partial<DeliveryAsset> = {}): DeliveryAsset {
+  return {
+    publicId: "projects/2/plans/rdc",
+    resourceType: "IMAGE",
+    format: "pdf",
+    version: "1699999999",
+    deliveryType: "AUTHENTICATED",
+    ...over,
+  };
+}
 
 let nextNumber = 1;
 function reserve(over: Partial<ReportReserve> = {}): ReportReserve {
@@ -26,11 +48,19 @@ function reserve(over: Partial<ReportReserve> = {}): ReportReserve {
   };
 }
 
+function photo(over: Partial<ReportPhoto> = {}): ReportPhoto {
+  return {
+    id: 1,
+    asset: asset({ publicId: "projects/2/reserve-photos/a", format: "jpg" }),
+    ...over,
+  };
+}
+
 function plan(over: Partial<ReportPlan> = {}): ReportPlan {
   return {
     id: 1,
     name: "RDC",
-    url: "https://res.cloudinary.com/demo/image/upload/v1/plans/rdc.pdf",
+    asset: asset(),
     folderId: null,
     reserves: [],
     ...over,
@@ -169,6 +199,49 @@ const baseInput = {
   generatedAt: new Date("2026-07-31T10:00:00Z"),
 };
 
+describe("fetchRemoteImage", () => {
+  const SIGNED_URL =
+    "https://res.cloudinary.com/demo/image/authenticated/s--supersecretsig--/v1699999999/projects/2/plans/rdc.jpg";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("logs the status and host — never the signed URL — when Cloudinary answers with a non-OK status", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 401 })));
+
+    const result = await fetchRemoteImage(SIGNED_URL);
+
+    expect(result).toBeNull();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][1]).toMatchObject({ status: 401, host: "res.cloudinary.com" });
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("supersecretsig");
+    errorSpy.mockRestore();
+  });
+
+  it("logs the host — never the signed URL — when the fetch itself throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+    const result = await fetchRemoteImage(SIGNED_URL);
+
+    expect(result).toBeNull();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][1]).toMatchObject({ host: "res.cloudinary.com" });
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("supersecretsig");
+    errorSpy.mockRestore();
+  });
+
+  it("stays silent for a host outside the allowlist — never even attempted, not a fetch failure", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await fetchRemoteImage("https://evil.example.com/x.jpg");
+    expect(result).toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
+
 describe("buildReservesReport", () => {
   it("produces a valid PDF and requests the rasterised plan page + resized photo", async () => {
     const fetchImage = vi.fn<ImageFetcher>(async () => PNG_1X1);
@@ -177,7 +250,7 @@ describe("buildReservesReport", () => {
         id: 1,
         folderId: null,
         reserves: [
-          reserve({ id: 1, description: "Fissure", photos: [{ id: 1, url: "https://res.cloudinary.com/demo/image/upload/v1/p/a.jpg" }] }),
+          reserve({ id: 1, description: "Fissure", photos: [photo()] }),
           reserve({ id: 2, status: "RESOLVED", latitude: 48.8566, longitude: 2.3522 }),
         ],
       }),
@@ -190,10 +263,16 @@ describe("buildReservesReport", () => {
     expect(pdf.byteLength).toBeGreaterThan(1000);
 
     const requested = fetchImage.mock.calls.map((c) => c[0]);
-    // The plan is a PDF stored as an image resource: page 1 must be requested
-    // as a JPG, otherwise pdfkit has nothing it can embed.
-    expect(requested[0]).toContain("pg_1,f_jpg");
+    // The plan is a PDF stored as an image resource: page 1 must be requested,
+    // delivered as a JPG (via the `format` override, not the stored "pdf"),
+    // otherwise pdfkit has nothing it can embed.
+    expect(requested[0]).toContain("pg_1");
     expect(requested[0]).toMatch(/\.jpg$/);
+    // Matches the guarded delivery route's own transformation for a plan
+    // (lib/assetDelivery.ts::buildAssetTransformation) — same width, same
+    // crop mode, so this report requests the SAME Cloudinary derivative the
+    // on-screen viewer does rather than a second, distinct one.
+    expect(requested[0]).toContain("c_limit");
     // Photos are downscaled so the report doesn't embed full-size originals.
     expect(requested[1]).toContain("w_700");
   });
@@ -237,7 +316,7 @@ describe("buildReservesReport", () => {
   });
 
   it("fetches each distinct image once, even when réserves share a photo", async () => {
-    const shared = { id: 1, url: "https://res.cloudinary.com/demo/image/upload/v1/p/shared.jpg" };
+    const shared = photo({ id: 1, asset: asset({ publicId: "projects/2/reserve-photos/shared", format: "jpg" }) });
     const fetchImage = vi.fn<ImageFetcher>(async () => PNG_1X1);
     const plans = [
       plan({

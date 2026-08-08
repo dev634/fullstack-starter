@@ -51,6 +51,7 @@ import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
 import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
 import { getHiddenSections } from "@/lib/sectionAccess";
+import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
@@ -119,8 +120,18 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   // company's chantiers by walking ids.
   const access = await getAccessContext();
   const outOfScope = result.data ? !canReachProject(access, result.data.id) : false;
+  // The `projects` rubrique — the same one gating the standalone /projects
+  // list, its CSV export, and the guarded asset delivery route (see
+  // docs/CONVENTIONS.md's access-axes table) — governs whether a project
+  // exists for this caller AT ALL. hiddenSections (used further down) only
+  // decides which of ITS sections render, a narrower question that assumes
+  // the project itself is already reachable. Folded into the same not-found
+  // branch as outOfScope above: this is a blanket, function-level rule (not
+  // tied to this one project), so it doesn't need the anti-enumeration
+  // reasoning that branch exists for — it just reuses the same rendering.
+  const hiddenByArea = !(await canAccessArea("projects"));
 
-  if (isEmpty || result.data?.clientId !== clientId || outOfScope) {
+  if (isEmpty || result.data?.clientId !== clientId || outOfScope || hiddenByArea) {
     return (
       <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
         <Title title={t.projects.detail.title} />

@@ -47,7 +47,7 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
  * line of defence.
  */
 const PUBLIC_ROUTES: Record<string, string> = {
-  "app/api/health/route.ts::GET": "uptime probe; returns only a status string",
+  "app/api/health/route.ts::GET": "uptime probe; returns only a status string plus an aggregate pending-migration count, no row-level data",
   "app/api/auth/[...nextauth]/route.ts::GET": "Auth.js sign-in endpoints must be reachable logged out",
   "app/api/auth/[...nextauth]/route.ts::POST": "Auth.js sign-in endpoints must be reachable logged out",
 };
@@ -355,6 +355,69 @@ describe("authorization coverage across server actions", () => {
           `\n\nAdd canAccessArea("<area>") from @/lib/areaAccess, next to requireAppUser().`
         : undefined
     ).toEqual([]);
+  });
+
+  it("gates the guarded asset delivery route and the réserves report route behind the `projects` area, not just their section", () => {
+    // canAccessSection (via SECTION_BY_KIND / "reserves") only answers "which
+    // of a project's OWN sections may this caller see" — a narrower question
+    // that assumes the project itself is already reachable. Without this,
+    // hiding the `projects` rubrique from a job function still lets it
+    // stream files/plans/photos and download the réserves report by direct
+    // URL, exactly the gap a project's own detail page has too (see the test
+    // below).
+    const AREA_BY_ROUTE: Record<string, string> = {
+      "app/api/assets/[kind]/[id]/route.ts": "projects",
+      "app/clients/[id]/projects/[projectId]/reserves/report/route.ts": "projects",
+    };
+
+    const ungated: string[] = [];
+    for (const file of Object.keys(AREA_BY_ROUTE)) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      const getFn = fns.find((f) => f.exported && f.name === "GET");
+      expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
+      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These routes never check the caller's area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd canAccessArea("projects") from @/lib/areaAccess, next to requireAppUser().`
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("gates the project detail page behind the `projects` area, not just the project's own scope", () => {
+    // canReachProject (lib/accessContext.ts) answers "is THIS project inside
+    // my assigned scope" — a data-scoping question, the third access axis.
+    // hiddenAreas answers a different, second-axis one: "does the whole
+    // `projects` rubrique even exist for my job function at all". Without
+    // this, a function with `projects` hidden could still open a project's
+    // detail page directly (e.g. a bookmarked URL, or a link surfaced by the
+    // still-visible `clients.projects` tab), bypassing the rubrique toggle
+    // entirely.
+    const file = "app/clients/[id]/projects/[projectId]/page.tsx";
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(join(process.cwd(), file), "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const fns = functionsIn(source);
+    const pageFn = fns.find((f) => f.exported && f.name === "ProjectDetailPage");
+    expect(pageFn, `${file} has no exported ProjectDetailPage — did it get renamed?`).toBeDefined();
+    expect(
+      pageFn!.calls.has("canAccessArea"),
+      `${file} never checks canAccessArea("projects") — a job function with the ` +
+        `rubrique hidden can still reach a project's detail page directly.`
+    ).toBe(true);
   });
 
   it("gates every Administration mutation behind its area, not just its capability/role", () => {

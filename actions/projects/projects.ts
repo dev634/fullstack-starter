@@ -209,7 +209,9 @@ export async function permanentlyDeleteProject(id: number) {
     // Clean up the Cloudinary blobs before the DB rows cascade-delete —
     // otherwise the files are orphaned in Cloudinary forever.
     const files = await findPublicIdsByProject(id);
-    await Promise.all(files.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
+    await Promise.all(
+      files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))
+    );
     const project = await remove(id);
     await logActivity({
       action: "PERMANENTLY_DELETED",

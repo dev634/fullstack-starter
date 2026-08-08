@@ -4,7 +4,15 @@
 //
 // The structural types below are satisfied by the Prisma rows the repository
 // returns — depending on the shape rather than the generated classes keeps this
-// module independent of the ORM.
+// module independent of the ORM. The `asset` field is the one exception: it's
+// `import type`-only (erased at compile time, so it adds no runtime coupling —
+// see lib/cloudinaryDelivery.ts), because a plain `url` string can no longer
+// carry what the renderer needs: on a signed asset, a transformation has to be
+// composed BEFORE signing, not spliced into a stored URL after the fact (see
+// lib/reservesReport.ts's module doc).
+import type { DeliveryAsset } from "@/lib/cloudinaryDelivery";
+
+export type ReportPhoto = { id: number; asset: DeliveryAsset };
 
 export type ReportReserve = {
   id: number;
@@ -16,13 +24,13 @@ export type ReportReserve = {
   status: "OPEN" | "RESOLVED";
   latitude: number | null;
   longitude: number | null;
-  photos: { id: number; url: string }[];
+  photos: ReportPhoto[];
 };
 
 export type ReportPlan = {
   id: number;
   name: string;
-  url: string;
+  asset: DeliveryAsset;
   folderId: number | null;
   reserves: ReportReserve[];
 };

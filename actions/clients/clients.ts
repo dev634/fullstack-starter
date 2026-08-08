@@ -329,7 +329,11 @@ export async function permanentlyDeleteClient(id: number) {
     const projectFiles = await findPublicIdsByClient(id);
     const client = await permanentlyRemove(id);
     await destroyClientPhoto(existing?.photoUrl);
-    await Promise.all(projectFiles.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
+    await Promise.all(
+      projectFiles.map((f) =>
+        destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType })
+      )
+    );
     await logActivity({
       action: "PERMANENTLY_DELETED",
       clientId: id,

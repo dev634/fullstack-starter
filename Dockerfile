@@ -36,6 +36,12 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/app/generated ./app/generated
+# The one-shot guarded-asset re-typing script (see its own header) — plain JS
+# ESM, run via `docker exec ... node scripts/retype-existing-guarded-assets.mjs`
+# (see deploy/README.md). Only this one file, not the rest of scripts/: the
+# others are host-side shell tooling or pull in devDependencies (pdfkit)
+# that `npm prune --omit=dev` above already removed.
+COPY --from=builder /app/scripts/retype-existing-guarded-assets.mjs ./scripts/retype-existing-guarded-assets.mjs
 
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh && chown -R nextjs:nodejs /app

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
+import { assetPath } from "@/lib/assetPath";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectFile } from "@/app/generated/prisma/client";
 
@@ -17,7 +18,11 @@ function formatSize(bytes: number | null, t: Dictionary): string {
 }
 
 type ProjectFileRowProps = {
-  file: ProjectFile;
+  // `url` is never fetched for this list (repository/projectFiles.ts::findByFolder
+  // omits it) — a Client Component's props are serialized into the page's
+  // HTML, and the deprecated column must not travel there. The download link
+  // is built from `file.id` alone (lib/assetPath.ts).
+  file: Omit<ProjectFile, "url">;
   clientId: number;
   projectId: number;
   canEdit: boolean;
@@ -46,9 +51,7 @@ export default function ProjectFileRow({ file, clientId, projectId, canEdit }: P
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
       <a
-        href={file.url}
-        target="_blank"
-        rel="noopener noreferrer"
+        href={assetPath("project-files", file.id)}
         className="flex min-w-0 flex-1 items-center gap-2 text-sm hover:opacity-80"
       >
         <DocumentIcon className="h-5 w-5 shrink-0 text-blue-400" />

@@ -1,5 +1,6 @@
 import { requireAppUser } from "@/lib/requireAppUser";
 import { canAccessSection } from "@/lib/sectionAccess";
+import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
@@ -8,7 +9,18 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { buildReservesReport } from "@/lib/reservesReport";
-import { reportFileName } from "@/lib/reservesReportData";
+import { reportFileName, type ReportPlan } from "@/lib/reservesReportData";
+import type { DeliveryAsset } from "@/lib/cloudinaryDelivery";
+
+function toDeliveryAsset(row: DeliveryAsset): DeliveryAsset {
+  return {
+    publicId: row.publicId,
+    resourceType: row.resourceType,
+    format: row.format,
+    version: row.version,
+    deliveryType: row.deliveryType,
+  };
+}
 
 // pdfkit needs Node built-ins (Buffer, fs for its font metrics), so this route
 // must not run on the edge runtime.
@@ -28,6 +40,16 @@ export async function GET(
 ) {
   const gate = await requireAppUser();
   if (!gate.ok) return gate.response;
+
+  // The `projects` rubrique — the same one gating the standalone /projects
+  // list, its CSV export, and the project detail page (see
+  // docs/CONVENTIONS.md's access-axes table) — governs whether a project
+  // exists for this caller AT ALL. hiddenSections (checked right below) only
+  // answers "which parts of a project you're allowed into", a narrower
+  // question that assumes the project itself is already reachable.
+  if (!(await canAccessArea("projects"))) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
   // The report IS the réserves section, in another format — a job function
   // barred from that section must not be able to download it either.
@@ -66,6 +88,28 @@ export async function GET(
       findReserveFoldersByProject(pid),
     ]);
 
+    // Shape the raw rows into what the renderer needs: a nested `asset` per
+    // plan/photo (publicId + guarded columns) instead of the deprecated `url`
+    // column — buildReservesReport signs its own delivery URLs from these
+    // (see lib/reservesReport.ts's module doc), never reading `url` back.
+    const reportPlans: ReportPlan[] = plans.map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      folderId: plan.folderId,
+      asset: toDeliveryAsset(plan),
+      reserves: plan.reserves.map((reserve) => ({
+        id: reserve.id,
+        number: reserve.number,
+        x: reserve.x,
+        y: reserve.y,
+        description: reserve.description,
+        status: reserve.status,
+        latitude: reserve.latitude,
+        longitude: reserve.longitude,
+        photos: reserve.photos.map((photo) => ({ id: photo.id, asset: toDeliveryAsset(photo) })),
+      })),
+    }));
+
     // One timestamp for both the cover date and the filename, so a request
     // straddling midnight can't label them differently.
     const generatedAt = new Date();
@@ -79,7 +123,7 @@ export async function GET(
       },
       companyName: project.client.companyName,
       folders,
-      plans,
+      plans: reportPlans,
       locale: localeTag(locale),
       labels: {
         title: t.reserves.report.title,

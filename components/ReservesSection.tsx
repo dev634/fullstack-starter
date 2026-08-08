@@ -14,7 +14,7 @@ import ReserveFolderRow from "@/components/ReserveFolderRow";
 import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
-import { planPageImageUrl } from "@/lib/cloudinary-url";
+import { assetPath } from "@/lib/assetPath";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import {
@@ -28,8 +28,15 @@ import {
 } from "@/actions/reserves/reserves";
 import type { Reserve, ReservePlan, ReservePhoto, ReserveStatus } from "@/app/generated/prisma/client";
 
-type ReserveWithPhotos = Reserve & { photos: ReservePhoto[] };
-type PlanWithReserves = ReservePlan & { reserves: ReserveWithPhotos[] };
+// `url` never travels past the repository here: findByProject
+// (repository/reservePlans.ts) omits it at both the plan and the photo
+// level, because this whole tree is passed straight into this Client
+// Component's props — which get serialized into the page's HTML — and the
+// deprecated column must not reach the browser (see ProjectFile.url's doc in
+// prisma/schema.prisma). Every plan/photo image is built from its id alone
+// (lib/assetPath.ts), never from a stored URL.
+type ReserveWithPhotos = Reserve & { photos: Omit<ReservePhoto, "url">[] };
+type PlanWithReserves = Omit<ReservePlan, "url"> & { reserves: ReserveWithPhotos[] };
 type Editor =
   | { mode: "new"; x: number; y: number }
   | { mode: "edit"; reserveId: number; number: number };
@@ -75,6 +82,20 @@ export default function ReservesSection({
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const selectedPlan =
     visiblePlans.find((p) => p.id === selectedPlanId) ?? visiblePlans[0] ?? null;
+
+  // Whether the CURRENT plan's viewer image failed to load (a guarded asset
+  // can fail: 502 if Cloudinary is down, 404 if access was revoked between
+  // render and request — see ClientAvatar's `failed` state for the same
+  // pattern). Tracked against the plan id it failed for, and cleared as soon
+  // as `selectedPlan` moves to a different plan — adjusting this component's
+  // OWN state during render (not a prop callback) is legal, and is how a
+  // derived value gets reset the moment the signal it depends on changes.
+  const [planImgFailed, setPlanImgFailed] = useState(false);
+  const [planImgFailedFor, setPlanImgFailedFor] = useState<number | null>(null);
+  if (selectedPlan && selectedPlan.id !== planImgFailedFor && planImgFailed) {
+    setPlanImgFailed(false);
+    setPlanImgFailedFor(selectedPlan.id);
+  }
 
   // Plan add lives in the section header (AddReservePlanForm); here we only
   // browse/choose/delete a plan and pin réserves on it.
@@ -363,14 +384,37 @@ export default function ReservesSection({
         <div className="flex flex-col gap-2">
           {canEdit && <p className="text-xs text-gray-500 dark:text-gray-400">{t.reserves.addHint}</p>}
           <div className="relative select-none overflow-hidden rounded border border-gray-300 dark:border-gray-700">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={planPageImageUrl(selectedPlan.url)}
-              alt={selectedPlan.name}
-              onClick={handlePlanClick}
-              className={`block w-full ${canEdit ? "cursor-crosshair" : ""}`}
-            />
-            {selectedPlan.reserves.map((reserve) => (
+            {planImgFailed ? (
+              // Degrade like ClientAvatar does on a failed photo: no broken
+              // image icon, an explanation plus a way to try again — the
+              // pins below aren't shown either, since they're only
+              // meaningful pinned on the plan they're missing here.
+              <div className="flex min-h-48 flex-col items-center justify-center gap-2 bg-gray-100 px-4 py-10 text-center text-sm text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                <PhotoIcon className="h-8 w-8" />
+                <p>{t.reserves.planImageError}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">{t.reserves.planUnavailableHint}</p>
+                <button
+                  type="button"
+                  onClick={() => setPlanImgFailed(false)}
+                  className="inline-flex min-h-11 items-center rounded border border-gray-300 px-3 text-xs font-medium hover:bg-[#d1d5dc] dark:border-gray-600 dark:hover:bg-gray-700 cursor-pointer"
+                >
+                  {t.common.retry}
+                </button>
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={assetPath("reserve-plans", selectedPlan.id, { width: 1600 })}
+                alt={selectedPlan.name}
+                onClick={handlePlanClick}
+                onError={() => {
+                  setPlanImgFailed(true);
+                  setPlanImgFailedFor(selectedPlan.id);
+                }}
+                className={`block w-full ${canEdit ? "cursor-crosshair" : ""}`}
+              />
+            )}
+            {!planImgFailed && selectedPlan.reserves.map((reserve) => (
               <button
                 key={reserve.id}
                 type="button"
@@ -392,7 +436,7 @@ export default function ReservesSection({
                 </span>
               </button>
             ))}
-            {editor?.mode === "new" && (
+            {!planImgFailed && editor?.mode === "new" && (
               <span
                 style={{ left: `${editor.x * 100}%`, top: `${editor.y * 100}%` }}
                 className="pointer-events-none absolute -translate-x-1/2 -translate-y-full"
@@ -401,7 +445,6 @@ export default function ReservesSection({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t.reserves.planUnavailableHint}</p>
         </div>
       )}
 
@@ -490,26 +533,15 @@ export default function ReservesSection({
             </label>
             {editor?.mode === "edit" ? (
               <div className="flex flex-wrap gap-2">
-                {photos.map((p) => (
-                  <div key={p.id} className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={p.url}
-                      alt=""
-                      className="h-16 w-16 rounded border border-gray-300 object-cover dark:border-gray-700"
-                    />
-                    {canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => removePhoto(p.id)}
-                        disabled={pending}
-                        aria-label={t.reserves.deletePhoto}
-                        className="absolute -right-1.5 -top-1.5 cursor-pointer rounded-full bg-red-600 p-0.5 text-white shadow hover:bg-red-700 disabled:opacity-50"
-                      >
-                        <XMarkIcon className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
+                {photos.map((p, i) => (
+                  <ReservePhotoThumbnail
+                    key={p.id}
+                    photoId={p.id}
+                    alt={format(t.reserves.photoAlt, { index: i + 1, number: editor.number })}
+                    canEdit={canEdit}
+                    pending={pending}
+                    onDelete={removePhoto}
+                  />
                 ))}
                 {canEdit && (
                   <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-gray-300 text-gray-400 hover:bg-gray-500/10 dark:border-gray-600">
@@ -590,6 +622,66 @@ export default function ReservesSection({
         />
       )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One réserve photo thumbnail, in its own component so its `failed` state is
+ * scoped to that one photo (React keeps state per instance, keyed by `key`
+ * above) rather than to the whole grid — the same self-contained
+ * load-then-degrade pattern as ClientAvatar. `pending` disables the delete
+ * button while any réserve mutation is in flight, exactly like the inline
+ * version this replaces.
+ */
+function ReservePhotoThumbnail({
+  photoId,
+  alt,
+  canEdit,
+  pending,
+  onDelete,
+}: {
+  photoId: number;
+  alt: string;
+  canEdit: boolean;
+  pending: boolean;
+  onDelete: (id: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <div className="relative">
+      {failed ? (
+        <div className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded border border-gray-300 bg-gray-100 text-center dark:border-gray-700 dark:bg-gray-800">
+          <PhotoIcon className="h-4 w-4 text-gray-400" />
+          <span className="px-1 text-xs leading-tight text-gray-400">{t.reserves.photoImageError}</span>
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={assetPath("reserve-photos", photoId, { width: 128 })}
+          alt={alt}
+          onError={() => setFailed(true)}
+          className="h-16 w-16 rounded border border-gray-300 object-cover dark:border-gray-700"
+        />
+      )}
+      {canEdit && (
+        // The visible control stays a 16px dot so the 64px thumbnail doesn't
+        // balloon, but the actual button is a 44px hit target centered on
+        // that same dot (touch target minimum) via an invisible wrapper.
+        <button
+          type="button"
+          onClick={() => onDelete(photoId)}
+          disabled={pending}
+          aria-label={t.reserves.deletePhoto}
+          className="absolute -right-5 -top-5 flex h-11 w-11 cursor-pointer items-center justify-center disabled:opacity-50"
+        >
+          <span className="rounded-full bg-red-600 p-0.5 text-white shadow hover:bg-red-700">
+            <XMarkIcon className="h-3 w-3" />
+          </span>
+        </button>
+      )}
     </div>
   );
 }
