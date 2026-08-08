@@ -44,10 +44,9 @@ next-env.d.ts
 
 /app/generated/prisma
 
-# Local Claude Code config stays local (launch.json, settings.local.json),
-# but the shared subagent definitions are versioned — CLAUDE.md's pipeline
-# references them, so they belong in the repo.
-.claude/*
-!.claude/agents/
+# Local Claude Code config stays local (launch.json, settings.local.json).
+# The subagent definitions are no longer here: they live in the user-level
+# ~/.claude/agents/ so they apply to every project — see CLAUDE.md.
+.claude/
 # A nested .claude (a working-directory CLI config) stays local.
 actions/.claude/
