@@ -34,7 +34,9 @@ des fichiers de projet, plans et photos de réserves) :
 
 ```
 requireAppUser()  →  canAccessArea(<rubrique>)      → 403 si refusé
+                  →  valider les params de route     → 400 si malformés
                   →  canAccessSection(<section>)     → 403 si refusé
+                  →  valider la query string          → 400 si malformée
                   →  résoudre la ligne en base        → 404 si absente
                   →  canReachProject(<projectId résolu>) → 404 si hors périmètre
 ```
@@ -43,7 +45,12 @@ Le statut change de sens par rapport à une mutation : **403 pour un axe
 global** (rubrique/section — ne dépend d'aucune ligne, le refuser
 n'apprend rien à un attaquant), **404 pour tout ce qui est résolu en base**
 (ligne absente et ligne hors projet renvoient exactement la même réponse —
-un statut distinct pour les deux permettrait d'énumérer des ids). Voir aussi
+un statut distinct pour les deux permettrait d'énumérer des ids), et **400
+pour une entrée malformée**, qui n'est jamais confondu avec un 404 : la
+validation précède toute lecture en base, donc elle ne peut ni confirmer ni
+infirmer l'existence d'une ligne. La position du 400 sur les params de route
+n'est pas libre — le `kind` doit être validé **avant** `canAccessSection`,
+puisque c'est lui qui détermine la section à vérifier. Voir aussi
 `docs/SECURITE-CHECKLIST.md` (V4/V5) pour la même exigence appliquée aux
 routes d'export CSV.
 
