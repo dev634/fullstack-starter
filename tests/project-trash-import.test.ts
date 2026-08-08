@@ -103,17 +103,28 @@ describe("permanentlyDeleteProject", () => {
     expect(res.type).toBe("success");
   });
 
-  it("destroys the project's Cloudinary files before deleting", async () => {
+  // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
+  // defaults `type` to "upload" when it isn't passed, so a destroy call that
+  // only knows the mime type quietly does NOTHING on an asset re-typed to
+  // "authenticated" — no error, the blob just stays orphaned. The bulk purge
+  // must read the stored deliveryType/resourceType and pass them through.
+  it("destroys the project's Cloudinary files, with their stored guarded type, before deleting", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
     findPublicIdsByProjectMock.mockResolvedValue([
-      { publicId: "projects/1/plan", mimeType: "application/pdf" },
-      { publicId: "projects/1/photo", mimeType: "image/jpeg" },
+      { publicId: "projects/1/plan", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
+      { publicId: "projects/1/photo", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" },
     ] as never);
     removeMock.mockResolvedValue({ id: 1 } as never);
     await permanentlyDeleteProject(1);
-    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/plan", "application/pdf");
-    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/photo", "image/jpeg");
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/plan", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "RAW",
+    });
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/1/photo", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+    });
   });
 });
 

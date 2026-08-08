@@ -28,6 +28,31 @@ Le `projectId` passé à `requireProjectAccess` doit venir de **la base**, jamai
 d'un champ de formulaire (ex. `findCompanyProjectId(companyId)`). Un `projectId`
 de FormData ne sert qu'au `revalidatePath`.
 
+**Ordre des gardes sur une route de LECTURE** (export, téléchargement,
+rapport) — établi par `app/api/assets/[kind]/[id]/route.ts` (livraison gardée
+des fichiers de projet, plans et photos de réserves) :
+
+```
+requireAppUser()  →  canAccessArea(<rubrique>)      → 403 si refusé
+                  →  canAccessSection(<section>)     → 403 si refusé
+                  →  résoudre la ligne en base        → 404 si absente
+                  →  canReachProject(<projectId résolu>) → 404 si hors périmètre
+```
+
+Le statut change de sens par rapport à une mutation : **403 pour un axe
+global** (rubrique/section — ne dépend d'aucune ligne, le refuser
+n'apprend rien à un attaquant), **404 pour tout ce qui est résolu en base**
+(ligne absente et ligne hors projet renvoient exactement la même réponse —
+un statut distinct pour les deux permettrait d'énumérer des ids). Voir aussi
+`docs/SECURITE-CHECKLIST.md` (V4/V5) pour la même exigence appliquée aux
+routes d'export CSV.
+
+Depuis le passage de ce module en livraison gardée, la page de détail projet
+et le rapport PDF de réserves (`.../reserves/report/route.ts`) sont eux aussi
+soumis à `canAccessArea("projects")`, ce qui n'était pas le cas avant — les
+fichiers/plans/photos n'existent qu'à l'intérieur d'un projet, masquer la
+rubrique qui y mène doit donc masquer ce qu'elle contient.
+
 Hors périmètre ⇒ **« introuvable », jamais « interdit »** (anti-énumération).
 
 Bypass : les fonctions masquent pour tous sauf **SUPERADMIN** sur `hiddenAreas`

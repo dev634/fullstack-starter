@@ -107,16 +107,18 @@ async function collectDescendantFolderIds(projectId: number, folderId: number): 
 }
 
 /**
- * publicIds (with mime type, for correct Cloudinary resource_type) of every
- * file nested anywhere under a folder — used to clean up Cloudinary assets
- * before the folder (and its DB rows) cascade-delete.
+ * publicIds (with the guarded deliveryType/resourceType, for the correct
+ * Cloudinary `type` + resource_type) of every file nested anywhere under a
+ * folder — used to clean up Cloudinary assets before the folder (and its DB
+ * rows) cascade-delete. destroyProjectFile silently no-ops on a mismatched
+ * `type`, so these columns — not mimeType — are what a destroy call needs.
  */
 export async function collectDescendantFilePublicIds(projectId: number, folderId: number) {
     try {
         const folderIds = await collectDescendantFolderIds(projectId, folderId);
         return await prisma.projectFile.findMany({
             where: { folderId: { in: folderIds } },
-            select: { publicId: true, mimeType: true },
+            select: { publicId: true, deliveryType: true, resourceType: true },
         });
     } catch (error) {
         console.log("Repository collectDescendantFilePublicIds error:", error);

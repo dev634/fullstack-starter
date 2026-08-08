@@ -112,6 +112,13 @@ describe("project file/folder actions", () => {
       publicId: "projects/2/plan",
       size: 1234,
       mimeType: "application/pdf",
+      // RAW: uploadProjectFile stores `format: null` here (see
+      // lib/cloudinary.ts::guardedFieldsFromUploadResult) — the publicId
+      // already carries the extension.
+      resourceType: "RAW",
+      format: null,
+      version: "1700000000",
+      deliveryType: "AUTHENTICATED",
     });
     createFileMock.mockResolvedValue({ id: 1 } as never);
     const fd = formOf({ clientId: "1", projectId: "2" });
@@ -119,7 +126,18 @@ describe("project file/folder actions", () => {
     const res = await uploadFile(initial, fd);
     expect(uploadProjectFileMock).toHaveBeenCalledWith(expect.any(File), 2);
     expect(createFileMock).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 2, folderId: null, name: "plan.pdf", publicId: "projects/2/plan" })
+      expect.objectContaining({
+        projectId: 2,
+        folderId: null,
+        name: "plan.pdf",
+        publicId: "projects/2/plan",
+        // The guarded columns actually flow from the upload result into the
+        // persisted row — not just publicId/url.
+        deliveryType: "AUTHENTICATED",
+        resourceType: "RAW",
+        format: null,
+        version: "1700000000",
+      })
     );
     expect(res.type).toBe("success");
   });
@@ -131,12 +149,26 @@ describe("project file/folder actions", () => {
     expect(removeFileMock).not.toHaveBeenCalled();
   });
 
-  it("deleteFile destroys the Cloudinary asset then removes the record", async () => {
+  // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
+  // defaults `type` to "upload" when it isn't passed, so a destroy call that
+  // only knows the mime type quietly does NOTHING on an asset re-typed to
+  // "authenticated" — no error, the blob just stays orphaned. deleteFile must
+  // read the stored deliveryType/resourceType and pass them through.
+  it("deleteFile destroys the Cloudinary asset with its stored guarded type, then removes the record", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findFileByIdMock.mockResolvedValue({ id: 1, publicId: "projects/2/plan", mimeType: "application/pdf" } as never);
+    findFileByIdMock.mockResolvedValue({
+      id: 1,
+      publicId: "projects/2/plan.pdf",
+      mimeType: "application/pdf",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "RAW",
+    } as never);
     removeFileMock.mockResolvedValue({ id: 1 } as never);
     const res = await deleteFile(1, 1, 2);
-    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/2/plan", "application/pdf");
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/2/plan.pdf", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "RAW",
+    });
     expect(removeFileMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
   });
@@ -148,15 +180,27 @@ describe("project file/folder actions", () => {
     expect(removeFolderMock).not.toHaveBeenCalled();
   });
 
-  it("deleteFolder destroys every nested file before removing the folder", async () => {
+  // Regression coverage for the same silent-no-op trap as deleteFile's test
+  // above, but on the bulk cleanup path: collectDescendantFilePublicIds must
+  // now select deliveryType/resourceType (not mimeType), and every file gets
+  // destroyed with its own stored guarded type.
+  it("deleteFolder destroys every nested file, with its stored guarded type, before removing the folder", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     collectDescendantFilePublicIdsMock.mockResolvedValue([
-      { publicId: "projects/2/a", mimeType: "image/png" },
-      { publicId: "projects/2/b", mimeType: "application/pdf" },
+      { publicId: "projects/2/a", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" },
+      { publicId: "projects/2/b", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
     ] as never);
     removeFolderMock.mockResolvedValue({ id: 1 } as never);
     const res = await deleteFolder(1, 1, 2);
     expect(destroyProjectFileMock).toHaveBeenCalledTimes(2);
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/2/a", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+    });
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/2/b", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "RAW",
+    });
     expect(removeFolderMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
   });

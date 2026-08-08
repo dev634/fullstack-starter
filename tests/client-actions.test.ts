@@ -143,15 +143,24 @@ describe("client action auth guard + delegation", () => {
     );
   });
 
-  it("permanentlyDeleteClient destroys its projects' Cloudinary files", async () => {
+  // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
+  // defaults `type` to "upload" when it isn't passed, so a destroy call that
+  // only knows the mime type quietly does NOTHING on an asset re-typed to
+  // "authenticated" — no error, the blob just stays orphaned (a retention bug,
+  // not a mere cleanup miss). The bulk purge must read the stored
+  // deliveryType/resourceType and pass them through.
+  it("permanentlyDeleteClient destroys its projects' Cloudinary files with their stored guarded type", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
     findByIdMock.mockResolvedValue({ id: 1, photoUrl: null, firstName: "Alice", lastName: "Smith" } as never);
     permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
     findPublicIdsByClientMock.mockResolvedValue([
-      { publicId: "projects/9/devis", mimeType: "application/pdf" },
+      { publicId: "projects/9/devis", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
     ] as never);
     await permanentlyDeleteClient(1);
-    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/9/devis", "application/pdf");
+    expect(destroyProjectFileMock).toHaveBeenCalledWith("projects/9/devis", {
+      deliveryType: "AUTHENTICATED",
+      resourceType: "RAW",
+    });
   });
 
   // Regression coverage for a project-scope gap found while fixing

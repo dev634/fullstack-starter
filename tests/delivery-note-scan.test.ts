@@ -292,6 +292,10 @@ describe("applyDeliveryNoteScan", () => {
       publicId: "projects/2/note",
       size: 1024,
       mimeType: "image/jpeg",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+      format: "jpg",
+      version: "1700000000",
     });
     await applyDeliveryNoteScan(
       initialApply,
@@ -314,6 +318,10 @@ describe("applyDeliveryNoteScan", () => {
       publicId: "projects/2/note",
       size: 1024,
       mimeType: "image/jpeg",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+      format: "jpg",
+      version: "1700000000",
     });
     await applyDeliveryNoteScan(
       initialApply,

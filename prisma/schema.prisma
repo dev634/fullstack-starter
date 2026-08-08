@@ -158,6 +158,47 @@ model Project {
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Project_name_trgm_idx")
 }
 
+// ---------------------------------------------------------------------------
+// Guarded delivery of project-scoped Cloudinary assets
+//
+// ProjectFile / ReservePlan / ReservePhoto are delivered through an
+// application route that re-checks access on every request, signs the
+// Cloudinary URL server-side and streams the bytes. The stored delivery URL is
+// therefore no longer replayed — it is REBUILT from the columns below, and the
+// signed URL never reaches the browser.
+//
+// Out of scope on purpose, both stay public, for two DIFFERENT reasons:
+// - AppSettings.logoUrl: the logo has to be fetchable from an email client,
+//   which carries no session — it is meant to stay public.
+// - Client.photoUrl: out of scope for this increment, not a product decision
+//   either way. It is also only ever read in-app (ClientAvatar), so nothing
+//   today requires it to be public. Unlike AppSettings (which already has a
+//   logoPublicId column), Client has no publicId column at all —
+//   destroyClientPhoto() re-derives it from the URL by regex — so guarding it
+//   would need its own migration (add publicId, backfill, re-type on
+//   Cloudinary), not just a code change. Left for a follow-up increment.
+// ---------------------------------------------------------------------------
+
+/// How Cloudinary delivers an asset. Mirrors Cloudinary's own `type` URL
+/// segment, so the stored value is passed straight to cloudinary.url({ type })
+/// — this is an API parameter, not a flag the application has to interpret.
+/// UPLOAD is the legacy, publicly reachable state; AUTHENTICATED requires a
+/// server-signed URL.
+enum CloudinaryDeliveryType {
+  UPLOAD
+  AUTHENTICATED
+}
+
+/// Cloudinary's storage bucket for an asset. Recorded as used at upload time,
+/// never re-derived at read time: it is NOT a function of the mime type — a
+/// réserve plan is a PDF deliberately uploaded as an IMAGE so Cloudinary can
+/// rasterise its pages (see lib/cloudinary.ts::uploadReservePlan).
+enum CloudinaryResourceType {
+  IMAGE
+  VIDEO
+  RAW
+}
+
 enum ReserveStatus {
   OPEN // réserve ouverte / à traiter
   RESOLVED // réserve levée
@@ -199,10 +240,19 @@ model ReservePlan {
   folder    ReservePlanFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   folderId  Int?
   name      String
-  // Cloudinary secure_url of the PDF (stored as an image resource so its
-  // pages can be delivered as images) + public id for deletion.
+  // DEPRECATED — legacy public secure_url of the PDF, dropped by the follow-up
+  // migration. Nothing may read it: page rasterisation used to be done by
+  // splicing "pg_N,f_jpg" into this string (lib/cloudinary-url.ts), which is
+  // impossible on a signed URL — the transformation is now composed from
+  // publicId BEFORE signing, server-side.
   url       String
   publicId  String
+  // Guarded delivery — full contract on ProjectFile. resourceType is IMAGE
+  // here even though the asset is a PDF: that is what makes `pg_N` work.
+  deliveryType CloudinaryDeliveryType
+  resourceType CloudinaryResourceType
+  format       String?
+  version      String?
   createdAt DateTime           @default(now())
   reserves  Reserve[]
 
@@ -245,10 +295,20 @@ model ReservePhoto {
   id        Int      @id @default(autoincrement())
   reserve   Reserve  @relation(fields: [reserveId], references: [id], onDelete: Cascade)
   reserveId Int
+  // DEPRECATED — legacy public secure_url, dropped by the follow-up migration.
   url       String
   publicId  String
+  // Guarded delivery — full contract on ProjectFile. There is no mimeType
+  // column here, so `format` is also the only way to type the proxied response.
+  deliveryType CloudinaryDeliveryType
+  resourceType CloudinaryResourceType
+  format       String?
+  version      String?
   createdAt DateTime @default(now())
 
+  // reserveId backs the réserve's photo list, the Cascade delete scan, and the
+  // delivery route's project resolution (photo -> reserve.projectId, which the
+  // Reserve model already denormalises — one hop, not two).
   @@index([reserveId])
 }
 
@@ -493,8 +553,35 @@ model ProjectFile {
   folder    ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
   folderId  Int?
   name      String
+  // DEPRECATED — the legacy public secure_url. Dead the moment the asset is
+  // re-typed to `authenticated`, and misleading until then, so nothing may read
+  // it any more: the delivery route builds its URL from
+  // publicId + resourceType + format + version. Kept for exactly one release so
+  // this change stays revertible, then dropped by the follow-up migration.
   url       String
   publicId  String
+  // --- Guarded delivery. The contract, referenced by ReservePlan/ReservePhoto:
+  //
+  // deliveryType — no @default on purpose. Every create must state it, so no
+  //   upload site can inherit a publicly reachable asset by omission; and while
+  //   the one-shot re-typing script has not finished, this column is the only
+  //   thing telling the delivery route whether to sign or not.
+  // resourceType — see CloudinaryResourceType. Also the correct input for
+  //   `destroy` calls, which silently no-op on a resource_type mismatch;
+  //   ProjectFile currently re-derives it from the nullable, correctable
+  //   mimeType, which is a coupling waiting to break.
+  // format — the extension to append to publicId when building a delivery URL,
+  //   without the dot ("pdf", "jpg"). Cloudinary strips the extension out of
+  //   the public id of image/video resources but keeps it inside the public id
+  //   of raw ones, so NULL here means "publicId already carries it" and is the
+  //   normal state of a RAW row. Doubles as the response Content-Type source.
+  // version — the "/v1753440000/" segment as returned at upload. Text, not a
+  //   number: it is an opaque third-party token, never used in arithmetic.
+  //   NULL = build the URL without a version segment.
+  deliveryType CloudinaryDeliveryType
+  resourceType CloudinaryResourceType
+  format       String?
+  version      String?
   size      Int?
   mimeType  String?
   createdAt DateTime       @default(now())

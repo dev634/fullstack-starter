@@ -61,9 +61,19 @@ export async function addReservePlan(
   const folderId = Number.isInteger(rawFolderId) && rawFolderId > 0 ? rawFolderId : null;
 
   try {
-    const { url, publicId } = await uploadReservePlan(file, projectId);
+    const { url, publicId, deliveryType, resourceType, format, version } = await uploadReservePlan(file, projectId);
     const name = rawName || file.name.replace(/\.pdf$/i, "") || "Plan";
-    const plan = await createPlan({ projectId, name, url, publicId, folderId });
+    const plan = await createPlan({
+      projectId,
+      name,
+      url,
+      publicId,
+      deliveryType,
+      resourceType,
+      format,
+      version,
+      folderId,
+    });
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.planAdded, data: plan };
   } catch (error) {
@@ -169,7 +179,7 @@ export async function deleteReservePlan(id: number, clientId: number, projectId:
     const scopeCheck = await requireProjectAccess(existing.projectId);
     if (scopeCheck.error) return scopeCheck.error;
     const plan = await removePlan(id);
-    await destroyReservePlan(existing?.publicId);
+    await destroyReservePlan(existing);
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.planDeleted, data: plan };
   } catch (error) {
@@ -267,8 +277,11 @@ export async function addReservePhoto(
   }
 
   try {
-    const { url, publicId } = await uploadReservePhoto(file, realProjectId);
-    const photo = await createPhoto({ reserveId, url, publicId });
+    const { url, publicId, deliveryType, resourceType, format, version } = await uploadReservePhoto(
+      file,
+      realProjectId
+    );
+    const photo = await createPhoto({ reserveId, url, publicId, deliveryType, resourceType, format, version });
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.photoAdded, data: photo };
   } catch (error) {
@@ -292,7 +305,7 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findPhotoById(id);
     const photo = await removePhoto(id);
-    await destroyReservePhoto(existing?.publicId);
+    await destroyReservePhoto(existing);
     revalidatePath(projectPath(clientId, projectId));
     return { type: "success" as const, message: t.reserves.messages.photoDeleted, data: photo };
   } catch (error) {

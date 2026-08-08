@@ -326,6 +326,10 @@ export async function applyDeliveryNoteScan(
         name: archivedFile.name,
         url: uploaded.url,
         publicId: uploaded.publicId,
+        deliveryType: uploaded.deliveryType,
+        resourceType: uploaded.resourceType,
+        format: uploaded.format,
+        version: uploaded.version,
         size: uploaded.size,
         mimeType: uploaded.mimeType,
       });

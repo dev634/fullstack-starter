@@ -1,11 +1,12 @@
 import PDFDocument from "pdfkit";
-import { planPageImageUrl, reportImageUrl } from "@/lib/cloudinary-url";
+import { buildDeliveryUrl } from "@/lib/cloudinaryDelivery";
 import {
   groupPlansForReport,
   summarizeReserves,
   formatCoordinates,
   type ReportFolder,
   type ReportPlan,
+  type ReportPhoto,
   type ReportReserve,
 } from "@/lib/reservesReportData";
 
@@ -45,11 +46,32 @@ type ImageOpener = { openImage(src: Buffer): { width: number; height: number } }
 export type ImageFetcher = (url: string) => Promise<Buffer | null>;
 
 const PHOTO_WIDTH = 700;
+const PLAN_PAGE_WIDTH = 1600;
 
 // Keys into the prefetched-image map. Both the prefetch pass and the render
-// pass go through these, so a transform tweak can't silently orphan an image.
-const planKey = (plan: ReportPlan) => planPageImageUrl(plan.url);
-const photoKey = (url: string) => reportImageUrl(url, PHOTO_WIDTH);
+// pass go through these SAME functions, so a transform tweak can't silently
+// orphan an image (the two passes would build different keys for what's
+// otherwise the same asset).
+//
+// This report runs server-side and already holds the authorization the
+// guarded delivery route (app/api/assets/[kind]/[id]/route.ts) exists to
+// re-check on every request — going through it here would only add an HTTP
+// round-trip and a dependency on this server's own public origin, for no
+// extra safety. So it composes and signs its own URLs directly via
+// buildDeliveryUrl, same as that route does internally. The transformation
+// (page/width/format) is passed into the SAME call that signs the URL,
+// because on a signed asset it has to be composed BEFORE signing — splicing
+// it into an already-built URL (the old cloudinary-url.ts approach) breaks
+// the signature.
+// `crop: "limit"` matches the guarded delivery route's own transformation
+// (lib/assetDelivery.ts::buildAssetTransformation) for the exact same width —
+// without it, this report requests a SECOND, distinct Cloudinary derivative
+// for what's meant to be the same rendered intention as the on-screen plan
+// viewer, and nothing guarantees the two ever look alike.
+const planKey = (plan: ReportPlan) =>
+  buildDeliveryUrl(plan.asset, { page: 1, format: "jpg", width: PLAN_PAGE_WIDTH, crop: "limit", quality: "auto" });
+const photoKey = (photo: ReportPhoto) =>
+  buildDeliveryUrl(photo.asset, { format: "jpg", width: PHOTO_WIDTH, crop: "limit", quality: "auto" });
 
 export const fetchRemoteImage: ImageFetcher = async (url) => {
   let parsed: URL;
@@ -62,13 +84,28 @@ export const fetchRemoteImage: ImageFetcher = async (url) => {
 
   try {
     const res = await fetch(parsed.toString(), { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Never the signed URL itself (it's a working, authenticated link) —
+      // just enough to tell which asset and why, without which a report that
+      // silently renders "plan unavailable" on every page is invisible: it
+      // still returns 200, so nothing else would ever surface the failure.
+      console.error("Réserves report: remote image fetch failed", {
+        status: res.status,
+        host: parsed.hostname,
+      });
+      return null;
+    }
     if (!(res.headers.get("content-type") ?? "").startsWith("image/")) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     return buf.byteLength > 0 && buf.byteLength <= MAX_IMAGE_BYTES ? buf : null;
-  } catch {
+  } catch (error) {
     // A missing plan/photo must not fail the whole report — it is rendered as
-    // a "couldn't load" note instead.
+    // a "couldn't load" note instead. Still logged, for the same reason as
+    // the !res.ok branch above.
+    console.error("Réserves report: remote image fetch threw", {
+      host: parsed.hostname,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 };
@@ -170,7 +207,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
   const images = await prefetchImages(
     [
       ...plans.map(planKey),
-      ...plans.flatMap((p) => p.reserves.flatMap((r) => (r.photos[0] ? [photoKey(r.photos[0].url)] : []))),
+      ...plans.flatMap((p) => p.reserves.flatMap((r) => (r.photos[0] ? [photoKey(r.photos[0])] : []))),
     ],
     fetchImage
   );
@@ -355,8 +392,8 @@ function renderReserveCard(
   }
 ) {
   const { reserve, labels, images, ensureSpace } = args;
-  const photoUrl = reserve.photos[0]?.url;
-  const photo = photoUrl ? images.get(photoKey(photoUrl)) : undefined;
+  const firstPhoto = reserve.photos[0];
+  const photo = firstPhoto ? images.get(photoKey(firstPhoto)) : undefined;
 
   const textX = MARGIN + 30;
   const textW = CONTENT_W - 30 - (photo ? CARD_PHOTO + 12 : 0);

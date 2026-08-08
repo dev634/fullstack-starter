@@ -96,6 +96,10 @@ export async function uploadFile(
       name: file.name,
       url: uploaded.url,
       publicId: uploaded.publicId,
+      deliveryType: uploaded.deliveryType,
+      resourceType: uploaded.resourceType,
+      format: uploaded.format,
+      version: uploaded.version,
       size: uploaded.size,
       mimeType: uploaded.mimeType,
     });
@@ -137,7 +141,7 @@ export async function deleteFile(id: number, clientId: number, projectId: number
     }
     const scopeCheck = await requireProjectAccess(file.projectId);
     if (scopeCheck.error) return scopeCheck.error;
-    await destroyProjectFile(file.publicId, file.mimeType);
+    await destroyProjectFile(file.publicId, { deliveryType: file.deliveryType, resourceType: file.resourceType });
     await removeFile(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.files.messages.fileDeleted };
@@ -165,7 +169,9 @@ export async function deleteFolder(id: number, clientId: number, projectId: numb
     const scopeCheck = await requireProjectAccess(folder.projectId);
     if (scopeCheck.error) return scopeCheck.error;
     const files = await collectDescendantFilePublicIds(folder.projectId, id);
-    await Promise.all(files.map((f) => destroyProjectFile(f.publicId, f.mimeType)));
+    await Promise.all(
+      files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))
+    );
     await removeFolder(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.files.messages.folderDeleted };
