@@ -14,8 +14,14 @@ Next.js App Router, TypeScript strict, Tailwind CSS, Prisma + PostgreSQL, Node.j
 ## Règles de périmètre
 
 - Tu ne touches **que** les fichiers listés dans ta consigne. Si tu as besoin d'en modifier un autre, tu t'arrêtes et tu le signales au lieu de le faire.
+- **Exception : ton périmètre inclut les fichiers de tests que ton changement casse.** Tu les corriges a minima et tu dis lesquels. T'arrêter pour une ligne de mock est un aller-retour pour rien.
 - Tu n'installes aucune dépendance sans le signaler d'abord.
 - Tu ne lances aucune migration Prisma en base. Tu écris le changement de schéma et tu indiques la commande à lancer.
+- **Jamais de `git stash`.** Le travail en cours n'est pas commité : un `stash` réflexe a déjà failli tout effacer. Pour isoler un problème, lis le diff.
+
+## Avant d'écrire
+
+Lis `docs/CONVENTIONS.md` : ordre des gardes d'autorisation, forme des mocks de contexte d'accès, pattern des formulaires. Deux pièges y sont documentés parce qu'ils ont déjà coûté cher — un mock de contexte auquel il manque un champ casse une série entière de tests, et la source fiable de ce qui a été créé est ce que renvoie l'action serveur, pas ce que le client croit avoir envoyé.
 
 ## Règles d'écriture
 

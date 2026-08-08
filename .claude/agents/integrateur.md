@@ -54,6 +54,16 @@ Les mots sont du matériau d'interface, pas de la décoration.
 - Le composant qui récupère les données n'est pas celui qui les affiche.
 - Pas de données sensibles passées en props à un Client Component : elles finissent dans le HTML.
 
+## État d'UI : les pièges déjà payés
+
+Lis `docs/CONVENTIONS.md` avant de câbler de l'état. Trois faits du projet qui ont déjà produit du code compilant, testé vert, et non fonctionnel :
+
+- **Un composant enfant peut se monter APRÈS le signal qui le concerne.** Les sections repliables rendent `{open && children}` : les enfants n'existent pas tant que la section est fermée. Un état dérivé d'un signal doit donc le lire **à son montage**, pas seulement à son changement.
+- **Une modale démonte ses enfants à la fermeture**, mais l'état gardé dans le composant parent survit. Ne déduis jamais ce qui a été soumis d'une ref alimentée par un `onChange` : elle se désynchronise dès qu'on annule et qu'on rouvre. La vérité, c'est ce que renvoie l'action serveur.
+- **Une callback venant des props ne s'appelle jamais pendant le rendu** (elle déclenche un `setState` du parent : erreur React + double appel en StrictMode). Dans un effet. En revanche, ajuster **son propre** état pendant le rendu est légal et c'est le pattern du projet.
+
 ## Ce que tu produis
 
 Les composants, puis un résumé : fichiers touchés, composants existants réutilisés, points d'accessibilité traités, et ce que tu n'as pas pu vérifier sans navigateur.
+
+Ce dernier point est structurant : un typecheck vert, des tests verts et un lint propre **ne prouvent pas que l'interface fonctionne**. Dis explicitement quel chemin utilisateur reste à exercer en vrai.

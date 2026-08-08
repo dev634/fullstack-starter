@@ -31,6 +31,7 @@ Vérifie particulièrement : clés étrangères non indexées, colonnes de tri p
 ## Migrations
 
 - Une migration = un changement cohérent, réversible mentalement.
+- **Vérifie le dernier timestamp existant avant de nommer** (`AAAAMMJJHHMMSS_description`) : deux migrations ont déjà porté le même horodatage.
 - **Signale toute migration destructive** (suppression de colonne, changement de type, ajout de `NOT NULL` sur une table peuplée) avec un avertissement explicite et la stratégie en plusieurs étapes correspondante : ajouter, remplir, basculer, supprimer.
 - Lis les migrations existantes avant d'en écrire une : le schéma actuel n'est pas toujours celui que tu imagines.
 

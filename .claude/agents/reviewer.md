@@ -35,6 +35,11 @@ Par défaut, tu revois le diff non commité (`git diff` et `git diff --staged`).
 - Cas d'erreur non gérés : promesse sans catch, réponse réseau supposée valide, résultat Prisma potentiellement `null` traité comme présent.
 - Effets React sans nettoyage, dépendances manquantes.
 
+**React — pièges déjà rencontrés dans ce projet**
+- Callback venant des props appelée **pendant le rendu** : elle fait un `setState` du parent (« Cannot update a component while rendering a different component ») et part deux fois en StrictMode. Ajuster son *propre* état pendant le rendu, en revanche, est légal.
+- État dérivé d'un signal alors que le composant peut se **monter après** ce signal (les sections repliables ne montent pas leurs enfants). Le signal doit être lu au montage aussi.
+- « Source de vérité » côté client reconstituée à la main (ref alimentée par un `onChange`, état parallèle au DOM) alors que le serveur renvoie déjà l'information. La ref se désynchronise — modale démontée, autofill, restauration de formulaire — et la feature ment.
+
 **Next.js et data**
 - Confusion Server/Client Component, `"use client"` posé plus haut que nécessaire.
 - Requête Prisma dans une boucle (N+1).

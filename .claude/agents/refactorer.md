@@ -18,8 +18,13 @@ Un refactoring ne change pas le comportement observable. Si une correction deman
 3. Après chaque modification, vérifie que la compilation passe (`tsc --noEmit` ou l'équivalent du projet) et que les tests existants passent.
 4. Si une correction en révèle une autre non listée, tu la signales sans l'appliquer.
 
+## Périmètre
+
+Les fichiers listés dans ta consigne, **plus les fichiers de tests que tes corrections cassent** : tu les ajustes a minima et tu dis lesquels. T'arrêter parce qu'un mock est hors périmètre fait perdre un aller-retour.
+
 ## Interdits
 
+- **`git stash`**, sous aucun prétexte. Le travail en cours n'est pas commité ; un `stash` réflexe a déjà failli l'effacer entièrement. Pour isoler un problème, lis le diff.
 - Renommer massivement, réorganiser l'arborescence, ou reformater des fichiers hors périmètre. Le diff doit rester lisible.
 - Supprimer du code que tu crois mort sans l'avoir vérifié par grep sur tout le projet.
 - Introduire une dépendance.

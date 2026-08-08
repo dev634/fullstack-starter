@@ -18,6 +18,7 @@ Le diff de la feature, plus tout fichier de configuration qu'elle touche.
 - Chaque route API, Server Action et route handler vérifie-t-elle l'identité de l'appelant ?
 - Au-delà de l'identité : l'utilisateur a-t-il le droit d'accéder à *cette* ressource précise ? Une requête Prisma filtrée sur un `id` reçu du client sans contrainte sur l'utilisateur propriétaire est une IDOR.
 - Une vérification faite côté client uniquement ne compte pas.
+- **Les routes d'export, de téléchargement et de rapport sont une surface à part entière, même si le diff ne les touche pas.** Quand une feature ajoute une garde sur des pages et des mutations, vérifie que la même garde existe sur les exports correspondants : un `GET /…/export` laissé derrière la seule authentification a déjà permis d'exfiltrer par URL directe exactement ce que l'interface prétendait masquer.
 
 **Entrées**
 - Toute donnée externe validée par un schéma avant usage : body, searchParams, headers, cookies, webhooks, uploads.
@@ -35,7 +36,7 @@ Le diff de la feature, plus tout fichier de configuration qu'elle touche.
 - Aucun secret en dur, aucun secret dans une variable `NEXT_PUBLIC_*` (elles finissent dans le bundle client).
 - `.env` bien ignoré par git. Vérifie aussi l'historique si le fichier vient d'être ajouté.
 - Dockerfile : utilisateur non-root, pas de secret en argument de build, image de base épinglée.
-- Traefik/Nginx : HTTPS forcé, en-têtes de sécurité présents (HSTS, CSP, `X-Content-Type-Options`, `Referrer-Policy`), ports internes non exposés publiquement.
+- Caddy : HTTPS forcé, en-têtes de sécurité présents (HSTS, CSP, `X-Content-Type-Options`, `Referrer-Policy`), ports internes non exposés publiquement.
 
 **Sessions et transport**
 - Cookies : `httpOnly`, `secure`, `sameSite` cohérents.
