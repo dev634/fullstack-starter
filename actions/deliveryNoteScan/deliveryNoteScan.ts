@@ -1,14 +1,17 @@
 "use server";
-import { headers } from "next/headers";
 import { formDataToObject } from "@/lib/helpers";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/clientIp";
 import {
   extractDeliveryNoteItems,
   readAndValidateDeliveryNoteImage,
+  stripArchivedPhotoMetadata,
   scanProviderInfo,
+  isScanError,
 } from "@/lib/deliveryNoteScan";
+import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
 import { applyScanItems } from "@/repository/projectMaterials";
 import { create as createFile } from "@/repository/projectFiles";
@@ -24,26 +27,16 @@ import type { DeliveryNoteScanActionState, ApplyDeliveryScanActionState } from "
 // 20 scans/hour/user — generous for a real review workflow (an admin
 // reconciling a batch of deliveries), tight enough to bound one account's
 // worth of LLM spend if the credentials or the action itself are abused.
+// This is the count actually allowed: the budget is checked BEFORE this
+// attempt is reserved (see the ordering below), so the limit means exactly
+// what it says — a prior version reserved first and only then checked with
+// `count >= limit`, which made the request that tipped the count over the
+// limit block ITSELF, so a limit of 20 only ever let 19 through.
 const SCAN_LIMIT = { limit: 20, windowMs: 60 * 60 * 1000 };
 // 60 scans/hour/IP — covers a small team sharing one office connection while
 // still bounding spend from a single source (spray protection, same idea as
 // LOGIN_IP_LIMIT in lib/loginRateLimit.ts).
 const SCAN_IP_LIMIT = { limit: 60, windowMs: 60 * 60 * 1000 };
-
-/**
- * Best-effort client IP from the proxy's forwarded headers — same pattern
- * (and same reasoning: the LAST hop is the one our proxy actually set, the
- * rest of the header is client-controlled) as actions/auth/auth.ts and
- * lib/authorizeCredentials.ts. Not extracted into a shared helper: this is a
- * third occurrence, which crosses this project's usual "beyond two,
- * extract" DRY threshold — flagged in the task report rather than done here,
- * since a new shared module isn't in this change's file scope.
- */
-async function getClientIp(): Promise<string> {
-  const h = await headers();
-  const lastHop = h.get("x-forwarded-for")?.split(",").pop()?.trim();
-  return lastHop || h.get("x-real-ip") || "unknown";
-}
 
 /**
  * getErrorMessage (lib/helpers.ts) relays the `.message` of ANY object that
@@ -53,7 +46,10 @@ async function getClientIp(): Promise<string> {
  * thrown error shape (`{ type: "error", message }`, used throughout
  * lib/repository — see e.g. lib/cloudinary.ts) is safe to relay verbatim;
  * anything else must be logged server-side only and replaced with a generic
- * message before it reaches the client.
+ * message before it reaches the client. Distinct from isScanError
+ * (lib/deliveryNoteScan.ts), which carries a `code` to translate via
+ * t.materials.scan.errors (lib/i18n/dictionaries/{fr,en}.ts) rather than a
+ * message to relay.
  */
 function isAppError(error: unknown): error is { type: "error"; message: string } {
   return (
@@ -82,6 +78,13 @@ function logScanEvent(fields: {
   provider: string;
   model: string;
   bytes: number;
+  // Size of the image actually sent to the model, after
+  // lib/deliveryNoteScan.ts's reduceImageForModel resized/re-encoded it —
+  // only known once extraction has succeeded, hence optional (absent on the
+  // "error"/"rate_limited" outcomes below). Lets prod usage be checked
+  // against `bytes` to see the real effect of the reduction, without ever
+  // logging the image itself.
+  bytesSent?: number;
   itemCount: number;
   durationMs: number;
   outcome: ScanLogOutcome;
@@ -122,12 +125,18 @@ export async function scanDeliveryNote(
   const userKey = `scan:${roleCheck.email}`;
   const ipKey = `scan-ip:${ip}`;
 
-  // Reserve the attempt BEFORE checking the budget, same as
-  // lib/authorizeCredentials.ts: checking first would reopen the exact race
-  // that closes — a burst of concurrent requests could all observe "under
-  // budget" before any of them had recorded, letting far more than
-  // SCAN_LIMIT calls reach the paid provider before the count catches up.
-  await Promise.all([registerFailure(userKey), registerFailure(ipKey)]);
+  // Check the budget FIRST, read-only, THEN reserve the attempt — unlike
+  // lib/authorizeCredentials.ts's login-attempt limiter (a security control,
+  // where recording unconditionally before checking closes a race that
+  // matters more than letting an already-blocked caller retry out of the
+  // window), this is a business spend quota: a caller who's already blocked
+  // and keeps retrying must NOT keep re-registering on every attempt, or the
+  // sliding window never empties and they never unblock. The reservation
+  // below still lands before the paid provider call, so a burst of
+  // concurrent requests still can't all observe "under budget" before any of
+  // them recorded — only this narrower, business-not-security window is left
+  // open (same ordering already used by requestPasswordReset in
+  // actions/auth/auth.ts, for the same reason).
   const [rl, rlIp] = await Promise.all([
     isRateLimited(userKey, SCAN_LIMIT),
     isRateLimited(ipKey, SCAN_IP_LIMIT),
@@ -154,18 +163,20 @@ export async function scanDeliveryNote(
       }),
     };
   }
+  await Promise.all([registerFailure(userKey), registerFailure(ipKey)]);
 
   const { provider, model } = scanProviderInfo();
   const startedAt = Date.now();
 
   try {
-    const { supplier, items } = await extractDeliveryNoteItems(file);
+    const { supplier, items, bytesSent } = await extractDeliveryNoteItems(file);
     logScanEvent({
       userEmail: roleCheck.email,
       projectId,
       provider,
       model,
       bytes: file.size,
+      bytesSent,
       itemCount: items.length,
       durationMs: Date.now() - startedAt,
       outcome: "success",
@@ -182,8 +193,8 @@ export async function scanDeliveryNote(
       durationMs: Date.now() - startedAt,
       outcome: "error",
     });
-    if (isAppError(error)) {
-      return { ...prevState, type: "error", message: error.message };
+    if (isScanError(error)) {
+      return { ...prevState, type: "error", message: t.materials.scan.errors[error.code] };
     }
     // Never relayed to the client: an Anthropic/OpenAI APIError can carry
     // the provider's HTTP status and raw response body.
@@ -195,9 +206,10 @@ export async function scanDeliveryNote(
 /**
  * Second step: apply the reviewed items — adds delivered quantity to an
  * existing material's stock (materialId set) or creates a new material
- * (materialId absent), then attaches the original photo to the project's
- * files, inside the "Bulletins de livraisons" folder when one exists at the
- * project root.
+ * (materialId absent), then archives the photo (full resolution, metadata
+ * stripped — see stripArchivedPhotoMetadata, lib/deliveryNoteScan.ts) to the
+ * project's files, inside the "Bulletins de livraisons" folder when one
+ * exists at the project root.
  */
 export async function applyDeliveryNoteScan(
   prevState: ApplyDeliveryScanActionState,
@@ -215,8 +227,33 @@ export async function applyDeliveryNoteScan(
     return { ...prevState, type: "zodError", message: t.errors.validationError };
   }
 
-  const { projectId, supplier, items } = parsed.data;
+  const { projectId, items } = parsed.data;
   const file = formData.get("file");
+
+  // Each new material's name is composed from the SANITIZED brand/reference
+  // — not the raw client-submitted value — and reference/supplier are
+  // sanitized here too before either is written. scannedItemSchema's
+  // `.refine()` (schemas/deliveryNoteScan.ts) only tests brand/reference's
+  // RAW truthiness, so a whitespace-only brand (" ") passes it but composes
+  // down to "" once sanitized: reject that case explicitly, on the COMPOSED
+  // name, rather than silently write a nameless material — this is the
+  // check that actually protects the write (see composeMaterialName's doc
+  // comment in lib/materialName.ts).
+  const supplier = sanitizeScannedNullableString(parsed.data.supplier);
+  const materialItems = items.map((item) => {
+    const brand = sanitizeScannedNullableString(item.brand);
+    const reference = sanitizeScannedNullableString(item.reference);
+    return {
+      name: composeMaterialName(brand, reference),
+      quantity: item.quantity,
+      unit: null,
+      reference,
+      materialId: item.materialId ?? null,
+    };
+  });
+  if (materialItems.some((item) => item.materialId == null && item.name === "")) {
+    return { ...prevState, type: "zodError", message: t.errors.validationError };
+  }
 
   const scopeCheck = await requireProjectAccess(projectId);
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
@@ -231,8 +268,13 @@ export async function applyDeliveryNoteScan(
       return { ...prevState, type: "error", message: t.projects.messages.invalidId };
     }
 
-    await applyScanItems(projectId, items, supplier);
-
+    // Built before either database write below (applyScanItems, createFile):
+    // if stripArchivedPhotoMetadata throws (a corrupted buffer sharp can't
+    // process), the whole request fails right here, before a single row has
+    // changed — the caller retries on an untouched state. Never falls back
+    // to archiving the un-cleaned original on failure, which would silently
+    // undo the product decision this exists to apply.
+    let archivedFile: File | null = null;
     if (file instanceof File && file.size > 0) {
       // Re-apply the scan's own allowlist (magic bytes + size) before
       // handing the file to the generic project-file uploader. This is a
@@ -240,14 +282,48 @@ export async function applyDeliveryNoteScan(
       // guarantees it's the same bytes the scan actually read, so without
       // this it could reach uploadProjectFile never having been validated
       // as an actual image at all.
-      await readAndValidateDeliveryNoteImage(file);
+      // Its resolved { buffer, mediaType } feeds stripArchivedPhotoMetadata
+      // below (lib/deliveryNoteScan.ts) — mediaType is the type resolved
+      // from the file's actual content, never a cast of the client-declared
+      // `file.type`. The photo attached to the project is a supporting
+      // document, so it keeps its full resolution and original format; it
+      // never passes through reduceImageForModel (lib/deliveryNoteScan.ts),
+      // which only ever runs inside extractDeliveryNoteItems, on the scan
+      // step's own request, and is bounded/re-encoded for the model only.
+      // This archive only has its metadata (EXIF — GPS, timestamp, device
+      // model; also ICC/XMP) removed, per an explicit product decision —
+      // see stripArchivedPhotoMetadata's own comment.
+      const { buffer, mediaType } = await readAndValidateDeliveryNoteImage(file);
+      const cleaned = await stripArchivedPhotoMetadata(buffer, mediaType);
+      // `new Uint8Array(cleaned)` rather than the Buffer itself: Node's
+      // Buffer type is generic over ArrayBufferLike (it can be backed by a
+      // SharedArrayBuffer), while DOM's BlobPart requires an
+      // ArrayBufferView<ArrayBuffer> specifically — this copies the bytes
+      // into a plain Uint8Array TypeScript accepts here, it isn't a runtime
+      // fix for anything.
+      archivedFile = new File([new Uint8Array(cleaned)], file.name, { type: mediaType });
+      // Content-free, like logScanEvent above: how the cleaned archive's
+      // size compares to the original upload — useful to notice a stripping
+      // step that's silently no-op'ing on a class of images — never what's
+      // inside either file.
+      console.log("delivery_note_scan_archive", {
+        userEmail: roleCheck.email,
+        projectId,
+        bytes: file.size,
+        archivedBytes: cleaned.length,
+      });
+    }
+
+    await applyScanItems(projectId, materialItems, supplier);
+
+    if (archivedFile) {
       const rootFolders = await findChildFolders(projectId, null);
       const deliveryFolder = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons");
-      const uploaded = await uploadProjectFile(file, projectId);
+      const uploaded = await uploadProjectFile(archivedFile, projectId);
       await createFile({
         projectId,
         folderId: deliveryFolder?.id ?? null,
-        name: file.name,
+        name: archivedFile.name,
         url: uploaded.url,
         publicId: uploaded.publicId,
         size: uploaded.size,
@@ -258,14 +334,16 @@ export async function applyDeliveryNoteScan(
     revalidatePath(`/clients/${project.clientId}/projects/${projectId}`);
     return { ...prevState, type: "success", message: t.materials.scan.messages.applied };
   } catch (error) {
-    // Nothing on this path touches the LLM SDK, so any thrown error here is
-    // already this app's own shape (repository/lib conventions). Uses the
-    // same isAppError guard as scanDeliveryNote rather than getErrorMessage,
-    // for one consistent relay rule across this file instead of two — it
-    // behaves identically for the errors this path actually throws, and
-    // additionally stops an unexpected native error's raw `.message` (e.g.
-    // a bug elsewhere surfacing as a TypeError) from reaching the client,
-    // which getErrorMessage would have relayed verbatim.
+    // readAndValidateDeliveryNoteImage (above) throws lib/deliveryNoteScan.ts's
+    // own code-shaped error — checked and translated first. Everything else
+    // reachable in this try block (repository/lib.cloudinary calls) still
+    // throws this app's older `{ type: "error", message }` shape, relayed via
+    // isAppError as before; an unexpected native error's raw `.message`
+    // (e.g. a bug elsewhere surfacing as a TypeError) never reaches the
+    // client, which getErrorMessage would have relayed verbatim.
+    if (isScanError(error)) {
+      return { ...prevState, type: "error", message: t.materials.scan.errors[error.code] };
+    }
     const message = isAppError(error) ? error.message : t.errors.serverError;
     return { ...prevState, type: "error", message };
   }

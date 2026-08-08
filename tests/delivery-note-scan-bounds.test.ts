@@ -6,84 +6,157 @@ import {
   MAX_SCAN_STRING_LENGTH,
   MAX_SCAN_QUANTITY,
 } from "@/schemas/deliveryNoteScan";
+import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 
 describe("applyDeliveryScanSchema bounds", () => {
   const base = { projectId: "2" };
 
   it("accepts an items array at the max size", () => {
-    const items = Array.from({ length: MAX_SCAN_ITEMS }, (_, i) => ({ name: `Item ${i}`, quantity: 1 }));
+    const items = Array.from({ length: MAX_SCAN_ITEMS }, (_, i) => ({ reference: `REF-${i}`, quantity: 1 }));
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(true);
   });
 
   it("rejects an items array one over the max size", () => {
-    const items = Array.from({ length: MAX_SCAN_ITEMS + 1 }, (_, i) => ({ name: `Item ${i}`, quantity: 1 }));
+    const items = Array.from({ length: MAX_SCAN_ITEMS + 1 }, (_, i) => ({ reference: `REF-${i}`, quantity: 1 }));
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(false);
   });
 
-  it("rejects a name longer than MAX_SCAN_STRING_LENGTH", () => {
-    const items = [{ name: "x".repeat(MAX_SCAN_STRING_LENGTH + 1), quantity: 1 }];
+  it("rejects a reference longer than MAX_SCAN_STRING_LENGTH", () => {
+    const items = [{ reference: "x".repeat(MAX_SCAN_STRING_LENGTH + 1), quantity: 1 }];
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(false);
   });
 
-  it("accepts a name at exactly MAX_SCAN_STRING_LENGTH", () => {
-    const items = [{ name: "x".repeat(MAX_SCAN_STRING_LENGTH), quantity: 1 }];
+  it("accepts a reference at exactly MAX_SCAN_STRING_LENGTH", () => {
+    const items = [{ reference: "x".repeat(MAX_SCAN_STRING_LENGTH), quantity: 1 }];
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(true);
   });
 
-  it("rejects an oversized unit/reference/supplier string", () => {
+  it("rejects an oversized brand/reference/supplier string", () => {
     const tooLong = "x".repeat(MAX_SCAN_STRING_LENGTH + 1);
-    const items = [{ name: "Panneau", quantity: 1, unit: tooLong }];
-    expect(applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) }).success).toBe(false);
-    const itemsRef = [{ name: "Panneau", quantity: 1, reference: tooLong }];
+    const itemsBrand = [{ brand: tooLong, reference: "REF-1", quantity: 1 }];
+    expect(applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(itemsBrand) }).success).toBe(false);
+    const itemsRef = [{ brand: "Nexans", reference: tooLong, quantity: 1 }];
     expect(applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(itemsRef) }).success).toBe(false);
-    const items2 = [{ name: "Panneau", quantity: 1 }];
+    const items2 = [{ brand: "Nexans", quantity: 1 }];
     expect(
       applyDeliveryScanSchema.safeParse({ ...base, supplier: tooLong, items: JSON.stringify(items2) }).success
     ).toBe(false);
   });
 
   it("rejects a quantity over MAX_SCAN_QUANTITY (guards the Float `increment` column from an absurd value like 1e308)", () => {
-    const items = [{ name: "Panneau", quantity: MAX_SCAN_QUANTITY + 1 }];
+    const items = [{ reference: "REF-1", quantity: MAX_SCAN_QUANTITY + 1 }];
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(false);
 
-    const itemsHuge = [{ name: "Panneau", quantity: 1e308 }];
+    const itemsHuge = [{ reference: "REF-1", quantity: 1e308 }];
     expect(applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(itemsHuge) }).success).toBe(false);
   });
 
   it("accepts a quantity at exactly MAX_SCAN_QUANTITY", () => {
-    const items = [{ name: "Panneau", quantity: MAX_SCAN_QUANTITY }];
+    const items = [{ reference: "REF-1", quantity: MAX_SCAN_QUANTITY }];
     const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
     expect(result.success).toBe(true);
   });
 
+  // Unlike scannedDeliveryNoteSchema (the model's raw output, tested below),
+  // this is the write path: applying a delivery of zero to stock is
+  // meaningless, so it keeps requiring a strictly positive quantity even
+  // though a reliquat line reported by the model is tolerated upstream.
+  it("rejects a zero quantity (only the model-output schema tolerates a reliquat line)", () => {
+    const items = [{ reference: "REF-1", quantity: 0 }];
+    const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
+    expect(result.success).toBe(false);
+  });
+
   it("no longer accepts clientId as an input field (resolved server-side from projectId instead)", () => {
-    const items = [{ name: "Panneau", quantity: 1 }];
+    const items = [{ reference: "REF-1", quantity: 1 }];
     const result = applyDeliveryScanSchema.safeParse({ ...base, clientId: "999", items: JSON.stringify(items) });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data).not.toHaveProperty("clientId");
     }
   });
+
+  it("rejects a new item (no materialId) with neither brand nor reference", () => {
+    const items = [{ quantity: 1 }];
+    const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a new item with only a brand", () => {
+    const items = [{ brand: "Nexans", quantity: 1 }];
+    const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a new item with only a reference", () => {
+    const items = [{ reference: "REF-1", quantity: 1 }];
+    const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a merge item (materialId set) with neither brand nor reference — the existing material's own name is kept", () => {
+    const items = [{ materialId: 7, quantity: 1 }];
+    const result = applyDeliveryScanSchema.safeParse({ ...base, items: JSON.stringify(items) });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("scannedDeliveryNoteSchema bounds (the LLM's raw tool-call output)", () => {
   it("rejects an items array over MAX_SCAN_ITEMS", () => {
-    const items = Array.from({ length: MAX_SCAN_ITEMS + 1 }, (_, i) => ({ name: `Item ${i}`, quantity: 1 }));
+    const items = Array.from({ length: MAX_SCAN_ITEMS + 1 }, (_, i) => ({ reference: `REF-${i}`, quantity: 1 }));
     expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
   });
 
-  it("rejects an item name over MAX_SCAN_STRING_LENGTH", () => {
-    const items = [{ name: "x".repeat(MAX_SCAN_STRING_LENGTH + 1), quantity: 1 }];
+  it("rejects an item reference over MAX_SCAN_STRING_LENGTH", () => {
+    const items = [{ reference: "x".repeat(MAX_SCAN_STRING_LENGTH + 1), quantity: 1 }];
     expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
   });
 
   it("rejects an absurd quantity", () => {
-    const items = [{ name: "Panneau", quantity: 1e308 }];
+    const items = [{ reference: "Panneau", quantity: 1e308 }];
+    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
+  });
+
+  // Unlike applyDeliveryScanSchema (the write path, tested above), this
+  // schema deliberately has NO .refine() requiring a brand or a reference —
+  // see scannedModelItemSchema's comment in schemas/deliveryNoteScan.ts.
+  // Wrapping a per-item .refine() in z.array(...) used to make Zod reject
+  // the WHOLE array the moment a single line was missing both, even though
+  // the model is explicitly told to omit rather than invent one. Enforcement
+  // moved downstream, to extractDeliveryNoteItems (lib/deliveryNoteScan.ts),
+  // which drops just that one line instead — see delivery-note-scan.test.ts's
+  // "extractDeliveryNoteItems sanitizes the model's returned strings" tests.
+  it("accepts an item with neither brand nor reference (rejecting the whole array used to fail an entire real bulletin over one unremarkable line)", () => {
+    const items = [{ quantity: 1 }];
+    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  it("accepts an item with only a brand", () => {
+    const items = [{ brand: "Nexans", quantity: 1 }];
+    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  it("accepts an item with only a reference", () => {
+    const items = [{ reference: "REF-1", quantity: 1 }];
+    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  // Same reasoning as the brand/reference case above: a reliquat line
+  // (delivered quantity zero, back-ordered) is common on a real bulletin,
+  // and must not fail the whole array either. Dropped downstream instead —
+  // see the same extractDeliveryNoteItems tests referenced above.
+  it("accepts a zero quantity (a reliquat line) — only applyDeliveryScanSchema, the write path, requires a positive quantity", () => {
+    const items = [{ reference: "REF-1", quantity: 0 }];
+    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  it("still rejects a negative quantity", () => {
+    const items = [{ reference: "REF-1", quantity: -1 }];
     expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
   });
 
@@ -144,7 +217,7 @@ describe("readAndValidateDeliveryNoteImage (magic bytes, cross-checked against t
     // extension cross-check must still reject it.
     const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "note.png", { type: "image/png" });
     await expect(readAndValidateDeliveryNoteImage(file)).rejects.toMatchObject({
-      message: expect.stringContaining("JPEG, PNG, WEBP or GIF"),
+      code: "invalidFileType",
     });
   });
 
@@ -154,7 +227,7 @@ describe("readAndValidateDeliveryNoteImage (magic bytes, cross-checked against t
       type: "image/jpeg",
     });
     await expect(readAndValidateDeliveryNoteImage(file)).rejects.toMatchObject({
-      message: expect.stringContaining("JPEG, PNG, WEBP or GIF"),
+      code: "invalidFileType",
     });
   });
 
@@ -162,7 +235,7 @@ describe("readAndValidateDeliveryNoteImage (magic bytes, cross-checked against t
     const { readAndValidateDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "note.jpg", { type: "image/jpeg" });
     await expect(readAndValidateDeliveryNoteImage(big)).rejects.toMatchObject({
-      message: expect.stringContaining("10 MB"),
+      code: "fileTooLarge",
     });
   });
 });
@@ -176,40 +249,47 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
     delete process.env.OCR_PROVIDER;
   });
 
-  it("strips control and bidi-override characters from names/supplier before returning them to the client", async () => {
+  it("strips control and bidi-override characters from brand/supplier before composing the returned name", async () => {
     const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
     // U+202E (RIGHT-TO-LEFT OVERRIDE) hidden inside an otherwise-plausible
-    // name — well within MAX_SCAN_STRING_LENGTH raw, so it passes schema
+    // brand — well within MAX_SCAN_STRING_LENGTH raw, so it passes schema
     // validation on its own; sanitizeScannedString must still strip it
-    // before the value is ever sent to the client. Real truncation to
-    // MAX_SCAN_STRING_LENGTH also happens in that same function — not
+    // before the value is composed into the returned name. Real truncation
+    // to MAX_SCAN_STRING_LENGTH also happens in that same function — not
     // separately exercisable here, since the schema already rejects any
     // raw string over that bound before sanitizing ever runs (see point 2);
     // the slice() there is defense-in-depth, kept independent of the
     // schema bound in case either changes on its own.
     const bidiOverride = String.fromCharCode(0x202e);
-    const name = `Panneau${bidiOverride}solaire 400W`;
+    const brand = `Panneau${bidiOverride}solaire`;
     anthropicCreateMock.mockResolvedValue({
       content: [
         {
           type: "tool_use",
           input: {
             supplier: `Rexel${bidiOverride}`,
-            items: [{ name, quantity: 5 }],
+            items: [{ brand, reference: "400W", quantity: 5 }],
           },
         },
       ],
     });
-    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "note.jpg", { type: "image/jpeg" });
+    const file = await realJpegFile();
     const note = await extractDeliveryNoteItems(file);
 
     expect(note.supplier).toBe("Rexel");
-    expect(note.items[0].name).toBe("Panneausolaire 400W");
+    expect(note.items[0].brand).toBe("Panneausolaire");
+    expect(note.items[0].name).toBe("Panneausolaire — 400W");
     expect(note.items[0].name).not.toContain(bidiOverride);
   });
 
-  it("drops a line whose name is made up entirely of control/bidi characters after sanitizing", async () => {
+  it("drops a line whose brand/reference are made up entirely of control/bidi characters after sanitizing", async () => {
     const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    // A single bidi-override character is still a non-empty (truthy) string
+    // at the raw-schema stage — scannedModelItemSchema no longer even has a
+    // `.refine()` requiring one, but this shows the character is still
+    // sanitized away regardless — it only sanitizes down to "" once
+    // composeMaterialName runs, which is the case this drops (see the
+    // comment in extractDeliveryNoteItems).
     const bidiOverride = String.fromCharCode(0x202e);
     anthropicCreateMock.mockResolvedValue({
       content: [
@@ -217,25 +297,98 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
           type: "tool_use",
           input: {
             items: [
-              { name: bidiOverride, quantity: 1 },
-              { name: "Onduleur", quantity: 2 },
+              { brand: bidiOverride, quantity: 1 },
+              { brand: "Nexans", reference: "REF-9", quantity: 2 },
             ],
           },
         },
       ],
     });
-    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "note.jpg", { type: "image/jpeg" });
+    const file = await realJpegFile();
     const note = await extractDeliveryNoteItems(file);
     expect(note.items).toHaveLength(1);
-    expect(note.items[0].name).toBe("Onduleur");
+    expect(note.items[0].name).toBe("Nexans — REF-9");
+  });
+
+  // The regression test for the most severe point of the audit: a `.refine()`
+  // wrapped in `z.array(...)` used to make Zod reject the ENTIRE bulletin the
+  // moment a single line was missing both brand and reference — e.g. a
+  // "Frais de port" line, or one the model genuinely couldn't read either
+  // field on. A real bulletin routinely has at least one such line. The fix
+  // degrades instead of rejects: that one line is dropped, the rest of the
+  // bulletin is still returned successfully.
+  it("keeps the rest of the bulletin when one line has neither brand nor reference — that line is dropped, the whole scan does not fail", async () => {
+    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    anthropicCreateMock.mockResolvedValue({
+      content: [
+        {
+          type: "tool_use",
+          input: {
+            items: [
+              { quantity: 1 }, // e.g. "Frais de port" — no brand, no reference
+              { brand: "Nexans", reference: "REF-9", quantity: 2 },
+            ],
+          },
+        },
+      ],
+    });
+    const file = await realJpegFile();
+    const note = await extractDeliveryNoteItems(file);
+    expect(note.items).toHaveLength(1);
+    expect(note.items[0].name).toBe("Nexans — REF-9");
+  });
+
+  // Same class of panne, same fix: a reliquat line (delivered quantity zero)
+  // must not fail the whole bulletin either.
+  it("keeps the rest of the bulletin when one line has a zero quantity (a reliquat) — dropped, not rejected", async () => {
+    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    anthropicCreateMock.mockResolvedValue({
+      content: [
+        {
+          type: "tool_use",
+          input: {
+            items: [
+              { brand: "Nexans", reference: "REF-0", quantity: 0 },
+              { brand: "Nexans", reference: "REF-9", quantity: 2 },
+            ],
+          },
+        },
+      ],
+    });
+    const file = await realJpegFile();
+    const note = await extractDeliveryNoteItems(file);
+    expect(note.items).toHaveLength(1);
+    expect(note.items[0].reference).toBe("REF-9");
   });
 
   it("fails cleanly (generic app error) when the model's tool call doesn't match the expected shape", async () => {
     const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
     anthropicCreateMock.mockResolvedValue({
-      content: [{ type: "tool_use", input: { items: [{ name: "Panneau", quantity: "not-a-number-and-not-coercible" }] } }],
+      content: [{ type: "tool_use", input: { items: [{ reference: "REF-1", quantity: "not-a-number-and-not-coercible" }] } }],
     });
-    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "note.jpg", { type: "image/jpeg" });
-    await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error" });
+    const file = await realJpegFile();
+    await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "unreadableNote" });
+  });
+});
+
+describe("composeMaterialName", () => {
+  it("joins brand and reference with an em dash when both are present", async () => {
+    const { composeMaterialName } = await import("@/lib/materialName");
+    expect(composeMaterialName("Nexans", "REF-123")).toBe("Nexans — REF-123");
+  });
+
+  it("uses the brand alone when there is no reference", async () => {
+    const { composeMaterialName } = await import("@/lib/materialName");
+    expect(composeMaterialName("Nexans", null)).toBe("Nexans");
+  });
+
+  it("uses the reference alone when there is no brand", async () => {
+    const { composeMaterialName } = await import("@/lib/materialName");
+    expect(composeMaterialName(null, "REF-123")).toBe("REF-123");
+  });
+
+  it("returns an empty string when neither is present — a caller creating a new material must reject this itself (enforced in actions/deliveryNoteScan/deliveryNoteScan.ts, on the COMPOSED name)", async () => {
+    const { composeMaterialName } = await import("@/lib/materialName");
+    expect(composeMaterialName(null, null)).toBe("");
   });
 });

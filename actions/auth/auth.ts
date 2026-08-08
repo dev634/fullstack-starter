@@ -8,6 +8,7 @@ import { formDataToObject } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { isLoginRateLimited } from "@/lib/loginRateLimit";
+import { getClientIp } from "@/lib/clientIp";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { getAppSettings } from "@/lib/appSettings";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -36,17 +37,6 @@ const RESET_REQUEST_LIMIT = { limit: 3, windowMs: 15 * 60 * 1000 };
 // lib/loginRateLimit.ts, shared with the authorize() callback.)
 const RESET_IP_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 };
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
-
-/**
- * Best-effort client IP from the proxy's forwarded headers.
- * Takes the LAST entry in X-Forwarded-For (see the identical helper in
- * lib/authorizeCredentials.ts for why the first entry is spoofable).
- */
-async function getClientIp(): Promise<string> {
-  const h = await headers();
-  const lastHop = h.get("x-forwarded-for")?.split(",").pop()?.trim();
-  return lastHop || h.get("x-real-ip") || "unknown";
-}
 
 export async function login(
   prevState: AuthActionState,

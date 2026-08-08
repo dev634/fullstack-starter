@@ -36,6 +36,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.9.2",
+    "sharp": "^0.35.3",
     "zod": "^4.4.1"
   },
   "_overridesComment": [
@@ -51,8 +52,8 @@
     "the /_next/image path are verified whenever they change."
   ],
   "overrides": {
-    "postcss": "^8.5.25",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "postcss": "^8.5.25"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -68,9 +69,5 @@
     "tsx": "^4.23.1",
     "typescript": "^5",
     "vitest": "^4.1.9"
-  },
-  "overrides": {
-    "sharp": "^0.35.3",
-    "postcss": "^8.5.25"
   }
 }
