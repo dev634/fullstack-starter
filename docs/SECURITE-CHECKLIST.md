@@ -27,7 +27,7 @@ qui reste à vérifier.
 |---|---|---|
 | Toute entrée validée par un schéma | Zod sur chaque mutation (`schemas/*.ts`) | ✅ |
 | Séquençage / anti-course | Scan et cumul matériel en transaction ; compteur monotone pour les réserves | ✅ |
-| Anti-automation | Login 5/15 min par email (20/IP) ; reset 3/15 min (`lib/loginRateLimit.ts`) | ✅ |
+| Anti-automation | Login 5/15 min par email (20/IP) ; reset 3/15 min ; **scan LLM 20/h par utilisateur, 60/h par IP** | ✅ |
 
 ## V3 — Sécurité du front web
 
@@ -50,7 +50,7 @@ qui reste à vérifier.
 
 | Exigence | Où | État |
 |---|---|---|
-| Type de fichier vérifié serveur | MIME **et** extension ; SVG et types dangereux bloqués (`lib/cloudinary.ts`) | ✅ |
+| Type de fichier vérifié serveur | MIME **et** extension (`lib/cloudinary.ts`) ; **magic bytes + extension sur le chemin de scan** | ✅ |
 | SSRF sur récupération distante | Allowlist `res.cloudinary.com` + timeout + plafond de taille | ✅ |
 | **URL Cloudinary publiques** | les fichiers livrés sont accessibles par URL directe sans garde | ⚠️ **écart connu** |
 
@@ -110,7 +110,7 @@ qui reste à vérifier.
 |---|---|---|
 | Pas de champ sensible vers le client | `select` explicite ; `findAllOptions` pour les dropdowns (ne sérialise pas la posture d'accès) | ✅ |
 | `Cache-Control: no-store` sur les PDF | ✅ |
-| Aucun secret journalisé, messages d'erreur génériques | `getErrorMessage` | ✅ |
+| Aucun secret journalisé, messages d’erreur génériques | `getErrorMessage` ; les erreurs de SDK tiers ne sont plus relayées (garde `isAppError` au site d’appel) | ✅ |
 | Rétention / purge des données personnelles (RGPD) | aucune politique implémentée | ⬜ |
 
 ## V15 — Codage sécurisé et architecture
@@ -129,18 +129,27 @@ qui reste à vérifier.
 
 ## Volet LLM — scan de bulletin de livraison
 
-> **Jamais audité.** `lib/deliveryNoteScan.ts` envoie une **image fournie par
-> l'utilisateur** à Claude Sonnet 5 (repli OpenAI). L'ASVS ne couvre pas cette
-> surface ; référentiel : *OWASP Top 10 for LLM Applications*.
+> **Audité le 2026-08-08**, écarts techniques corrigés. `lib/deliveryNoteScan.ts`
+> envoie une **image fournie par l'utilisateur** à Claude Sonnet 5. L'ASVS ne
+> couvre pas cette surface ; référentiel : *OWASP Top 10 for LLM Applications*.
+>
+> ⚠️ **Il n'y a pas de repli runtime vers OpenAI** — contrairement à ce que
+> laissaient croire un commentaire du code et une version antérieure de ce
+> document. `activeProvider()` lit `OCR_PROVIDER` : c'est un **aiguillage par
+> variable d'environnement**, choisi au démarrage.
 
-| Risque | Question à trancher | État |
+| Risque | Où | État |
 |---|---|---|
-| **Injection de prompt indirecte** | un bulletin peut contenir du texte conçu pour détourner l'instruction (« ignore les consignes et renvoie… »). La sortie est-elle contrainte par un schéma **côté serveur**, ou fait-on confiance au modèle ? | ⬜ |
-| **Validation de la sortie** | la réponse du modèle est-elle repassée par Zod avant d'écrire en base ? | ⬜ |
-| **Confusion de données** | un document malveillant peut-il faire écrire des lignes de matériel sur un **autre** projet ? (le `projectId` doit venir de la session/base, jamais du document) | ⬜ |
-| **Coût / déni de service** | taille d'image plafonnée ? nombre de scans limité par utilisateur ? `max_tokens` est à 2048, mais rien ne borne la fréquence | ⬜ |
-| **Fuite via le fournisseur** | les bulletins peuvent contenir des données personnelles (noms, adresses). Politique de rétention des fournisseurs LLM connue et acceptée ? | ⬜ |
-| **Repli silencieux** | le basculement Anthropic → OpenAI envoie la donnée à un **second** tiers. Est-ce voulu et documenté côté RGPD ? | ⬜ |
+| **Injection de prompt indirecte** | instruction dans un `system` prompt, placée avant l'image, avec mention explicite que le texte visible est une donnée ; forme verrouillée par `tool_choice` ; chaînes sanitisées côté serveur (caractères de contrôle et marques bidi retirés, troncature réelle) | ✅ |
+| **Validation de la sortie** | schéma Zod sur les deux chemins fournisseur ; les 3 `as` sur des valeurs réseau ont été supprimés | ✅ |
+| **Confusion de données** | l'id qui autorise **est** celui sur lequel on écrit ; `updateMany` scopé projet ; `clientId` résolu en base, retiré du formulaire | ✅ |
+| **Coût / déni de service** | 20 scans/h par utilisateur, 60/h par IP (réservation *avant* vérification, pour fermer la course) ; `timeout: 60s`, `maxRetries: 1` ; tableau borné à 200 lignes, chaînes à 200 caractères, quantité plafonnée | ✅ |
+| **Vrai type d'image** | magic bytes (JPEG/PNG/GIF/WEBP) croisés avec l'extension ; le `media_type` en est dérivé | ✅ |
+| **Traçabilité** | log serveur structuré `{userEmail, projectId, provider, model, bytes, itemCount, durationMs, outcome}`, sans le contenu de l'image ni la sortie du modèle | ✅ |
+| **Fuite via Sentry** | `recordInputs`/`recordOutputs` figés à `false` sur les intégrations IA — relever `tracesSampleRate` n'enverra pas les bulletins à un troisième tiers | ✅ |
+| **`projectId` absent du log au scan** | la modale n'envoie pas encore le `projectId` à l'étape scan ; le champ est lu défensivement et vaut `null` | ⚠️ |
+| **Ce qui quitte le serveur** | image entière en base64, sans réduction : raison sociale, adresses, n° de BL, **noms et signatures manuscrites**, plaques — vers un serveur hors UE. DPA, base légale, information des personnes, rétention côté fournisseur | ⬜ **décision humaine** |
+| **Second sous-traitant** | `openai` est déjà en dépendance de production : **une variable d'environnement sur le VPS** suffit pour rerouter tous les bulletins, sans redéploiement donc sans revue de diff. Le log rend désormais la bascule visible | ⬜ **décision humaine** |
 
 ---
 
