@@ -1,5 +1,5 @@
 'use client'
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TrashIcon, FolderIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
@@ -9,6 +9,7 @@ import { deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
 import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
+import { useCategoryReveal } from "@/components/TaskCategoryReveal";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
 
@@ -48,10 +49,40 @@ export default function ProjectTaskCategorySection({
   assignees,
 }: ProjectTaskCategorySectionProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const reveal = useCategoryReveal();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Mount already revealed when the signal targets us. Categories are only
+  // mounted while the Tasks section is open ({open && children}), so creating
+  // a task from a collapsed section mounts this component *after* the signal
+  // was published — the render-derivation below would then see it as already
+  // handled and never open. Seeding the initial state covers that case.
+  const [open, setOpen] = useState(() => reveal !== null && reveal.categoryId === category.id);
   const { confirming, setConfirming, pending, error, handleDelete } = useDeleteConfirm(() =>
     deleteTaskCategory(category.id, clientId, projectId)
   );
+
+  // A task or a series just landed in this category — open it so the new
+  // row is actually visible. Doesn't force the state: the user can still
+  // collapse the category afterwards. Derived during render (same pattern
+  // as AddTaskForm/GenerateTaskSeriesForm) rather than in an effect, so a
+  // reveal signal for another category never re-opens this one.
+  const [lastHandledReveal, setLastHandledReveal] = useState(reveal);
+  if (reveal !== lastHandledReveal) {
+    setLastHandledReveal(reveal);
+    if (reveal && reveal.categoryId === category.id) setOpen(true);
+  }
+
+  // Scroll the revealed category into view — on mobile it can open below the
+  // fold, so opening it alone isn't enough for the user to actually see the
+  // new task. Runs as a real effect (not derived during render, unlike
+  // `open` above) since scrollIntoView is an imperative DOM action, not
+  // state — and effects run on mount too, which covers the case where the
+  // category mounts already revealed.
+  useEffect(() => {
+    if (!reveal || reveal.categoryId !== category.id) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    rootRef.current?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [reveal, category.id]);
 
   const doneCount = groups.reduce((sum, group) => sum + group.doneCount, 0) + tasks.filter((t) => t.done).length;
   const totalCount = groups.reduce((sum, group) => sum + group.totalCount, 0) + tasks.length;
@@ -75,7 +106,7 @@ export default function ProjectTaskCategorySection({
   });
 
   return (
-    <div className="border-b border-gray-300 dark:border-gray-700">
+    <div ref={rootRef} className="border-b border-gray-300 dark:border-gray-700">
       <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800/60 px-4 py-2 sm:px-6">
         <button
           type="button"

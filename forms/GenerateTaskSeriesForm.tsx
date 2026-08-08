@@ -1,12 +1,12 @@
 'use client'
-import { addTaskSeries } from "@/actions/tasks/tasks";
+import { addTaskSeries, type AddTaskSeriesData } from "@/actions/tasks/tasks";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Squares2X2Icon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
 import type { TaskActionState } from "@/types/task";
 
-const initialState: TaskActionState = {
+const initialState: TaskActionState<AddTaskSeriesData> = {
   type: null,
   message: "",
 }
@@ -22,11 +22,11 @@ export default function GenerateTaskSeriesForm({
   clientId: number;
   projectId: number;
   categories: TaskCategoryOption[];
-  onCreated?: () => void;
+  onCreated?: (revealCategoryId: number | null) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [state, formAction, isPending] = useActionState<TaskActionState, FormData>(
+  const [state, formAction, isPending] = useActionState<TaskActionState<AddTaskSeriesData>, FormData>(
     addTaskSeries,
     initialState
   );
@@ -40,7 +40,7 @@ export default function GenerateTaskSeriesForm({
   useEffect(() => {
     if (state.type !== "success") return;
     formRef.current?.reset();
-    onCreatedRef.current?.();
+    onCreatedRef.current?.(state.data?.group.categoryId ?? null);
   }, [state]);
 
   const [lastHandledState, setLastHandledState] = useState(state);

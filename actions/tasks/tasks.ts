@@ -20,11 +20,12 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
 import type { TaskActionState } from "@/types/task";
+import type { ProjectTask, ProjectTaskGroup } from "@/app/generated/prisma/client";
 
 export async function addTask(
-  prevState: TaskActionState,
+  prevState: TaskActionState<ProjectTask>,
   formData: FormData
-): Promise<TaskActionState> {
+): Promise<TaskActionState<ProjectTask>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const sectionCheck = await requireSectionAccess("tasks");
@@ -69,15 +70,18 @@ export async function addTask(
   }
 }
 
+/** Shape of `addTaskSeries`'s success `data`: the newly-created group plus the bulk-insert count. */
+export type AddTaskSeriesData = { group: ProjectTaskGroup; count: number };
+
 /**
  * Bulk-generate numbered tasks from a pattern (e.g. "String {n}" from 1 to
  * 27 creates 27 tasks). See schemas/task.ts's createTaskSeriesSchema for the
  * validation rules (placeholder required, range bounds).
  */
 export async function addTaskSeries(
-  prevState: TaskActionState,
+  prevState: TaskActionState<AddTaskSeriesData>,
   formData: FormData
-): Promise<TaskActionState> {
+): Promise<TaskActionState<AddTaskSeriesData>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const sectionCheck = await requireSectionAccess("tasks");
