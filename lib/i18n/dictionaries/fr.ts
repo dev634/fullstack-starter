@@ -426,6 +426,8 @@ const fr = {
         quantityLabel: "Quantité",
         unitLabel: "Unité",
         unitPlaceholder: "Unité",
+        brandLabel: "Marque",
+        brandPlaceholder: "Marque",
         supplierLabel: "Fournisseur",
         supplierPlaceholder: "Fournisseur",
         referenceLabel: "Référence",
@@ -455,6 +457,7 @@ const fr = {
             newMaterialOption: "Nouveau matériel",
             quantityLabel: "Quantité",
             removeRow: "Supprimer cette ligne",
+            missingBrandOrReference: "Indiquez une marque ou une référence pour ce nouveau matériel.",
             noRows: "Aucun article à appliquer.",
             apply: "Mettre à jour le stock",
             applying: "Mise à jour…",
@@ -467,6 +470,17 @@ const fr = {
             messages: {
                 scanned: "Bulletin analysé.",
                 applied: "Stock mis à jour.",
+            },
+            // Stable codes thrown by lib/deliveryNoteScan.ts (ScanErrorCode),
+            // translated here rather than relayed as the hardcoded English
+            // string the module used to throw directly.
+            errors: {
+                unavailable: "Le scan de bulletin est indisponible pour le moment.",
+                fileTooLarge: "La photo du bulletin doit faire 10 Mo maximum.",
+                invalidFileType: "Le bulletin doit être une photo JPEG, PNG, WEBP ou GIF.",
+                corruptedImage: "Impossible de traiter cette photo de bulletin. Essayez-en une autre.",
+                unreadableNote: "Impossible de lire ce bulletin. Essayez une photo plus nette.",
+                noItemsRead: "Aucun article n'a pu être lu sur ce bulletin. Essayez une photo plus nette.",
             },
         },
         messages: {

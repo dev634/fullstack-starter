@@ -428,6 +428,8 @@ const en: Dictionary = {
         quantityLabel: "Quantity",
         unitLabel: "Unit",
         unitPlaceholder: "Unit",
+        brandLabel: "Brand",
+        brandPlaceholder: "Brand",
         supplierLabel: "Supplier",
         supplierPlaceholder: "Supplier",
         referenceLabel: "Reference",
@@ -457,6 +459,7 @@ const en: Dictionary = {
             newMaterialOption: "New material",
             quantityLabel: "Quantity",
             removeRow: "Remove this line",
+            missingBrandOrReference: "Enter a brand or a reference for this new material.",
             noRows: "No items to apply.",
             apply: "Update stock",
             applying: "Updating…",
@@ -469,6 +472,17 @@ const en: Dictionary = {
             messages: {
                 scanned: "Delivery note scanned.",
                 applied: "Stock updated.",
+            },
+            // Stable codes thrown by lib/deliveryNoteScan.ts (ScanErrorCode),
+            // translated here rather than relayed as the hardcoded English
+            // string the module used to throw directly.
+            errors: {
+                unavailable: "Delivery note scanning is unavailable right now.",
+                fileTooLarge: "The delivery note photo must be 10 MB or smaller.",
+                invalidFileType: "The delivery note must be a JPEG, PNG, WEBP or GIF photo.",
+                corruptedImage: "Could not process this delivery note photo. Try a different one.",
+                unreadableNote: "Could not read this delivery note. Try a clearer photo.",
+                noItemsRead: "Could not read any items from this delivery note. Try a clearer photo.",
             },
         },
         messages: {

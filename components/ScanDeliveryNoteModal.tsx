@@ -5,6 +5,7 @@ import { CameraIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
+import { composeMaterialName } from "@/lib/materialName";
 import type { ScannedItem } from "@/types/deliveryNoteScan";
 
 export type MaterialMatchOption = { id: number; name: string; supplierName: string | null; reference: string | null };
@@ -93,7 +94,19 @@ export default function ScanDeliveryNoteModal({
       fd.set("clientId", String(clientId));
       fd.set("projectId", String(projectId));
       fd.set("supplier", supplier);
-      fd.set("items", JSON.stringify(rows));
+      // The final name is recomposed server-side from brand + reference —
+      // never trust a client-supplied name.
+      fd.set(
+        "items",
+        JSON.stringify(
+          rows.map((r) => ({
+            brand: r.brand,
+            reference: r.reference,
+            quantity: r.quantity,
+            materialId: r.materialId,
+          }))
+        )
+      );
       fd.set("file", file);
       const res = await applyDeliveryNoteScan({ type: null, message: "" }, fd);
       if (res.type !== "success") {
@@ -114,11 +127,21 @@ export default function ScanDeliveryNoteModal({
   }
 
   // Confirmation summary: rows matched to an existing material are cumulated,
-  // the rest are created.
-  const mergeRows = rows?.filter((r) => r.materialId != null) ?? [];
+  // the rest are created. The predicate narrows `materialId` to `number` so
+  // rendering never needs a non-null assertion.
+  const mergeRows = rows?.filter((r): r is ReviewRow & { materialId: number } => r.materialId != null) ?? [];
   const newRows = rows?.filter((r) => r.materialId == null) ?? [];
   const materialName = (id: number) => materials.find((m) => m.id === id)?.name ?? "";
-  const qtyLabel = (r: ReviewRow) => `${r.quantity}${r.unit ? ` ${r.unit}` : ""}`;
+  // The server composes the final material name from brand + reference at
+  // apply time (lib/materialName.ts); reuse that exact same pure function
+  // here so the preview can never drift from what actually gets stored.
+  const newMaterialLabel = (r: ReviewRow) => composeMaterialName(r.brand, r.reference);
+  // A "new material" row with no brand and no reference composes down to an
+  // empty name — nothing the server would accept. Caught here, before the
+  // admin can even lock the review in, rather than surfacing as a generic
+  // validation error after they've clicked through to confirm.
+  const isInvalidNewRow = (r: ReviewRow) => r.materialId == null && newMaterialLabel(r) === "";
+  const hasInvalidNewRow = rows?.some(isInvalidNewRow) ?? false;
 
   return (
     <>
@@ -164,8 +187,8 @@ export default function ScanDeliveryNoteModal({
                       <ul className="divide-y divide-gray-200 rounded border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
                         {mergeRows.map((row, i) => (
                           <li key={i} className="flex items-center justify-between gap-2 px-3 py-2">
-                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{materialName(row.materialId!)}</span>
-                            <span className="shrink-0 font-medium text-green-600 dark:text-green-400">+{qtyLabel(row)}</span>
+                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{materialName(row.materialId)}</span>
+                            <span className="shrink-0 font-medium text-green-600 dark:text-green-400">+{row.quantity}</span>
                           </li>
                         ))}
                       </ul>
@@ -179,8 +202,8 @@ export default function ScanDeliveryNoteModal({
                       <ul className="divide-y divide-gray-200 rounded border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
                         {newRows.map((row, i) => (
                           <li key={i} className="flex items-center justify-between gap-2 px-3 py-2">
-                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{row.name}</span>
-                            <span className="shrink-0 font-medium text-gray-600 dark:text-gray-300">{qtyLabel(row)}</span>
+                            <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{newMaterialLabel(row)}</span>
+                            <span className="shrink-0 font-medium text-gray-600 dark:text-gray-300">{row.quantity}</span>
                           </li>
                         ))}
                       </ul>
@@ -204,56 +227,75 @@ export default function ScanDeliveryNoteModal({
                     />
                   </div>
                   <ul className="divide-y divide-gray-300 rounded border border-gray-300 dark:divide-gray-700 dark:border-gray-700">
-                    {rows.map((row, i) => (
-                      <li key={i} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
-                        <select
-                          value={row.materialId ?? ""}
-                          onChange={(e) => updateRow(i, { materialId: e.target.value ? Number(e.target.value) : null })}
-                          aria-label={t.materials.scan.matchLabel}
-                          className="min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+                    {rows.map((row, i) => {
+                      const invalid = isInvalidNewRow(row);
+                      return (
+                        <li
+                          key={i}
+                          className={`flex flex-col gap-2 p-3 ${
+                            invalid ? "ring-2 ring-inset ring-red-500 dark:ring-red-400" : ""
+                          }`}
                         >
-                          <option value="">{t.materials.scan.newMaterialOption} : {row.name}</option>
-                          {materials.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={row.quantity}
-                          onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
-                          aria-label={t.materials.scan.quantityLabel}
-                          className="w-20 shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
-                        />
-                        <input
-                          type="text"
-                          value={row.unit ?? ""}
-                          onChange={(e) => updateRow(i, { unit: e.target.value || null })}
-                          placeholder={t.materials.unitPlaceholder}
-                          aria-label={t.materials.unitLabel}
-                          className="w-20 shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-                        />
-                        <input
-                          type="text"
-                          value={row.reference ?? ""}
-                          onChange={(e) => updateRow(i, { reference: e.target.value || null })}
-                          placeholder={t.materials.referencePlaceholder}
-                          aria-label={t.materials.referenceLabel}
-                          className="w-24 shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeRow(i)}
-                          aria-label={t.materials.scan.removeRow}
-                          className="shrink-0 cursor-pointer self-end rounded p-1 text-red-500 hover:bg-red-500/10 dark:text-red-400 sm:self-auto"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </li>
-                    ))}
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <select
+                              value={row.materialId ?? ""}
+                              onChange={(e) => updateRow(i, { materialId: e.target.value ? Number(e.target.value) : null })}
+                              aria-label={t.materials.scan.matchLabel}
+                              className="min-h-11 min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+                            >
+                              <option value="">{t.materials.scan.newMaterialOption} : {newMaterialLabel(row)}</option>
+                              {materials.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={row.quantity}
+                              onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
+                              aria-label={t.materials.scan.quantityLabel}
+                              className="min-h-11 w-full shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 sm:w-20"
+                            />
+                            <input
+                              type="text"
+                              value={row.brand ?? ""}
+                              onChange={(e) => updateRow(i, { brand: e.target.value || null })}
+                              placeholder={t.materials.brandPlaceholder}
+                              aria-label={t.materials.brandLabel}
+                              aria-invalid={invalid}
+                              aria-describedby={invalid ? `scan-row-error-${i}` : undefined}
+                              className="min-h-11 w-full shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-24"
+                            />
+                            <input
+                              type="text"
+                              value={row.reference ?? ""}
+                              onChange={(e) => updateRow(i, { reference: e.target.value || null })}
+                              placeholder={t.materials.referencePlaceholder}
+                              aria-label={t.materials.referenceLabel}
+                              aria-invalid={invalid}
+                              aria-describedby={invalid ? `scan-row-error-${i}` : undefined}
+                              className="min-h-11 w-full shrink-0 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-24"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeRow(i)}
+                              aria-label={t.materials.scan.removeRow}
+                              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center self-end rounded text-red-500 hover:bg-red-500/10 dark:text-red-400 sm:self-auto"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                          {invalid && (
+                            <p id={`scan-row-error-${i}`} className="text-xs text-red-600 dark:text-red-400">
+                              {t.materials.scan.missingBrandOrReference}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   {rows.length === 0 && (
                     <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.materials.scan.noRows}</p>
@@ -299,9 +341,9 @@ export default function ScanDeliveryNoteModal({
                 <button
                   type="button"
                   onClick={() => setConfirming(true)}
-                  disabled={rows.length === 0 || pending}
+                  disabled={rows.length === 0 || hasInvalidNewRow || pending}
                   className={`rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer ${
-                    rows.length === 0 || pending ? "opacity-50 cursor-not-allowed" : ""
+                    rows.length === 0 || hasInvalidNewRow || pending ? "opacity-50 cursor-not-allowed" : ""
                   }`}
                 >
                   {t.materials.scan.apply}

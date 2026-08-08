@@ -13,10 +13,31 @@ vi.mock("@/lib/accessContext", () => ({
 // Whole module replaced: must export every function the action imports from
 // it, not just extractDeliveryNoteItems (see docs/CONVENTIONS.md — a missing
 // export doesn't fail until a guard/call site actually reaches it).
+// composeMaterialName is deliberately NOT mocked here: the action now
+// imports it from @/lib/materialName instead (a separate, dependency-light
+// module — see that file's comment), which is left unmocked below so these
+// tests exercise the real implementation rather than a hand-copied stand-in
+// that could silently drift from it (see docs/CONVENTIONS.md's mock-parity
+// trap, and lib/materialName.ts's comment for why it's safe to leave real).
 vi.mock("@/lib/deliveryNoteScan", () => ({
   extractDeliveryNoteItems: vi.fn(),
   readAndValidateDeliveryNoteImage: vi.fn().mockResolvedValue({ buffer: Buffer.from([]), mediaType: "image/jpeg" }),
+  // Real implementation runs sharp on the buffer above — not exercised here
+  // (the pixel-level behavior is covered by delivery-note-scan-archive.test.ts,
+  // against the real function). Mocked to resolve by default so the "attaches
+  // the photo" tests below reach uploadProjectFile/createFile; individual
+  // tests override this to a rejection to prove nothing is written on failure.
+  stripArchivedPhotoMetadata: vi.fn().mockResolvedValue(Buffer.from("cleaned-bytes")),
   scanProviderInfo: vi.fn().mockReturnValue({ provider: "anthropic", model: "claude-sonnet-5" }),
+  isScanError: vi.fn((error: unknown) => {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "type" in error &&
+      error.type === "error" &&
+      "code" in error
+    );
+  }),
 }));
 vi.mock("@/repository/projectMaterials", () => ({
   applyScanItems: vi.fn(),
@@ -36,16 +57,18 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
 import { requireRole } from "@/lib/authz";
-import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
+import { extractDeliveryNoteItems, stripArchivedPhotoMetadata } from "@/lib/deliveryNoteScan";
 import { applyScanItems } from "@/repository/projectMaterials";
 import { create as createFile } from "@/repository/projectFiles";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
 import { uploadProjectFile } from "@/lib/cloudinary";
 import { isRateLimited } from "@/lib/rate-limit";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
 const extractDeliveryNoteItemsMock = vi.mocked(extractDeliveryNoteItems);
+const stripArchivedPhotoMetadataMock = vi.mocked(stripArchivedPhotoMetadata);
 const applyScanItemsMock = vi.mocked(applyScanItems);
 const createFileMock = vi.mocked(createFile);
 const findChildFoldersMock = vi.mocked(findChildFolders);
@@ -85,24 +108,25 @@ describe("scanDeliveryNote", () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     extractDeliveryNoteItemsMock.mockResolvedValue({
       supplier: "Rexel",
-      items: [{ name: "Panneau 400W", quantity: 24, unit: "pièce", reference: "REF-9" }],
+      items: [{ name: "Nexans — REF-9", brand: "Nexans", reference: "REF-9", quantity: 24 }],
+      bytesSent: 12_345,
     });
     const fd = new FormData();
     fd.set("file", fileOf("note.jpg"));
     const res = await scanDeliveryNote(initialScan, fd);
     expect(res.type).toBe("success");
-    expect(res.items).toEqual([{ name: "Panneau 400W", quantity: 24, unit: "pièce", reference: "REF-9" }]);
+    expect(res.items).toEqual([{ name: "Nexans — REF-9", brand: "Nexans", reference: "REF-9", quantity: 24 }]);
     expect(res.supplier).toBe("Rexel");
   });
 
-  it("surfaces an extraction error", async () => {
+  it("surfaces an extraction error, translated from the thrown code (never the raw code itself)", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    extractDeliveryNoteItemsMock.mockRejectedValue({ type: "error", message: "Could not read any items." });
+    extractDeliveryNoteItemsMock.mockRejectedValue({ type: "error", code: "noItemsRead" });
     const fd = new FormData();
     fd.set("file", fileOf("note.jpg"));
     const res = await scanDeliveryNote(initialScan, fd);
     expect(res.type).toBe("error");
-    expect(res.message).toBe("Could not read any items.");
+    expect(res.message).toBe(fr.materials.scan.errors.noItemsRead);
   });
 
   it("never relays a non-app-shaped (e.g. provider SDK) error message to the client", async () => {
@@ -148,7 +172,7 @@ describe("applyDeliveryNoteScan", () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await applyDeliveryNoteScan(
       initialApply,
-      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 5 }]) })
+      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ reference: "REF-1", quantity: 5 }]) })
     );
     expect(res.type).toBe("error");
     expect(applyScanItemsMock).not.toHaveBeenCalled();
@@ -173,6 +197,16 @@ describe("applyDeliveryNoteScan", () => {
     expect(res.type).toBe("zodError");
   });
 
+  it("rejects a new-material line whose brand is whitespace-only, rather than writing a nameless material (scannedItemSchema's .refine() only tests raw truthiness, so \" \" passes it — this is the check that actually protects the write)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await applyDeliveryNoteScan(
+      initialApply,
+      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ brand: " ", quantity: 1 }]) })
+    );
+    expect(res.type).toBe("zodError");
+    expect(applyScanItemsMock).not.toHaveBeenCalled();
+  });
+
   it("resolves clientId from the database via projectId, not from the submitted form field", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     applyScanItemsMock.mockResolvedValue([] as never);
@@ -182,7 +216,7 @@ describe("applyDeliveryNoteScan", () => {
     findProjectByIdMock.mockResolvedValue({ id: 2, clientId: 999 } as never);
     const res = await applyDeliveryNoteScan(
       initialApply,
-      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 5 }]) })
+      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ reference: "REF-1", quantity: 5 }]) })
     );
     expect(res.type).toBe("success");
     expect(findProjectByIdMock).toHaveBeenCalledWith(2);
@@ -193,7 +227,7 @@ describe("applyDeliveryNoteScan", () => {
     findProjectByIdMock.mockResolvedValue(null);
     const res = await applyDeliveryNoteScan(
       initialApply,
-      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 5 }]) })
+      formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ reference: "REF-1", quantity: 5 }]) })
     );
     expect(res.type).toBe("error");
     expect(applyScanItemsMock).not.toHaveBeenCalled();
@@ -208,18 +242,23 @@ describe("applyDeliveryNoteScan", () => {
       formOf({
         clientId: "1",
         projectId: "2",
-        items: JSON.stringify([{ name: "Panneau 400W", quantity: 24, materialId: 7 }]),
+        items: JSON.stringify([{ quantity: 24, materialId: 7 }]),
       })
     );
+    // The third argument (supplier) is `null`, not `undefined`: it now goes
+    // through sanitizeScannedNullableString (lib/materialName.ts) like
+    // reference/brand do (point 4 of the audit — reference/supplier used to
+    // skip sanitization on the write path), which normalizes an absent value
+    // to `null` rather than leaving it `undefined`.
     expect(applyScanItemsMock).toHaveBeenCalledWith(
       2,
       expect.arrayContaining([expect.objectContaining({ materialId: 7, quantity: 24 })]),
-      undefined
+      null
     );
     expect(res.type).toBe("success");
   });
 
-  it("passes an unmatched (no materialId) item through to applyScanItems", async () => {
+  it("passes an unmatched (no materialId) item through to applyScanItems, with name composed server-side from brand/reference and unit forced to null", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     applyScanItemsMock.mockResolvedValue([] as never);
     findChildFoldersMock.mockResolvedValue([]);
@@ -229,12 +268,14 @@ describe("applyDeliveryNoteScan", () => {
         clientId: "1",
         projectId: "2",
         supplier: "Rexel",
-        items: JSON.stringify([{ name: "Onduleur", quantity: 3, unit: "pièce", reference: "REF-9" }]),
+        items: JSON.stringify([{ brand: "Nexans", quantity: 3, reference: "REF-9" }]),
       })
     );
     expect(applyScanItemsMock).toHaveBeenCalledWith(
       2,
-      expect.arrayContaining([expect.objectContaining({ name: "Onduleur", quantity: 3, unit: "pièce", reference: "REF-9" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Nexans — REF-9", quantity: 3, unit: null, reference: "REF-9" }),
+      ]),
       "Rexel"
     );
   });
@@ -255,7 +296,7 @@ describe("applyDeliveryNoteScan", () => {
     await applyDeliveryNoteScan(
       initialApply,
       formOf(
-        { clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 1, materialId: 7 }]) },
+        { clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) },
         fileOf("note.jpg")
       )
     );
@@ -277,12 +318,29 @@ describe("applyDeliveryNoteScan", () => {
     await applyDeliveryNoteScan(
       initialApply,
       formOf(
-        { clientId: "1", projectId: "2", items: JSON.stringify([{ name: "Panneau", quantity: 1, materialId: 7 }]) },
+        { clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) },
         fileOf("note.jpg")
       )
     );
     expect(createFileMock).toHaveBeenCalledWith(
       expect.objectContaining({ folderId: null })
     );
+  });
+
+  it("writes nothing to the database when cleaning the archived photo's metadata fails — the whole request fails before applyScanItems or createFile ever run", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "corruptedImage" });
+    const res = await applyDeliveryNoteScan(
+      initialApply,
+      formOf(
+        { clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) },
+        fileOf("note.jpg")
+      )
+    );
+    expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.materials.scan.errors.corruptedImage);
+    expect(applyScanItemsMock).not.toHaveBeenCalled();
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(createFileMock).not.toHaveBeenCalled();
   });
 });

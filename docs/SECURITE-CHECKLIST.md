@@ -27,7 +27,7 @@ qui reste à vérifier.
 |---|---|---|
 | Toute entrée validée par un schéma | Zod sur chaque mutation (`schemas/*.ts`) | ✅ |
 | Séquençage / anti-course | Scan et cumul matériel en transaction ; compteur monotone pour les réserves | ✅ |
-| Anti-automation | Login 5/15 min par email (20/IP) ; reset 3/15 min ; **scan LLM 20/h par utilisateur, 60/h par IP** | ✅ |
+| Anti-automation | Login 5/15 min par email (20/IP) ; reset 3/15 min ; **scan LLM 20/h par utilisateur, 60/h par IP** (budget vérifié avant réservation) | ✅ |
 
 ## V3 — Sécurité du front web
 
@@ -52,7 +52,7 @@ qui reste à vérifier.
 |---|---|---|
 | Type de fichier vérifié serveur | MIME **et** extension (`lib/cloudinary.ts`) ; **magic bytes + extension sur le chemin de scan** | ✅ |
 | SSRF sur récupération distante | Allowlist `res.cloudinary.com` + timeout + plafond de taille | ✅ |
-| **URL Cloudinary publiques** | les fichiers livrés sont accessibles par URL directe sans garde | ⚠️ **écart connu** |
+| **URL Cloudinary publiques** | tous les fichiers projet (plans, photos de réserves, bulletins archivés) sont accessibles par URL directe **sans aucune garde**. Le nettoyage EXIF de l’archive retire la donnée la plus sensible, mais ne referme pas l’accès — c’est la prochaine feature : Cloudinary en privé + route Next qui vérifie l’accès avant de streamer | ⚠️ **écart connu, feature planifiée** |
 
 ## V6 — Authentification
 
@@ -143,12 +143,18 @@ qui reste à vérifier.
 | **Injection de prompt indirecte** | instruction dans un `system` prompt, placée avant l'image, avec mention explicite que le texte visible est une donnée ; forme verrouillée par `tool_choice` ; chaînes sanitisées côté serveur (caractères de contrôle et marques bidi retirés, troncature réelle) | ✅ |
 | **Validation de la sortie** | schéma Zod sur les deux chemins fournisseur ; les 3 `as` sur des valeurs réseau ont été supprimés | ✅ |
 | **Confusion de données** | l'id qui autorise **est** celui sur lequel on écrit ; `updateMany` scopé projet ; `clientId` résolu en base, retiré du formulaire | ✅ |
-| **Coût / déni de service** | 20 scans/h par utilisateur, 60/h par IP (réservation *avant* vérification, pour fermer la course) ; `timeout: 60s`, `maxRetries: 1` ; tableau borné à 200 lignes, chaînes à 200 caractères, quantité plafonnée | ✅ |
+| **Coût / déni de service** | 20 scans/h par utilisateur, 60/h par IP — budget vérifié **avant** réservation, puis réservé avant l'appel payant (un utilisateur bloqué ne réalimente plus sa propre fenêtre) ; `timeout: 60s`, `maxRetries: 1` ; tableau borné à 200 lignes, chaînes à 200 caractères, quantité plafonnée | ✅ |
+| **Bombe de décompression** | `limitInputPixels: 40_000_000` explicite sur les deux traitements sharp — la borne de 10 Mo porte sur les octets compressés, pas sur les pixels décodés : un PNG de 748 Ko atteignait 349 Mo de RSS | ✅ |
 | **Vrai type d'image** | magic bytes (JPEG/PNG/GIF/WEBP) croisés avec l'extension ; le `media_type` en est dérivé | ✅ |
-| **Traçabilité** | log serveur structuré `{userEmail, projectId, provider, model, bytes, itemCount, durationMs, outcome}`, sans le contenu de l'image ni la sortie du modèle | ✅ |
+| **Réduction avant envoi** | longue arête 1568 px, JPEG 85, **EXIF/GPS/ICC/XMP supprimés**, orientation appliquée avant nettoyage ; échec propre **sans repli sur l'original**. ⚠️ **Ne jamais ajouter `.withMetadata()`** — `lib/deliveryNoteScan.ts::reduceImageForModel`, prouvé par `tests/delivery-note-scan-resize.test.ts` | ✅ |
+| **Archive nettoyée** | l'original archivé est débarrassé de ses EXIF (dont GPS) **à résolution inchangée** — décision métier du 2026-08-08 : ces métadonnées reliaient une personne à un lieu et une heure, pour une valeur probante nulle. Nettoyage **avant** toute écriture en base : un échec ne laisse rien derrière lui | ✅ |
+| **Dégradation ligne à ligne** | une ligne sans marque ni référence (« Frais de port »), ou à quantité 0 (reliquat), est **écartée** — elle ne fait plus échouer le bulletin entier. Le `.refine()` reste sur le schéma d'écriture | ✅ |
+| **Messages d'erreur** | le module ne lève que des **codes stables**, traduits par l'action via le dictionnaire ; le détail technique (variable d'environnement, `APIError` fournisseur) ne va qu'au `console.error` serveur | ✅ |
+| **Traçabilité** | log serveur structuré `{userEmail, projectId, provider, model, bytes, bytesSent, itemCount, durationMs, outcome}`, sans le contenu de l'image ni la sortie du modèle | ✅ |
 | **Fuite via Sentry** | `recordInputs`/`recordOutputs` figés à `false` sur les intégrations IA — relever `tracesSampleRate` n'enverra pas les bulletins à un troisième tiers | ✅ |
 | **`projectId` absent du log au scan** | la modale n'envoie pas encore le `projectId` à l'étape scan ; le champ est lu défensivement et vaut `null` | ⚠️ |
-| **Ce qui quitte le serveur** | image entière en base64, sans réduction : raison sociale, adresses, n° de BL, **noms et signatures manuscrites**, plaques — vers un serveur hors UE. DPA, base légale, information des personnes, rétention côté fournisseur | ⬜ **décision humaine** |
+| **Bibliothèques natives de sharp** | sharp embarque ~20 bibliothèques natives de décodage (libvips, libpng, libwebp, libheif…) — terrain historique des CVE de parsing d'image, et **`npm audit` ne les couvre pas**. À suivre comme une dépendance de sécurité à part entière | ⚠️ |
+| **Ce qui quitte le serveur** | l'image est désormais réduite et sans métadonnées, mais **le contenu du bulletin part toujours** : raison sociale, adresses, n° de BL, **noms et signatures manuscrites** — vers un serveur hors UE. DPA, base légale, information des personnes, rétention côté fournisseur | ⬜ **décision humaine** |
 | **Second sous-traitant** | `openai` est déjà en dépendance de production : **une variable d'environnement sur le VPS** suffit pour rerouter tous les bulletins, sans redéploiement donc sans revue de diff. Le log rend désormais la bascule visible | ⬜ **décision humaine** |
 
 ---

@@ -1,8 +1,12 @@
 export type ScannedItem = {
+  // Composed server-side from brand + reference — see composeMaterialName
+  // in lib/deliveryNoteScan.ts. `unit` is gone: a scan no longer asks the
+  // model for one (see schemas/deliveryNoteScan.ts), it stays only as a
+  // hand-editable ProjectMaterial field (forms/EditMaterialForm.tsx).
   name: string;
-  quantity: number;
-  unit: string | null;
+  brand: string | null;
   reference: string | null;
+  quantity: number;
 };
 
 export type DeliveryNoteScanActionState = {
