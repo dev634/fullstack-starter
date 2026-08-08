@@ -35,6 +35,16 @@ const nextConfig: NextConfig = {
   // files inside its own package at runtime. Bundling it breaks those reads,
   // so keep it external and let Node require it from node_modules.
   serverExternalPackages: ["pdfkit"],
+  experimental: {
+    serverActions: {
+      // Server Actions cap request bodies at 1 MB by default — well under a
+      // typical phone photo, so every delivery-note scan
+      // (lib/deliveryNoteScan.ts's MAX_BYTES) was rejected by Next itself
+      // before the action's own 10 MB check ever ran. Must stay equal to
+      // MAX_BYTES; if that constant changes, change this too.
+      bodySizeLimit: 10 * 1024 * 1024,
+    },
+  },
   images: {
     remotePatterns: [
       {

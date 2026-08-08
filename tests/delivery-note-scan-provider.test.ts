@@ -16,8 +16,14 @@ vi.mock("openai", () => ({
 
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
 
+// Magic bytes now matter: extractDeliveryNoteItems reads the buffer's actual
+// signature rather than trusting `file.type` (see
+// lib/deliveryNoteScan.ts::readAndValidateDeliveryNoteImage), so a fixture
+// needs a real JPEG signature (FF D8 FF) to pass validation.
+const JPEG_MAGIC_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+
 function fileOf(): File {
-  return new File(["fake image bytes"], "note.jpg", { type: "image/jpeg" });
+  return new File([JPEG_MAGIC_BYTES], "note.jpg", { type: "image/jpeg" });
 }
 
 const originalEnv = { ...process.env };
