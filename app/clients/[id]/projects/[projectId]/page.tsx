@@ -24,6 +24,7 @@ import ProjectTaskRow from "@/components/ProjectTaskRow";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import TasksSection from "@/components/TasksSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
 import ProjectInterventionRow from "@/components/ProjectInterventionRow";
@@ -31,9 +32,6 @@ import ProjectSubcontractorCompanyRow from "@/components/ProjectSubcontractorCom
 import ProjectInterimRow from "@/components/ProjectInterimRow";
 import ProjectFolderRow from "@/components/ProjectFolderRow";
 import ProjectFileRow from "@/components/ProjectFileRow";
-import AddTaskForm from "@/forms/AddTaskForm";
-import GenerateTaskSeriesForm from "@/forms/GenerateTaskSeriesForm";
-import AddTaskCategoryForm from "@/forms/AddTaskCategoryForm";
 import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
 import AddInterventionForm from "@/forms/AddInterventionForm";
 import AddSubcontractorCompanyForm from "@/forms/AddSubcontractorCompanyForm";
@@ -354,19 +352,14 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         {(() => {
         const sectionContent: Record<ProjectSectionKey, ReactNode> = {
         tasks: (
-          <CollapsibleSection
+          <TasksSection
+            clientId={clientId}
+            projectId={pid}
+            categories={taskCategories}
+            canEdit={canEdit}
             icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
             title={t.projects.detail.tasksHeading}
             badge={totalCount > 0 ? `(${doneCount}/${totalCount})` : undefined}
-            headerExtra={
-              canEdit && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <AddTaskForm clientId={clientId} projectId={pid} categories={taskCategories} />
-                  <GenerateTaskSeriesForm clientId={clientId} projectId={pid} categories={taskCategories} />
-                  <AddTaskCategoryForm clientId={clientId} projectId={pid} />
-                </div>
-              )
-            }
           >
           {categorySections.map(({ category, groups, tasks: categoryTasks }) => (
             <ProjectTaskCategorySection
@@ -413,7 +406,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               {t.projects.detail.noTasks}
             </div>
           ) : null}
-          </CollapsibleSection>
+          </TasksSection>
         ),
         materials: (
           <CollapsibleSection

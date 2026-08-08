@@ -2,14 +2,21 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 
-type CollapsibleSectionProps = {
+// Controlled mode: pass `open` together with `onOpenChange` when a parent
+// needs to force the section open — e.g. reveal it after creating something
+// inside. Omit both to keep the section fully self-contained (uncontrolled).
+// The union prevents passing one without the other.
+type ControlMode =
+  | { open: boolean; onOpenChange: (open: boolean) => void }
+  | { open?: never; onOpenChange?: never };
+
+type CollapsibleSectionProps = ControlMode & {
   icon: ReactNode;
   title: string;
   badge?: string;
   // Rendered next to the toggle (e.g. "Create folder") — kept outside the
   // toggle button itself so it stays independently clickable.
   headerExtra?: ReactNode;
-  defaultOpen?: boolean;
   children: ReactNode;
 };
 
@@ -18,17 +25,25 @@ export default function CollapsibleSection({
   title,
   badge,
   headerExtra,
-  defaultOpen = false,
+  open: openProp,
+  onOpenChange,
   children,
 }: CollapsibleSectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : uncontrolledOpen;
+
+  function toggle() {
+    if (isControlled) onOpenChange?.(!open);
+    else setUncontrolledOpen((v) => !v);
+  }
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggle}
           aria-expanded={open}
           // A floor (not min-w-0) so the title can never be squeezed to nothing
           // by its own header actions: once they no longer fit beside it, the

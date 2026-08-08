@@ -17,10 +17,12 @@ export default function GenerateTaskSeriesForm({
   clientId,
   projectId,
   categories,
+  onCreated,
 }: {
   clientId: number;
   projectId: number;
   categories: TaskCategoryOption[];
+  onCreated?: () => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -30,14 +32,23 @@ export default function GenerateTaskSeriesForm({
   );
   const formRef = useRef<HTMLFormElement>(null);
 
+  const onCreatedRef = useRef(onCreated);
   useEffect(() => {
-    if (state.type === "success") formRef.current?.reset();
+    onCreatedRef.current = onCreated;
+  });
+
+  useEffect(() => {
+    if (state.type !== "success") return;
+    formRef.current?.reset();
+    onCreatedRef.current?.();
   }, [state]);
 
   const [lastHandledState, setLastHandledState] = useState(state);
   if (state !== lastHandledState) {
     setLastHandledState(state);
-    if (state.type === "success") setOpen(false);
+    if (state.type === "success") {
+      setOpen(false);
+    }
   }
 
   return (
