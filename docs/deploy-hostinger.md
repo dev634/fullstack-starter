@@ -1,10 +1,27 @@
 # Déployer sur un VPS Hostinger
 
-Ce guide déploie l'app sur un **VPS Hostinger** avec le pipeline déjà en place dans ce repo :
-GitHub Actions build une image Docker → la pousse sur **GHCR** (GitHub Container Registry) →
-se connecte en SSH au VPS pour tirer l'image et redémarrer la stack (`docker compose`).
-Les migrations Prisma (`prisma migrate deploy`) s'exécutent automatiquement au démarrage du
-conteneur (voir [docker-entrypoint.sh](../docker-entrypoint.sh)).
+> ## ⚠️ Le mécanisme de déploiement a changé — lis ceci d'abord
+>
+> **La partie « le CI se connecte en SSH au VPS » de ce guide n'est plus d'actualité.**
+> Le réseau de Hostinger droppe **par intermittence** les plages d'IP des runners GitHub
+> (Azure) sur le port SSH non standard : le HTTPS passe toujours, le SSH sort en
+> `Connection timed out` sans que rien ne soit en cause côté VM (fail2ban, ufw et iptables
+> vérifiés propres, port en `ACCEPT`). Trois tentatives de fiabilisation (retry, `ssh-keyscan`
+> tolérant, forçage IPv4) n'ont pas suffi.
+>
+> Le déploiement est désormais **pull-based** : le CI se contente de construire et pousser
+> l'image sur GHCR, et **le VPS va la chercher lui-même** (webhook HTTPS + timer systemd).
+> Plus aucune connexion entrante depuis le CI. **Procédure à jour : [`deploy/README.md`](../deploy/README.md).**
+>
+> Ce guide reste valable pour **tout le reste** : création du VPS, utilisateur `deploy`,
+> Docker, Postgres, Caddy, variables d'environnement, sauvegardes. Ignore simplement les
+> étapes qui installent une clé SSH de déploiement pour le CI (`VPS_SSH_KEY`, `ssh-copy-id`
+> pour le CI) — elles ne servent plus.
+
+Ce guide déploie l'app sur un **VPS Hostinger** : GitHub Actions build une image Docker →
+la pousse sur **GHCR** (GitHub Container Registry) → le VPS la récupère et redémarre la
+stack (`docker compose`). Les migrations Prisma (`prisma migrate deploy`) s'exécutent
+automatiquement au démarrage du conteneur (voir [docker-entrypoint.sh](../docker-entrypoint.sh)).
 
 Une fois la configuration initiale faite, **chaque push sur `main` redéploie automatiquement**.
 
