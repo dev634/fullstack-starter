@@ -148,9 +148,9 @@ Un rôle supérieur possède toujours les droits d'un rôle inférieur.
 
 ## Matrice « Rôles & accès »
 
-Le comportement n'est pas figé : un Super administrateur peut configurer, dans **Administration → Rôles & accès**, le **rôle minimum requis** pour chaque **capacité** de l'application (créer/modifier du contenu, corbeille, import, journal d'activité, gérer les fonctions, gérer les utilisateurs, paramètres). Par défaut, ces valeurs reproduisent le comportement standard décrit ci-dessus.
+Le comportement n'est pas figé : un Super administrateur peut configurer, dans **Administration → Rôles & accès**, le **rôle minimum requis** pour chaque **capacité** de l'application (créer/modifier du contenu, corbeille, import, journal d'activité…). Par défaut, ces valeurs reproduisent le comportement standard décrit ci-dessus.
 
-La capacité « Paramètres & accès » est **verrouillée sur Super administrateur** afin d'éviter tout verrouillage du système.
+Trois capacités sont **verrouillées et non délégables** — « Paramètres & accès », « Gérer les fonctions » et « Gérer les utilisateurs » : elles configurent le modèle d'accès lui-même, donc les déléguer reviendrait à déléguer le droit de s'attribuer tous les autres. Dans le même esprit, **personne ne peut modifier la fonction qui le restreint** : ni en éditant sa propre fonction, ni en rattachant son compte à une autre. Seul un Super administrateur peut le faire pour quelqu'un d'autre — c'est la sortie de secours qui évite de se verrouiller dehors.
 
 ![La matrice « Rôles & accès » : rôle minimum requis pour chaque capacité.](screenshots/admin-roles.png)
 
@@ -303,7 +303,7 @@ L'interface est disponible en **français** et en **anglais**. La bascule se fai
 # Sécurité
 
 - **Authentification** par Auth.js, sessions **JWT** signées (`AUTH_SECRET`).
-- **Autorisation** par rôle et par **capacité** (matrice Rôles & accès) ; chaque mutation vérifie le rôle requis.
+- **Autorisation** par rôle et par **capacité** (matrice Rôles & accès), **plus** les restrictions de la fonction (rubriques, sections, projets). Les **lectures** sont contrôlées au même titre que les modifications : une page, un tableau de bord, une corbeille ou un journal n'affiche que ce que le périmètre autorise, le filtrage étant fait dans la requête et non à l'affichage.
 - **Portail client cloisonné** : un compte CLIENT est confiné au portail et ne voit que ses projets liés (contrôle au niveau du proxy **et** des pages).
 - **CSP à nonce** par requête pour limiter l'injection de scripts.
 - **Limitation de débit** (rate limiting) persistée en base sur les tentatives de connexion et de réinitialisation.

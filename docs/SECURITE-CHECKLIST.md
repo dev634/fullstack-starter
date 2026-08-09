@@ -25,7 +25,8 @@ qui reste à vérifier.
 
 | Exigence | Où | État |
 |---|---|---|
-| Toute entrée validée par un schéma | Zod sur chaque mutation (`schemas/*.ts`) | ✅ |
+| Toute entrée validée par un schéma | Zod sur chaque mutation (`schemas/*.ts`). ⚠️ **Cette ligne était ✅ à tort avant PR #187** : `updateClient` faisait un cast, son schéma était déclaré et importé par aucun fichier. Une déclaration n'est pas un usage — cette ligne se re-vérifie par `grep` du symbole, pas par sa présence dans `schemas/` | ✅ |
+| Bornes sur les entrées | Plafonds de texte partagés (`schemas/fields.ts`) ; 1000 lignes par import CSV, 200 par suppression en masse, `MAX_SERIES_SIZE` sur les séries de tâches ; `Infinity` rejeté par les coercitions ; dates réellement validées (une date hors bornes rendait `/projects/export` en 500 **définitivement, pour tous les rôles**) | ✅ |
 | Séquençage / anti-course | Scan et cumul matériel en transaction ; compteur monotone pour les réserves | ✅ |
 | Anti-automation | Login 5/15 min par email (20/IP) ; reset 3/15 min ; **scan LLM 20/h par utilisateur, 60/h par IP** (budget vérifié avant réservation) | ✅ |
 
@@ -50,7 +51,7 @@ qui reste à vérifier.
 
 | Exigence | Où | État |
 |---|---|---|
-| Type de fichier vérifié serveur | MIME **et** extension (`lib/cloudinary.ts`) ; **magic bytes + extension sur le chemin de scan** | ✅ |
+| Type de fichier vérifié serveur | **Magic bytes + extension sur les quatre chemins d'upload** (`lib/fileSignature.ts`, extrait du scan plutôt que dupliqué), HEIC/AVIF/BMP/TIFF compris. Avant PR #187 : aucun chemin ne lisait un octet, et le blocage des contenus dangereux n'existait que sur deux chemins sur quatre — les deux non couverts partant en URL Cloudinary publique | ✅ |
 | SSRF sur récupération distante | Allowlist `res.cloudinary.com` + timeout + plafond de taille | ✅ |
 | **URL Cloudinary publiques — nouveaux uploads** | `deliveryType` gardé (`AUTHENTICATED`) dès la création pour ProjectFile/ReservePlan/ReservePhoto ; livrés uniquement par `GET /api/assets/[kind]/[id]`, qui signe l'URL côté serveur et re-vérifie l'accès à chaque requête (jamais l'URL Cloudinary brute vers le client) | ✅ |
 | **URL Cloudinary publiques — données existantes avant cette migration** | les lignes créées avant ce changement restent en `deliveryType = 'UPLOAD'` et leur asset Cloudinary reste joignable par son ancienne URL publique, sans aucune garde, **jusqu'à ce que `scripts/retype-existing-guarded-assets.mjs --execute` ait tourné avec zéro échec** (idempotent, ré-exécutable). Il se lance **depuis le conteneur applicatif**, `docker exec fullstack_starter_web node scripts/retype-existing-guarded-assets.mjs` (sans flag = dry-run) — procédure complète, reprise après interruption et avertissement sur les liens déjà partagés dans [`deploy/README.md`](../deploy/README.md). Le nombre de lignes encore concernées est exposé en clair (compteur agrégé) sur `GET /api/health` (`pendingGuardedAssets`), justement pour que ce point ne reste pas silencieusement faux | ⚠️ **écart connu, tant que le script de bascule n'a pas terminé avec zéro échec** |
@@ -76,11 +77,12 @@ qui reste à vérifier.
 | Exigence | Où | État |
 |---|---|---|
 | Contrôle **côté serveur**, centralisé | 3 axes : `requireCapability`, `requireSectionAccess`/`requireAreaAccess`, `requireProjectAccess` | ✅ |
-| Filtrage **dans la requête**, pas au rendu | listes, page projet, tableau de bord, exports, PDF | ✅ |
+| Filtrage **dans la requête**, pas au rendu | listes, page projet, tableau de bord, exports, PDF. ⚠️ **Cette ligne portait ✅ alors qu'elle était fausse** : jusqu'à PR #187, les deux corbeilles, les deux journaux d'activité, le tableau de bord d'un chantier, le tableau de bord d'accueil et `getBreadcrumb` ne filtraient sur aucun périmètre. Une ligne de cette checklist ne vaut que par l'énumération des surfaces qu'elle couvre — « tableau de bord » au singulier en cachait deux non gardés | ✅ |
+| Pas d'auto-élévation | Un ADMIN ne peut ni éditer la fonction qui le contraint (`setFunctionAreas`) ni repointer son propre compte vers une autre (`updateUser`) — les **deux** leviers, sortie de secours SUPERADMIN. `LOCKED_CAPABILITIES` (`settings.manage`, `functions.manage`, `users.manage`) non délégables par la matrice | ✅ |
 | Anti-IDOR | l'id qui autorise est **résolu en base**, jamais lu dans un formulaire | ✅ |
 | Anti-énumération | hors périmètre ⇒ « introuvable », jamais « interdit » | ✅ |
 | Frontière portail CLIENT | proxy **et** `blockClientFromApp()` (défense en profondeur) | ✅ |
-| Test structurel de couverture | `tests/authz-coverage.test.ts` échoue si une mutation saute sa garde | ✅ |
+| Test structurel de couverture | `tests/authz-coverage.test.ts` échoue si une action exportée saute sa garde, **lectures comprises depuis PR #187**. Il portait un `READS = new Set([...])` qui en exemptait trois : l'exemption avait l'air d'une décision motivée et *était* le trou. Toute exemption ajoutée ici doit porter sa raison et la condition de sa disparition | ✅ |
 
 ## V9 — Jetons autoportants (JWT)
 
@@ -163,5 +165,6 @@ qui reste à vérifier.
 ## Quand rejouer
 
 - **À chaque feature** : le `security-auditor` vérifie les régressions sur les ✅ touchés par le diff.
+- **Passe adverse (`beta-tester`)** : quand un axe d'autorisation change, avant une mise en production sensible, sinon toutes les ~10 features. Elle ne remplace pas l'audit et ne lit pas un diff : elle attaque les points d'entrée serveur de toute l'app. Premier passage (PR #187) : 22 défauts, dont quatre ✅ de ce document qui étaient faux. **Un ✅ ici n'est acquis que jusqu'à la prochaine passe adverse.**
 - **Passe complète** : à chaque changement d'architecture (nouvelle surface d'auth, nouveau tiers, nouveau type de donnée), ou tous les 6 mois.
 - **À la sortie d'une révision ASVS** : re-mapper. Le passage 4.0.3 → 5.0 a renuméroté tous les chapitres et ajouté V9 (jetons autoportants), qui nous concerne directement.

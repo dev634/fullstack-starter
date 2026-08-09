@@ -62,10 +62,41 @@ rubrique qui y mène doit donc masquer ce qu'elle contient.
 
 Hors périmètre ⇒ **« introuvable », jamais « interdit »** (anti-énumération).
 
+**Les lectures sont gardées comme les mutations** (passe adverse, PR #187). Ce
+n'était pas le cas : `getClient` / `getProject` / `getProjectsForClient`
+n'avaient que `requireCapability`, et quatre surfaces de lecture n'avaient
+aucun filtre de périmètre — les deux corbeilles, les deux journaux d'activité,
+le tableau de bord d'un chantier (alors que la page de détail voisine, elle,
+était gardée) et `getBreadcrumb` (qui rendait la chaîne de noms d'un dossier de
+n'importe quel projet). Trois conséquences pour toute nouvelle lecture :
+
+- une **vue voisine** d'un écran gardé porte les mêmes gardes que lui —
+  rubrique *et* sections masquées, pas seulement l'accès projet ;
+- une lecture **auxiliaire** (fil d'Ariane, compteur, agrégat) reçoit le
+  `projectId` et recroise, elle ne se contente pas de l'id qu'on lui passe ;
+- une lecture **transverse** (corbeille, journal) filtre sur le périmètre dans
+  la requête, jamais au rendu.
+
 Bypass : les fonctions masquent pour tous sauf **SUPERADMIN** sur `hiddenAreas`
 (un ADMIN y est soumis, sinon masquer l'Administration ne servirait à rien).
 
-`tests/authz-coverage.test.ts` échoue si une mutation saute une garde.
+**Personne ne modifie la contrainte qui le contraint.** Deux leviers permettaient
+à un ADMIN de lever sur lui-même les restrictions de sa fonction : éditer cette
+fonction (`setFunctionAreas`) ou repointer son propre compte vers une autre
+(`updateUser`). Les deux sont fermés, sortie de secours **SUPERADMIN** (qui
+n'est de toute façon pas soumis à `hiddenAreas`). Fermer un levier sans l'autre
+n'aurait rien fermé.
+
+`LOCKED_CAPABILITIES` (`lib/capabilities.ts`) = `settings.manage`,
+`functions.manage`, `users.manage` : **non délégables par la matrice de rôles**,
+puisqu'elles configurent le modèle d'accès lui-même. Une capacité qui donne le
+pouvoir de changer les capacités rejoint cette liste.
+
+`tests/authz-coverage.test.ts` échoue si une fonction exportée de
+`actions/{clients,projects,contacts}` saute `requireAreaAccess` — **lectures
+comprises depuis PR #187**. Il portait auparavant un `READS = new Set([...])`
+qui en exemptait trois : l'exemption *était* le trou. Aucune exemption ne se
+rajoute ici sans porter sa raison et la condition de sa disparition.
 
 ## Tests — le piège récurrent
 
@@ -79,17 +110,39 @@ Quand un mock remplace tout un module (`vi.mock("@/repository/x")`), il doit
 exporter **toutes** les fonctions que le code appelle, y compris celles
 appelées indirectement.
 
+## Validation — primitives partagées, à réutiliser
+
+Ne pas réinventer un plafond ni une détection : ces deux modules existent, et
+c'est leur duplication partielle qui a produit les défauts de PR #187.
+
+- **Plafonds de texte** : `schemas/fields.ts` (`MAX_NAME_LENGTH`,
+  `MAX_NOTE_LENGTH`, `MAX_CODE_LENGTH`, `MAX_EMAIL_LENGTH`…). Un palier **par
+  usage**, pas un nombre par champ. Avant, aucun `z.string().min(1)` de l'app
+  n'avait de borne haute : une série de tâches amplifiait une requête de 200 Ko
+  en ~40 Mo écrits en base.
+- **Vrai type d'un fichier** : `lib/fileSignature.ts`
+  (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`) — magic bytes,
+  extrait du scan de bulletin plutôt que dupliqué. Les quatre chemins d'upload
+  y passent. **HEIC/AVIF/BMP/TIFF sont explicitement couverts** : le HEIC est le
+  format par défaut des iPhone, et les réserves se photographient au téléphone.
+  Resserrer cette détection sans le vérifier casse le chemin le plus utilisé.
+- Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer
+  `Infinity` ; une date non validée laisse écrire `+275760-09-12`, que Prisma
+  relit en `Invalid Date` et qui a rendu `/projects/export` en 500 **pour tout
+  le monde, définitivement**. Une donnée d'entrée qui casse une lecture globale
+  se corrige **des deux côtés** : validation à l'entrée, et lecture tolérante à
+  une ligne déjà corrompue en base.
+
 ## Migrations
 
-- Nom : `AAAAMMJJHHMMSS_description`. **Vérifier le dernier timestamp existant
-  avant de nommer** — deux migrations ont déjà porté le même.
+Les règles générales (nommage à vérifier contre le dernier timestamp,
+ajouter → backfill → supprimer, index sur chaque FK) sont dans
+`~/.claude/CLAUDE.md` — pas recopiées ici. Propre à ce dépôt :
+
+- Nom : `AAAAMMJJHHMMSS_description`.
 - Générer le SQL avec
   `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`,
   puis relire : le diff doit contenir *exactement* le changement voulu.
-- Remplacer une colonne par une FK : **ajouter → backfill → supprimer**, jamais
-  supprimer sec. Le backfill se garde même si la base locale est vide : il
-  protège la prod, qui n'a pas été inspectée.
-- Toute FK a son `@@index` (Postgres ne les crée pas).
 - La prod applique les migrations **au démarrage du conteneur**
   (`docker-entrypoint.sh`) — une migration mergée part automatiquement.
 
