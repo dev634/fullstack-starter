@@ -89,7 +89,12 @@ export async function editMaterial(
     const realProjectId = await findMaterialProjectId(parsed.data.id);
     if (realProjectId === null) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+    // Passe 3b, point 2: a material resolved from THIS id that sits outside
+    // the caller's scope must read exactly like one that doesn't exist —
+    // both are resolved from the database, so a distinct "forbidden"
+    // response would let a restricted EDITOR enumerate ids across the whole
+    // company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
     const material = await update(parsed.data.id, {
       name: parsed.data.name,
       quantity: parsed.data.quantity,
@@ -136,7 +141,8 @@ export async function deleteMaterial(id: number, clientId: number, projectId: nu
     const realProjectId = await findMaterialProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.materials.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see editMaterial's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.materials.messages.invalidId };
     const material = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.materials.messages.deleted, data: material };

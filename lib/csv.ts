@@ -1,4 +1,20 @@
 /**
+ * Row-count ceiling shared by every CSV import (clients, projects, contacts —
+ * adversarial pass 2, point 7). Before this, the only real limit was the
+ * Server Action body-size cap (10 MB, next.config.ts's bodySizeLimit) — for
+ * a short CSV row that's ~170 000 lines, and each row costs up to three
+ * sequential repository calls (a lookup, a scope check, a create), never
+ * batched. Measured: 2000 lines took 8.7s on the heaviest import path — a
+ * Server Action holding a database connection open for minutes on a large
+ * file is a resource-exhaustion vector, not just a slow request. 1000 keeps
+ * a worst-case import within a few seconds (~4.35 ms/row measured × 1000),
+ * comfortably above any real bulk import (a legitimate export/edit/re-import
+ * round trip), and each importer reports the ones it can't process rather
+ * than silently truncating the file.
+ */
+export const MAX_IMPORT_ROWS = 1000;
+
+/**
  * Single source of truth for the CSV column headers used by both
  * /clients/export and the CSV import — keeps the two round-trip compatible.
  */

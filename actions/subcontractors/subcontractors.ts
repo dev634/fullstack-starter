@@ -78,7 +78,12 @@ export async function deleteSubcontractorCompany(id: number, clientId: number, p
     const realProjectId = await findCompanyProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2: a company resolved from THIS id that sits outside
+    // the caller's scope must read exactly like one that doesn't exist —
+    // both are resolved from the database, so a distinct "forbidden"
+    // response would let a restricted EDITOR enumerate ids across the whole
+    // company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const company = await removeCompany(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.subcontractors.messages.companyDeleted, data: company };
@@ -117,7 +122,8 @@ export async function addSubcontractorPerson(
       return { ...prevState, type: "error", message: t.subcontractors.messages.invalidId };
     }
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+    // Passe 3b, point 2 — see deleteSubcontractorCompany's comment above.
+    if (scopeCheck.error) return { ...prevState, type: "error", message: t.subcontractors.messages.invalidId };
     const person = await addPerson({
       companyId: parsed.data.companyId,
       name: parsed.data.name,
@@ -154,7 +160,8 @@ export async function deleteSubcontractorPerson(id: number, clientId: number, pr
     const realProjectId = await findPersonProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see deleteSubcontractorCompany's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const person = await removePerson(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.subcontractors.messages.personDeleted, data: person };

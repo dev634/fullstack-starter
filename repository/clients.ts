@@ -7,13 +7,31 @@ import { GetClientsByOrder } from "@/service/clients";
 /**
  * Aggregate figures for the home dashboard: total, per-status counts and the
  * most recently added clients (id desc, since there is no createdAt column).
+ *
+ * Optionally scoped to `projectIds` (pass `projectIdFilter(await
+ * getAccessContext())` — `undefined` means unrestricted, matching `search`'s
+ * convention): without this, every counter and "recently added" row covered
+ * the whole instance regardless of the caller's assigned projects. `select`
+ * is explicit on `recent` (not the full row) since Client carries an email —
+ * project convention for any model with a sensitive-ish field.
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(projectIds?: number[]) {
     try {
+        const where: Prisma.ClientWhereInput = {
+            deletedAt: null,
+            ...(projectIds !== undefined
+                ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+                : {}),
+        };
         const [total, grouped, recent] = await Promise.all([
-            prisma.client.count({ where: { deletedAt: null } }),
-            prisma.client.groupBy({ by: ["status"], where: { deletedAt: null }, _count: { _all: true } }),
-            prisma.client.findMany({ where: { deletedAt: null }, orderBy: { id: "desc" }, take: 5 }),
+            prisma.client.count({ where }),
+            prisma.client.groupBy({ by: ["status"], where, _count: { _all: true } }),
+            prisma.client.findMany({
+                where,
+                orderBy: { id: "desc" },
+                take: 5,
+                select: { id: true, companyName: true, email: true, photoUrl: true, status: true },
+            }),
         ]);
         const byStatus: Record<string, number> = { PROSPECT: 0, CLIENT: 0, INACTIVE: 0 };
         for (const g of grouped) byStatus[g.status] = g._count._all;
@@ -21,7 +39,7 @@ export async function getDashboardStats() {
     } catch (error) {
         console.log("Repository getDashboardStats error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error loading dashboard.",
         };
     }
@@ -55,7 +73,7 @@ export async function create({email, companyName, address, city, zipCode, countr
         }
         
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating client."
         };
     }
@@ -131,7 +149,7 @@ export async function search({
   } catch (error) {
     console.log("Repository search error:", error);
     throw {
-      type: "error",
+      type: "repositoryError",
       message: "Database Error searching clients.",
     };
   }
@@ -147,24 +165,50 @@ export async function findAll(orderBy: GetClientsByOrder) {
     } catch (error) {
         console.log("Repository findAll error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching clients."
            }
     }
 }
 
-/** Soft-deleted clients (trash), most recently deleted first. */
-export async function findTrashed() {
+/**
+ * Trashed companies (most recently deleted first), optionally scoped to the
+ * given project ids (pass
+ * `projectIdFilter(await getAccessContext())` — `undefined` means
+ * unrestricted, matching `search`'s convention).
+ *
+ * A company itself has no project-scoped id to filter on, so — mirroring
+ * `search`'s `projects: { some: { ... } }` clause and the `hasProjectAmong`
+ * check that already gates restore/permanent-delete — a restricted caller
+ * only sees a trashed company here if it still owns a *live* project among
+ * their assigned ids. Trashing a company doesn't cascade to its projects, so
+ * that project can still exist (deletedAt: null) even though its owner is
+ * now in the trash; a restricted user assigned to that project keeps the
+ * same "can reach this company" relationship the mutations already grant
+ * them, so the listing that surfaces the restore/delete buttons must show
+ * the same row. Anyone with no live project left in their assigned set sees
+ * nothing here, which is the common case.
+ *
+ * `select` is explicit (not the full row) since Client carries an email —
+ * project convention for any model with a sensitive-ish field.
+ */
+export async function findTrashed(projectIds?: number[]) {
     try {
         const clients = await prisma.client.findMany({
-            where: { deletedAt: { not: null } },
+            where: {
+                deletedAt: { not: null },
+                ...(projectIds !== undefined
+                    ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+                    : {}),
+            },
             orderBy: { deletedAt: "desc" },
+            select: { id: true, companyName: true, email: true, photoUrl: true },
         });
         return clients;
     } catch (error) {
         console.log("Repository findTrashed error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching trashed clients."
            }
     }
@@ -179,7 +223,7 @@ export async function findByEmail(email: string) {
     }catch(error){
         console.log("Repository findByEmail error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching client."
            }
     }
@@ -194,7 +238,7 @@ export async function findById(id: number) {
     }catch(error){
         console.log("Repository findById error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching client."
            }
     }
@@ -216,7 +260,7 @@ export async function update({ id, email, companyName, address, city, zipCode, c
     }catch(error){
         console.log("Repository update error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error update client"
         }
     }
@@ -233,7 +277,7 @@ export async function softDelete(id: number) {
     }catch(error){
         console.log("Repository softDelete error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting client"
         }
     }
@@ -250,7 +294,7 @@ export async function restore(id: number) {
     }catch(error){
         console.log("Repository restore error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error restoring client"
         }
     }
@@ -266,7 +310,7 @@ export async function permanentlyRemove(id: number) {
     }catch(error){
         console.log("Repository permanentlyRemove error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting client"
         }
     }

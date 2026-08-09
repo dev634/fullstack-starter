@@ -1,5 +1,7 @@
 import { getProject } from "@/actions/projects/projects";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
+import { getHiddenSections } from "@/lib/sectionAccess";
+import { canAccessArea } from "@/lib/areaAccess";
 import { blockClientFromApp } from "@/lib/portal";
 import { findByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
@@ -50,8 +52,13 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   // of the same chantier.
   const access = await getAccessContext();
   const outOfScope = result.data ? !canReachProject(access, result.data.id) : false;
+  // Same not-found fold as the project detail page: the `projects` rubrique
+  // governs whether a project exists for this caller AT ALL (see that page's
+  // comment for why this doesn't need the anti-enumeration branching that
+  // outOfScope does).
+  const hiddenByArea = !(await canAccessArea("projects"));
 
-  if (isEmpty || result.data?.clientId !== clientId || outOfScope) {
+  if (isEmpty || result.data?.clientId !== clientId || outOfScope || hiddenByArea) {
     return (
       <main className="flex flex-1 min-h-0 flex-col justify-center items-center overflow-y-auto py-8">
         <Title title={t.projectDashboard.title} />
@@ -61,11 +68,18 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   }
 
   const project = result.data!;
+  // A function that hides the "tasks"/"materials" sections on the detail
+  // page must hide the same data here — this dashboard is just another view
+  // onto it, and task titles/material names below end up as props of a
+  // Client Component (so in the HTML) if fetched.
+  const hiddenSections = await getHiddenSections();
+  const showTasks = !hiddenSections.has("tasks");
+  const showMaterials = !hiddenSections.has("materials");
   const [tasks, taskGroups, taskCategories, materials] = await Promise.all([
-    findByProject(pid),
-    findTaskGroupsByProject(pid),
-    findTaskCategoriesByProject(pid),
-    findMaterialsByProject(pid),
+    showTasks ? findByProject(pid) : Promise.resolve([]),
+    showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
+    showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
+    showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
   ]);
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
@@ -121,6 +135,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         </div>
 
         {/* Task progress */}
+        {showTasks && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
@@ -162,8 +177,10 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+        )}
 
         {/* Material stock */}
+        {showMaterials && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
@@ -203,6 +220,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             </CollapsibleSection>
           </div>
         </div>
+        )}
       </div>
     </main>
   );

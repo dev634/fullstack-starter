@@ -3,8 +3,11 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { auth } from "@/lib/auth";
+import { hasMinRole } from "@/lib/authz";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
+import { findJobFunctionIdByEmail } from "@/repository/users";
 import { isProjectSectionKey } from "@/lib/projectSections";
 import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
@@ -116,6 +119,25 @@ export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+
+    // Passe 3b, point 3: an ADMIN whose OWN function hides some rubriques
+    // could call setFunctionAreas(theirOwnFunctionId, []) and lift that
+    // restriction on themselves in a single call, with no SUPERADMIN
+    // involved — proven during this pass. Block editing the function
+    // CURRENTLY ASSIGNED to the caller's own account. The escape hatch
+    // stays SUPERADMIN, who bypasses hiddenAreas unconditionally anyway
+    // (lib/accessContext.ts) — a user must never be able to lock themselves
+    // out with no recourse, and SUPERADMIN is that recourse: it can always
+    // still fix a misconfigured function, including its own.
+    const session = await auth();
+    if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
+      const email = session?.user?.email;
+      const ownFunctionId = email ? await findJobFunctionIdByEmail(email) : null;
+      if (ownFunctionId === id) {
+        return { type: "error" as const, message: t.jobFunctions.messages.cannotEditOwnFunction };
+      }
+    }
+
     const valid = Array.isArray(hiddenAreas) ? normalizeHiddenAreas(hiddenAreas) : [];
     await updateHiddenAreas(id, valid);
     revalidatePath("/admin/settings/fonctions");

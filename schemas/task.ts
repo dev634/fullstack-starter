@@ -1,4 +1,5 @@
 import z from "zod";
+import { MAX_NAME_LENGTH } from "@/schemas/fields";
 
 const optionalDate = z
     .string()
@@ -19,7 +20,7 @@ const optionalPositiveInt = z
 export const createTaskSchema = z.object({
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
-    title: z.string().min(1, "Le titre de la tâche est requis"),
+    title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH),
     dueDate: optionalDate,
     // A standalone task can optionally track progress as a quantity (e.g.
     // "12 / 20 panneaux") instead of a plain checkbox — set once at creation.
@@ -38,12 +39,33 @@ export const updateTaskSchema = z.object({
     id: z.coerce.number().int().positive(),
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
-    title: z.string().min(1, "Le titre de la tâche est requis"),
+    title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH),
     dueDate: optionalDate,
     quantityTarget: optionalPositiveInt,
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+/**
+ * updateTaskQuantity (actions/tasks/tasks.ts) is called with raw numeric
+ * arguments from a client component, not FormData — but a Server Action's
+ * arguments still travel over the wire in React's own serialization format,
+ * which (unlike JSON) can carry NaN. The repository's clamp
+ * (Math.max(0, Math.min(quantityDone, target))) holds for a negative value
+ * or Infinity, but not for NaN: Math.min/Math.max propagate it, and it then
+ * writes quantityDone = null (Prisma can't represent a Float NaN) with
+ * done = false — a state the UI can never produce on its own, silently
+ * zeroing a task's progress. Validated here rather than left to the
+ * repository's clamp — adversarial pass 2, point 8.
+ */
+export const updateTaskQuantitySchema = z.object({
+    id: z.coerce.number().int().positive(),
+    quantityDone: z.coerce.number(),
+    clientId: z.coerce.number().int().positive(),
+    projectId: z.coerce.number().int().positive(),
+});
+
+export type UpdateTaskQuantityInput = z.infer<typeof updateTaskQuantitySchema>;
 
 export const MAX_SERIES_SIZE = 200;
 
@@ -53,13 +75,24 @@ export const MAX_SERIES_SIZE = 200;
  * pattern (otherwise every generated title would be identical), and the
  * range is capped to avoid an accidental typo (e.g. "to: 99999") creating an
  * unbounded number of rows.
+ *
+ * `pattern` is capped at MAX_NAME_LENGTH — the same bound as a plain task's
+ * own `title` above — because it feeds every generated title directly
+ * (repository/tasks.ts's createMany: `pattern.replaceAll("{n}", String(n))`)
+ * WITHOUT going through createTaskSchema's own title bound, since that's a
+ * different code path entirely. Before this, MAX_SERIES_SIZE already capped
+ * the row COUNT (200) but nothing capped a single row's SIZE: a 200 KB
+ * `pattern` produced 200 titles of ~200 001 characters each — ~40 MB
+ * actually written from a ~200 KB request (measured: 200 rows in 961 ms).
+ * Capping `pattern` itself bounds every generated title as a side effect,
+ * without needing to validate each one after the fact.
  */
 export const createTaskSeriesSchema = z
     .object({
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
-        name: z.string().min(1, "Le nom de la série est requis"),
-        pattern: z.string().min(1, "Le motif est requis"),
+        name: z.string().min(1, "Le nom de la série est requis").max(MAX_NAME_LENGTH),
+        pattern: z.string().min(1, "Le motif est requis").max(MAX_NAME_LENGTH),
         from: z.coerce.number().int(),
         to: z.coerce.number().int(),
         // Optional: assign the new series directly to an existing category

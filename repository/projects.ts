@@ -25,7 +25,7 @@ export async function findByIds(ids: number[]) {
         });
     } catch (error) {
         console.log("Repository findByIds (project) error:", error);
-        throw { type: "error", message: "Database Error fetching projects." };
+        throw { type: "repositoryError", message: "Database Error fetching projects." };
     }
 }
 
@@ -86,7 +86,7 @@ export async function search({
     } catch (error) {
         console.log("Repository search (project) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error searching projects.",
         };
     }
@@ -127,7 +127,7 @@ export async function create(data: ProjectData) {
     } catch (error) {
         console.log("Repository create project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating project.",
         };
     }
@@ -149,7 +149,7 @@ export async function findByClient(clientId: number, projectIds?: number[]) {
     } catch (error) {
         console.log("Repository findByClient error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching projects.",
         };
     }
@@ -164,7 +164,7 @@ export async function findById(id: number) {
     } catch (error) {
         console.log("Repository findById (project) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching project.",
         };
     }
@@ -187,7 +187,32 @@ export async function hasProjectAmong(clientId: number, projectIds: number[]): P
         return found !== null;
     } catch (error) {
         console.log("Repository hasProjectAmong (project) error:", error);
-        throw { type: "error", message: "Database Error checking project access." };
+        throw { type: "repositoryError", message: "Database Error checking project access." };
+    }
+}
+
+/**
+ * Distinct client ids owning any of the given project ids — used to scope
+ * the client activity log (repository/activity.ts) to a restricted caller.
+ * ActivityLog has no relation to Client (its `clientId` is a plain field so
+ * the audit trail survives a permanent delete), so client-side visibility
+ * for that log is derived here instead: "did I hold a project under this
+ * company", regardless of that project's current live/trashed state — the
+ * log is a historical record, not a live listing, so a project the caller
+ * later deleted must still resolve its owning client.
+ */
+export async function findClientIdsAmong(projectIds: number[]): Promise<number[]> {
+    if (projectIds.length === 0) return [];
+    try {
+        const rows = await prisma.project.findMany({
+            where: { id: { in: projectIds } },
+            select: { clientId: true },
+            distinct: ["clientId"],
+        });
+        return rows.map((r) => r.clientId);
+    } catch (error) {
+        console.log("Repository findClientIdsAmong error:", error);
+        throw { type: "repositoryError", message: "Database Error resolving client scope." };
     }
 }
 
@@ -212,7 +237,7 @@ export async function update(id: number, data: ProjectData) {
     } catch (error) {
         console.log("Repository update project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating project.",
         };
     }
@@ -224,7 +249,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting project.",
         };
     }
@@ -240,7 +265,7 @@ export async function softDelete(id: number) {
     } catch (error) {
         console.log("Repository softDelete project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting project.",
         };
     }
@@ -256,17 +281,27 @@ export async function restore(id: number) {
     } catch (error) {
         console.log("Repository restore project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error restoring project.",
         };
     }
 }
 
-/** Soft-deleted projects (trash), most recently deleted first. */
-export async function findTrashed() {
+/**
+ * Trashed projects (most recently deleted first), optionally scoped to the
+ * given ids (pass
+ * `projectIdFilter(await getAccessContext())` — `undefined` means
+ * unrestricted, matching `search`'s convention). A restricted caller must
+ * only see the deleted projects they were assigned to, not the whole
+ * instance's trash.
+ */
+export async function findTrashed(projectIds?: number[]) {
     try {
         return await prisma.project.findMany({
-            where: { deletedAt: { not: null } },
+            where: {
+                deletedAt: { not: null },
+                ...(projectIds !== undefined ? { id: { in: projectIds } } : {}),
+            },
             include: {
                 client: { select: { id: true, companyName: true } },
             },
@@ -275,7 +310,7 @@ export async function findTrashed() {
     } catch (error) {
         console.log("Repository findTrashed project error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching trashed projects.",
         };
     }
@@ -297,7 +332,7 @@ export async function countByStatus(clientId?: number) {
     } catch (error) {
         console.log("Repository countByStatus error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error counting projects.",
         };
     }
@@ -314,6 +349,6 @@ export async function findAllAssignable() {
         return projects.map((p) => ({ id: p.id, name: p.name, companyName: p.client.companyName }));
     } catch (error) {
         console.log("Repository findAllAssignable error:", error);
-        throw { type: "error", message: "Database Error fetching projects." };
+        throw { type: "repositoryError", message: "Database Error fetching projects." };
     }
 }

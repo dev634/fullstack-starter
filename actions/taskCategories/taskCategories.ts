@@ -71,7 +71,12 @@ export async function deleteTaskCategory(id: number, clientId: number, projectId
     const realProjectId = await findCategoryProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2: a category resolved from THIS id that sits outside
+    // the caller's scope must read exactly like one that doesn't exist —
+    // both are resolved from the database, so a distinct "forbidden"
+    // response would let a restricted EDITOR enumerate ids across the whole
+    // company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const category = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.category.messages.deleted, data: category };

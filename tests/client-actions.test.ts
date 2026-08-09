@@ -24,10 +24,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addClient, getClient, deleteClient, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
+import { addClient, updateClient, getClient, deleteClient, deleteClients, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
-import { findById, softDelete, restore, permanentlyRemove } from "@/repository/clients";
+import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { hasProjectAmong } from "@/repository/projects";
@@ -42,10 +42,27 @@ const findByIdMock = vi.mocked(findById);
 const softDeleteMock = vi.mocked(softDelete);
 const restoreMock = vi.mocked(restore);
 const permanentlyRemoveMock = vi.mocked(permanentlyRemove);
+const updateMock = vi.mocked(update);
 const findPublicIdsByClientMock = vi.mocked(findPublicIdsByClient);
 const destroyProjectFileMock = vi.mocked(destroyProjectFile);
 const logActivityMock = vi.mocked(logActivity);
 const initial = { type: null, message: "" } as const;
+
+function formOf(fields: Record<string, string>): FormData {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return fd;
+}
+
+const VALID_UPDATE_FIELDS = {
+  id: "1",
+  email: "alice@example.com",
+  companyName: "Acme",
+  address: "1 St",
+  city: "NYC",
+  zipCode: "10001",
+  country: "US",
+};
 
 describe("client action auth guard + delegation", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -75,6 +92,35 @@ describe("client action auth guard + delegation", () => {
     expect(createClientMock).not.toHaveBeenCalled();
   });
 
+  // Regression coverage for adversarial pass 2, point 1: updateClient used to
+  // cast FormData straight to UpdateClientInput instead of parsing it —
+  // updateClientSchema existed but nothing in the app imported it, so an
+  // invalid email or blank required fields wrote straight to the database.
+  it("updateClient rejects an invalid email with a zod error, without writing anything", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await updateClient(initial, formOf({ ...VALID_UPDATE_FIELDS, email: "not-an-email" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.email).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClient rejects a blank required field (companyName) with a zod error", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await updateClient(initial, formOf({ ...VALID_UPDATE_FIELDS, companyName: "" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.companyName).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClient coerces the hidden id field and updates the client when authorized", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    const res = await updateClient(initial, formOf(VALID_UPDATE_FIELDS));
+    expect(res.type).toBe("success");
+    expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ id: 1, companyName: "Acme" }));
+  });
+
   it("deleteClient refuses without a session", async () => {
     authMock.mockResolvedValue(null as never);
     const res = await deleteClient(1);
@@ -98,6 +144,27 @@ describe("client action auth guard + delegation", () => {
     const res = await deleteClient(1);
     expect((res as { type: string }).type).toBe("error");
     expect(softDeleteMock).not.toHaveBeenCalled();
+  });
+
+  // Adversarial pass 2, point 7: deleteClients took a raw number[] with no
+  // cap — four repository round trips per id in a loop. The grid it's
+  // called from only ever selects a single page (9 rows), so a real
+  // selection is nowhere near the cap.
+  it("deleteClients rejects a selection over MAX_BULK_DELETE_IDS without deleting anything", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const ids = Array.from({ length: 201 }, (_, i) => i + 1);
+    const res = await deleteClients(ids);
+    expect(res.type).toBe("error");
+    expect(softDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("deleteClients deletes a normal-sized selection when authorized", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, companyName: "Sunrise Corporation" } as never);
+    softDeleteMock.mockResolvedValue({ id: 1, deletedAt: new Date() } as never);
+    const res = await deleteClients([1, 2, 3]);
+    expect(res.type).toBe("success");
+    expect(softDeleteMock).toHaveBeenCalledTimes(3);
   });
 
   it("restoreClient refuses a VIEWER session", async () => {

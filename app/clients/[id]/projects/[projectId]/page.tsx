@@ -217,13 +217,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   ] = await Promise.all([
     findChildFolders(pid, currentFolderId),
     findFilesByFolder(pid, currentFolderId),
-    getBreadcrumb(currentFolderId),
+    getBreadcrumb(pid, currentFolderId),
     findReservePlansByProject(pid),
     // Full flat list — for the plan "move to folder" target list + counts.
     findReserveFoldersByProject(pid),
     // Current level's children + its path, for the nested browser.
     findReserveChildFolders(pid, currentReserveFolderId),
-    getReserveBreadcrumb(currentReserveFolderId),
+    getReserveBreadcrumb(pid, currentReserveFolderId),
   ]);
 
   // SUPERADMIN-configured display order of the collapsible sections below,

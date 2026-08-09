@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
-import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema } from "@/schemas/task";
+import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema, updateTaskQuantitySchema } from "@/schemas/task";
 import {
   create,
   createMany,
@@ -15,6 +15,7 @@ import {
   findProjectId as findTaskProjectId,
 } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
+import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -45,6 +46,17 @@ export async function addTask(
 
   const scopeCheck = await requireProjectAccess(parsed.data.projectId);
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+
+  // The category <select> only ever lists this project's own categories —
+  // but nothing server-side checked that before, so a submitted categoryId
+  // from another project silently filed the task there, invisible in both
+  // projects' listings (which filter by projectId AND by category).
+  if (
+    parsed.data.categoryId != null &&
+    (await findTaskCategoryProjectId(parsed.data.categoryId)) !== parsed.data.projectId
+  ) {
+    return { ...prevState, type: "error", message: t.errors.invalidId };
+  }
 
   try {
     const task = await create({
@@ -102,6 +114,14 @@ export async function addTaskSeries(
   const scopeCheck = await requireProjectAccess(parsed.data.projectId);
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
+  // Same cross-check as addTask, above, for the series's own categoryId.
+  if (
+    parsed.data.categoryId != null &&
+    (await findTaskCategoryProjectId(parsed.data.categoryId)) !== parsed.data.projectId
+  ) {
+    return { ...prevState, type: "error", message: t.errors.invalidId };
+  }
+
   try {
     const { projectId, clientId, name, pattern, from, to, categoryId } = parsed.data;
     const group = await createGroup({ projectId, name, pattern, categoryId });
@@ -153,7 +173,12 @@ export async function toggleTask(
     const realProjectId = await findTaskProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2: a task resolved from THIS id that sits outside the
+    // caller's scope must read exactly like one that doesn't exist — both
+    // cases are resolved from the database, so a distinct "forbidden"
+    // response would let a restricted EDITOR enumerate ids across the whole
+    // company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
@@ -191,7 +216,8 @@ export async function editTask(
     const realProjectId = await findTaskProjectId(parsed.data.id);
     if (realProjectId === null) return { ...prevState, type: "error", message: t.errors.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+    // Passe 3b, point 2 — see toggleTask's comment above.
+    if (scopeCheck.error) return { ...prevState, type: "error", message: t.errors.invalidId };
     const task = await update(parsed.data.id, {
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
@@ -226,16 +252,22 @@ export async function updateTaskQuantity(
   if (sectionCheck.error) return sectionCheck.error;
 
   const t = getDictionary(await getLocale());
+  // Called with raw arguments (not FormData) from a client component, but
+  // still reachable with a NaN quantityDone from a forged client — see
+  // updateTaskQuantitySchema's comment in schemas/task.ts (adversarial pass
+  // 2, point 8).
+  const parsed = updateTaskQuantitySchema.safeParse({ id, quantityDone, clientId, projectId });
+  if (!parsed.success) {
+    return { type: "error" as const, message: t.tasks.messages.invalidId };
+  }
   try {
-    if (isNaN(id)) {
-      throw { type: "error", message: t.tasks.messages.invalidId };
-    }
-    const realProjectId = await findTaskProjectId(id);
+    const realProjectId = await findTaskProjectId(parsed.data.id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
-    const task = await updateQuantity(id, quantityDone);
-    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    // Passe 3b, point 2 — see toggleTask's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    const task = await updateQuantity(parsed.data.id, parsed.data.quantityDone);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {
@@ -270,7 +302,13 @@ export async function setTaskCategory(
     const realProjectId = await findTaskProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see toggleTask's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    // Same cross-check as addTask/addTaskSeries: the category <select> only
+    // ever lists this project's own categories.
+    if (categoryId != null && (await findTaskCategoryProjectId(categoryId)) !== realProjectId) {
+      return { type: "error" as const, message: t.tasks.messages.invalidId };
+    }
     const task = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
@@ -301,7 +339,8 @@ export async function deleteTask(
     const realProjectId = await findTaskProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see toggleTask's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);

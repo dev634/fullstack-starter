@@ -18,7 +18,7 @@ export async function createDefaults(projectId: number) {
     } catch (error) {
         console.log("Repository createDefaults (folder) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating default folders.",
         };
     }
@@ -36,7 +36,7 @@ export async function create(data: FolderData) {
     } catch (error) {
         console.log("Repository create folder error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating folder.",
         };
     }
@@ -52,7 +52,7 @@ export async function findChildren(projectId: number, parentId: number | null) {
     } catch (error) {
         console.log("Repository findChildren (folder) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching folders.",
         };
     }
@@ -64,16 +64,21 @@ export async function findById(id: number) {
     } catch (error) {
         console.log("Repository findById (folder) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching folder.",
         };
     }
 }
 
-/** Ancestor chain from the root down to the given folder, for breadcrumb display. */
-export function getBreadcrumb(folderId: number | null) {
+/**
+ * Ancestor chain from the root down to the given folder, for breadcrumb
+ * display — scoped to `projectId`: a folder id belonging to another project
+ * (or reached while walking up to one, defensively) yields an empty/
+ * truncated chain instead of surfacing that project's folder names.
+ */
+export function getBreadcrumb(projectId: number, folderId: number | null) {
     // Shared walker — also gives this module the cycle bound it lacked before.
-    return buildBreadcrumb(folderId, findById);
+    return buildBreadcrumb(folderId, projectId, findById);
 }
 
 async function collectDescendantFolderIds(projectId: number, folderId: number): Promise<number[]> {
@@ -123,7 +128,7 @@ export async function collectDescendantFilePublicIds(projectId: number, folderId
     } catch (error) {
         console.log("Repository collectDescendantFilePublicIds error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error collecting folder files.",
         };
     }
@@ -135,7 +140,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove folder error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting folder.",
         };
     }

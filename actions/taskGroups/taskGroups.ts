@@ -31,7 +31,12 @@ export async function setTaskGroupCategory(
     const realProjectId = await findGroupProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2: a group resolved from THIS id that sits outside the
+    // caller's scope must read exactly like one that doesn't exist — both
+    // are resolved from the database, so a distinct "forbidden" response
+    // would let a restricted EDITOR enumerate ids across the whole company
+    // (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const group = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: group };
@@ -62,7 +67,8 @@ export async function deleteTaskGroup(id: number, clientId: number, projectId: n
     const realProjectId = await findGroupProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see setTaskGroupCategory's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const group = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.tasks.group.messages.deleted, data: group };

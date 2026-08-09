@@ -11,6 +11,7 @@ import { importClients } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { logActivity } from "@/repository/activity";
+import { MAX_IMPORT_ROWS } from "@/lib/csv";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
@@ -40,6 +41,22 @@ describe("importClients", () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
     const res = await importClients(new FormData());
     expect(res.type).toBe("error");
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
+  // Adversarial pass 2, point 7: no row-count limit existed before this —
+  // the only real ceiling was the 10 MB Server Action body cap (~170 000
+  // rows for a short CSV row), each costing its own createClient call.
+  it("rejects a file over MAX_IMPORT_ROWS without creating anything", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    const rows = Array.from(
+      { length: MAX_IMPORT_ROWS + 1 },
+      (_, i) => `"Acme","a${i}@x.com","","","","1 St","NYC","10001","US"`
+    );
+    const res = await importClients(csvFile(rows));
+    expect(res.type).toBe("error");
+    expect(res.total).toBe(MAX_IMPORT_ROWS + 1);
+    expect(res.created).toBe(0);
     expect(createClientMock).not.toHaveBeenCalled();
   });
 

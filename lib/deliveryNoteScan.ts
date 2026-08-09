@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import sharp from "sharp";
-import { scannedDeliveryNoteSchema } from "@/schemas/deliveryNoteScan";
+import { scannedDeliveryNoteSchema, MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
+import {
+    detectRasterImageMediaType,
+    RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
+    type RasterImageMediaType,
+} from "@/lib/fileSignature";
 
 // 10 MB — well under either provider's image limit. Must stay equal to
 // `bodySizeLimit` in next.config.ts: Server Actions cap request bodies at
@@ -90,7 +95,30 @@ export type ScannedDeliveryNote = {
     bytesSent: number;
 };
 
+// Deliberately NARROWER than lib/fileSignature.ts's own RasterImageMediaType
+// (passe 3b, point 0 widened that one to also recognize HEIC/AVIF/BMP/TIFF,
+// closing a regression in lib/cloudinary.ts's photo uploads). This module
+// does NOT get that widening for free: stripArchivedPhotoMetadata below
+// re-encodes with a format-specific sharp branch for exactly these four
+// media types (anything else silently falls through to its `.gif()`
+// default — a real mis-encode bug, not a rejection), and reduceImageForModel
+// assumes sharp can decode whatever readAndValidateDeliveryNoteImage let
+// through. Neither of those was ever true for HEIC/AVIF/BMP/TIFF, and this
+// module never accepted them even before passe 3a — narrowing back down here
+// (see isDeliveryNoteMediaType below) keeps that scope unchanged rather than
+// silently inheriting a wider one from the shared sniffer.
 export type DeliveryNoteMediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+
+const DELIVERY_NOTE_MEDIA_TYPES: ReadonlySet<RasterImageMediaType> = new Set<RasterImageMediaType>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+function isDeliveryNoteMediaType(value: RasterImageMediaType): value is DeliveryNoteMediaType {
+  return DELIVERY_NOTE_MEDIA_TYPES.has(value);
+}
 
 // The task instructions the model must follow. Kept in `system` (Anthropic)
 // / a `role: "system"` message (OpenAI) rather than mixed into the user
@@ -156,34 +184,6 @@ export function scanProviderInfo(): { provider: "anthropic" | "openai"; model: s
     return { provider, model: provider === "openai" ? OPENAI_MODEL : ANTHROPIC_MODEL };
 }
 
-function detectMediaTypeFromBytes(buffer: Buffer): DeliveryNoteMediaType | null {
-    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-        return "image/jpeg";
-    }
-    if (buffer.length >= 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
-        return "image/png";
-    }
-    if (buffer.length >= 4 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
-        return "image/gif";
-    }
-    if (
-        buffer.length >= 12 &&
-        buffer.toString("ascii", 0, 4) === "RIFF" &&
-        buffer.toString("ascii", 8, 12) === "WEBP"
-    ) {
-        return "image/webp";
-    }
-    return null;
-}
-
-const EXTENSION_MEDIA_TYPES: Record<string, DeliveryNoteMediaType> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-};
-
 /**
  * Validates a delivery-note photo by its actual content, never the client-
  * declared `file.type` (same principle as `isBlockedUpload` in
@@ -206,14 +206,14 @@ export async function readAndValidateDeliveryNoteImage(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const mediaType = detectMediaTypeFromBytes(buffer);
+    const detected = detectRasterImageMediaType(buffer);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
-    if (!mediaType || EXTENSION_MEDIA_TYPES[ext] !== mediaType) {
+    if (!detected || !isDeliveryNoteMediaType(detected) || RASTER_IMAGE_EXTENSION_MEDIA_TYPES[ext] !== detected) {
         throw scanError("invalidFileType");
     }
 
-    return { buffer, mediaType };
+    return { buffer, mediaType: detected };
 }
 
 // Both providers downscale internally past this long-edge size before ever
@@ -514,7 +514,7 @@ export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliv
                 quantity: item.quantity,
             };
         })
-        // Drops a line rather than rejecting the whole bulletin, for two
+        // Drops a line rather than rejecting the whole bulletin, for three
         // distinct reasons that land on the same filter:
         //  - name === "": schemas/deliveryNoteScan.ts's scannedModelItemSchema
         //    has no `.refine()` requiring a brand or reference, by design (a
@@ -526,7 +526,13 @@ export async function extractDeliveryNoteItems(file: File): Promise<ScannedDeliv
         //    quantity zero) is common on a real bulletin; nonnegative() at
         //    the schema stage lets it through, but there is nothing useful
         //    to apply to stock for it.
-        .filter((item) => item.name !== "" && item.quantity > 0);
+        //  - quantity > MAX_SCAN_QUANTITY: schemas/deliveryNoteScan.ts's
+        //    scannedModelItemSchema no longer caps quantity itself (a
+        //    `.max()` there used to reject the WHOLE bulletin over one
+        //    misread line — adversarial pass 2, point 3); the ceiling is
+        //    enforced here instead, one line at a time, same as the other
+        //    two cases.
+        .filter((item) => item.name !== "" && item.quantity > 0 && item.quantity <= MAX_SCAN_QUANTITY);
 
     if (items.length === 0) {
         throw scanError("noItemsRead");

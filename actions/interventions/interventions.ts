@@ -88,7 +88,12 @@ export async function editIntervention(
     const realProjectId = await findInterventionProjectId(parsed.data.id);
     if (realProjectId === null) return { ...prevState, type: "error", message: t.interventions.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+    // Passe 3b, point 2: an intervention resolved from THIS id that sits
+    // outside the caller's scope must read exactly like one that doesn't
+    // exist — both are resolved from the database, so a distinct
+    // "forbidden" response would let a restricted EDITOR enumerate ids
+    // across the whole company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { ...prevState, type: "error", message: t.interventions.messages.invalidId };
     const intervention = await update(parsed.data.id, {
       scheduledAt: parsed.data.scheduledAt,
       description: parsed.data.description,
@@ -139,7 +144,8 @@ export async function changeInterventionStatus(
     const realProjectId = await findInterventionProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see editIntervention's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const intervention = await updateStatus(id, parsedStatus.data);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.interventions.messages.updated, data: intervention };
@@ -165,7 +171,8 @@ export async function deleteIntervention(id: number, clientId: number, projectId
     const realProjectId = await findInterventionProjectId(id);
     if (realProjectId === null) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2 — see editIntervention's comment above.
+    if (scopeCheck.error) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const intervention = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     return { type: "success" as const, message: t.interventions.messages.deleted, data: intervention };

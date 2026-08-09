@@ -47,7 +47,7 @@ export async function create(data: FileData) {
     } catch (error) {
         console.log("Repository create file error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating file.",
         };
     }
@@ -72,7 +72,7 @@ export async function findByFolder(projectId: number, folderId: number | null) {
     } catch (error) {
         console.log("Repository findByFolder (file) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching files.",
         };
     }
@@ -92,7 +92,7 @@ export async function findById(id: number) {
     } catch (error) {
         console.log("Repository findById (file) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching file.",
         };
     }
@@ -114,7 +114,7 @@ export async function findPublicIdsByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findPublicIdsByProject error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error collecting project files.",
         };
     }
@@ -133,7 +133,7 @@ export async function findPublicIdsByClient(clientId: number) {
     } catch (error) {
         console.log("Repository findPublicIdsByClient error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error collecting client files.",
         };
     }
@@ -145,7 +145,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove file error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting file.",
         };
     }

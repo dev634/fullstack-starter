@@ -16,7 +16,7 @@ export async function findByClient(clientId: number) {
         });
     } catch (error) {
         console.log("Repository findByClient (contact) error:", error);
-        throw { type: "error", message: "Database Error fetching contacts." };
+        throw { type: "repositoryError", message: "Database Error fetching contacts." };
     }
 }
 
@@ -36,7 +36,7 @@ export async function findByUserEmail(email: string) {
         });
     } catch (error) {
         console.log("Repository findByUserEmail (contact) error:", error);
-        throw { type: "error", message: "Database Error fetching portal contact." };
+        throw { type: "repositoryError", message: "Database Error fetching portal contact." };
     }
 }
 
@@ -46,7 +46,7 @@ export async function findById(id: number) {
         return await prisma.contact.findUnique({ where: { id } });
     } catch (error) {
         console.log("Repository findById (contact) error:", error);
-        throw { type: "error", message: "Database Error fetching contact." };
+        throw { type: "repositoryError", message: "Database Error fetching contact." };
     }
 }
 
@@ -56,7 +56,7 @@ export async function attachLogin(contactId: number, userId: number) {
         return await prisma.contact.update({ where: { id: contactId }, data: { userId } });
     } catch (error) {
         console.log("Repository attachLogin (contact) error:", error);
-        throw { type: "error", message: "Database Error attaching login." };
+        throw { type: "repositoryError", message: "Database Error attaching login." };
     }
 }
 
@@ -83,7 +83,7 @@ export async function setContactProjects(contactId: number, projectIds: number[]
         });
     } catch (error) {
         console.log("Repository setContactProjects error:", error);
-        throw { type: "error", message: "Database Error linking projects." };
+        throw { type: "repositoryError", message: "Database Error linking projects." };
     }
 }
 
@@ -131,7 +131,7 @@ export async function findAllWithClientEmail(projectIds?: number[]) {
         });
     } catch (error) {
         console.log("Repository findAllWithClientEmail (contact) error:", error);
-        throw { type: "error", message: "Database Error fetching contacts." };
+        throw { type: "repositoryError", message: "Database Error fetching contacts." };
     }
 }
 
@@ -172,7 +172,7 @@ export async function create(data: ContactData) {
         });
     } catch (error) {
         console.log("Repository create contact error:", error);
-        throw { type: "error", message: "Database Error creating contact." };
+        throw { type: "repositoryError", message: "Database Error creating contact." };
     }
 }
 
@@ -199,7 +199,7 @@ export async function update(id: number, data: ContactUpdateData) {
         });
     } catch (error) {
         console.log("Repository update contact error:", error);
-        throw { type: "error", message: "Database Error updating contact." };
+        throw { type: "repositoryError", message: "Database Error updating contact." };
     }
 }
 
@@ -212,7 +212,7 @@ export async function setPrimary(id: number, clientId: number) {
         ]);
     } catch (error) {
         console.log("Repository setPrimary contact error:", error);
-        throw { type: "error", message: "Database Error updating primary contact." };
+        throw { type: "repositoryError", message: "Database Error updating primary contact." };
     }
 }
 
@@ -242,6 +242,6 @@ export async function remove(id: number) {
         });
     } catch (error) {
         console.log("Repository remove contact error:", error);
-        throw { type: "error", message: "Database Error deleting contact." };
+        throw { type: "repositoryError", message: "Database Error deleting contact." };
     }
 }

@@ -25,7 +25,7 @@ export async function create(data: TaskData) {
     } catch (error) {
         console.log("Repository create task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating task.",
         };
     }
@@ -45,7 +45,7 @@ export async function createMany(items: TaskData[]) {
     } catch (error) {
         console.log("Repository createMany task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating tasks.",
         };
     }
@@ -65,7 +65,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (task) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching tasks.",
         };
     }
@@ -82,7 +82,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return task?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (task) error:", error);
-        throw { type: "error", message: "Database Error fetching task." };
+        throw { type: "repositoryError", message: "Database Error fetching task." };
     }
 }
 
@@ -92,7 +92,7 @@ export async function toggle(id: number, done: boolean) {
     } catch (error) {
         console.log("Repository toggle task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task.",
         };
     }
@@ -116,7 +116,7 @@ export async function updateQuantity(id: number, quantityDone: number) {
     } catch (error) {
         console.log("Repository updateQuantity task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task.",
         };
     }
@@ -160,7 +160,7 @@ export async function update(id: number, data: TaskUpdateData) {
     } catch (error) {
         console.log("Repository update task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task.",
         };
     }
@@ -173,7 +173,7 @@ export async function setCategory(id: number, categoryId: number | null) {
     } catch (error) {
         console.log("Repository setCategory (task) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task category.",
         };
     }
@@ -189,7 +189,7 @@ export async function setAssignee(id: number, data: { assignedCompanyId: number 
     } catch (error) {
         console.log("Repository setAssignee (task) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task assignee.",
         };
     }
@@ -201,7 +201,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove task error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting task.",
         };
     }

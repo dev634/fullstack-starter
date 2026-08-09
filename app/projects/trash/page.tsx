@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { findTrashed } from "@/repository/projects";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -20,7 +21,7 @@ export default async function ProjectsTrashPage() {
   // bounce to the first rubrique they can actually reach.
   await requireAreaOrRedirect("projects");
 
-  const trashed = await findTrashed();
+  const trashed = await findTrashed(projectIdFilter(await getAccessContext()));
   const t = getDictionary(await getLocale());
 
   return (

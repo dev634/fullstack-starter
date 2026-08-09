@@ -20,7 +20,7 @@ export async function create(data: TaskGroupData) {
     } catch (error) {
         console.log("Repository create task group error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating task group.",
         };
     }
@@ -54,7 +54,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (task group) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching task groups.",
         };
     }
@@ -67,7 +67,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return group?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (task group) error:", error);
-        throw { type: "error", message: "Database Error fetching task group." };
+        throw { type: "repositoryError", message: "Database Error fetching task group." };
     }
 }
 
@@ -78,7 +78,7 @@ export async function setCategory(id: number, categoryId: number | null) {
     } catch (error) {
         console.log("Repository setCategory (task group) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task group category.",
         };
     }
@@ -94,7 +94,7 @@ export async function setAssignee(id: number, data: { assignedCompanyId: number 
     } catch (error) {
         console.log("Repository setAssignee (task group) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task group assignee.",
         };
     }
@@ -107,7 +107,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove task group error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting task group.",
         };
     }

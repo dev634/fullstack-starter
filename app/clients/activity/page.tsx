@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { listActivity } from "@/repository/activity";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
+import { findClientIdsAmong } from "@/repository/projects";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -29,7 +31,11 @@ export default async function ActivityPage({ searchParams }: PageProps) {
 
   const sp = await searchParams;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-  const { entries, total, pageSize } = await listActivity(page);
+  // ActivityLog has no project relation to filter on directly — resolve the
+  // client ids reachable through the caller's assigned projects first.
+  const projectIds = projectIdFilter(await getAccessContext());
+  const clientIds = projectIds !== undefined ? await findClientIdsAmong(projectIds) : undefined;
+  const { entries, total, pageSize } = await listActivity(page, clientIds);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const locale = await getLocale();
   const t = getDictionary(locale);

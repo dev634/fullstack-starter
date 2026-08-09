@@ -1,5 +1,6 @@
 "use server";
 import { formDataToObject } from "@/lib/helpers";
+import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
@@ -13,7 +14,7 @@ import {
 } from "@/lib/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
-import { applyScanItems } from "@/repository/projectMaterials";
+import { applyScanItems, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
 import { create as createFile } from "@/repository/projectFiles";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
@@ -224,7 +225,20 @@ export async function applyDeliveryNoteScan(
   const raw = formDataToObject(formData);
   const parsed = applyDeliveryScanSchema.safeParse(raw);
   if (!parsed.success) {
-    return { ...prevState, type: "zodError", message: t.errors.validationError };
+    // Was `{ type: "zodError", message: ... }` with no fieldsForm — the only
+    // action in the app that omitted it (adversarial pass 2, point 4): on a
+    // batch of reviewed lines, one bad field said only "validation error",
+    // never which. itemsJson's own transform (schemas/deliveryNoteScan.ts)
+    // collapses every failure inside the JSON-encoded array — a malformed
+    // JSON string, an over-length brand, a whitespace-only new-material row —
+    // into a single issue on the "items" field, so fieldsForm.items is as
+    // precise as this schema shape allows without restructuring it.
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
   }
 
   const { projectId, items } = parsed.data;
@@ -252,7 +266,16 @@ export async function applyDeliveryNoteScan(
     };
   });
   if (materialItems.some((item) => item.materialId == null && item.name === "")) {
-    return { ...prevState, type: "zodError", message: t.errors.validationError };
+    // Same fieldsForm gap as the schema-level branch above (adversarial pass
+    // 2, point 4) — this check runs on the COMPOSED name, after the schema
+    // has already passed, so there is no zod issue to translate; reuse the
+    // same copy the review UI already shows for this exact case.
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: { items: t.materials.scan.missingBrandOrReference },
+    };
   }
 
   const scopeCheck = await requireProjectAccess(projectId);
@@ -347,6 +370,15 @@ export async function applyDeliveryNoteScan(
     // client, which getErrorMessage would have relayed verbatim.
     if (isScanError(error)) {
       return { ...prevState, type: "error", message: t.materials.scan.errors[error.code] };
+    }
+    // applyScanItems (repository/projectMaterials.ts) rolled the WHOLE batch
+    // back because one of its materialId's matched no row in this project —
+    // nothing was applied. Reusing t.materials.messages.invalidId (not a
+    // scan-specific string) is deliberate: this is the exact same condition
+    // editMaterial/deleteMaterial already report with that copy, just
+    // discovered mid-batch instead of up front.
+    if (isUnmatchedScanMaterialError(error)) {
+      return { ...prevState, type: "error", message: t.materials.messages.invalidId };
     }
     const message = isAppError(error) ? error.message : t.errors.serverError;
     return { ...prevState, type: "error", message };

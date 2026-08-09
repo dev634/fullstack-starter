@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { findTrashed } from "@/repository/clients";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import ClientAvatar from "@/components/ClientAvatar";
 import Title from "@/components/Title";
 import Link from "next/link";
@@ -22,7 +23,7 @@ export default async function TrashPage() {
   // and detail pages.
   await requireAreaOrRedirect("clients");
 
-  const trashed = await findTrashed();
+  const trashed = await findTrashed(projectIdFilter(await getAccessContext()));
   const t = getDictionary(await getLocale());
 
   return (

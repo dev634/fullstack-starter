@@ -6,7 +6,9 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/lib/accessContext", () => ({
   getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
-  canReachProject: () => true,
+  // A plain vi.fn() (default true) rather than a hardcoded () => true: the
+  // passe 3b, point 2 regression tests below need to force it false once.
+  canReachProject: vi.fn().mockReturnValue(true),
   projectIdFilter: () => undefined,
 }));
 vi.mock("@/repository/taskCategories", () => ({
@@ -26,13 +28,18 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addTaskCategory, deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import { setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
 import { requireRole } from "@/lib/authz";
-import { create, remove } from "@/repository/taskCategories";
-import { setCategory } from "@/repository/taskGroups";
+import { canReachProject } from "@/lib/accessContext";
+import { create, remove, findProjectId as findCategoryProjectId } from "@/repository/taskCategories";
+import { setCategory, findProjectId as findGroupProjectId } from "@/repository/taskGroups";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
+const canReachProjectMock = vi.mocked(canReachProject);
 const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
+const findCategoryProjectIdMock = vi.mocked(findCategoryProjectId);
 const setCategoryMock = vi.mocked(setCategory);
+const findGroupProjectIdMock = vi.mocked(findGroupProjectId);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -85,6 +92,27 @@ describe("deleteTaskCategory", () => {
     expect(removeMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
   });
+
+  // Passe 3b, point 2: a category that exists but sits outside the caller's
+  // scope used to say "Accès refusé", distinct from "Identifiant de tâche
+  // invalide" for an id that doesn't exist at all — both resolved from the
+  // SAME id via the database, so the distinct wording let a restricted
+  // EDITOR enumerate ids across the whole company. Both must now match.
+  it("says the exact same thing for a category outside the caller's scope as for one that doesn't exist at all", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+
+    findCategoryProjectIdMock.mockResolvedValueOnce(null); // doesn't exist
+    const notFound = await deleteTaskCategory(999, 1, 2);
+
+    findCategoryProjectIdMock.mockResolvedValueOnce(99); // exists, but project 99 isn't reachable
+    canReachProjectMock.mockReturnValueOnce(false);
+    const outOfScope = await deleteTaskCategory(1, 1, 2);
+
+    expect((notFound as { message: string }).message).toBe(fr.tasks.messages.invalidId);
+    expect((outOfScope as { message: string }).message).toBe(fr.tasks.messages.invalidId);
+    expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
+    expect(removeMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("setTaskGroupCategory", () => {
@@ -111,5 +139,22 @@ describe("setTaskGroupCategory", () => {
     const res = await setTaskGroupCategory(1, null, 1, 2);
     expect(setCategoryMock).toHaveBeenCalledWith(1, null);
     expect(res.type).toBe("success");
+  });
+
+  // Passe 3b, point 2 — see deleteTaskCategory's regression test above.
+  it("says the exact same thing for a series' group outside the caller's scope as for one that doesn't exist at all", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+
+    findGroupProjectIdMock.mockResolvedValueOnce(null); // doesn't exist
+    const notFound = await setTaskGroupCategory(999, 2, 1, 2);
+
+    findGroupProjectIdMock.mockResolvedValueOnce(99); // exists, but project 99 isn't reachable
+    canReachProjectMock.mockReturnValueOnce(false);
+    const outOfScope = await setTaskGroupCategory(1, 2, 1, 2);
+
+    expect((notFound as { message: string }).message).toBe(fr.tasks.messages.invalidId);
+    expect((outOfScope as { message: string }).message).toBe(fr.tasks.messages.invalidId);
+    expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
+    expect(setCategoryMock).not.toHaveBeenCalled();
   });
 });

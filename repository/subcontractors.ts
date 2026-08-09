@@ -16,7 +16,7 @@ export async function createCompany(data: CompanyData) {
     } catch (error) {
         console.log("Repository createCompany (subcontractor) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating subcontractor company.",
         };
     }
@@ -38,7 +38,7 @@ export async function findCompaniesByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findCompaniesByProject (subcontractor) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching subcontractor companies.",
         };
     }
@@ -51,7 +51,7 @@ export async function findCompanyProjectId(id: number): Promise<number | null> {
         return company?.projectId ?? null;
     } catch (error) {
         console.log("Repository findCompanyProjectId (subcontractor) error:", error);
-        throw { type: "error", message: "Database Error fetching subcontractor company." };
+        throw { type: "repositoryError", message: "Database Error fetching subcontractor company." };
     }
 }
 
@@ -68,7 +68,7 @@ export async function findPersonProjectId(id: number): Promise<number | null> {
         return person?.company.projectId ?? null;
     } catch (error) {
         console.log("Repository findPersonProjectId (subcontractor) error:", error);
-        throw { type: "error", message: "Database Error fetching subcontractor personnel." };
+        throw { type: "repositoryError", message: "Database Error fetching subcontractor personnel." };
     }
 }
 
@@ -79,7 +79,7 @@ export async function removeCompany(id: number) {
     } catch (error) {
         console.log("Repository removeCompany (subcontractor) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting subcontractor company.",
         };
     }
@@ -105,7 +105,7 @@ export async function addPerson(data: PersonData) {
     } catch (error) {
         console.log("Repository addPerson (subcontractor) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error adding subcontractor personnel.",
         };
     }
@@ -117,7 +117,7 @@ export async function removePerson(id: number) {
     } catch (error) {
         console.log("Repository removePerson (subcontractor) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting subcontractor personnel.",
         };
     }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_CAPABILITY_ROLE,
+  LOCKED_CAPABILITIES,
   resolveAccessConfig,
   hasCapability,
   meetsRole,
@@ -56,9 +57,18 @@ describe("resolveAccessConfig — defaults + merge", () => {
   });
 
   it("applies valid stored overrides", () => {
-    const resolved = resolveAccessConfig({ "content.edit": "ADMIN", "users.manage": "SUPERADMIN" });
+    // Passe 3b, point 4: "users.manage" used to be the second example here,
+    // overridden UP to SUPERADMIN — that assertion went red the moment
+    // users.manage joined LOCKED_CAPABILITIES below, and rightly so: a
+    // locked capability now ignores ANY stored value, override included, the
+    // same way settings.manage already did. Flipped to "content.import", an
+    // unlocked capability, so this test keeps proving the generic merge
+    // behavior instead of accidentally re-asserting the very defect this
+    // pass closes. The locked-capability behavior itself has its own
+    // dedicated tests below.
+    const resolved = resolveAccessConfig({ "content.edit": "ADMIN", "content.import": "VIEWER" });
     expect(resolved["content.edit"]).toBe("ADMIN");
-    expect(resolved["users.manage"]).toBe("SUPERADMIN");
+    expect(resolved["content.import"]).toBe("VIEWER");
     // untouched capabilities keep their default
     expect(resolved["content.trash"]).toBe(DEFAULT_CAPABILITY_ROLE["content.trash"]);
   });
@@ -77,6 +87,35 @@ describe("resolveAccessConfig — defaults + merge", () => {
   it("forces the locked settings.manage capability back to SUPERADMIN even if lowered", () => {
     const resolved = resolveAccessConfig({ "settings.manage": "EDITOR" });
     expect(resolved["settings.manage"]).toBe("SUPERADMIN");
+  });
+
+  // Passe 3b, point 4: functions.manage/users.manage joined LOCKED_CAPABILITIES
+  // — an EDITOR granted functions.manage could otherwise call
+  // setFunctionAreas on their OWN function and clear its hiddenAreas/
+  // hiddenSections, annulling two of the three access axes for themselves.
+  // Locking these two changes nothing for the ADMIN accounts that already
+  // hold them (DEFAULT_CAPABILITY_ROLE is already ADMIN for both) — it only
+  // stops either from being configured down to EDITOR/VIEWER.
+  it("forces functions.manage back to its ADMIN default even if lowered", () => {
+    const resolved = resolveAccessConfig({ "functions.manage": "EDITOR" });
+    expect(resolved["functions.manage"]).toBe("ADMIN");
+    expect(resolved["functions.manage"]).toBe(DEFAULT_CAPABILITY_ROLE["functions.manage"]);
+  });
+
+  it("forces users.manage back to its ADMIN default even if lowered", () => {
+    const resolved = resolveAccessConfig({ "users.manage": "VIEWER" });
+    expect(resolved["users.manage"]).toBe("ADMIN");
+    expect(resolved["users.manage"]).toBe(DEFAULT_CAPABILITY_ROLE["users.manage"]);
+  });
+
+  it("ignores a stored override for functions.manage/users.manage even when raising, not just lowering — fully locked, same as settings.manage", () => {
+    const resolved = resolveAccessConfig({ "functions.manage": "SUPERADMIN", "users.manage": "SUPERADMIN" });
+    expect(resolved["functions.manage"]).toBe("ADMIN");
+    expect(resolved["users.manage"]).toBe("ADMIN");
+  });
+
+  it("LOCKED_CAPABILITIES contains exactly the three capabilities that must never be configurable", () => {
+    expect([...LOCKED_CAPABILITIES].sort()).toEqual(["functions.manage", "settings.manage", "users.manage"]);
   });
 
   it("rejects a CLIENT value on any capability (client contributions aren't scoped yet)", () => {

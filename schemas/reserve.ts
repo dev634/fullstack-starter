@@ -1,4 +1,5 @@
 import z from "zod";
+import { MAX_NOTE_LENGTH } from "@/schemas/fields";
 
 export const reserveStatusSchema = z.enum(["OPEN", "RESOLVED"]);
 
@@ -15,11 +16,13 @@ const optionalCoord = (min: number, max: number) =>
         )
         .optional();
 
+// Adversarial pass 2, point 5: description had no upper bound — proven
+// reachable at 500 000 characters.
 export const createReserveSchema = z.object({
     planId: z.coerce.number().int().positive(),
     x: z.coerce.number().min(0).max(1),
     y: z.coerce.number().min(0).max(1),
-    description: z.string().min(1, "La description est requise"),
+    description: z.string().min(1, "La description est requise").max(MAX_NOTE_LENGTH),
     status: reserveStatusSchema.default("OPEN"),
     latitude: optionalCoord(-90, 90),
     longitude: optionalCoord(-180, 180),
@@ -27,7 +30,7 @@ export const createReserveSchema = z.object({
 
 export const updateReserveSchema = z.object({
     id: z.coerce.number().int().positive(),
-    description: z.string().min(1, "La description est requise"),
+    description: z.string().min(1, "La description est requise").max(MAX_NOTE_LENGTH),
     status: reserveStatusSchema.default("OPEN"),
     latitude: optionalCoord(-90, 90),
     longitude: optionalCoord(-180, 180),

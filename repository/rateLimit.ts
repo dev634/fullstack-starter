@@ -16,7 +16,7 @@ export async function getRecentAttempts(
     } catch (error) {
         console.log("Repository getRecentAttempts (rateLimit) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error checking rate limit.",
         };
     }
@@ -37,7 +37,7 @@ export async function recordAttempt(key: string): Promise<void> {
     } catch (error) {
         console.log("Repository recordAttempt (rateLimit) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error recording rate limit attempt.",
         };
     }
@@ -50,7 +50,7 @@ export async function clearAttempts(key: string): Promise<void> {
     } catch (error) {
         console.log("Repository clearAttempts (rateLimit) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error clearing rate limit.",
         };
     }

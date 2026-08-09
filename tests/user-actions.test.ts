@@ -23,6 +23,7 @@ vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed"
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
 import { create, updateProfile, remove, findById, countSuperadmins } from "@/repository/users";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
 const createMock = vi.mocked(create);
@@ -83,6 +84,60 @@ describe("user management actions", () => {
     const res = await updateUser(initial, form({ id: "3", role: "ADMIN" }));
     expect(res.type).toBe("error");
     expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Passe 3b, point 3: proven during this pass — the second lever (besides
+  // setFunctionAreas) that let an ADMIN lift every restriction their own
+  // function imposes on them, in one call: repoint their OWN account at a
+  // different (or no) function via this very action.
+  describe("self-lock guard (passe 3b, point 3)", () => {
+    it("an ADMIN cannot change their OWN jobFunctionId", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 1, email: "me@x.com", role: "ADMIN", jobFunctionId: 5 } as never);
+
+      const res = await updateUser(initial, form({ id: "1", role: "ADMIN", jobFunctionId: "9" }));
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.users.messages.cannotEditOwnFunction);
+      expect(updateProfileMock).not.toHaveBeenCalled();
+    });
+
+    it("an ADMIN can still edit their OWN name/role without touching jobFunctionId", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 1, email: "me@x.com", role: "ADMIN", jobFunctionId: 5 } as never);
+      updateProfileMock.mockResolvedValue({ id: 1 } as never);
+
+      const res = await updateUser(initial, form({ id: "1", name: "New Name", role: "ADMIN", jobFunctionId: "5" }));
+
+      expect(res.type).toBe("success");
+      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ name: "New Name", jobFunctionId: 5 }));
+    });
+
+    it("an ADMIN can still change ANOTHER user's jobFunctionId", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: 5 } as never);
+      updateProfileMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await updateUser(initial, form({ id: "7", role: "EDITOR", jobFunctionId: "9" }));
+
+      expect(res.type).toBe("success");
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: 9 }));
+    });
+
+    // The anti-lockout guarantee: SUPERADMIN must always retain the ability
+    // to repoint its own account, same as setFunctionAreas' own escape
+    // hatch — it bypasses hiddenAreas unconditionally anyway
+    // (lib/accessContext.ts), so this changes nothing it can't already do.
+    it("a SUPERADMIN CAN change their own jobFunctionId — the anti-lockout escape hatch", async () => {
+      actor("SUPERADMIN", "boss@x.com");
+      findByIdMock.mockResolvedValue({ id: 1, email: "boss@x.com", role: "SUPERADMIN", jobFunctionId: 5 } as never);
+      updateProfileMock.mockResolvedValue({ id: 1 } as never);
+
+      const res = await updateUser(initial, form({ id: "1", role: "SUPERADMIN", jobFunctionId: "9" }));
+
+      expect(res.type).toBe("success");
+      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 9 }));
+    });
   });
 
   it("deleteUser: cannot delete your own account", async () => {

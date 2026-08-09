@@ -7,7 +7,7 @@ export async function findAll() {
         return await prisma.jobFunction.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }] });
     } catch (error) {
         console.log("Repository findAll (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error fetching functions." };
+        throw { type: "repositoryError", message: "Database Error fetching functions." };
     }
 }
 
@@ -24,7 +24,7 @@ export async function findAllOptions() {
         });
     } catch (error) {
         console.log("Repository findAllOptions (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error fetching functions." };
+        throw { type: "repositoryError", message: "Database Error fetching functions." };
     }
 }
 
@@ -39,7 +39,7 @@ export async function create(name: string) {
             throw { type: "duplicate", message: "This function already exists." };
         }
         console.log("Repository create (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error creating function." };
+        throw { type: "repositoryError", message: "Database Error creating function." };
     }
 }
 
@@ -48,7 +48,7 @@ export async function remove(id: number) {
         return await prisma.jobFunction.delete({ where: { id } });
     } catch (error) {
         console.log("Repository remove (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error deleting function." };
+        throw { type: "repositoryError", message: "Database Error deleting function." };
     }
 }
 
@@ -58,7 +58,7 @@ export async function updateHiddenSections(id: number, hiddenSections: string[])
         return await prisma.jobFunction.update({ where: { id }, data: { hiddenSections } });
     } catch (error) {
         console.log("Repository updateHiddenSections (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error updating function sections." };
+        throw { type: "repositoryError", message: "Database Error updating function sections." };
     }
 }
 
@@ -68,7 +68,7 @@ export async function updateHiddenAreas(id: number, hiddenAreas: string[]) {
         return await prisma.jobFunction.update({ where: { id }, data: { hiddenAreas } });
     } catch (error) {
         console.log("Repository updateHiddenAreas (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error updating function areas." };
+        throw { type: "repositoryError", message: "Database Error updating function areas." };
     }
 }
 
@@ -78,7 +78,7 @@ export async function updateProjectScope(id: number, projectScope: "ALL" | "ASSI
         return await prisma.jobFunction.update({ where: { id }, data: { projectScope } });
     } catch (error) {
         console.log("Repository updateProjectScope error:", error);
-        throw { type: "error", message: "Database Error updating project scope." };
+        throw { type: "repositoryError", message: "Database Error updating project scope." };
     }
 }
 
@@ -90,6 +90,6 @@ export async function reorder(orderedIds: number[]) {
         );
     } catch (error) {
         console.log("Repository reorder (jobFunction) error:", error);
-        throw { type: "error", message: "Database Error reordering functions." };
+        throw { type: "repositoryError", message: "Database Error reordering functions." };
     }
 }

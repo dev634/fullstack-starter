@@ -270,7 +270,7 @@ describe("authorization coverage across server actions", () => {
     ).toEqual([]);
   });
 
-  it("gates every clients/projects/contacts mutation behind its area, not just a role", () => {
+  it("gates every clients/projects/contacts action (reads included) behind its area, not just a role", () => {
     // requireCapability answers "may I write?"; it says nothing about "does my
     // job function even show me Clients/Projects/Contacts at all". Without
     // this, a function whose hiddenAreas hides clients/projects/contacts
@@ -281,8 +281,14 @@ describe("authorization coverage across server actions", () => {
       "actions/projects/projects.ts": "projects",
       "actions/contacts/contacts.ts": "clients.contacts",
     };
-    // Reads are exempt — only mutations must check the area.
-    const READS = new Set(["getClient", "getProjectsForClient", "getProject"]);
+    // Passe 3b, point 1: getClient/getProjectsForClient/getProject used to be
+    // exempted here as "reads are exempt — only mutations must check the
+    // area". That exemption was the bug, not a rule: role alone (requireRole)
+    // let an EDITOR whose function hides clients/projects still pull the full
+    // company/chantier row — budget and notes included, the two fields the
+    // client portail deliberately never exposes. The exemption is gone now
+    // that the guard actually exists; every exported function in these three
+    // files, reads included, must call requireAreaAccess.
 
     const ungated: string[] = [];
     for (const file of Object.keys(AREA_BY_FILE)) {
@@ -295,7 +301,7 @@ describe("authorization coverage across server actions", () => {
       const fns = functionsIn(source);
       expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
       for (const fn of fns) {
-        if (!fn.exported || READS.has(fn.name)) continue;
+        if (!fn.exported) continue;
         if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
       }
     }
@@ -303,10 +309,10 @@ describe("authorization coverage across server actions", () => {
     expect(
       ungated,
       ungated.length
-        ? `These actions mutate a rubrique but never check its area:\n` +
+        ? `These actions touch a rubrique but never check its area:\n` +
           ungated.map((k) => `  - ${k}`).join("\n") +
           `\n\nAdd requireAreaAccess("<area>") from @/lib/areaAccess, ` +
-          `next to the existing capability check.`
+          `next to the existing capability/role check.`
         : undefined
     ).toEqual([]);
   });
@@ -417,6 +423,34 @@ describe("authorization coverage across server actions", () => {
       pageFn!.calls.has("canAccessArea"),
       `${file} never checks canAccessArea("projects") — a job function with the ` +
         `rubrique hidden can still reach a project's detail page directly.`
+    ).toBe(true);
+  });
+
+  it("gates the project dashboard page behind the `projects` area and hiddenSections, same as the detail page (adversarial pass 1, #4)", () => {
+    // The dashboard is just another view of the same chantier as the detail
+    // page above, but it used to skip both axes: a hidden `projects` rubrique
+    // still rendered the chantier name/task progress/material stock here, and
+    // a function hiding the tasks/materials sections still fetched and
+    // rendered them (as props of a Client Component, i.e. into the HTML).
+    const file = "app/clients/[id]/projects/[projectId]/dashboard/page.tsx";
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(join(process.cwd(), file), "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const fns = functionsIn(source);
+    const pageFn = fns.find((f) => f.exported && f.name === "ProjectDashboardPage");
+    expect(pageFn, `${file} has no exported ProjectDashboardPage — did it get renamed?`).toBeDefined();
+    expect(
+      pageFn!.calls.has("canAccessArea"),
+      `${file} never checks canAccessArea("projects") — a job function with the ` +
+        `rubrique hidden can still reach a project's dashboard directly.`
+    ).toBe(true);
+    expect(
+      pageFn!.calls.has("getHiddenSections"),
+      `${file} never checks getHiddenSections() — a function hiding the tasks/materials ` +
+        `sections on the detail page can still see them on the dashboard.`
     ).toBe(true);
   });
 
