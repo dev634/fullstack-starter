@@ -61,7 +61,7 @@ export async function create(data: ReserveCreateData) {
         });
     } catch (error) {
         console.log("Repository create (reserve) error:", error);
-        throw { type: "error", message: "Database Error creating réserve." };
+        throw { type: "repositoryError", message: "Database Error creating réserve." };
     }
 }
 
@@ -72,7 +72,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return reserve?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (reserve) error:", error);
-        throw { type: "error", message: "Database Error fetching réserve." };
+        throw { type: "repositoryError", message: "Database Error fetching réserve." };
     }
 }
 
@@ -90,7 +90,7 @@ export async function update(id: number, data: ReserveUpdateData) {
         });
     } catch (error) {
         console.log("Repository update (reserve) error:", error);
-        throw { type: "error", message: "Database Error updating réserve." };
+        throw { type: "repositoryError", message: "Database Error updating réserve." };
     }
 }
 
@@ -99,6 +99,6 @@ export async function remove(id: number) {
         return await prisma.reserve.delete({ where: { id } });
     } catch (error) {
         console.log("Repository remove (reserve) error:", error);
-        throw { type: "error", message: "Database Error deleting réserve." };
+        throw { type: "repositoryError", message: "Database Error deleting réserve." };
     }
 }

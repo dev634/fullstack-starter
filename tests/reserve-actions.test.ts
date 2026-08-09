@@ -14,6 +14,11 @@ vi.mock("@/repository/reserves", () => ({
   findProjectId: vi.fn().mockResolvedValue(2),
 }));
 vi.mock("@/repository/reservePlans", () => ({ create: vi.fn(), findById: vi.fn().mockResolvedValue({ id: 5, projectId: 2 }), remove: vi.fn() }));
+vi.mock("@/repository/reservePlanFolders", () => ({
+  create: vi.fn(),
+  remove: vi.fn(),
+  findProjectId: vi.fn(),
+}));
 vi.mock("@/repository/reservePhotos", () => ({
   create: vi.fn(),
   findById: vi.fn(),
@@ -35,6 +40,7 @@ import {
   updateReserve,
   deleteReserve,
   addReservePhoto,
+  addReservePlan,
   deleteReservePlan,
   deleteReservePhoto,
 } from "@/actions/reserves/reserves";
@@ -43,8 +49,10 @@ import { requireSectionAccess } from "@/lib/sectionAccess";
 import { canReachProject } from "@/lib/accessContext";
 import { create, update, remove, findProjectId as findReserveProjectId } from "@/repository/reserves";
 import { create as createPhoto, findById as findPhotoById } from "@/repository/reservePhotos";
-import { findById as findPlanById } from "@/repository/reservePlans";
-import { uploadReservePhoto, destroyReservePlan, destroyReservePhoto } from "@/lib/cloudinary";
+import { create as createPlan, findById as findPlanById } from "@/repository/reservePlans";
+import { findProjectId as findReserveFolderProjectId } from "@/repository/reservePlanFolders";
+import { uploadReservePhoto, uploadReservePlan, destroyReservePlan, destroyReservePhoto } from "@/lib/cloudinary";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
 const requireSectionMock = vi.mocked(requireSectionAccess);
@@ -54,7 +62,10 @@ const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const createPhotoMock = vi.mocked(createPhoto);
+const createPlanMock = vi.mocked(createPlan);
+const findReserveFolderProjectIdMock = vi.mocked(findReserveFolderProjectId);
 const uploadReservePhotoMock = vi.mocked(uploadReservePhoto);
+const uploadReservePlanMock = vi.mocked(uploadReservePlan);
 const findPlanByIdMock = vi.mocked(findPlanById);
 const findPhotoByIdMock = vi.mocked(findPhotoById);
 const destroyReservePlanMock = vi.mocked(destroyReservePlan);
@@ -188,6 +199,76 @@ describe("reserve actions", () => {
     });
   });
 
+  // Passe 3a, point 3: the folder <select> only ever lists this project's
+  // own folders, but nothing server-side checked that before — a submitted
+  // folderId from another project silently filed the plan there, invisible
+  // in both projects' plan lists.
+  describe("addReservePlan — folderId scoped to the project", () => {
+    function planForm(fields: Partial<Record<string, string>> = {}): FormData {
+      const fd = new FormData();
+      fd.set("clientId", "1");
+      fd.set("projectId", "2");
+      fd.set("name", "Plan RDC");
+      fd.set("file", new File(["%PDF-1.4"], "plan.pdf", { type: "application/pdf" }));
+      for (const [k, v] of Object.entries(fields)) {
+        if (v === undefined) fd.delete(k);
+        else fd.set(k, v);
+      }
+      return fd;
+    }
+
+    it("rejects a folderId belonging to another project, before ever uploading the file", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findReserveFolderProjectIdMock.mockResolvedValue(99); // not project 2
+      const res = await addReservePlan(initial, planForm({ folderId: "42" }));
+      expect(res.type).toBe("error");
+      expect(uploadReservePlanMock).not.toHaveBeenCalled();
+      expect(createPlanMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects a folderId that doesn't exist at all", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findReserveFolderProjectIdMock.mockResolvedValue(null);
+      const res = await addReservePlan(initial, planForm({ folderId: "42" }));
+      expect(res.type).toBe("error");
+      expect(uploadReservePlanMock).not.toHaveBeenCalled();
+    });
+
+    it("accepts a folderId that does belong to this project", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findReserveFolderProjectIdMock.mockResolvedValue(2);
+      uploadReservePlanMock.mockResolvedValue({
+        url: "https://cdn/plan.pdf",
+        publicId: "pid",
+        deliveryType: "AUTHENTICATED",
+        resourceType: "IMAGE",
+        format: "pdf",
+        version: "1700000000",
+      } as never);
+      createPlanMock.mockResolvedValue({ id: 11 } as never);
+      const res = await addReservePlan(initial, planForm({ folderId: "42" }));
+      expect(res.type).toBe("success");
+      expect(createPlanMock).toHaveBeenCalledWith(expect.objectContaining({ folderId: 42 }));
+    });
+
+    it("skips the folder check entirely when no folderId is submitted (plan filed at the project root)", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      uploadReservePlanMock.mockResolvedValue({
+        url: "https://cdn/plan.pdf",
+        publicId: "pid",
+        deliveryType: "AUTHENTICATED",
+        resourceType: "IMAGE",
+        format: "pdf",
+        version: "1700000000",
+      } as never);
+      createPlanMock.mockResolvedValue({ id: 11 } as never);
+      const res = await addReservePlan(initial, planForm());
+      expect(res.type).toBe("success");
+      expect(findReserveFolderProjectIdMock).not.toHaveBeenCalled();
+      expect(createPlanMock).toHaveBeenCalledWith(expect.objectContaining({ folderId: null }));
+    });
+  });
+
   it("addReservePhoto rejects a request with no file", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
     const fd = new FormData();
@@ -291,6 +372,28 @@ describe("reserve actions", () => {
 
       expect(res.type).toBe("success");
       expect(updateMock).toHaveBeenCalledWith(9, expect.objectContaining({ status: "RESOLVED" }));
+    });
+
+    // Passe 3b, point 2: a réserve that exists but sits outside the caller's
+    // scope used to say "Accès refusé" (requireProjectAccess's own message),
+    // distinct from "Identifiant invalide" for an id that doesn't exist at
+    // all — both branches are resolved from the SAME id via the database, so
+    // the distinct wording let a restricted EDITOR tell "exists elsewhere"
+    // apart from "doesn't exist" and enumerate ids across the whole company.
+    // Both must now read identically.
+    it("deleteReserve says the exact same thing for a réserve outside the caller's scope as for one that doesn't exist at all", async () => {
+      requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+
+      findReserveProjectIdMock.mockResolvedValueOnce(null); // doesn't exist
+      const notFound = await deleteReserve(999, 1, 2);
+
+      findReserveProjectIdMock.mockResolvedValueOnce(99); // exists, but project 99 isn't reachable
+      canReachProjectMock.mockReturnValueOnce(false);
+      const outOfScope = await deleteReserve(9, 1, 2);
+
+      expect((notFound as { message: string }).message).toBe(fr.reserves.messages.invalidId);
+      expect((outOfScope as { message: string }).message).toBe(fr.reserves.messages.invalidId);
+      expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
     });
   });
 });

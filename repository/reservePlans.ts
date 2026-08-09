@@ -39,7 +39,7 @@ export async function findByProject(projectId: number) {
         });
     } catch (error) {
         console.log("Repository findByProject (reservePlan) error:", error);
-        throw { type: "error", message: "Database Error fetching plans." };
+        throw { type: "repositoryError", message: "Database Error fetching plans." };
     }
 }
 
@@ -56,7 +56,7 @@ export async function findById(id: number) {
         return await prisma.reservePlan.findUnique({ where: { id }, omit: { url: true } });
     } catch (error) {
         console.log("Repository findById (reservePlan) error:", error);
-        throw { type: "error", message: "Database Error fetching plan." };
+        throw { type: "repositoryError", message: "Database Error fetching plan." };
     }
 }
 
@@ -84,7 +84,7 @@ export async function create(data: ReservePlanData) {
         });
     } catch (error) {
         console.log("Repository create (reservePlan) error:", error);
-        throw { type: "error", message: "Database Error creating plan." };
+        throw { type: "repositoryError", message: "Database Error creating plan." };
     }
 }
 
@@ -109,7 +109,7 @@ export async function setFolder(planId: number, folderId: number | null, project
         });
     } catch (error) {
         console.log("Repository setFolder (reservePlan) error:", error);
-        throw { type: "error", message: "Database Error moving plan." };
+        throw { type: "repositoryError", message: "Database Error moving plan." };
     }
 }
 
@@ -124,6 +124,6 @@ export async function remove(id: number) {
         return await prisma.reservePlan.delete({ where: { id }, omit: { url: true } });
     } catch (error) {
         console.log("Repository remove (reservePlan) error:", error);
-        throw { type: "error", message: "Database Error deleting plan." };
+        throw { type: "repositoryError", message: "Database Error deleting plan." };
     }
 }

@@ -42,7 +42,23 @@ export const DEFAULT_CAPABILITY_ROLE: Record<Capability, Role> = {
 // settings.manage gates the matrix itself + theme/section order — always
 // SUPERADMIN so no one can lower the bar on the permission system and lock the
 // owner out. Shown in the matrix read-only for transparency.
-export const LOCKED_CAPABILITIES: readonly Capability[] = ["settings.manage"];
+//
+// functions.manage and users.manage joined it in passe 3b, point 4, for the
+// same reason applied to the other two axes this matrix doesn't touch
+// (function → sections, function → areas, function → projects — see
+// docs/CONVENTIONS.md): resolveAccessConfig below IGNORES whatever is stored
+// for a locked capability and forces it back to DEFAULT_CAPABILITY_ROLE
+// (ADMIN for both) — so locking them here changes nothing for the ADMIN
+// accounts that already hold them today. What it closes: an EDITOR who'd
+// been granted functions.manage could call setFunctionAreas on their OWN
+// function and clear its hiddenAreas/hiddenSections entirely — annulling two
+// of the three access axes for themselves in one write, with no ADMIN/
+// SUPERADMIN step in between. Locking the capability that GRANTS that write
+// at EDITOR-or-below is the fix; it does not touch the passe 3b, point 3
+// self-lock guard in setFunctionAreas itself (that one stops an ADMIN from
+// touching their OWN function even while legitimately holding the
+// capability — a different, narrower case).
+export const LOCKED_CAPABILITIES: readonly Capability[] = ["settings.manage", "functions.manage", "users.manage"];
 
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && value in ROLE_RANK;

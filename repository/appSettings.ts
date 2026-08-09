@@ -17,7 +17,7 @@ export async function getSettings() {
     } catch (error) {
         console.log("Repository getSettings error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching app settings.",
         };
     }
@@ -33,7 +33,7 @@ export async function upsert(data: SettingsUpdate) {
     } catch (error) {
         console.log("Repository upsert (appSettings) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating app settings.",
         };
     }
@@ -53,7 +53,7 @@ export async function updateAccessConfig(accessConfig: Prisma.InputJsonValue, up
     } catch (error) {
         console.log("Repository updateAccessConfig (appSettings) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating access config.",
         };
     }
@@ -73,7 +73,7 @@ export async function updateSectionOrder(order: string[], updatedBy: string) {
     } catch (error) {
         console.log("Repository updateSectionOrder (appSettings) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating section order.",
         };
     }

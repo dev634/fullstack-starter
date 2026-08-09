@@ -107,19 +107,38 @@ describe("applyDeliveryScanSchema bounds", () => {
 });
 
 describe("scannedDeliveryNoteSchema bounds (the LLM's raw tool-call output)", () => {
-  it("rejects an items array over MAX_SCAN_ITEMS", () => {
+  // Adversarial pass 2, point 3: this schema reads the model's own output and
+  // must DEGRADE rather than REJECT on a value that's merely out of range —
+  // only extractDeliveryNoteItems (lib/deliveryNoteScan.ts) still enforces
+  // these, one line at a time, never by failing the whole bulletin. The
+  // three tests below used to assert the opposite (a `.max()` here rejecting
+  // the WHOLE array over one out-of-range line) — they locked in exactly the
+  // defect this schema's own comments describe fixing for a missing
+  // brand/reference and a zero-quantity line; flipped rather than restored.
+
+  it("truncates an items array over MAX_SCAN_ITEMS to the first MAX_SCAN_ITEMS, rather than rejecting the whole note", () => {
     const items = Array.from({ length: MAX_SCAN_ITEMS + 1 }, (_, i) => ({ reference: `REF-${i}`, quantity: 1 }));
-    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
+    const result = scannedDeliveryNoteSchema.safeParse({ items });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.items).toHaveLength(MAX_SCAN_ITEMS);
+    expect(result.data.items[0].reference).toBe("REF-0");
   });
 
-  it("rejects an item reference over MAX_SCAN_STRING_LENGTH", () => {
+  it("accepts (at the schema level) an item reference over MAX_SCAN_STRING_LENGTH — truncated downstream by sanitizeScannedString, not rejected here", () => {
     const items = [{ reference: "x".repeat(MAX_SCAN_STRING_LENGTH + 1), quantity: 1 }];
-    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
+    const result = scannedDeliveryNoteSchema.safeParse({ items });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.items[0].reference).toHaveLength(MAX_SCAN_STRING_LENGTH + 1);
   });
 
-  it("rejects an absurd quantity", () => {
+  it("accepts (at the schema level) an absurd quantity — dropped downstream (extractDeliveryNoteItems), not rejected here", () => {
     const items = [{ reference: "Panneau", quantity: 1e308 }];
-    expect(scannedDeliveryNoteSchema.safeParse({ items }).success).toBe(false);
+    const result = scannedDeliveryNoteSchema.safeParse({ items });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.items[0].quantity).toBe(1e308);
   });
 
   // Unlike applyDeliveryScanSchema (the write path, tested above), this
@@ -253,13 +272,13 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
     const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
     // U+202E (RIGHT-TO-LEFT OVERRIDE) hidden inside an otherwise-plausible
     // brand — well within MAX_SCAN_STRING_LENGTH raw, so it passes schema
-    // validation on its own; sanitizeScannedString must still strip it
-    // before the value is composed into the returned name. Real truncation
-    // to MAX_SCAN_STRING_LENGTH also happens in that same function — not
-    // separately exercisable here, since the schema already rejects any
-    // raw string over that bound before sanitizing ever runs (see point 2);
-    // the slice() there is defense-in-depth, kept independent of the
-    // schema bound in case either changes on its own.
+    // validation on its own either way; sanitizeScannedString must still
+    // strip it before the value is composed into the returned name. Real
+    // truncation to MAX_SCAN_STRING_LENGTH also happens in that same
+    // function — exercised separately below now that the schema itself no
+    // longer bounds the raw string (adversarial pass 2, point 3): sanitizing
+    // is the only place that bound is enforced any more, not defense-in-depth
+    // behind a schema-level one.
     const bidiOverride = String.fromCharCode(0x202e);
     const brand = `Panneau${bidiOverride}solaire`;
     anthropicCreateMock.mockResolvedValue({
@@ -349,6 +368,47 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
           input: {
             items: [
               { brand: "Nexans", reference: "REF-0", quantity: 0 },
+              { brand: "Nexans", reference: "REF-9", quantity: 2 },
+            ],
+          },
+        },
+      ],
+    });
+    const file = await realJpegFile();
+    const note = await extractDeliveryNoteItems(file);
+    expect(note.items).toHaveLength(1);
+    expect(note.items[0].reference).toBe("REF-9");
+  });
+
+  // Adversarial pass 2, point 3: an over-length brand/reference/supplier no
+  // longer fails the whole scan at the schema stage — it must actually be
+  // truncated somewhere, not just silently accepted at full length.
+  it("truncates a brand longer than MAX_SCAN_STRING_LENGTH instead of failing the scan", async () => {
+    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const longBrand = "x".repeat(MAX_SCAN_STRING_LENGTH + 50);
+    anthropicCreateMock.mockResolvedValue({
+      content: [
+        { type: "tool_use", input: { items: [{ brand: longBrand, reference: "REF-9", quantity: 2 }] } },
+      ],
+    });
+    const file = await realJpegFile();
+    const note = await extractDeliveryNoteItems(file);
+    expect(note.items).toHaveLength(1);
+    expect(note.items[0].brand).toHaveLength(MAX_SCAN_STRING_LENGTH);
+  });
+
+  // Same class of fix as the zero-quantity/missing-name cases above, for the
+  // other end of the range: a line the model misread as an absurd quantity
+  // (e.g. a garbled OCR digit) is dropped, not the whole bulletin.
+  it("keeps the rest of the bulletin when one line's quantity exceeds MAX_SCAN_QUANTITY — dropped, not rejected", async () => {
+    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    anthropicCreateMock.mockResolvedValue({
+      content: [
+        {
+          type: "tool_use",
+          input: {
+            items: [
+              { brand: "Nexans", reference: "REF-0", quantity: MAX_SCAN_QUANTITY + 1 },
               { brand: "Nexans", reference: "REF-9", quantity: 2 },
             ],
           },

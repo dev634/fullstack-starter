@@ -35,7 +35,7 @@ export async function create(data: ReservePhotoData) {
         });
     } catch (error) {
         console.log("Repository create (reservePhoto) error:", error);
-        throw { type: "error", message: "Database Error saving photo." };
+        throw { type: "repositoryError", message: "Database Error saving photo." };
     }
 }
 
@@ -51,7 +51,7 @@ export async function findById(id: number) {
         return await prisma.reservePhoto.findUnique({ where: { id }, omit: { url: true } });
     } catch (error) {
         console.log("Repository findById (reservePhoto) error:", error);
-        throw { type: "error", message: "Database Error fetching photo." };
+        throw { type: "repositoryError", message: "Database Error fetching photo." };
     }
 }
 
@@ -69,7 +69,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return photo?.reserve.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (reservePhoto) error:", error);
-        throw { type: "error", message: "Database Error fetching photo." };
+        throw { type: "repositoryError", message: "Database Error fetching photo." };
     }
 }
 
@@ -89,7 +89,7 @@ export async function findByIdWithProjectId(id: number) {
         });
     } catch (error) {
         console.log("Repository findByIdWithProjectId (reservePhoto) error:", error);
-        throw { type: "error", message: "Database Error fetching photo." };
+        throw { type: "repositoryError", message: "Database Error fetching photo." };
     }
 }
 
@@ -104,6 +104,6 @@ export async function remove(id: number) {
         return await prisma.reservePhoto.delete({ where: { id }, omit: { url: true } });
     } catch (error) {
         console.log("Repository remove (reservePhoto) error:", error);
-        throw { type: "error", message: "Database Error deleting photo." };
+        throw { type: "repositoryError", message: "Database Error deleting photo." };
     }
 }

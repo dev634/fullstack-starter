@@ -23,7 +23,7 @@ export async function create(data: InterventionData) {
     } catch (error) {
         console.log("Repository create intervention error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating intervention.",
         };
     }
@@ -39,7 +39,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (intervention) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching interventions.",
         };
     }
@@ -52,7 +52,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return intervention?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (intervention) error:", error);
-        throw { type: "error", message: "Database Error fetching intervention." };
+        throw { type: "repositoryError", message: "Database Error fetching intervention." };
     }
 }
 
@@ -77,7 +77,7 @@ export async function update(id: number, data: InterventionUpdateData) {
     } catch (error) {
         console.log("Repository update intervention error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating intervention.",
         };
     }
@@ -89,7 +89,7 @@ export async function updateStatus(id: number, status: InterventionStatus) {
     } catch (error) {
         console.log("Repository updateStatus intervention error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating intervention.",
         };
     }
@@ -101,7 +101,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove intervention error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting intervention.",
         };
     }

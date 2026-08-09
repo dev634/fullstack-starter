@@ -4,8 +4,19 @@ import z from "zod";
 // lib/deliveryNoteScan.ts, on both the Anthropic and OpenAI paths) and the
 // admin-reviewed items submitted here: both describe the same row shape, and
 // both are external input arriving over the network — an LLM response in one
-// case, a client-supplied form field in the other — so both must reject the
-// same abuse.
+// case, a client-supplied form field in the other.
+//
+// The two paths ENFORCE these differently (adversarial pass 2, point 3): the
+// write path below (scannedItemSchema, applyDeliveryScanSchema) still
+// rejects outright on any of them, since it's a client-controlled submission
+// the caller can simply resubmit corrected. The model-output path further
+// down (scannedModelItemSchema, scannedDeliveryNoteSchema) instead DEGRADES —
+// truncates a string, drops an over-quantity line, keeps only the first N
+// items — because the alternative is failing an entire real bulletin
+// ("photo illisible") over one line the model merely read a little too
+// enthusiastically, forcing the admin to retry the whole scan from scratch.
+// Same idea already applied there to a missing brand/reference and a
+// zero-quantity line; see that schema's own comments for the detail.
 // - MAX_SCAN_ITEMS: bounds `applyScanItems` (repository/projectMaterials.ts)
 //   to a single Prisma transaction of a realistic size. A genuine delivery
 //   note rarely carries more than a few dozen lines; 200 is generous
@@ -13,12 +24,18 @@ import z from "zod";
 //   a transaction-abuse vector.
 // - MAX_SCAN_STRING_LENGTH: no real product brand/reference/supplier on a
 //   delivery note runs anywhere near this; it bounds both storage and what
-//   gets echoed back to the reviewing admin's screen.
+//   gets echoed back to the reviewing admin's screen. Scan-only — unlike
+//   MAX_SCAN_QUANTITY below, schemas/projectMaterial.ts does not import this
+//   one; its own name-length bound comes from schemas/fields.ts instead.
 // - MAX_SCAN_QUANTITY: a defensive ceiling, not a business one — no real
 //   delivery line is anywhere near a million units. It exists because
 //   `quantity` feeds a Prisma `Float` column via `increment`
 //   (repository/projectMaterials.ts::applyScanItems/createOrAccumulate), and
-//   an unbounded value (up to ~1.8e308 today) can saturate/overflow it.
+//   an unbounded value (up to ~1.8e308 today) can saturate/overflow it. The
+//   manual material-entry form feeds that exact same `increment` path (see
+//   schemas/projectMaterial.ts's createMaterialSchema/updateMaterialSchema),
+//   so it imports and reuses this same constant rather than duplicating the
+//   number — adversarial pass 2, point 6.
 export const MAX_SCAN_ITEMS = 200;
 export const MAX_SCAN_STRING_LENGTH = 200;
 export const MAX_SCAN_QUANTITY = 1_000_000;
@@ -129,18 +146,55 @@ export type ApplyDeliveryScanInput = z.infer<typeof applyDeliveryScanSchema>;
 // array either. A zero-quantity line is filtered out downstream alongside
 // the empty-name case above; scannedItemSchema (the write path) keeps
 // `.positive()`, since applying a delivery of zero to stock is meaningless.
+//
+// UNLIKE scannedItemSchema above (the write path, which stays hard-bounded),
+// brand/reference/quantity are deliberately NOT bounded here (adversarial
+// pass 2, point 3): this schema used to carry the same
+// `.max(MAX_SCAN_STRING_LENGTH)` / `.max(MAX_SCAN_QUANTITY)` as the write
+// path, and — same trap as the brand/reference-missing and zero-quantity
+// cases documented above — wrapping either bound in `z.array(...)` rejected
+// the WHOLE bulletin the moment a single line's model-read value merely ran
+// long or high, undoing the very fix this file's other comments describe.
+// Both bounds now degrade downstream instead, in extractDeliveryNoteItems
+// (lib/deliveryNoteScan.ts): an over-length brand/reference/supplier is
+// truncated by sanitizeScannedString (already called on every field there,
+// via sanitizeScannedNullableString), and a line whose quantity exceeds
+// MAX_SCAN_QUANTITY is dropped — the same treatment as a zero-quantity
+// (reliquat) line, just above. `quantity` still has to actually coerce to a
+// number: that's a structural-shape check (the model's tool call returning
+// something that isn't a number at all), not a value-range one, so it's the
+// one thing left that still fails the whole array — see this schema's
+// module-level comment for that same distinction at the array level below.
 const scannedModelItemSchema = z.object({
-    brand: z.string().max(MAX_SCAN_STRING_LENGTH).nullable().optional(),
-    reference: z.string().max(MAX_SCAN_STRING_LENGTH).nullable().optional(),
-    quantity: z.coerce.number().nonnegative().max(MAX_SCAN_QUANTITY),
+    brand: z.string().nullable().optional(),
+    reference: z.string().nullable().optional(),
+    quantity: z.coerce.number().nonnegative(),
 });
 
 export const scannedDeliveryNoteSchema = z.object({
-    supplier: z.string().max(MAX_SCAN_STRING_LENGTH).nullable().optional(),
+    // No `.max(MAX_SCAN_STRING_LENGTH)` here either — same reasoning as
+    // brand/reference above; truncated downstream by
+    // sanitizeScannedNullableString instead of failing the whole note.
+    supplier: z.string().nullable().optional(),
     // Absent from the tool call (the model found no line items) is treated
     // the same as an empty array — extractDeliveryNoteItems raises its own
     // "could not read any items" error either way.
-    items: z.array(scannedModelItemSchema).max(MAX_SCAN_ITEMS).default([]),
+    //
+    // MAX_SCAN_ITEMS is enforced by keeping only the first N items rather
+    // than rejecting the whole note (adversarial pass 2, point 3): the
+    // model's reply is already hard-capped by its own max_tokens (2048 —
+    // see lib/deliveryNoteScan.ts), so a real response anywhere near 200
+    // items is already pushing that budget; this is defense-in-depth against
+    // a pathological response, not a bound a genuine bulletin should ever
+    // brush against. Silently keeping the first N (in the model's own
+    // emission order) rather than raising is consistent with every other
+    // bound in this schema: a genuine outlier degrades instead of failing a
+    // scan the admin would otherwise have to retry from scratch. The write
+    // path (applyDeliveryScanSchema's itemsJson above) keeps rejecting an
+    // oversized submission outright — that array is a client-controlled
+    // review payload, not a bounded model response, so there is no
+    // equivalent "already capped upstream" argument for it.
+    items: z.array(scannedModelItemSchema).default([]).transform((items) => items.slice(0, MAX_SCAN_ITEMS)),
 });
 
 export type ScannedModelOutput = z.infer<typeof scannedDeliveryNoteSchema>;

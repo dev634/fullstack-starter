@@ -16,7 +16,7 @@ export async function create(data: TaskCategoryData) {
     } catch (error) {
         console.log("Repository create task category error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating task category.",
         };
     }
@@ -32,7 +32,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (task category) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching task categories.",
         };
     }
@@ -45,7 +45,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return category?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (task category) error:", error);
-        throw { type: "error", message: "Database Error fetching task category." };
+        throw { type: "repositoryError", message: "Database Error fetching task category." };
     }
 }
 
@@ -59,7 +59,7 @@ export async function setAssignee(id: number, data: { assignedCompanyId: number 
     } catch (error) {
         console.log("Repository setAssignee (task category) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating task category assignee.",
         };
     }
@@ -72,7 +72,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove task category error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting task category.",
         };
     }

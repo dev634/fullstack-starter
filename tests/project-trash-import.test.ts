@@ -37,6 +37,7 @@ import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
+import { MAX_IMPORT_ROWS } from "@/lib/csv";
 
 const requireRoleMock = vi.mocked(requireRole);
 const createMock = vi.mocked(create);
@@ -152,6 +153,21 @@ describe("importProjects", () => {
     const res = await importProjects(fd);
     expect(res.type).toBe("error");
     expect(res.total).toBe(0);
+  });
+
+  // Adversarial pass 2, point 7 — same gap as importClients, on the heaviest
+  // of the three importers (up to three sequential repository calls per row).
+  it("rejects a file over MAX_IMPORT_ROWS without creating anything", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const rows = Array.from(
+      { length: MAX_IMPORT_ROWS + 1 },
+      (_, i) => `"Toiture ${i}","alice@x.com","AUTRE","ETUDE","","","","","",""`
+    );
+    const res = await importProjects(csvFile(rows));
+    expect(res.type).toBe("error");
+    expect(res.total).toBe(MAX_IMPORT_ROWS + 1);
+    expect(res.created).toBe(0);
+    expect(createMock).not.toHaveBeenCalled();
   });
 
   it("fails a row whose client email doesn't match any client", async () => {

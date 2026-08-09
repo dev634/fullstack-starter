@@ -7,7 +7,7 @@ import { createContactSchema, updateContactSchema } from "@/schemas/contact";
 import { create, update, setPrimary, remove, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
 import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
-import { parseCsvRecords } from "@/lib/csv";
+import { parseCsvRecords, MAX_IMPORT_ROWS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -104,6 +104,16 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
   const records = parseCsvRecords(await file.text());
   if (records.length === 0) {
     return { type: "error", message: t.contacts.import.emptyCsvFile, created: 0, total: 0, errors: [] };
+  }
+  // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7.
+  if (records.length > MAX_IMPORT_ROWS) {
+    return {
+      type: "error",
+      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
+      created: 0,
+      total: records.length,
+      errors: [],
+    };
   }
 
   let created = 0;

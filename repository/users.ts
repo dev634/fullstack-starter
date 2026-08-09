@@ -23,7 +23,7 @@ export async function findAll() {
         });
     } catch (error) {
         console.log("Repository findAll (user) error:", error);
-        throw { type: "error", message: "Database Error fetching users." };
+        throw { type: "repositoryError", message: "Database Error fetching users." };
     }
 }
 
@@ -68,7 +68,7 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
         };
     } catch (error) {
         console.log("Repository findAccessScopeByEmail error:", error);
-        throw { type: "error", message: "Database Error fetching access scope." };
+        throw { type: "repositoryError", message: "Database Error fetching access scope." };
     }
 }
 
@@ -76,13 +76,34 @@ export async function findById(id: number) {
     try {
         return await prisma.user.findUnique({
             where: { id },
-            // Explicit select, excludes password — only id/email/role are
-            // read by callers (privilege + self-delete checks in actions/users/users.ts).
-            select: { id: true, email: true, role: true },
+            // Explicit select, excludes password — id/email/role/jobFunctionId
+            // are read by callers (privilege + self-lock checks in
+            // actions/users/users.ts — jobFunctionId added for the passe 3b,
+            // point 3 self-lock guard: it lets updateUser compare a submitted
+            // jobFunctionId against the target's CURRENT one without a second
+            // query).
+            select: { id: true, email: true, role: true, jobFunctionId: true },
         });
     } catch (error) {
         console.log("Repository findById (user) error:", error);
-        throw { type: "error", message: "Database Error fetching user." };
+        throw { type: "repositoryError", message: "Database Error fetching user." };
+    }
+}
+
+/**
+ * The raw jobFunctionId currently assigned to a user, by email — distinct
+ * from findAccessScopeByEmail above, which returns what that function
+ * RESOLVES to (hiddenSections/hiddenAreas/projectScope), not the id itself.
+ * Passe 3b, point 3: setFunctionAreas (actions/jobFunctions/jobFunctions.ts)
+ * needs the caller's OWN function id to refuse editing it.
+ */
+export async function findJobFunctionIdByEmail(email: string): Promise<number | null> {
+    try {
+        const user = await prisma.user.findUnique({ where: { email }, select: { jobFunctionId: true } });
+        return user?.jobFunctionId ?? null;
+    } catch (error) {
+        console.log("Repository findJobFunctionIdByEmail error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching user's job function." };
     }
 }
 
@@ -111,7 +132,7 @@ export async function create(data: {
             throw { type: "duplicate", message: "A user with this email already exists." };
         }
         console.log("Repository create (user) error:", error);
-        throw { type: "error", message: "Database Error creating user." };
+        throw { type: "repositoryError", message: "Database Error creating user." };
     }
 }
 
@@ -135,7 +156,7 @@ export async function updateProfile(
         });
     } catch (error) {
         console.log("Repository updateProfile (user) error:", error);
-        throw { type: "error", message: "Database Error updating user." };
+        throw { type: "repositoryError", message: "Database Error updating user." };
     }
 }
 
@@ -144,7 +165,7 @@ export async function remove(id: number) {
         return await prisma.user.delete({ where: { id } });
     } catch (error) {
         console.log("Repository remove (user) error:", error);
-        throw { type: "error", message: "Database Error deleting user." };
+        throw { type: "repositoryError", message: "Database Error deleting user." };
     }
 }
 
@@ -154,7 +175,7 @@ export async function countSuperadmins() {
         return await prisma.user.count({ where: { role: "SUPERADMIN" } });
     } catch (error) {
         console.log("Repository countSuperadmins error:", error);
-        throw { type: "error", message: "Database Error counting admins." };
+        throw { type: "repositoryError", message: "Database Error counting admins." };
     }
 }
 
@@ -167,7 +188,7 @@ export async function findByEmail(email: string) {
     } catch (error) {
         console.log("Repository findByEmail error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching user."
         };
     }
@@ -187,7 +208,7 @@ export async function createResetToken(userId: number, token: string, expiresAt:
     } catch (error) {
         console.log("Repository createResetToken error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating reset token."
         };
     }
@@ -207,7 +228,7 @@ export async function findValidResetToken(token: string) {
     } catch (error) {
         console.log("Repository findValidResetToken error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching reset token."
         };
     }
@@ -222,7 +243,7 @@ export async function markResetTokenUsed(id: number) {
     } catch (error) {
         console.log("Repository markResetTokenUsed error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating reset token."
         };
     }
@@ -237,7 +258,7 @@ export async function updatePassword(userId: number, hashedPassword: string) {
     } catch (error) {
         console.log("Repository updatePassword error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating password."
         };
     }
@@ -263,6 +284,6 @@ export async function setUserProjects(userId: number, projectIds: number[]) {
         });
     } catch (error) {
         console.log("Repository setUserProjects error:", error);
-        throw { type: "error", message: "Database Error assigning projects." };
+        throw { type: "repositoryError", message: "Database Error assigning projects." };
     }
 }

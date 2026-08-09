@@ -9,9 +9,10 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
-import { CreateClientInput, UpdateClientInput } from "@/schemas/client";
+import { CreateClientInput, updateClientSchema } from "@/schemas/client";
+import { makeObjectFromZodError } from "@/lib/zod";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
-import { parseCsvRecords, CLIENT_CSV_COLUMNS } from "@/lib/csv";
+import { parseCsvRecords, CLIENT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -21,6 +22,18 @@ import type { ClientActionState } from "@/types/client";
 const HEADER_TO_FIELD: Record<string, string> = Object.fromEntries(
   CLIENT_CSV_COLUMNS.map((c) => [c.header, c.key])
 );
+
+/**
+ * deleteClients (below) had no cap at all (adversarial pass 2, point 7):
+ * `ids: number[]` straight off a forged client call, four repository round
+ * trips per id in a loop. The grid this is called from (ClientsGrid) selects
+ * from a single page of results (9 rows — app/clients/page.tsx's PAGE_SIZE),
+ * so any real selection is nowhere near this; 200 mirrors MAX_SCAN_ITEMS
+ * (schemas/deliveryNoteScan.ts) — this project's existing "generous but
+ * bounded" convention for a batch operation — rather than inventing a new
+ * number.
+ */
+const MAX_BULK_DELETE_IDS = 200;
 
 export async function addClient(
   prevState: ClientActionState,
@@ -74,6 +87,14 @@ export async function addClient(
 export async function getClient(id: number) {
   const roleCheck = await requireRole("VIEWER");
   if (roleCheck.error) return roleCheck.error;
+  // Passe 3b, point 1: this used to only check the role, not the rubrique —
+  // a function whose hiddenAreas hides "clients" could still read the full
+  // company row (including fields the portail deliberately never exposes)
+  // straight off this action. tests/authz-coverage.test.ts's READS allowlist
+  // used to exempt this file's reads for exactly that reason; the exemption
+  // is gone now that this guard actually exists.
+  const areaCheck = await requireAreaAccess("clients");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -116,18 +137,24 @@ export async function updateClient(
   if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
-  const clientDatas = formDataToObject(formData) as UpdateClientInput;
+  // Was previously `formDataToObject(formData) as UpdateClientInput` — a type
+  // cast, not a parse. updateClientSchema was declared but never imported
+  // anywhere in the app, so an update could write an invalid email or blank
+  // required fields straight to the database (see adversarial pass 2, point
+  // 1). Parsed here now, same zodError + fieldsForm shape as every other
+  // action in this file/dépôt.
+  const parsed = updateClientSchema.safeParse(formDataToObject(formData));
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
+  const clientDatas = parsed.data;
   try {
-    if (!clientDatas.id) {
-      return { type: "error", message: t.clients.messages.missingId };
-    }
-    const id = parseInt(clientDatas.id.toString(), 10);
-    if (isNaN(id)) {
-      throw {
-        type: "error",
-        message: t.errors.invalidId,
-      };
-    }
+    const id = clientDatas.id;
     const scopeCheck = await requireClientAccess(id);
     if (scopeCheck.error) return { type: "error", message: scopeCheck.error.message };
 
@@ -243,6 +270,12 @@ export async function deleteClients(ids: number[]) {
     const valid = ids.filter((id) => Number.isInteger(id) && id > 0);
     if (valid.length === 0) {
       return { type: "error" as const, message: t.clients.messages.noneSelected };
+    }
+    if (valid.length > MAX_BULK_DELETE_IDS) {
+      return {
+        type: "error" as const,
+        message: format(t.errors.tooManySelected, { count: valid.length, max: MAX_BULK_DELETE_IDS }),
+      };
     }
     let deleted = 0;
     for (const id of valid) {
@@ -386,6 +419,19 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
   const records = parseCsvRecords(text);
   if (records.length === 0) {
     return { type: "error", message: t.clients.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
+  }
+  // No row-count limit before this (adversarial pass 2, point 7): the only
+  // real ceiling was the 10 MB Server Action body cap, i.e. ~170 000 rows,
+  // each costing its own repository round trip. See lib/csv.ts's
+  // MAX_IMPORT_ROWS for the measured rationale.
+  if (records.length > MAX_IMPORT_ROWS) {
+    return {
+      type: "error",
+      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
+      created: 0,
+      total: records.length,
+      errors: [],
+    };
   }
 
   let created = 0;

@@ -6,6 +6,7 @@ import {
   fromCloudinaryType,
   fromCloudinaryResourceType,
 } from "./cloudinaryDelivery";
+import { detectRasterImageMediaType, looksLikeDangerousMarkup } from "@/lib/fileSignature";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -95,20 +96,33 @@ async function destroyGuardedAsset(
   }
 }
 
+/**
+ * Confirms `buffer` really is one of the four raster image formats this app
+ * accepts — sniffed from its magic bytes (lib/fileSignature.ts), never the
+ * client-declared `file.type`, which a request can set to anything. Used by
+ * every upload path that is ALWAYS supposed to be a photo (client photo, the
+ * branding logo, réserve photos): unlike uploadProjectFile below (an
+ * open-ended set of document types, which can't enforce a full allowlist),
+ * these three can and do — an SVG or an HTML file renamed to "photo.png" and
+ * declared "image/png" has no binary magic number for any of the four and is
+ * rejected here regardless of its label.
+ */
+function isRealImage(buffer: Buffer): boolean {
+  return detectRasterImageMediaType(buffer) !== null;
+}
+
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /**
- * Upload a client photo to Cloudinary and return its secure URL.
- * Validates that the file is an image under the size limit.
+ * Upload a client photo to Cloudinary and return its secure URL. Validates
+ * the size first (cheap, no need to buffer an oversized file just to reject
+ * it), then that the CONTENT is really an image — never the client-declared
+ * `file.type` alone (see isRealImage above). This asset is served from a
+ * PUBLIC Cloudinary URL on purpose (unlike project files/plans/photos,
+ * guarded — see app/api/assets), so an unvalidated upload here would be
+ * directly reachable.
  */
 export async function uploadClientPhoto(file: File): Promise<string> {
-  if (!file.type.startsWith("image/")) {
-    throw {
-      type: "error",
-      message: "The photo must be an image file.",
-    };
-  }
-
   if (file.size > MAX_BYTES) {
     throw {
       type: "error",
@@ -117,6 +131,13 @@ export async function uploadClientPhoto(file: File): Promise<string> {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (!isRealImage(buffer)) {
+    throw {
+      type: "error",
+      message: "The photo must be an image file.",
+    };
+  }
 
   return new Promise<string>((resolve, reject) => {
     cloudinary.uploader
@@ -159,16 +180,13 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
 /**
  * Upload the app-wide branding logo to Cloudinary. Returns publicId
  * alongside the URL so the previous logo can be cleanly destroyed on
- * replacement (see destroyLogo).
+ * replacement (see destroyLogo). This asset is served from a PUBLIC
+ * Cloudinary URL (unlike project files/plans/photos, guarded — see
+ * app/api/assets), so an unvalidated upload here would be directly
+ * reachable — content, not just label, must be a real image (isRealImage
+ * above).
  */
 export async function uploadLogo(file: File): Promise<{ url: string; publicId: string }> {
-  if (!file.type.startsWith("image/")) {
-    throw {
-      type: "error",
-      message: "The logo must be an image file.",
-    };
-  }
-
   if (file.size > MAX_LOGO_BYTES) {
     throw {
       type: "error",
@@ -177,6 +195,13 @@ export async function uploadLogo(file: File): Promise<{ url: string; publicId: s
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (!isRealImage(buffer)) {
+    throw {
+      type: "error",
+      message: "The logo must be an image file.",
+    };
+  }
 
   return new Promise((resolve, reject) => {
     cloudinary.uploader
@@ -251,6 +276,25 @@ export function resourceTypeFromMime(mimeType: string | null | undefined): "imag
  * only reachable through a signed delivery URL. The guarded fields
  * (resourceType, format, version, deliveryType) are all read off Cloudinary's
  * response, never guessed — see guardedFieldsFromUploadResult.
+ *
+ * Unlike uploadClientPhoto/uploadLogo/uploadReservePhoto above, this path
+ * deliberately accepts an open-ended set of document types (PDFs, CAD,
+ * office files, photos, ...) — a full raster-image allowlist isn't an
+ * option. The compromise kept: BOTH declared label (isBlockedUpload, name +
+ * mime — spoofable, kept as a first cheap pass) AND, once the bytes are in
+ * hand, two content-based checks that don't require knowing every legitimate
+ * format up front — (1) a file declared as an image must actually BE one of
+ * the four raster formats this app recognizes (isRealImage — closes the
+ * "evil.svg renamed to devis.png, declared image/png" gap the label-only
+ * check above can't), and (2) regardless of what the file claims to be, its
+ * content must not look like the exact active-content shapes
+ * BLOCKED_UPLOAD_MIME_TYPES/EXTENSIONS deny by label (SVG/HTML/XML —
+ * looksLikeDangerousMarkup, lib/fileSignature.ts), closing the same gap for
+ * those. A PDF, DOCX, DWG, ... whose content isn't independently verified
+ * here still reaches Cloudinary unread past these two checks — verifying
+ * every open-ended document format's content would need one parser per
+ * format, disproportionate to the actual danger (arbitrary binary docs don't
+ * execute when opened directly the way SVG/HTML do).
  */
 export async function uploadProjectFile(
   file: File,
@@ -273,6 +317,21 @@ export async function uploadProjectFile(
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (looksLikeDangerousMarkup(buffer)) {
+    throw {
+      type: "error",
+      message: "This file type isn't allowed.",
+    };
+  }
+
+  if (file.type.startsWith("image/") && !isRealImage(buffer)) {
+    throw {
+      type: "error",
+      message: "This file type isn't allowed.",
+    };
+  }
+
   const resourceType = resourceTypeFromMime(file.type);
 
   return new Promise((resolve, reject) => {
@@ -403,20 +462,22 @@ const MAX_RESERVE_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB
  * Upload a photo attached to a réserve (must be an image, under the limit).
  * `type: "authenticated"` so it's only reachable through a signed delivery
  * URL. The guarded fields are all read off Cloudinary's response, never
- * guessed.
+ * guessed. Content, not just label, must be a real image (isRealImage
+ * above) — same reasoning as uploadClientPhoto/uploadLogo.
  */
 export async function uploadReservePhoto(
   file: File,
   projectId: number
 ): Promise<{ url: string } & GuardedUploadFields> {
-  if (!file.type.startsWith("image/") || isBlockedUpload(file)) {
-    throw { type: "error", message: "The photo must be an image file." };
-  }
   if (file.size > MAX_RESERVE_PHOTO_BYTES) {
     throw { type: "error", message: "The photo must be 10 MB or smaller." };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (!isRealImage(buffer)) {
+    throw { type: "error", message: "The photo must be an image file." };
+  }
 
   return new Promise((resolve, reject) => {
     cloudinary.uploader

@@ -1,10 +1,12 @@
 import z from "zod";
-import { optionalJobFunctionId } from "@/schemas/fields";
+import { optionalJobFunctionId, MAX_EMAIL_LENGTH } from "@/schemas/fields";
 
 export const userRoleSchema = z.enum(["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER", "CLIENT"]);
 
+// Passe 3a, point 5: email had no upper bound — same defect already fixed
+// on the other email fields (adversarial pass 2, point 5).
 export const createUserSchema = z.object({
-    email: z.string().trim().email("Adresse email invalide"),
+    email: z.string().trim().email("Adresse email invalide").max(MAX_EMAIL_LENGTH),
     name: z.string().trim().max(120).optional(),
     role: userRoleSchema,
     jobFunctionId: optionalJobFunctionId,

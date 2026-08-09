@@ -34,6 +34,16 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         return t.errors.required;
     }
 
+    // adversarial pass 2, point 5: every new .max() added to a string field
+    // needs a message more specific than the generic fallback below, the
+    // same way too_small already gets one for .min().
+    if (issue.code === "too_big" && issue.origin === "string") {
+        const maximum = "maximum" in issue ? Number(issue.maximum) : undefined;
+        if (maximum !== undefined) {
+            return format(t.errors.maxLength, { max: maximum });
+        }
+    }
+
     if (issue.code === "invalid_type") {
         return t.errors.required;
     }

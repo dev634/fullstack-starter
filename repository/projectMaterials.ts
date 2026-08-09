@@ -71,7 +71,7 @@ export async function createOrAccumulate(
         });
     } catch (error) {
         console.log("Repository createOrAccumulate material error:", error);
-        throw { type: "error", message: "Database Error creating material." };
+        throw { type: "repositoryError", message: "Database Error creating material." };
     }
 }
 
@@ -94,7 +94,7 @@ export async function create(data: MaterialData) {
     } catch (error) {
         console.log("Repository create material error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating material.",
         };
     }
@@ -119,7 +119,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (material) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching materials.",
         };
     }
@@ -132,7 +132,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return material?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (material) error:", error);
-        throw { type: "error", message: "Database Error fetching material." };
+        throw { type: "repositoryError", message: "Database Error fetching material." };
     }
 }
 
@@ -173,7 +173,7 @@ export async function update(id: number, data: MaterialUpdateData) {
     } catch (error) {
         console.log("Repository update material error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error updating material.",
         };
     }
@@ -188,12 +188,49 @@ type ScanApplyItem = {
 };
 
 /**
+ * Thrown when one of the batch's `materialId`s matches no row in this
+ * project — it belongs to another project, or has since been deleted.
+ * `updateMany` does not throw on this by itself, it silently no-ops
+ * (`{ count: 0 }` — the exact same trap already documented for
+ * `cloudinary.destroy`, see lib/cloudinary.ts and the project's own rule on
+ * this: an operation that doesn't throw hasn't necessarily acted). Thrown
+ * explicitly here, INSIDE the transaction, so the whole batch rolls back
+ * (applyScanItems's own "Atomic" guarantee, below) instead of the caller
+ * reporting "Stock mis à jour" for a delivery that partially — or entirely —
+ * never touched a single row.
+ *
+ * Deliberately carries no `.message`: unlike an opaque repository DB failure
+ * (`{ type: "repositoryError" }`, always relayed as the caller's generic
+ * fallback — see getErrorMessage, lib/helpers.ts), this is a specific,
+ * already-understood case the ACTION layer translates itself, the same way
+ * lib/deliveryNoteScan.ts's ScanErrorCode is translated via
+ * t.materials.scan.errors — see isUnmatchedScanMaterialError below and its
+ * use in actions/deliveryNoteScan/deliveryNoteScan.ts.
+ */
+export type UnmatchedScanMaterialError = { type: "unmatchedScanMaterial"; materialId: number };
+
+export function isUnmatchedScanMaterialError(error: unknown): error is UnmatchedScanMaterialError {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        (error as { type: unknown }).type === "unmatchedScanMaterial"
+    );
+}
+
+/**
  * Applies a reviewed delivery-note scan in a single transaction: for each
  * item, either increments a matched material's stock or creates a new
  * material. Atomic — a mid-list failure rolls the whole batch back rather
  * than leaving stock half-updated (which would double-apply on retry).
  * Stock increments are scoped to the project (updateMany with projectId) so
- * a stray materialId can't touch another project's stock.
+ * a stray materialId can't touch another project's stock — and, since
+ * `updateMany` reports how many rows it actually touched, a `materialId`
+ * that matches ZERO rows is treated as a failure of the WHOLE batch too
+ * (UnmatchedScanMaterialError, above), rather than silently reporting
+ * success for a delivery that was never actually applied to stock. Runs as
+ * an interactive transaction (not the array/batched form used before) so
+ * each `updateMany`'s `count` can be checked before the transaction commits.
  *
  * The note-level supplier and each item's reference are recorded only on
  * newly-created materials — matching an existing material just adds the
@@ -201,29 +238,40 @@ type ScanApplyItem = {
  */
 export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null) {
     try {
-        return await prisma.$transaction(
-            items.map((item) =>
-                item.materialId
-                    ? prisma.projectMaterial.updateMany({
-                          where: { id: item.materialId, projectId },
-                          data: { quantity: { increment: item.quantity } },
-                      })
-                    : prisma.projectMaterial.create({
-                          data: {
-                              projectId,
-                              name: item.name,
-                              quantity: item.quantity,
-                              unit: item.unit || null,
-                              supplierName: supplier || null,
-                              reference: item.reference || null,
-                          },
-                      })
-            )
-        );
+        return await prisma.$transaction(async (tx) => {
+            const results = [];
+            for (const item of items) {
+                if (item.materialId) {
+                    const { count } = await tx.projectMaterial.updateMany({
+                        where: { id: item.materialId, projectId },
+                        data: { quantity: { increment: item.quantity } },
+                    });
+                    if (count === 0) {
+                        throw { type: "unmatchedScanMaterial", materialId: item.materialId } satisfies UnmatchedScanMaterialError;
+                    }
+                    results.push({ count });
+                } else {
+                    results.push(
+                        await tx.projectMaterial.create({
+                            data: {
+                                projectId,
+                                name: item.name,
+                                quantity: item.quantity,
+                                unit: item.unit || null,
+                                supplierName: supplier || null,
+                                reference: item.reference || null,
+                            },
+                        })
+                    );
+                }
+            }
+            return results;
+        });
     } catch (error) {
+        if (isUnmatchedScanMaterialError(error)) throw error;
         console.log("Repository applyScanItems error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error applying delivery scan.",
         };
     }
@@ -235,7 +283,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove material error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting material.",
         };
     }

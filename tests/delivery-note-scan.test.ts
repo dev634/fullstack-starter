@@ -41,6 +41,17 @@ vi.mock("@/lib/deliveryNoteScan", () => ({
 }));
 vi.mock("@/repository/projectMaterials", () => ({
   applyScanItems: vi.fn(),
+  // isUnmatchedScanMaterialError is called unconditionally inside
+  // applyDeliveryNoteScan's catch block (passe 3a, point 2) — a whole-module
+  // mock must export every function the action calls, even ones no test
+  // here happens to trigger yet (docs/CONVENTIONS.md's own documented trap:
+  // a missing export doesn't fail until a guard/call site actually reaches
+  // it). Real shape reused rather than a bare vi.fn() returning undefined,
+  // so a future rejection shaped like the real error is still recognized.
+  isUnmatchedScanMaterialError: vi.fn(
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "type" in error && error.type === "unmatchedScanMaterial"
+  ),
 }));
 vi.mock("@/repository/projectFiles", () => ({ create: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
@@ -178,32 +189,38 @@ describe("applyDeliveryNoteScan", () => {
     expect(applyScanItemsMock).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed items JSON with a zod error", async () => {
+  // Adversarial pass 2, point 4: this was the only action in the app whose
+  // zodError branch carried no fieldsForm at all — a batch of reviewed lines
+  // with one bad field said only "validation error", never which.
+  it("rejects malformed items JSON with a zod error carrying a fieldsForm", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     const res = await applyDeliveryNoteScan(
       initialApply,
       formOf({ clientId: "1", projectId: "2", items: "not json" })
     );
     expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.items).toBeTruthy();
     expect(applyScanItemsMock).not.toHaveBeenCalled();
   });
 
-  it("rejects an empty items array", async () => {
+  it("rejects an empty items array, with a fieldsForm", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     const res = await applyDeliveryNoteScan(
       initialApply,
       formOf({ clientId: "1", projectId: "2", items: JSON.stringify([]) })
     );
     expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.items).toBeTruthy();
   });
 
-  it("rejects a new-material line whose brand is whitespace-only, rather than writing a nameless material (scannedItemSchema's .refine() only tests raw truthiness, so \" \" passes it — this is the check that actually protects the write)", async () => {
+  it("rejects a new-material line whose brand is whitespace-only, rather than writing a nameless material (scannedItemSchema's .refine() only tests raw truthiness, so \" \" passes it — this is the check that actually protects the write), with a fieldsForm", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     const res = await applyDeliveryNoteScan(
       initialApply,
       formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ brand: " ", quantity: 1 }]) })
     );
     expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.items).toBeTruthy();
     expect(applyScanItemsMock).not.toHaveBeenCalled();
   });
 
@@ -350,5 +367,29 @@ describe("applyDeliveryNoteScan", () => {
     expect(applyScanItemsMock).not.toHaveBeenCalled();
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
     expect(createFileMock).not.toHaveBeenCalled();
+  });
+
+  // Passe 3a, point 2: repository/projectMaterials.ts's applyScanItems rolls
+  // the WHOLE batch back (nothing applied) when one of the reviewed lines'
+  // materialId matches no row in this project — this must surface as an
+  // honest error, never as "Stock mis à jour" for a delivery that was never
+  // actually applied.
+  it("reports an honest error (not success) when applyScanItems rolls back on an unmatched materialId — nothing was applied", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    applyScanItemsMock.mockRejectedValue({ type: "unmatchedScanMaterial", materialId: 999 });
+    const res = await applyDeliveryNoteScan(
+      initialApply,
+      formOf({
+        clientId: "1",
+        projectId: "2",
+        items: JSON.stringify([
+          { quantity: 5, materialId: 7 },
+          { quantity: 2, materialId: 999 },
+        ]),
+      })
+    );
+    expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.materials.messages.invalidId);
+    expect(res.type).not.toBe("success");
   });
 });

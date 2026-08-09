@@ -94,6 +94,22 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       return { ...prevState, type: "error", message: t.users.messages.lastSuperadmin };
     }
 
+    // Passe 3b, point 3: the second lever (besides setFunctionAreas) that
+    // lifts every hiddenAreas/hiddenSections/projectScope restriction a
+    // function imposes — repointing your OWN account at a different (or no)
+    // function, in one call, without ever touching the function itself.
+    // Proven during this pass alongside the setFunctionAreas gap. The escape
+    // hatch stays SUPERADMIN, who bypasses hiddenAreas unconditionally
+    // anyway (lib/accessContext.ts) — letting them repoint their own account
+    // here changes nothing they can't already do.
+    if (
+      target.email === actor.email &&
+      actor.role !== "SUPERADMIN" &&
+      (parsed.data.jobFunctionId ?? null) !== target.jobFunctionId
+    ) {
+      return { ...prevState, type: "error", message: t.users.messages.cannotEditOwnFunction };
+    }
+
     const user = await updateProfile(target.id, {
       name: parsed.data.name ?? null,
       role: parsed.data.role,

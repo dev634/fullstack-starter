@@ -7,6 +7,7 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 
 export default async function HomePage() {
   await blockClientFromApp();
@@ -22,7 +23,7 @@ export default async function HomePage() {
 
   const { total, byStatus, recent }: Awaited<ReturnType<typeof getDashboardStats>> =
     showStats || showRecent
-      ? await getDashboardStats()
+      ? await getDashboardStats(projectIdFilter(await getAccessContext()))
       : { total: 0, byStatus: {}, recent: [] };
   const values: Record<string, number> = { total, ...byStatus };
 

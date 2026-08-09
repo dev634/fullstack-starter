@@ -20,7 +20,7 @@ export async function create(data: InterimData) {
     } catch (error) {
         console.log("Repository create interim error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error creating interim.",
         };
     }
@@ -39,7 +39,7 @@ export async function findByProject(projectId: number) {
     } catch (error) {
         console.log("Repository findByProject (interim) error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error fetching interims.",
         };
     }
@@ -52,7 +52,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return interim?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (interim) error:", error);
-        throw { type: "error", message: "Database Error fetching interim." };
+        throw { type: "repositoryError", message: "Database Error fetching interim." };
     }
 }
 
@@ -62,7 +62,7 @@ export async function remove(id: number) {
     } catch (error) {
         console.log("Repository remove interim error:", error);
         throw {
-            type: "error",
+            type: "repositoryError",
             message: "Database Error deleting interim.",
         };
     }

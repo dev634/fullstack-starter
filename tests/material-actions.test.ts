@@ -7,7 +7,9 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/lib/accessContext", () => ({
   getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
-  canReachProject: () => true,
+  // A plain vi.fn() (default true) rather than a hardcoded () => true: the
+  // passe 3b, point 2 regression test below needs to force it false once.
+  canReachProject: vi.fn().mockReturnValue(true),
   projectIdFilter: () => undefined,
 }));
 vi.mock("@/repository/projectMaterials", () => ({
@@ -24,12 +26,17 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { addMaterial, editMaterial, deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
 import { requireRole } from "@/lib/authz";
-import { createOrAccumulate, update, remove } from "@/repository/projectMaterials";
+import { canReachProject } from "@/lib/accessContext";
+import { createOrAccumulate, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
+import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
+const canReachProjectMock = vi.mocked(canReachProject);
 const createMock = vi.mocked(createOrAccumulate);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
+const findMaterialProjectIdMock = vi.mocked(findMaterialProjectId);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -70,6 +77,50 @@ describe("material actions", () => {
     const res = await addMaterial(initial, formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: "0" }));
     expect(res.type).toBe("success");
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ quantity: 0 }));
+  });
+
+  // Adversarial pass 2, point 6: the manual entry form used to have no
+  // ceiling at all on quantity — 1e308 passed straight through, and a
+  // SECOND row with the same reference then overflowed the Float column via
+  // createOrAccumulate's `increment`. Shares MAX_SCAN_QUANTITY with the scan
+  // path's own bound (schemas/deliveryNoteScan.ts) rather than a second,
+  // driftable number.
+  it("addMaterial rejects a quantity over MAX_SCAN_QUANTITY with a zod error", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addMaterial(
+      initial,
+      formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: String(MAX_SCAN_QUANTITY + 1) })
+    );
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.quantity).toBeTruthy();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("addMaterial accepts a quantity at exactly MAX_SCAN_QUANTITY", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    const res = await addMaterial(
+      initial,
+      formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: String(MAX_SCAN_QUANTITY) })
+    );
+    expect(res.type).toBe("success");
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ quantity: MAX_SCAN_QUANTITY }));
+  });
+
+  // Passe 3a, point 4: repository/projectMaterials.ts throws
+  // `{ type: "repositoryError", message: "Database Error creating material." }`
+  // on a real DB failure — this action must never relay that raw English
+  // string, only the localized generic error (getErrorMessage's fallback).
+  it("addMaterial replaces a raw repository DB error with the localized fallback, never the internal English message", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating material." });
+    const res = await addMaterial(
+      initial,
+      formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "24" })
+    );
+    expect(res.type).toBe("error");
+    expect(res.message).toBe("Erreur serveur. Réessaie plus tard.");
+    expect(res.message).not.toContain("Database Error");
   });
 
   it("addMaterial creates the material when authorized", async () => {
@@ -268,5 +319,26 @@ describe("material actions", () => {
     const res = await deleteMaterial(1, 1, 2);
     expect(removeMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
+  });
+
+  // Passe 3b, point 2: a material that exists but sits outside the caller's
+  // scope used to say "Accès refusé", distinct from "Identifiant de matériel
+  // invalide" for an id that doesn't exist at all — both resolved from the
+  // SAME id via the database, so the distinct wording let a restricted
+  // EDITOR enumerate ids across the whole company. Both must now match.
+  it("deleteMaterial says the exact same thing for a material outside the caller's scope as for one that doesn't exist at all", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+
+    findMaterialProjectIdMock.mockResolvedValueOnce(null); // doesn't exist
+    const notFound = await deleteMaterial(999, 1, 2);
+
+    findMaterialProjectIdMock.mockResolvedValueOnce(99); // exists, but project 99 isn't reachable
+    canReachProjectMock.mockReturnValueOnce(false);
+    const outOfScope = await deleteMaterial(1, 1, 2);
+
+    expect((notFound as { message: string }).message).toBe(fr.materials.messages.invalidId);
+    expect((outOfScope as { message: string }).message).toBe(fr.materials.messages.invalidId);
+    expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
+    expect(removeMock).not.toHaveBeenCalled();
   });
 });

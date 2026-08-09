@@ -26,6 +26,9 @@ const en: Dictionary = {
         invalidValue: "Invalid value.",
         invalid: "Invalid field.",
         minLength: "Must be at least {min} characters.",
+        maxLength: "Must be at most {max} characters.",
+        tooManyRows: "This file has too many rows ({count}). Maximum: {max}.",
+        tooManySelected: "Too many items selected ({count}). Maximum: {max}.",
         passwordMismatch: "Passwords do not match.",
         notANumber: "Must be a number.",
         patternMissingPlaceholder: "The pattern must contain {n}.",
@@ -752,6 +755,7 @@ const en: Dictionary = {
             duplicate: "This function already exists.",
             reordered: "Order updated.",
             sectionsSaved: "Sections updated.",
+            cannotEditOwnFunction: "You can't edit your own function's access. Ask a super admin.",
         },
     },
     users: {
@@ -794,6 +798,7 @@ const en: Dictionary = {
             cannotManageHigher: "You can't manage a user with a role higher than yours.",
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
+            cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
         },
     },
     appSettings: {

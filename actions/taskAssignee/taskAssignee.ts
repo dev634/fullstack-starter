@@ -6,6 +6,8 @@ import { parseAssignee, ASSIGNEE_TARGET_KINDS, type AssigneeTargetKind } from "@
 import { setAssignee as setTaskAssigneeRepo, findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { setAssignee as setGroupAssigneeRepo, findProjectId as findGroupProjectId } from "@/repository/taskGroups";
 import { setAssignee as setCategoryAssigneeRepo, findProjectId as findCategoryProjectId } from "@/repository/taskCategories";
+import { findCompanyProjectId } from "@/repository/subcontractors";
+import { findProjectId as findInterimProjectId } from "@/repository/interims";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -47,9 +49,29 @@ export async function setAssignee(
           : await findCategoryProjectId(targetId);
     if (realProjectId === null) return { type: "error" as const, message: t.errors.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
-    if (scopeCheck.error) return scopeCheck.error;
+    // Passe 3b, point 2: a target resolved from THIS id that sits outside
+    // the caller's scope must read exactly like one that doesn't exist —
+    // both are resolved from the database, so a distinct "forbidden"
+    // response would let a restricted EDITOR enumerate ids across the whole
+    // company (docs/CONVENTIONS.md).
+    if (scopeCheck.error) return { type: "error" as const, message: t.errors.invalidId };
 
     const parsed = parseAssignee(assignee);
+
+    // The picker only ever lists this project's own subcontractor companies
+    // / intérimaires — but nothing server-side checked that before, so a
+    // submitted id from another project silently assigned a task to a
+    // company/intérimaire that never appears anywhere in this project's UI.
+    if (parsed.assignedCompanyId != null) {
+      if ((await findCompanyProjectId(parsed.assignedCompanyId)) !== realProjectId) {
+        return { type: "error" as const, message: t.errors.invalidId };
+      }
+    } else if (parsed.assignedInterimId != null) {
+      if ((await findInterimProjectId(parsed.assignedInterimId)) !== realProjectId) {
+        return { type: "error" as const, message: t.errors.invalidId };
+      }
+    }
+
     if (targetKind === "task") await setTaskAssigneeRepo(targetId, parsed);
     else if (targetKind === "group") await setGroupAssigneeRepo(targetId, parsed);
     else await setCategoryAssigneeRepo(targetId, parsed);

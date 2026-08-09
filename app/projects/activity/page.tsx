@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { listActivity } from "@/repository/projectActivity";
+import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -28,7 +29,7 @@ export default async function ProjectsActivityPage({ searchParams }: PageProps) 
 
   const sp = await searchParams;
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
-  const { entries, total, pageSize } = await listActivity(page);
+  const { entries, total, pageSize } = await listActivity(page, projectIdFilter(await getAccessContext()));
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const locale = await getLocale();
   const t = getDictionary(locale);

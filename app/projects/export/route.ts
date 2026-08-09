@@ -31,12 +31,22 @@ export async function GET(request: Request) {
 
   const { projects } = await search({ q, sortField, dir, page: 1, pageSize: 100000, projectIds: projectIdFilter(await getAccessContext()) });
 
+  // A row poisoned before the schema validated dates (or restored from a
+  // backup taken then) can still hold an unparseable Date in the DB — render
+  // that cell blank instead of letting `.toISOString()` throw and take down
+  // the whole export for every other row.
+  const toCsvDate = (value: Date | null): string => {
+    if (!value) return "";
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  };
+
   const rows = projects.map((project) => {
     const flat: Record<string, unknown> = {
       ...project,
       clientEmail: project.client.email,
-      startDate: project.startDate ? new Date(project.startDate).toISOString().slice(0, 10) : "",
-      endDate: project.endDate ? new Date(project.endDate).toISOString().slice(0, 10) : "",
+      startDate: toCsvDate(project.startDate),
+      endDate: toCsvDate(project.endDate),
     };
     return PROJECT_CSV_COLUMNS.map((c) => csvCell(flat[c.key])).join(",");
   });

@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
+// requireRole is mocked (the tests below control it directly); hasMinRole is
+// kept REAL — setFunctionAreas' own self-lock guard (passe 3b, point 3) uses
+// it to check the ACTOR's role is SUPERADMIN, a plain rank comparison with
+// no session/DB dependency worth mocking.
+vi.mock("@/lib/authz", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/authz")>("@/lib/authz");
+  return { ...actual, requireRole: vi.fn() };
+});
 vi.mock("@/lib/accessContext", () => ({
   getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
+// Passe 3b, point 3: setFunctionAreas now also calls auth() directly (to
+// learn the ACTOR's own role, not the target's) and findJobFunctionIdByEmail
+// (to learn the actor's own function id) — both must be mocked or the whole
+// file fails to load (auth() transitively pulls in next-auth, which errors
+// outside a request context in Vitest).
+vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/repository/users", () => ({ findJobFunctionIdByEmail: vi.fn() }));
 vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -13,13 +27,26 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas } from "@/actions/jobFunctions/jobFunctions";
 import { requireRole } from "@/lib/authz";
+import { auth } from "@/lib/auth";
+import { findJobFunctionIdByEmail } from "@/repository/users";
 import { reorder, create, updateHiddenSections, updateHiddenAreas } from "@/repository/jobFunctions";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
+const authMock = vi.mocked(auth);
+const findJobFunctionIdByEmailMock = vi.mocked(findJobFunctionIdByEmail);
 const reorderMock = vi.mocked(reorder);
 const createMock = vi.mocked(create);
 const updateHiddenSectionsMock = vi.mocked(updateHiddenSections);
 const updateHiddenAreasMock = vi.mocked(updateHiddenAreas);
+
+// setFunctionAreas' own self-lock guard (passe 3b, point 3) needs the
+// ACTOR's session role/email — separate from requireRoleMock above, which
+// only asserts "does this role meet the functions.manage threshold", not
+// which role it actually is.
+function actor(role: string, email = "admin@example.com") {
+  authMock.mockResolvedValue({ user: { role, email } } as never);
+}
 
 describe("job function actions", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -90,5 +117,53 @@ describe("job function actions", () => {
     const res = await setFunctionAreas(0, ["clients"]);
     expect((res as { type: string }).type).toBe("error");
     expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+  });
+
+  // Passe 3b, point 3: proven during this pass — an ADMIN whose OWN function
+  // hides some rubriques could call setFunctionAreas(theirOwnFunctionId, [])
+  // and lift the restriction on themselves in a single call, with no
+  // SUPERADMIN involved.
+  describe("self-lock guard (passe 3b, point 3)", () => {
+    it("an ADMIN cannot edit the function currently assigned to their own account", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      actor("ADMIN", "admin@example.com");
+      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+
+      const res = await setFunctionAreas(5, []);
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.jobFunctions.messages.cannotEditOwnFunction);
+      expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+    });
+
+    it("an ADMIN can still edit a DIFFERENT function than their own", async () => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      actor("ADMIN", "admin@example.com");
+      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+      updateHiddenAreasMock.mockResolvedValue({} as never);
+
+      const res = await setFunctionAreas(9, ["clients"]);
+
+      expect(res.type).toBe("success");
+      expect(updateHiddenAreasMock).toHaveBeenCalledWith(9, ["clients"]);
+    });
+
+    // The anti-lockout guarantee: SUPERADMIN must always retain the ability
+    // to fix a misconfigured function, including its own — the same rule
+    // hiddenAreas' bypass already follows (lib/accessContext.ts).
+    it("a SUPERADMIN CAN edit the function assigned to their own account — the anti-lockout escape hatch", async () => {
+      requireRoleMock.mockResolvedValue({ email: "boss@example.com" } as never);
+      actor("SUPERADMIN", "boss@example.com");
+      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the SUPERADMIN's own function is id 5
+      updateHiddenAreasMock.mockResolvedValue({} as never);
+
+      const res = await setFunctionAreas(5, []);
+
+      expect(res.type).toBe("success");
+      expect(updateHiddenAreasMock).toHaveBeenCalledWith(5, []);
+      // The SUPERADMIN bypass never even needs to resolve the actor's own
+      // function id — hasMinRole short-circuits it.
+      expect(findJobFunctionIdByEmailMock).not.toHaveBeenCalled();
+    });
   });
 });

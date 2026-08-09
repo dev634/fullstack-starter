@@ -12,7 +12,7 @@ import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
-import { parseCsvRecords, PROJECT_CSV_COLUMNS } from "@/lib/csv";
+import { parseCsvRecords, PROJECT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -265,6 +265,18 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
   if (records.length === 0) {
     return { type: "error", message: t.projects.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
   }
+  // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7. This is
+  // the heaviest of the three importers (up to three sequential repository
+  // calls per row: findByEmail, requireClientAccess, create).
+  if (records.length > MAX_IMPORT_ROWS) {
+    return {
+      type: "error",
+      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
+      created: 0,
+      total: records.length,
+      errors: [],
+    };
+  }
 
   let created = 0;
   const errors: ImportRowError[] = [];
@@ -331,6 +343,10 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
 export async function getProjectsForClient(clientId: number) {
   const roleCheck = await requireRole("VIEWER");
   if (roleCheck.error) return roleCheck.error;
+  // Passe 3b, point 1 — same gap as getClient below: role alone doesn't
+  // check whether the caller's job function hides the "projects" rubrique.
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {
@@ -347,6 +363,12 @@ export async function getProjectsForClient(clientId: number) {
 export async function getProject(id: number) {
   const roleCheck = await requireRole("VIEWER");
   if (roleCheck.error) return roleCheck.error;
+  // Passe 3b, point 1: an EDITOR whose function hides "projects" (and
+  // "clients") could still pull the full chantier row — budget/notes
+  // included, the two fields the client portail deliberately never exposes
+  // (app/portail/projets/[projectId]/page.tsx) — straight off this action.
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

@@ -1,12 +1,36 @@
 import z from "zod";
+// Shared with the delivery-note scan flow (schemas/deliveryNoteScan.ts) —
+// see MAX_SCAN_QUANTITY's own comment there for why: `quantity` feeds the
+// exact same Float `increment` path (repository/projectMaterials.ts's
+// createOrAccumulate) whether it arrives from a scan or this manual form, so
+// the scan path's ceiling used to be the only one enforced — the manual form
+// let a value like 1e308 through, and worse, a SECOND manual entry with the
+// same reference then hit createOrAccumulate's `increment` and made Postgres
+// itself raise "value out of range: overflow", leaving that line impossible
+// to top up again (adversarial pass 2, point 6). One shared constant, not a
+// second number that could drift from it.
+import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
+// Number.isFinite(v) is required alongside v > 0: Infinity is > 0 but isn't a
+// usable quantity — Number("1e999") is Infinity, not NaN, so it used to pass
+// straight through into requiredQuantity (a Float column) — see adversarial
+// pass 2, point 2 (same trap as schemas/project.ts's optionalNumber, whose
+// comment explains why this stays a `.refine()` rather than switching to
+// z.coerce.number()).
+// .max(MAX_SCAN_QUANTITY): passe 3a, point 5 — requiredQuantity stayed
+// uncapped after `quantity`, just above, was given this exact ceiling
+// (adversarial pass 2, point 6). Same Float column class of risk: a
+// requiredQuantity just under Infinity is compared against `quantity` by
+// lib/materialStock.ts on every render, never written via an `increment`
+// itself, but there's no reason for it to accept a value the sibling field
+// on the very same row can't.
 const optionalPositiveNumber = z
     .string()
     .optional()
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || v > 0, {
+    .refine((v) => v === undefined || (Number.isFinite(v) && v > 0 && v <= MAX_SCAN_QUANTITY), {
         message: "Must be a positive number",
         params: { i18n: "notANumber" },
     });
@@ -37,7 +61,12 @@ export const createMaterialSchema = z
         name: z.string().min(1, "Le nom du matériel est requis"),
         // nonnegative (not positive): 0 is a valid, meaningful stock level —
         // it's what drives the "out of stock" (red) indicator for a linked task.
-        quantity: z.coerce.number().nonnegative("La quantité doit être un nombre positif ou nul"),
+        // .max(MAX_SCAN_QUANTITY): see this file's import comment — same
+        // ceiling as the scan path, for the same Float `increment` column.
+        quantity: z.coerce
+            .number()
+            .nonnegative("La quantité doit être un nombre positif ou nul")
+            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
         unit: z.string().optional(),
         supplierName: z.string().optional(),
         reference: z.string().optional(),
@@ -74,7 +103,10 @@ export const updateMaterialSchema = z
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
         name: z.string().min(1, "Le nom du matériel est requis"),
-        quantity: z.coerce.number().nonnegative("La quantité doit être un nombre positif ou nul"),
+        quantity: z.coerce
+            .number()
+            .nonnegative("La quantité doit être un nombre positif ou nul")
+            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
         unit: z.string().optional(),
         supplierName: z.string().optional(),
         reference: z.string().optional(),

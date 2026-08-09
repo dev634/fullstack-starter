@@ -13,6 +13,7 @@ import { auth } from "@/lib/auth";
 import { create } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
+import { MAX_IMPORT_ROWS } from "@/lib/csv";
 
 const authMock = vi.mocked(auth);
 const createMock = vi.mocked(create);
@@ -46,6 +47,20 @@ describe("importContacts", () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
     const res = await importContacts(new FormData());
     expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Adversarial pass 2, point 7 — same gap as importClients/importProjects.
+  it("rejects a file over MAX_IMPORT_ROWS without creating anything", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    const rows = Array.from(
+      { length: MAX_IMPORT_ROWS + 1 },
+      (_, i) => `"acme@x.com","Alice${i}","Smith","","","",""`
+    );
+    const res = await importContacts(csvFile(rows));
+    expect(res.type).toBe("error");
+    expect(res.total).toBe(MAX_IMPORT_ROWS + 1);
+    expect(res.created).toBe(0);
     expect(createMock).not.toHaveBeenCalled();
   });
 

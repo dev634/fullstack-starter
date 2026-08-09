@@ -24,6 +24,9 @@ const fr = {
         invalidValue: "Valeur invalide.",
         invalid: "Champ invalide.",
         minLength: "Doit contenir au moins {min} caractères.",
+        maxLength: "Doit contenir au maximum {max} caractères.",
+        tooManyRows: "Ce fichier contient trop de lignes ({count}). Maximum : {max}.",
+        tooManySelected: "Trop d'éléments sélectionnés ({count}). Maximum : {max}.",
         passwordMismatch: "Les mots de passe ne correspondent pas.",
         notANumber: "Doit être un nombre.",
         patternMissingPlaceholder: "Le motif doit contenir {n}.",
@@ -750,6 +753,7 @@ const fr = {
             duplicate: "Cette fonction existe déjà.",
             reordered: "Ordre mis à jour.",
             sectionsSaved: "Sections mises à jour.",
+            cannotEditOwnFunction: "Vous ne pouvez pas modifier l'accès de votre propre fonction. Demandez à un super admin.",
         },
     },
     users: {
@@ -792,6 +796,7 @@ const fr = {
             cannotManageHigher: "Vous ne pouvez pas gérer un utilisateur d'un rôle supérieur au vôtre.",
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
+            cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
         },
     },
     appSettings: {

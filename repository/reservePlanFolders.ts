@@ -10,7 +10,7 @@ export async function findByProject(projectId: number) {
         });
     } catch (error) {
         console.log("Repository findByProject (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error fetching folders." };
+        throw { type: "repositoryError", message: "Database Error fetching folders." };
     }
 }
 
@@ -21,7 +21,7 @@ export async function findProjectId(id: number): Promise<number | null> {
         return folder?.projectId ?? null;
     } catch (error) {
         console.log("Repository findProjectId (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error fetching folder." };
+        throw { type: "repositoryError", message: "Database Error fetching folder." };
     }
 }
 
@@ -34,7 +34,7 @@ export async function findChildren(projectId: number, parentId: number | null) {
         });
     } catch (error) {
         console.log("Repository findChildren (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error fetching folders." };
+        throw { type: "repositoryError", message: "Database Error fetching folders." };
     }
 }
 
@@ -43,13 +43,16 @@ async function findById(id: number) {
         return await prisma.reservePlanFolder.findUnique({ where: { id } });
     } catch (error) {
         console.log("Repository findById (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error fetching folder." };
+        throw { type: "repositoryError", message: "Database Error fetching folder." };
     }
 }
 
-/** Root→current chain for the breadcrumb; walks `parentId` up to the root. */
-export function getBreadcrumb(folderId: number | null) {
-    return buildBreadcrumb(folderId, findById);
+/**
+ * Root→current chain for the breadcrumb; walks `parentId` up to the root,
+ * scoped to `projectId` (see lib/breadcrumb.ts::buildBreadcrumb).
+ */
+export function getBreadcrumb(projectId: number, folderId: number | null) {
+    return buildBreadcrumb(folderId, projectId, findById);
 }
 
 export async function create(data: { projectId: number; name: string; parentId?: number | null }) {
@@ -59,7 +62,7 @@ export async function create(data: { projectId: number; name: string; parentId?:
         });
     } catch (error) {
         console.log("Repository create (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error creating folder." };
+        throw { type: "repositoryError", message: "Database Error creating folder." };
     }
 }
 
@@ -75,6 +78,6 @@ export async function remove(id: number, projectId: number) {
         return { id };
     } catch (error) {
         console.log("Repository remove (reservePlanFolder) error:", error);
-        throw { type: "error", message: "Database Error deleting folder." };
+        throw { type: "repositoryError", message: "Database Error deleting folder." };
     }
 }

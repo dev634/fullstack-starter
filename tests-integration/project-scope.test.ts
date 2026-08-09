@@ -1,8 +1,16 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { search as searchProjects, findByClient, hasProjectAmong } from "@/repository/projects";
-import { search as searchClients } from "@/repository/clients";
+import {
+  search as searchProjects,
+  findByClient,
+  hasProjectAmong,
+  findClientIdsAmong,
+  findTrashed as findTrashedProjects,
+} from "@/repository/projects";
+import { search as searchClients, findTrashed as findTrashedClients, getDashboardStats } from "@/repository/clients";
 import { findAccessScopeByEmail } from "@/repository/users";
+import { logActivity as logProjectActivity, listActivity as listProjectActivity } from "@/repository/projectActivity";
+import { logActivity as logClientActivity, listActivity as listClientActivity } from "@/repository/activity";
 
 /**
  * Row-level scoping, against a real Postgres.
@@ -48,6 +56,11 @@ afterEach(async () => {
   }
   await prisma.user.deleteMany({ where: { email: { endsWith: TEST_DOMAIN } } });
   await prisma.jobFunction.deleteMany({ where: { name: { startsWith: "ScopeTest" } } });
+  // ActivityLog/ProjectActivityLog carry no FK to Client/Project (they must
+  // survive a permanent delete), so cleaning up the owning row above doesn't
+  // remove these — clean them up explicitly by their distinctive actorEmail.
+  await prisma.activityLog.deleteMany({ where: { actorEmail: { endsWith: TEST_DOMAIN } } });
+  await prisma.projectActivityLog.deleteMany({ where: { actorEmail: { endsWith: TEST_DOMAIN } } });
 });
 
 describe("project scoping by job function", () => {
@@ -165,5 +178,86 @@ describe("project scoping by job function", () => {
       await prisma.project.update({ where: { id: projects[0].id }, data: { deletedAt: new Date() } });
       await expect(hasProjectAmong(client.id, [projects[0].id])).resolves.toBe(false);
     });
+  });
+});
+
+describe("trash listings are scoped like the live ones (adversarial pass 1, #2)", () => {
+  it("findTrashed (projects) only returns the allowlisted ids", async () => {
+    const { projects } = await makeCompanyWithProjects("ZzyxTrashScope SARL", ["Chantier visible", "Chantier caché"]);
+    await prisma.project.update({ where: { id: projects[0].id }, data: { deletedAt: new Date() } });
+    await prisma.project.update({ where: { id: projects[1].id }, data: { deletedAt: new Date() } });
+
+    const scoped = await findTrashedProjects([projects[0].id]);
+    expect(scoped.some((p) => p.id === projects[0].id)).toBe(true);
+    expect(scoped.some((p) => p.id === projects[1].id)).toBe(false);
+
+    // An empty allowlist must read as "nothing", not "unrestricted".
+    const empty = await findTrashedProjects([]);
+    expect(empty.some((p) => p.id === projects[0].id || p.id === projects[1].id)).toBe(false);
+  });
+
+  it("findTrashed (clients) only surfaces a trashed company reached through a live allowed project", async () => {
+    // Trashing a company doesn't cascade to its projects — this one stays
+    // live, so a restricted user assigned to it retains the same
+    // "can reach this company" relationship restoreClient/permanentlyDeleteClient
+    // already grant them via hasProjectAmong.
+    const { client, projects } = await makeCompanyWithProjects("ZzyxTrashScopeMine SARL", ["Chantier toujours vivant"]);
+    await prisma.client.update({ where: { id: client.id }, data: { deletedAt: new Date() } });
+
+    const other = await makeCompanyWithProjects("ZzyxTrashScopeOther SARL", ["Autre chantier"]);
+    await prisma.client.update({ where: { id: other.client.id }, data: { deletedAt: new Date() } });
+
+    const scoped = await findTrashedClients([projects[0].id]);
+    expect(scoped.some((c) => c.id === client.id)).toBe(true);
+    expect(scoped.some((c) => c.id === other.client.id)).toBe(false);
+
+    const empty = await findTrashedClients([]);
+    expect(empty.some((c) => c.id === client.id)).toBe(false);
+  });
+});
+
+describe("activity logs are scoped like the live listings (adversarial pass 1, #3)", () => {
+  it("project activity only returns entries for the allowlisted project ids", async () => {
+    const { projects } = await makeCompanyWithProjects("ZzyxActivityScope SARL", ["Chantier A", "Chantier B"]);
+    const actorEmail = uniqueEmail("actor");
+    await logProjectActivity({ action: "CREATED", projectId: projects[0].id, projectName: projects[0].name, actorEmail });
+    await logProjectActivity({ action: "CREATED", projectId: projects[1].id, projectName: projects[1].name, actorEmail });
+
+    const scoped = await listProjectActivity(1, [projects[0].id]);
+    expect(scoped.entries.some((e) => e.projectId === projects[0].id)).toBe(true);
+    expect(scoped.entries.some((e) => e.projectId === projects[1].id)).toBe(false);
+
+    const empty = await listProjectActivity(1, []);
+    expect(empty.entries.some((e) => e.projectId === projects[0].id)).toBe(false);
+  });
+
+  it("client activity is scoped via the projects the caller can reach, not a direct clientId filter", async () => {
+    const a = await makeCompanyWithProjects("ZzyxActivityAlpha SARL", ["Chantier alpha"]);
+    const b = await makeCompanyWithProjects("ZzyxActivityBeta SARL", ["Chantier beta"]);
+    const actorEmail = uniqueEmail("actor");
+    await logClientActivity({ action: "CREATED", clientId: a.client.id, clientName: a.client.companyName, actorEmail });
+    await logClientActivity({ action: "CREATED", clientId: b.client.id, clientName: b.client.companyName, actorEmail });
+
+    const clientIds = await findClientIdsAmong([a.projects[0].id]);
+    expect(clientIds).toEqual([a.client.id]);
+
+    const scoped = await listClientActivity(1, clientIds);
+    expect(scoped.entries.some((e) => e.clientId === a.client.id)).toBe(true);
+    expect(scoped.entries.some((e) => e.clientId === b.client.id)).toBe(false);
+  });
+});
+
+describe("home dashboard stats are scoped (adversarial pass 1, #6)", () => {
+  it("counts and the recently-added list only cover companies reached through an allowed project", async () => {
+    const a = await makeCompanyWithProjects("ZzyxDashAlpha SARL", ["Chantier alpha"]);
+    await makeCompanyWithProjects("ZzyxDashBeta SARL", ["Chantier beta"]);
+
+    const scoped = await getDashboardStats([a.projects[0].id]);
+    expect(scoped.total).toBe(1);
+    expect(scoped.recent.map((c) => c.companyName)).toEqual(["ZzyxDashAlpha SARL"]);
+
+    const empty = await getDashboardStats([]);
+    expect(empty.total).toBe(0);
+    expect(empty.recent).toEqual([]);
   });
 });

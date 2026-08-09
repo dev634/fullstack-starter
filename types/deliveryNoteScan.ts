@@ -20,4 +20,9 @@ export type DeliveryNoteScanActionState = {
 export type ApplyDeliveryScanActionState = {
   type: "error" | "success" | "zodError" | null;
   message: string;
+  // Was missing entirely (adversarial pass 2, point 4): every other action's
+  // zodError carries a fieldsForm, but this one returned only a generic
+  // "validation error" message — on a batch of reviewed lines, one bad field
+  // said nothing about which. See actions/deliveryNoteScan/deliveryNoteScan.ts.
+  fieldsForm?: Record<string, string>;
 };
