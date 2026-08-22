@@ -652,6 +652,14 @@ const en: Dictionary = {
         deletePlanText: "Delete “{name}” and all its reserves? This action is irreversible.",
         addHint: "Click on the plan to add a reserve.",
         reserveCount: "{count} reserve(s)",
+        // UI-level counters/labels for the textual list of réserves (project
+        // page + client portal) — deliberately separate from
+        // report.summaryOpen/summaryResolved, which style the PDF cover page.
+        openOnlyFilter: "Open only",
+        openCount: "{count} open",
+        resolvedCount: "{count} resolved",
+        noReserves: "No reserves.",
+        noOpenReserves: "No open reserves.",
         status: {
             OPEN: "Open",
             RESOLVED: "Resolved",

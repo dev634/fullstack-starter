@@ -3,6 +3,7 @@ import { v2 as cloudinary } from "cloudinary";
 import {
   groupPlansForReport,
   summarizeReserves,
+  summarizeReservesByPlan,
   formatCoordinates,
   slugify,
   reportFileName,
@@ -119,6 +120,41 @@ describe("summarizeReserves", () => {
 
   it("returns zeroes with no plans", () => {
     expect(summarizeReserves([])).toEqual({ total: 0, open: 0, resolved: 0 });
+  });
+
+  it("accepts a plain repository row shape, not just a fully-shaped ReportPlan", () => {
+    // repository/reservePlans.ts::findByProject() rows have no `asset` on
+    // their plans/photos (that composition only happens for the PDF report) —
+    // this must still typecheck and tally correctly, since the project page
+    // and the client portal feed it their raw findByProject() result.
+    const rawPlans = [
+      { id: 1, reserves: [{ status: "OPEN" as const }, { status: "RESOLVED" as const }] },
+      { id: 2, reserves: [{ status: "OPEN" as const }] },
+    ];
+    expect(summarizeReserves(rawPlans)).toEqual({ total: 3, open: 2, resolved: 1 });
+  });
+});
+
+describe("summarizeReservesByPlan", () => {
+  it("tallies each plan individually and the whole section, without diverging from summarizeReserves", () => {
+    const plans = [
+      plan({ id: 1, reserves: [reserve({ status: "OPEN" }), reserve({ status: "RESOLVED" })] }),
+      plan({ id: 2, reserves: [reserve({ status: "OPEN" })] }),
+      plan({ id: 3, reserves: [] }),
+    ];
+
+    const { overall, byPlanId } = summarizeReservesByPlan(plans);
+
+    expect(overall).toEqual(summarizeReserves(plans));
+    expect(byPlanId.get(1)).toEqual({ total: 2, open: 1, resolved: 1 });
+    expect(byPlanId.get(2)).toEqual({ total: 1, open: 1, resolved: 0 });
+    expect(byPlanId.get(3)).toEqual({ total: 0, open: 0, resolved: 0 });
+  });
+
+  it("returns an empty map and zeroed overall with no plans", () => {
+    const { overall, byPlanId } = summarizeReservesByPlan([]);
+    expect(overall).toEqual({ total: 0, open: 0, resolved: 0 });
+    expect(byPlanId.size).toBe(0);
   });
 });
 

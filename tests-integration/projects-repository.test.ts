@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { create as createProject, search } from "@/repository/projects";
+import { create as createProject, findByIdForPortal, search } from "@/repository/projects";
 import { create as createClient, softDelete } from "@/repository/clients";
 
 const TEST_DOMAIN = "@projects-integration-test.local";
@@ -60,5 +60,36 @@ describe("projects repository search() against a real Postgres", () => {
     await softDelete(client.id);
     const after = await search({ q: "Projet fantôme" });
     expect(after.projects.length).toBe(0);
+  });
+});
+
+describe("findByIdForPortal() against a real Postgres", () => {
+  it("never selects budget or notes — the client portal deliberately never shows them", async () => {
+    const client = await makeClient({ companyName: "PortalSelectTest" });
+    const project = await createProject({
+      clientId: client.id,
+      name: "Toiture confidentielle",
+      status: "ETUDE",
+      budget: 42000,
+      notes: "Marge interne : ne jamais montrer au client.",
+    });
+
+    const portalProject = await findByIdForPortal(project.id);
+
+    expect(portalProject).not.toBeNull();
+    expect(portalProject).not.toHaveProperty("budget");
+    expect(portalProject).not.toHaveProperty("notes");
+    // The fields the portal page does render must still come through.
+    expect(portalProject).toMatchObject({
+      id: project.id,
+      clientId: client.id,
+      name: "Toiture confidentielle",
+      status: "ETUDE",
+    });
+  });
+
+  it("returns null for an id that doesn't exist", async () => {
+    const portalProject = await findByIdForPortal(-1);
+    expect(portalProject).toBeNull();
   });
 });

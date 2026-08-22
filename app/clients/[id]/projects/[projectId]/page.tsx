@@ -56,6 +56,7 @@ import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
+import { summarizeReserves } from "@/lib/reservesReportData";
 import {
   BoltIcon,
   HashtagIcon,
@@ -225,6 +226,10 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     findReserveChildFolders(pid, currentReserveFolderId),
     getReserveBreadcrumb(pid, currentReserveFolderId),
   ]);
+  // What a foreman is actually looking for is what's left to treat — the
+  // section badge below keeps showing the plan count (existing info, kept
+  // as-is) and appends how many réserves are still open.
+  const reserveTally = summarizeReserves(reservePlans);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
   // normalized so a partial/stale stored value is always safe.
@@ -580,7 +585,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           <CollapsibleSection
             icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
             title={t.reserves.heading}
-            badge={reservePlans.length > 0 ? `(${reservePlans.length})` : undefined}
+            badge={
+              reservePlans.length > 0
+                ? reserveTally.total > 0
+                  ? `(${reservePlans.length}) · ${format(t.reserves.openCount, { count: reserveTally.open })}`
+                  : `(${reservePlans.length})`
+                : undefined
+            }
             headerExtra={
               // Siblings, not a wrapper div: the header is a flex-wrap row, so
               // each button must be its own item or they'd stay glued together

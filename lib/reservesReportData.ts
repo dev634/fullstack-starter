@@ -65,12 +65,23 @@ export function groupPlansForReport(
   return groups;
 }
 
-/** Open/resolved tallies shown on the cover page. */
-export function summarizeReserves(plans: readonly ReportPlan[]): {
-  total: number;
-  open: number;
-  resolved: number;
-} {
+/**
+ * The only two fields tallying needs — deliberately narrower than
+ * `ReportReserve`/`ReportPlan` so `summarizeReserves` stays usable on a plain
+ * repository row (e.g. `repository/reservePlans.ts::findByProject`'s return
+ * value, which has no `asset`/photo-delivery shaping applied) and not just on
+ * the PDF report's already-shaped `ReportPlan[]`. Both satisfy this shape
+ * structurally, so no adapter is needed at either call site.
+ */
+export type ReserveTallyInput = { status: "OPEN" | "RESOLVED" };
+export type PlanTallyInput = { id: number; reserves: readonly ReserveTallyInput[] };
+
+export type ReserveTally = { total: number; open: number; resolved: number };
+
+/** Open/resolved tallies across every given plan — used by the PDF cover page
+ * and, per-project or per-plan, by the counters on the project page and the
+ * client portal (see `summarizeReservesByPlan` below for the per-plan form). */
+export function summarizeReserves(plans: readonly PlanTallyInput[]): ReserveTally {
   let total = 0;
   let resolved = 0;
   for (const plan of plans) {
@@ -80,6 +91,24 @@ export function summarizeReserves(plans: readonly ReportPlan[]): {
     }
   }
   return { total, open: total - resolved, resolved };
+}
+
+/**
+ * Same tally, broken down per plan AND for the whole section — for the "N
+ * open" badges on each plan plus the section-wide counter. Delegates every
+ * count to `summarizeReserves` (once per plan, once for the full list)
+ * instead of re-walking `reserves` a second way, so the two can never
+ * diverge.
+ */
+export function summarizeReservesByPlan(plans: readonly PlanTallyInput[]): {
+  overall: ReserveTally;
+  byPlanId: Map<number, ReserveTally>;
+} {
+  const byPlanId = new Map<number, ReserveTally>();
+  for (const plan of plans) {
+    byPlanId.set(plan.id, summarizeReserves([plan]));
+  }
+  return { overall: summarizeReserves(plans), byPlanId };
 }
 
 /** "Lat, Lng" with a fixed precision, or null when the réserve has no GPS fix. */

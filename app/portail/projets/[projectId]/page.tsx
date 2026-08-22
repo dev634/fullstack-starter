@@ -11,13 +11,15 @@ import {
   PhotoIcon,
 } from "@heroicons/react/24/outline";
 import { requirePortalContext } from "@/lib/portal";
-import { findById } from "@/repository/projects";
+import { findByIdForPortal } from "@/repository/projects";
 import { findByProject as findTasksByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
 import { computeTaskProgress } from "@/lib/projectDashboard";
+import { summarizeReserves } from "@/lib/reservesReportData";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
+import ReserveStatusBadge from "@/components/ReserveStatusBadge";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -37,7 +39,7 @@ export default async function PortalProjectPage({
     redirect("/portail");
   }
 
-  const project = await findById(pid);
+  const project = await findByIdForPortal(pid);
   if (!project || project.deletedAt || project.clientId !== ctx.clientId) {
     notFound();
   }
@@ -51,7 +53,7 @@ export default async function PortalProjectPage({
     findReservePlansByProject(pid),
   ]);
   const progress = computeTaskProgress(tasks, taskGroups);
-  const reserveCount = reservePlans.reduce((sum, plan) => sum + plan.reserves.length, 0);
+  const reserveSummary = summarizeReserves(reservePlans);
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -133,17 +135,29 @@ export default async function PortalProjectPage({
           <div className="flex items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <MapIcon className="h-5 w-5 text-red-500" />
             <h2 className="text-lg font-semibold">{t.reserves.heading}</h2>
-            {reserveCount > 0 && <span className="text-sm text-gray-500 dark:text-gray-400">({reserveCount})</span>}
+            {/* .open/.resolved were already computed above (summarizeReserves)
+                but left unused here — the client only saw a bare total, next
+                to a PDF report that names each réserve's status. Surfacing
+                what's still open is the actionable half of that total. */}
+            {reserveSummary.total > 0 && (
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                ({format(t.reserves.openCount, { count: reserveSummary.open })} · {format(t.reserves.resolvedCount, { count: reserveSummary.resolved })})
+              </span>
+            )}
           </div>
           <div className="px-4 py-4 text-sm sm:px-6">
-            {reserveCount === 0 ? (
+            {reserveSummary.total === 0 ? (
               <p className="text-gray-500 dark:text-gray-400">{format(t.reserves.reserveCount, { count: 0 })}</p>
             ) : (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {reservePlans.flatMap((plan) =>
                   plan.reserves.map((reserve) => (
-                    <li key={reserve.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <span className="min-w-0 truncate">{reserve.description}</span>
+                    <li key={reserve.id} className="flex items-center gap-3 py-2.5">
+                      <span className="shrink-0 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        n°{reserve.number}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{reserve.description}</span>
+                      <ReserveStatusBadge status={reserve.status} />
                       {reserve.photos.length > 0 && (
                         <span className="inline-flex shrink-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                           <PhotoIcon className="h-3.5 w-3.5" />

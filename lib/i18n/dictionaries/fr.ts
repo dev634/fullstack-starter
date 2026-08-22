@@ -650,6 +650,14 @@ const fr = {
         deletePlanText: "Supprimer « {name} » et toutes ses réserves ? Cette action est irréversible.",
         addHint: "Cliquez sur le plan pour ajouter une réserve.",
         reserveCount: "{count} réserve(s)",
+        // UI-level counters/labels for the textual list of réserves (project
+        // page + client portal) — deliberately separate from
+        // report.summaryOpen/summaryResolved, which style the PDF cover page.
+        openOnlyFilter: "Ouvertes seulement",
+        openCount: "{count} ouverte(s)",
+        resolvedCount: "{count} levée(s)",
+        noReserves: "Aucune réserve.",
+        noOpenReserves: "Aucune réserve ouverte.",
         status: {
             OPEN: "Ouverte",
             RESOLVED: "Levée",

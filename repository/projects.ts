@@ -171,6 +171,47 @@ export async function findById(id: number) {
 }
 
 /**
+ * The subset of a project's columns the client portal is allowed to render —
+ * `budget` and `notes` (internal cost/margin and private remarks) are never
+ * selected, not merely left unrendered. `findById` above stays untouched: it
+ * is shared with the application (`getProject`, the guarded asset route, the
+ * réserves report route, the delivery-note-scan action), all of which
+ * legitimately need the full row, `client` relation included.
+ *
+ * A dedicated `select` was chosen over `findById(...)` + `omit`/destructuring
+ * for two reasons: it also drops the `client` include the portal page never
+ * reads (it already has the company name from its own PortalContext), and it
+ * keeps "what the portal may see" declared in one place instead of trusting
+ * every future caller to remember to strip the sensitive fields back out.
+ */
+export async function findByIdForPortal(id: number) {
+    try {
+        return await prisma.project.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                clientId: true,
+                name: true,
+                type: true,
+                status: true,
+                businessNumber: true,
+                power: true,
+                address: true,
+                startDate: true,
+                endDate: true,
+                deletedAt: true,
+            },
+        });
+    } catch (error) {
+        console.log("Repository findByIdForPortal (project) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching project.",
+        };
+    }
+}
+
+/**
  * Whether the client has at least one (non-trashed) project among the given
  * ids — used by requireClientAccess (lib/access.ts) to decide if a
  * caller restricted to specific projects may reach a client-level action at
