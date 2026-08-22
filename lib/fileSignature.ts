@@ -126,6 +126,28 @@ export function detectRasterImageMediaType(buffer: Buffer): RasterImageMediaType
   return null;
 }
 
+// PDF's magic bytes ("%PDF-", ISO 32000-1 §7.5.2) don't have to sit at byte 0:
+// the spec explicitly tolerates producers prepending a few bytes of junk
+// before the header, as long as it appears within the file's first 1024
+// bytes — some scanners/exporters do exactly that. Searching the whole
+// window (rather than only offset 0) avoids rejecting a legitimately
+// produced PDF on a check stricter than the format itself requires.
+const PDF_SIGNATURE = Buffer.from("%PDF-", "ascii");
+const PDF_SNIFF_WINDOW = 1024;
+
+/**
+ * Confirms `buffer` really starts with a PDF header — sniffed from its magic
+ * bytes, never the client-declared `file.type` or the filename's `.pdf`
+ * extension, both of which a request can set to anything. A réserve plan
+ * (lib/cloudinary.ts::uploadReservePlan) is uploaded to Cloudinary as an
+ * *image* resource specifically so it can be rasterised — an HTML or SVG
+ * file renamed to "plan.pdf" would otherwise pass a label-only check and
+ * reach Cloudinary unread.
+ */
+export function looksLikePdf(buffer: Buffer): boolean {
+  return buffer.subarray(0, PDF_SNIFF_WINDOW).indexOf(PDF_SIGNATURE) !== -1;
+}
+
 /**
  * Sniffs for the same "active content that executes when opened directly"
  * shapes lib/cloudinary.ts's BLOCKED_UPLOAD_MIME_TYPES / BLOCKED_UPLOAD_EXTENSIONS

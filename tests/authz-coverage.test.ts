@@ -55,6 +55,31 @@ const PUBLIC_ROUTES: Record<string, string> = {
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
+/**
+ * Action files whose mutations belong to a project (every row they touch is
+ * reached via a projectId). Declared once and shared by the two tests below
+ * — "behind its section" and "behind the projects area" — precisely so a
+ * 12th file added to one list can't silently miss the other. That drift is
+ * exactly what happened before this list existed here: these files checked
+ * requireSectionAccess but not requireAreaAccess("projects"), so a job
+ * function whose `projects` rubrique was hidden still kept full write and
+ * delete access to every one of them (lot C1 of the adversarial pass on the
+ * EDITOR profile — see docs/SECURITE-CHECKLIST.md, V8).
+ */
+const OWNED_BY_SECTION = [
+  "actions/tasks/tasks.ts",
+  "actions/taskGroups/taskGroups.ts",
+  "actions/taskCategories/taskCategories.ts",
+  "actions/taskAssignee/taskAssignee.ts",
+  "actions/projectMaterials/projectMaterials.ts",
+  "actions/deliveryNoteScan/deliveryNoteScan.ts",
+  "actions/interventions/interventions.ts",
+  "actions/subcontractors/subcontractors.ts",
+  "actions/interims/interims.ts",
+  "actions/projectFiles/projectFiles.ts",
+  "actions/reserves/reserves.ts",
+];
+
 type Action = { key: string; file: string; name: string; guarded: boolean };
 
 function collectActions(): Action[] {
@@ -153,20 +178,6 @@ describe("authorization coverage across server actions", () => {
     // "may I touch Matériel at all?". Without this, a job function barred from
     // a section still reaches every mutation in it — which is what
     // JobFunction.hiddenSections used to be: a filter on one page's render.
-    const OWNED_BY_SECTION = [
-      "actions/tasks/tasks.ts",
-      "actions/taskGroups/taskGroups.ts",
-      "actions/taskCategories/taskCategories.ts",
-      "actions/taskAssignee/taskAssignee.ts",
-      "actions/projectMaterials/projectMaterials.ts",
-      "actions/deliveryNoteScan/deliveryNoteScan.ts",
-      "actions/interventions/interventions.ts",
-      "actions/subcontractors/subcontractors.ts",
-      "actions/interims/interims.ts",
-      "actions/projectFiles/projectFiles.ts",
-      "actions/reserves/reserves.ts",
-    ];
-
     const ungated: string[] = [];
     for (const file of OWNED_BY_SECTION) {
       const source = ts.createSourceFile(
@@ -190,6 +201,46 @@ describe("authorization coverage across server actions", () => {
           ungated.map((k) => `  - ${k}`).join("\n") +
           `\n\nAdd requireSectionAccess("<section>") from @/lib/sectionAccess, ` +
           `next to the existing capability check.`
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("gates every section-owned action behind the projects area too, not just its section (adversarial pass, lot C1, #1)", () => {
+    // requireSectionAccess (checked above) only answers "which of a
+    // project's OWN sections may this caller see" — a narrower question that
+    // assumes the `projects` rubrique itself is already reachable. Reads
+    // (getClient/getProject, the dashboard, the PDF report, /api/assets)
+    // were closed behind canAccessArea("projects") first; these mutations —
+    // every one of them content living inside a project — were not, so a
+    // function whose hiddenAreas hides `projects` could no longer open the
+    // project list, the detail page, the dashboard, export, or download a
+    // single file, and still add/edit/delete tasks, materials, files,
+    // réserves, interventions, intérimaires and subcontractors on it. Same
+    // OWNED_BY_SECTION list as above, deliberately: any file added to one
+    // gate belongs behind both.
+    const ungated: string[] = [];
+    for (const file of OWNED_BY_SECTION) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
+      for (const fn of fns) {
+        if (!fn.exported) continue;
+        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
+      }
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These actions belong to a project but never check the projects area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd requireAreaAccess("projects") from @/lib/areaAccess, ` +
+          `next to the existing capability/section check.`
         : undefined
     ).toEqual([]);
   });

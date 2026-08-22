@@ -4,7 +4,7 @@ import { parseAssignee } from "@/schemas/taskAssignee";
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   // A plain vi.fn() (default true) rather than a hardcoded () => true: the
   // passe 3b, point 2 regression test below needs to force it false once.
   canReachProject: vi.fn().mockReturnValue(true),

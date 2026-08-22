@@ -6,7 +6,7 @@ import {
   fromCloudinaryType,
   fromCloudinaryResourceType,
 } from "./cloudinaryDelivery";
-import { detectRasterImageMediaType, looksLikeDangerousMarkup } from "@/lib/fileSignature";
+import { detectRasterImageMediaType, looksLikeDangerousMarkup, looksLikePdf } from "@/lib/fileSignature";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -414,6 +414,17 @@ export const MAX_RESERVE_PLAN_BYTES = 25 * 1024 * 1024; // 25 MB
  * lib/cloudinaryDelivery.ts::buildDeliveryUrl). `type: "authenticated"` so
  * the plan is only reachable through a signed delivery URL. The guarded
  * fields are all read off Cloudinary's response, never guessed.
+ *
+ * Adversarial pass, lot C1, #3: this was the FIFTH upload path, and the only
+ * one that never read a single byte — `isPdf` below checked only the
+ * client-declared `file.type` and the filename's `.pdf` extension, both
+ * trivially spoofable. An HTML or SVG file renamed to "plan.pdf" passed this
+ * check and reached Cloudinary — uploaded as `resource_type: "image"`, same
+ * as every other guarded image asset here, so it would have been served back
+ * through the exact same signed delivery path a real plan is. Content, not
+ * just label, must look like a real PDF now (looksLikePdf,
+ * lib/fileSignature.ts) — same technique as isRealImage above, applied to a
+ * format that isn't a raster image so it can't reuse that check.
  */
 export async function uploadReservePlan(
   file: File,
@@ -433,6 +444,10 @@ export async function uploadReservePlan(
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (!looksLikePdf(buffer)) {
+    throw { type: "error", message: "The plan must be a PDF file.", i18n: "uploadNotPdf" };
+  }
 
   return new Promise((resolve, reject) => {
     cloudinary.uploader

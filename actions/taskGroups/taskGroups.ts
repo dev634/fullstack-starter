@@ -1,6 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { remove, setCategory, findProjectId as findGroupProjectId } from "@/repository/taskGroups";
 import { revalidatePath } from "next/cache";
@@ -20,6 +21,8 @@ export async function setTaskGroupCategory(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -56,6 +59,8 @@ export async function setTaskGroupCategory(
 export async function deleteTaskGroup(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 

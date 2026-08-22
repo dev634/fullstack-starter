@@ -6,7 +6,7 @@ vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   // A plain vi.fn() (default true) rather than a hardcoded () => true: the
   // passe 3b, point 2 regression test below needs to force it false once.
   canReachProject: vi.fn().mockReturnValue(true),
@@ -20,6 +20,14 @@ vi.mock("@/repository/projectMaterials", () => ({
   findByProject: vi.fn(),
   findProjectId: vi.fn().mockResolvedValue(2),
 }));
+// Passe 3b (C2), point 1: addMaterial/editMaterial now cross-check a
+// task/group/category link against the material's own project (see
+// actions/projectMaterials/projectMaterials.ts's linkTargetInProject) —
+// resolves to project 2 by default, matching every test below's
+// `projectId: "2"`, the same convention as findMaterialProjectId above.
+vi.mock("@/repository/tasks", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
+vi.mock("@/repository/taskGroups", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
+vi.mock("@/repository/taskCategories", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -28,6 +36,9 @@ import { addMaterial, editMaterial, deleteMaterial } from "@/actions/projectMate
 import { requireRole } from "@/lib/authz";
 import { canReachProject } from "@/lib/accessContext";
 import { createOrAccumulate, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
+import { findProjectId as findTaskProjectId } from "@/repository/tasks";
+import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
+import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
 import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -37,6 +48,9 @@ const createMock = vi.mocked(createOrAccumulate);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const findMaterialProjectIdMock = vi.mocked(findMaterialProjectId);
+const findTaskProjectIdMock = vi.mocked(findTaskProjectId);
+const findTaskGroupProjectIdMock = vi.mocked(findTaskGroupProjectId);
+const findTaskCategoryProjectIdMock = vi.mocked(findTaskCategoryProjectId);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -243,6 +257,101 @@ describe("material actions", () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ taskCategoryId: 3, taskId: undefined, taskGroupId: undefined, requiredQuantity: 24 })
     );
+  });
+
+  // Passe 3b (C2), point 1: the picker only ever lists the current project's
+  // own tasks/series/categories — but nothing server-side checked that
+  // before, so a submitted "task:<id>" for a task belonging to ANOTHER
+  // project's company silently linked the material to it (its title then
+  // rendering straight into the material's own project's UI). Same class of
+  // gap as setAssignee's company/intérimaire cross-check
+  // (tests/task-assignee.test.ts), just encoded in a string instead of its
+  // own form field — see linkTargetInProject's own comment.
+  describe("cross-checks a task/series/category link against the material's own project", () => {
+    it("addMaterial rejects a task belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findTaskProjectIdMock.mockResolvedValueOnce(99); // task's real project is 2
+      const res = await addMaterial(
+        initial,
+        formOf({
+          clientId: "1",
+          projectId: "2",
+          name: "Panneau 400W",
+          quantity: "10",
+          link: "task:5",
+          requiredQuantity: "24",
+        })
+      );
+      expect(res.type).toBe("error");
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it("addMaterial rejects a task series belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findTaskGroupProjectIdMock.mockResolvedValueOnce(99);
+      const res = await addMaterial(
+        initial,
+        formOf({
+          clientId: "1",
+          projectId: "2",
+          name: "Panneau 400W",
+          quantity: "10",
+          link: "group:7",
+          requiredQuantity: "24",
+        })
+      );
+      expect(res.type).toBe("error");
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it("addMaterial rejects a task category belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findTaskCategoryProjectIdMock.mockResolvedValueOnce(99);
+      const res = await addMaterial(
+        initial,
+        formOf({
+          clientId: "1",
+          projectId: "2",
+          name: "Panneau 400W",
+          quantity: "10",
+          link: "category:3",
+          requiredQuantity: "24",
+        })
+      );
+      expect(res.type).toBe("error");
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it("editMaterial rejects re-linking to a task belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findTaskProjectIdMock.mockResolvedValueOnce(99); // task's real project is 2
+      const res = await editMaterial(
+        initial,
+        formOf({
+          id: "1",
+          clientId: "1",
+          projectId: "2",
+          name: "Panneau 500W",
+          quantity: "15",
+          link: "task:5",
+          requiredQuantity: "20",
+        })
+      );
+      expect(res.type).toBe("error");
+      expect(updateMock).not.toHaveBeenCalled();
+    });
+
+    it("does not look up a task/series/category at all when the link is cleared", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      await addMaterial(
+        initial,
+        formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1", link: "" })
+      );
+      expect(findTaskProjectIdMock).not.toHaveBeenCalled();
+      expect(findTaskGroupProjectIdMock).not.toHaveBeenCalled();
+      expect(findTaskCategoryProjectIdMock).not.toHaveBeenCalled();
+    });
   });
 
   it("editMaterial refuses a non-ADMIN session", async () => {

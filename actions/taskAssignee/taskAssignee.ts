@@ -1,6 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { parseAssignee, ASSIGNEE_TARGET_KINDS, type AssigneeTargetKind } from "@/schemas/taskAssignee";
 import { setAssignee as setTaskAssigneeRepo, findProjectId as findTaskProjectId } from "@/repository/tasks";
@@ -29,6 +30,8 @@ export async function setAssignee(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 

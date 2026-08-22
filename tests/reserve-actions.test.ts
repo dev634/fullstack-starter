@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), projectIds: null }),
+  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
   canReachProject: vi.fn().mockReturnValue(true),
   projectIdFilter: vi.fn().mockReturnValue(undefined),
 }));

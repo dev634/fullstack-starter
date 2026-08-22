@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterimSchema } from "@/schemas/interim";
 import { create, remove, findProjectId as findInterimProjectId } from "@/repository/interims";
@@ -16,6 +17,8 @@ export async function addInterim(
 ): Promise<InterimActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("interims");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -60,6 +63,8 @@ export async function addInterim(
 export async function deleteInterim(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("interims");
   if (sectionCheck.error) return sectionCheck.error;
 

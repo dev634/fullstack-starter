@@ -10,6 +10,29 @@ import z from "zod";
 // to top up again (adversarial pass 2, point 6). One shared constant, not a
 // second number that could drift from it.
 import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
+// Passe 3b (C2), point 2: name/unit/supplierName/reference had no upper
+// bound at all — the other nine schemas got their tiers two days ago
+// (schemas/fields.ts's own module comment), this one was missed. Picked by
+// USAGE, not copy-pasted from a neighbour: `name` is a title like a task's
+// (schemas/task.ts) or a project's (schemas/project.ts) — MAX_NAME_LENGTH.
+// `supplierName` is a company name like schemas/subcontractor.ts's own
+// `name` — MAX_NAME_LENGTH too. `unit` and `reference` are short structured
+// values, not prose — MAX_CODE_LENGTH, the same tier schemas/client.ts uses
+// for `businessNumber` and schemas/project.ts for its own `businessNumber`;
+// MAX_CODE_LENGTH's own comment in fields.ts literally names "a
+// business/reference number" as its use case. `reference` also already has
+// a real-world ceiling one layer up: a scan-created material's reference
+// is bounded to MAX_SCAN_STRING_LENGTH (200, schemas/deliveryNoteScan.ts) —
+// but that comment states no genuine brand/reference/supplier on a delivery
+// note runs anywhere near it either, so a 40-char structured-code tier does
+// not conflict with what a real bulletin ever produces.
+// `reference` partage deliberement le plafond du chemin scan, pas celui des
+// codes courts : le scan de bulletin ecrit `reference` directement en base
+// jusqu`a MAX_SCAN_STRING_LENGTH. Un plafond plus bas ici rendrait un
+// materiau cree par scan impossible a re-enregistrer a la main, sur un champ
+// que l`utilisateur n`a meme pas touche — meme signature que le plafond de
+// telephone a 30 qui bloquait des fiches existantes en production.
+import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH } from "@/schemas/fields";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -58,7 +81,7 @@ export const createMaterialSchema = z
     .object({
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
-        name: z.string().min(1, "Le nom du matériel est requis"),
+        name: z.string().min(1, "Le nom du matériel est requis").max(MAX_NAME_LENGTH),
         // nonnegative (not positive): 0 is a valid, meaningful stock level —
         // it's what drives the "out of stock" (red) indicator for a linked task.
         // .max(MAX_SCAN_QUANTITY): see this file's import comment — same
@@ -67,9 +90,9 @@ export const createMaterialSchema = z
             .number()
             .nonnegative("La quantité doit être un nombre positif ou nul")
             .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
-        unit: z.string().optional(),
-        supplierName: z.string().optional(),
-        reference: z.string().optional(),
+        unit: z.string().max(MAX_CODE_LENGTH).optional(),
+        supplierName: z.string().max(MAX_NAME_LENGTH).optional(),
+        reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
         // When a task or task-series is linked, requiredQuantity drives the
         // stock indicator (see lib/materialStock.ts) — comparing quantity in
         // stock against it.
@@ -102,14 +125,14 @@ export const updateMaterialSchema = z
         id: z.coerce.number().int().positive(),
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
-        name: z.string().min(1, "Le nom du matériel est requis"),
+        name: z.string().min(1, "Le nom du matériel est requis").max(MAX_NAME_LENGTH),
         quantity: z.coerce
             .number()
             .nonnegative("La quantité doit être un nombre positif ou nul")
             .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
-        unit: z.string().optional(),
-        supplierName: z.string().optional(),
-        reference: z.string().optional(),
+        unit: z.string().max(MAX_CODE_LENGTH).optional(),
+        supplierName: z.string().max(MAX_NAME_LENGTH).optional(),
+        reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
         link: linkTarget,
         requiredQuantity: optionalPositiveNumber,
     })

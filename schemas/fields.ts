@@ -17,6 +17,7 @@ import z from "zod";
 // that no legitimate entry is ever close to it.
 export const MAX_NAME_LENGTH = 200; // a person/company/project/task/category/folder name or title
 export const MAX_LINE_LENGTH = 300; // a single structured line with more headroom than a name: a street address
+export const MAX_REFERENCE_LENGTH = 200; // a supplier product reference — must match the delivery-note scan ceiling, which writes it straight to the database
 export const MAX_CODE_LENGTH = 40; // a short structured code: a postal code, a business/reference number
 export const MAX_NOTE_LENGTH = 5000; // free-form prose: a description, project notes
 export const MAX_EMAIL_LENGTH = 254; // RFC 5321's practical mailbox length limit

@@ -5,11 +5,12 @@ import { loginSchema, requestResetSchema, resetPasswordSchema } from "@/schemas/
 import { createUserSchema } from "@/schemas/user";
 import { createProjectSchema } from "@/schemas/project";
 import { createMaterialSchema } from "@/schemas/projectMaterial";
-import { createTaskSeriesSchema } from "@/schemas/task";
+import { createTaskSchema, createTaskSeriesSchema } from "@/schemas/task";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
 import { createReserveSchema } from "@/schemas/reserve";
+import { MAX_SCAN_STRING_LENGTH } from "@/schemas/deliveryNoteScan";
 import { createContactSchema } from "@/schemas/contact";
-import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, MAX_EMAIL_LENGTH, MAX_PHONE_LENGTH } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH, MAX_EMAIL_LENGTH, MAX_PHONE_LENGTH, MAX_REFERENCE_LENGTH } from "@/schemas/fields";
 import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -416,5 +417,94 @@ describe("ProjectMaterial.requiredQuantity ceiling (passe 3a, point 5)", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.requiredQuantity).toBe(MAX_SCAN_QUANTITY);
+  });
+});
+
+describe("ProjectMaterial free-text ceilings (passe 3b (C2), point 2)", () => {
+  // name/unit/supplierName/reference had no upper bound at all — the other
+  // nine schemas got their tiers two days ago (adversarial pass 2, point 5),
+  // this one was missed. One character over each field's own tier is enough
+  // to prove the ceiling works, without repeating the 100 000-character
+  // extreme the audit already proved reachable on other fields.
+  const BASE = { projectId: "1", clientId: "1", name: "Panneau", quantity: "10", link: "" };
+
+  it("rejects a name over MAX_NAME_LENGTH", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, name: "x".repeat(MAX_NAME_LENGTH + 1) });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a unit over MAX_CODE_LENGTH", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, unit: "x".repeat(MAX_CODE_LENGTH + 1) });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a supplierName over MAX_NAME_LENGTH", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, supplierName: "x".repeat(MAX_NAME_LENGTH + 1) });
+    expect(result.success).toBe(false);
+  });
+
+  // Ce test affirmait un plafond de MAX_CODE_LENGTH (40) sur `reference`. Il
+  // etait vert et il avait tort : le scan de bulletin ecrit `reference`
+  // directement en base jusqu`a MAX_SCAN_STRING_LENGTH (200), donc un materiau
+  // cree par scan avec une reference plus longue que 40 serait devenu
+  // impossible a re-enregistrer a la main — sur un champ que l`utilisateur
+  // n`aurait meme pas touche. Assertion retournee plutot que supprimee.
+  it("accepts a reference as long as the delivery-note scan can write", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, reference: "x".repeat(MAX_SCAN_STRING_LENGTH) });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a reference over MAX_REFERENCE_LENGTH", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, reference: "x".repeat(MAX_REFERENCE_LENGTH + 1) });
+    expect(result.success).toBe(false);
+  });
+
+  it("keeps the manual ceiling and the scan ceiling equal, so neither path can strand the other", () => {
+    expect(MAX_REFERENCE_LENGTH).toBe(MAX_SCAN_STRING_LENGTH);
+  });
+
+  it("still accepts well-formed name/unit/supplierName/reference values", () => {
+    const result = createMaterialSchema.safeParse({
+      ...BASE,
+      unit: "pièce",
+      supplierName: "Solaredge",
+      reference: "SE-5000",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("createTaskSchema dueDate validation (passe 3b (C2), point 3)", () => {
+  // The one date schema the adversarial pass's recensement missed: unlike
+  // schemas/project.ts's optionalDate and schemas/intervention.ts's
+  // scheduledAtSchema, this file's own optionalDate only trimmed the string —
+  // an unparseable or out-of-range dueDate reached the repository's
+  // `new Date(...)` unchecked, the exact defect that made /projects/export
+  // 500 for everyone, permanently, the last time a date field went in
+  // unvalidated (see createProjectSchema's own test above).
+  const BASE = { projectId: "1", clientId: "1", title: "Poser les panneaux" };
+
+  it("rejects an unparseable dueDate instead of storing it as-is", () => {
+    const result = createTaskSchema.safeParse({ ...BASE, dueDate: "not-a-date" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a dueDate past the range Date can represent", () => {
+    const result = createTaskSchema.safeParse({ ...BASE, dueDate: "+300000-01-01" });
+    expect(result.success).toBe(false);
+  });
+
+  it("still accepts a well-formed dueDate", () => {
+    const result = createTaskSchema.safeParse({ ...BASE, dueDate: "2026-01-01" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.dueDate).toBe("2026-01-01");
+  });
+
+  it("keeps treating an empty string as 'not provided', not an error", () => {
+    const result = createTaskSchema.safeParse({ ...BASE, dueDate: "" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.dueDate).toBeUndefined();
   });
 });
