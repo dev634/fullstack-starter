@@ -139,7 +139,7 @@ export async function uploadFile(
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, t.errors.serverError),
+      message: getErrorMessage(error, t.errors.serverError, t),
     };
   }
 }

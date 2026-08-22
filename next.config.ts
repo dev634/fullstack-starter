@@ -38,11 +38,23 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       // Server Actions cap request bodies at 1 MB by default — well under a
-      // typical phone photo, so every delivery-note scan
-      // (lib/deliveryNoteScan.ts's MAX_BYTES) was rejected by Next itself
-      // before the action's own 10 MB check ever ran. Must stay equal to
-      // MAX_BYTES; if that constant changes, change this too.
-      bodySizeLimit: 10 * 1024 * 1024,
+      // typical phone photo. This must stay >= the LARGEST of this app's own
+      // per-feature upload ceilings (lib/cloudinary.ts, lib/deliveryNoteScan.ts),
+      // or a file the app itself tells the user it accepts is rejected by
+      // Next before that feature's own check ever runs — the user sees a
+      // framework-level failure, never the localized message, on a file
+      // that's actually within the announced limit. Proven reachable
+      // (fix/blocked-legitimate-input, point 4): with this at 10 MB, a
+      // réserve plan between 10 MB and MAX_RESERVE_PLAN_BYTES (25 MB, the
+      // largest ceiling in the app — client photo 5 MB, logo 2 MB, project
+      // file 20 MB, réserve photo 10 MB, delivery-note scan 10 MB all fit
+      // under it) could never be uploaded at all, despite the plan-upload
+      // form and its server action both advertising 25 MB. Raised to match
+      // the highest declared ceiling rather than lowering it: none of those
+      // per-feature limits were wrong on their own, and a large architectural
+      // plan as a scanned PDF is a real, expected file for this field.
+      // Bump this if a ceiling above 25 MB is ever introduced.
+      bodySizeLimit: 25 * 1024 * 1024,
     },
   },
   images: {

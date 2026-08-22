@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 
 describe("formDataToObject", () => {
   it("keeps string entries", () => {
@@ -53,5 +55,28 @@ describe("getErrorMessage", () => {
     expect(getErrorMessage({ type: "error", message: "Identifiant de matériel invalide." }, "fallback")).toBe(
       "Identifiant de matériel invalide."
     );
+  });
+
+  // fix/blocked-legitimate-input, point 3: lib/cloudinary.ts's 17 upload
+  // throws carry a stable `i18n` code alongside their English `.message` —
+  // the same relay-verbatim bug as the repository case above, just for the
+  // app's most frequent upload errors instead of a DB failure.
+  describe("upload-validation error (lib/cloudinary.ts's stable i18n code)", () => {
+    const fr = getDictionary("fr");
+
+    it("translates a too-large upload with its actual size limit, given the dictionary", () => {
+      const error = { type: "error", message: "The photo must be 5 MB or smaller.", i18n: "uploadTooLarge", i18nParams: { max: 5 } };
+      expect(getErrorMessage(error, "fallback", fr)).toBe(format(fr.errors.uploadTooLarge, { max: 5 }));
+    });
+
+    it("translates a not-an-image upload", () => {
+      const error = { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+      expect(getErrorMessage(error, "fallback", fr)).toBe(fr.errors.uploadNotImage);
+    });
+
+    it("falls back to the raw English message when no dictionary is given", () => {
+      const error = { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+      expect(getErrorMessage(error, "fallback")).toBe("The photo must be an image file.");
+    });
   });
 });

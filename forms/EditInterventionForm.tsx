@@ -111,6 +111,9 @@ export default function EditInterventionForm({
                 aria-label={t.interventions.technicianLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
               />
+              {state.type === "zodError" && state.fieldsForm?.technician && (
+                <p className="mt-1 text-xs text-red-500">{state.fieldsForm.technician}</p>
+              )}
             </div>
 
             <div className="mb-4">
@@ -126,7 +129,10 @@ export default function EditInterventionForm({
               </select>
             </div>
 
-            {state.type === "error" && <p className="mb-4 text-xs text-red-500">{state.message}</p>}
+            {/* Was `type === "error"` only — a zodError rendered nothing. */}
+            {(state.type === "error" || state.type === "zodError") && (
+              <p className="mb-4 text-xs text-red-500">{state.message}</p>
+            )}
 
             <div className="flex justify-end gap-3">
               <button

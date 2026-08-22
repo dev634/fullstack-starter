@@ -79,7 +79,7 @@ export async function addClient(
     return {
       ...prevState,
       type: "error",
-      message: getErrorMessage(error, t.errors.serverError),
+      message: getErrorMessage(error, t.errors.serverError, t),
     };
   }
 }
@@ -198,7 +198,7 @@ export async function updateClient(
     console.log("Action updateClient error:", error);
     return {
       type: "error",
-      message: getErrorMessage(error, t.errors.serverError),
+      message: getErrorMessage(error, t.errors.serverError, t),
     };
   }
 }

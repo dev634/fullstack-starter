@@ -9,12 +9,14 @@ import {
     type RasterImageMediaType,
 } from "@/lib/fileSignature";
 
-// 10 MB — well under either provider's image limit. Must stay equal to
-// `bodySizeLimit` in next.config.ts: Server Actions cap request bodies at
-// 1 MB by default, well under a typical phone photo, so raising this value
-// here without raising the Next config would just move the rejection point,
-// not fix it.
-const MAX_BYTES = 10 * 1024 * 1024;
+// 10 MB — well under either provider's image limit. Must stay <=
+// `bodySizeLimit` in next.config.ts (currently 25 MB, driven by
+// lib/cloudinary.ts's largest per-feature ceiling, réserve plans): raising
+// this value past whatever next.config.ts allows would just move the
+// rejection point back to a framework-level error, not fix anything. See
+// tests/next-config-upload-limit.test.ts, which checks this against every
+// declared ceiling in the app, this one included.
+export const MAX_BYTES = 10 * 1024 * 1024;
 
 const ANTHROPIC_MODEL = "claude-sonnet-5";
 const OPENAI_MODEL = "gpt-4o";

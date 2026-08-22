@@ -111,7 +111,7 @@ function isRealImage(buffer: Buffer): boolean {
   return detectRasterImageMediaType(buffer) !== null;
 }
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+export const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /**
  * Upload a client photo to Cloudinary and return its secure URL. Validates
@@ -123,10 +123,12 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
  * directly reachable.
  */
 export async function uploadClientPhoto(file: File): Promise<string> {
-  if (file.size > MAX_BYTES) {
+  if (file.size > MAX_CLIENT_PHOTO_BYTES) {
     throw {
       type: "error",
       message: "The photo must be 5 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_CLIENT_PHOTO_BYTES / (1024 * 1024) },
     };
   }
 
@@ -136,6 +138,7 @@ export async function uploadClientPhoto(file: File): Promise<string> {
     throw {
       type: "error",
       message: "The photo must be an image file.",
+      i18n: "uploadNotImage",
     };
   }
 
@@ -148,6 +151,7 @@ export async function uploadClientPhoto(file: File): Promise<string> {
             reject({
               type: "error",
               message: "Failed to upload the photo. Please try again.",
+              i18n: "uploadFailed",
             });
             return;
           }
@@ -175,7 +179,7 @@ export async function destroyClientPhoto(
   }
 }
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
+export const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
 
 /**
  * Upload the app-wide branding logo to Cloudinary. Returns publicId
@@ -191,6 +195,8 @@ export async function uploadLogo(file: File): Promise<{ url: string; publicId: s
     throw {
       type: "error",
       message: "The logo must be 2 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_LOGO_BYTES / (1024 * 1024) },
     };
   }
 
@@ -200,6 +206,7 @@ export async function uploadLogo(file: File): Promise<{ url: string; publicId: s
     throw {
       type: "error",
       message: "The logo must be an image file.",
+      i18n: "uploadNotImage",
     };
   }
 
@@ -212,6 +219,7 @@ export async function uploadLogo(file: File): Promise<{ url: string; publicId: s
             reject({
               type: "error",
               message: "Failed to upload the logo. Please try again.",
+              i18n: "uploadFailed",
             });
             return;
           }
@@ -235,7 +243,7 @@ export async function destroyLogo(publicId: string | null | undefined): Promise<
   }
 }
 
-const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
+export const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
 
 // Active content that executes script when opened directly from the
 // Cloudinary URL (stored-XSS / content-spoofing). We don't tightly
@@ -306,6 +314,8 @@ export async function uploadProjectFile(
     throw {
       type: "error",
       message: "The file must be 20 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_PROJECT_FILE_BYTES / (1024 * 1024) },
     };
   }
 
@@ -313,6 +323,7 @@ export async function uploadProjectFile(
     throw {
       type: "error",
       message: "This file type isn't allowed.",
+      i18n: "uploadTypeNotAllowed",
     };
   }
 
@@ -322,6 +333,7 @@ export async function uploadProjectFile(
     throw {
       type: "error",
       message: "This file type isn't allowed.",
+      i18n: "uploadTypeNotAllowed",
     };
   }
 
@@ -329,6 +341,7 @@ export async function uploadProjectFile(
     throw {
       type: "error",
       message: "This file type isn't allowed.",
+      i18n: "uploadTypeNotAllowed",
     };
   }
 
@@ -349,6 +362,7 @@ export async function uploadProjectFile(
             reject({
               type: "error",
               message: "Failed to upload the file. Please try again.",
+              i18n: "uploadFailed",
             });
             return;
           }
@@ -391,7 +405,7 @@ export async function destroyProjectFile(
   await destroyGuardedAsset(publicId, asset.deliveryType, asset.resourceType);
 }
 
-const MAX_RESERVE_PLAN_BYTES = 25 * 1024 * 1024; // 25 MB
+export const MAX_RESERVE_PLAN_BYTES = 25 * 1024 * 1024; // 25 MB
 
 /**
  * Upload a reserve plan (a PDF) to Cloudinary as an *image* resource — unlike
@@ -407,10 +421,15 @@ export async function uploadReservePlan(
 ): Promise<{ url: string } & GuardedUploadFields> {
   const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
   if (!isPdf) {
-    throw { type: "error", message: "The plan must be a PDF file." };
+    throw { type: "error", message: "The plan must be a PDF file.", i18n: "uploadNotPdf" };
   }
   if (file.size > MAX_RESERVE_PLAN_BYTES) {
-    throw { type: "error", message: "The plan must be 25 MB or smaller." };
+    throw {
+      type: "error",
+      message: "The plan must be 25 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_RESERVE_PLAN_BYTES / (1024 * 1024) },
+    };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -427,7 +446,11 @@ export async function uploadReservePlan(
         },
         (error, result) => {
           if (error || !result) {
-            reject({ type: "error", message: "Failed to upload the plan. Please try again." });
+            reject({
+              type: "error",
+              message: "Failed to upload the plan. Please try again.",
+              i18n: "uploadFailed",
+            });
             return;
           }
           const guardedFields = safeGuardedFields(result, reject);
@@ -456,7 +479,7 @@ export async function destroyReservePlan(plan: GuardedAssetRef | null | undefine
   await destroyGuardedAsset(plan.publicId, plan.deliveryType, plan.resourceType);
 }
 
-const MAX_RESERVE_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB
+export const MAX_RESERVE_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Upload a photo attached to a réserve (must be an image, under the limit).
@@ -470,13 +493,18 @@ export async function uploadReservePhoto(
   projectId: number
 ): Promise<{ url: string } & GuardedUploadFields> {
   if (file.size > MAX_RESERVE_PHOTO_BYTES) {
-    throw { type: "error", message: "The photo must be 10 MB or smaller." };
+    throw {
+      type: "error",
+      message: "The photo must be 10 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_RESERVE_PHOTO_BYTES / (1024 * 1024) },
+    };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
   if (!isRealImage(buffer)) {
-    throw { type: "error", message: "The photo must be an image file." };
+    throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
   }
 
   return new Promise((resolve, reject) => {
@@ -491,7 +519,11 @@ export async function uploadReservePhoto(
         },
         (error, result) => {
           if (error || !result) {
-            reject({ type: "error", message: "Failed to upload the photo. Please try again." });
+            reject({
+              type: "error",
+              message: "Failed to upload the photo. Please try again.",
+              i18n: "uploadFailed",
+            });
             return;
           }
           const guardedFields = safeGuardedFields(result, reject);

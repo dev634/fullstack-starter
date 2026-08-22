@@ -48,9 +48,27 @@ export default function ContactFields({
       <select name="jobFunctionId" defaultValue={defaults?.jobFunctionId ?? ""} aria-label={t.contacts.roleLabel} className={inputClass}>
         <JobFunctionOptions functions={functions} noneLabel={t.contacts.functionNone} />
       </select>
-      <input type="email" name="email" defaultValue={defaults?.email ?? ""} placeholder={t.contacts.emailPlaceholder} aria-label={t.contacts.emailLabel} className={inputClass} />
-      <input type="text" name="phone" defaultValue={defaults?.phone ?? ""} placeholder={t.contacts.phonePlaceholder} aria-label={t.contacts.phoneLabel} className={inputClass} />
-      {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
+      <div>
+        <input type="email" name="email" defaultValue={defaults?.email ?? ""} placeholder={t.contacts.emailPlaceholder} aria-label={t.contacts.emailLabel} className={inputClass} />
+        {state.type === "zodError" && state.fieldsForm?.email && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.email}</p>
+        )}
+      </div>
+      <div>
+        <input type="text" name="phone" defaultValue={defaults?.phone ?? ""} placeholder={t.contacts.phonePlaceholder} aria-label={t.contacts.phoneLabel} className={inputClass} />
+        {state.type === "zodError" && state.fieldsForm?.phone && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.phone}</p>
+        )}
+      </div>
+      {/* Fallback for a zodError with no field-specific message attached
+          (e.g. clientId, resolved server-side) — was `type === "error"` only,
+          so a zodError (the actual shape addContact/editContact return on
+          invalid input) rendered nothing at all: the user clicked Enregistrer
+          and saw no feedback while nothing was saved (adversarial pass on
+          EDITOR, point 2). */}
+      {(state.type === "error" || state.type === "zodError") && (
+        <p className="text-xs text-red-500">{state.message}</p>
+      )}
     </>
   );
 }

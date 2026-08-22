@@ -61,13 +61,18 @@ export default function AddSubcontractorPersonForm({
       >
         <JobFunctionOptions functions={functions} noneLabel={t.subcontractors.person.functionNone} />
       </select>
-      <input
-        type="text"
-        name="phone"
-        placeholder={t.subcontractors.person.phonePlaceholder}
-        aria-label={t.subcontractors.person.phoneLabel}
-        className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[120px]"
-      />
+      <div className="sm:min-w-[120px]">
+        <input
+          type="text"
+          name="phone"
+          placeholder={t.subcontractors.person.phonePlaceholder}
+          aria-label={t.subcontractors.person.phoneLabel}
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+        />
+        {state.type === "zodError" && state.fieldsForm?.phone && (
+          <p className="mt-1 text-xs text-red-500">{state.fieldsForm.phone}</p>
+        )}
+      </div>
       <button
         type="submit"
         disabled={isPending}
@@ -77,7 +82,9 @@ export default function AddSubcontractorPersonForm({
       >
         {t.common.add}
       </button>
-      {state.type === "error" && (
+      {/* Was `type === "error"` only — a zodError (e.g. a phone number past
+          MAX_PHONE_LENGTH) rendered nothing: the submit silently no-op'd. */}
+      {(state.type === "error" || state.type === "zodError") && (
         <p className="w-full text-xs text-red-500">{state.message}</p>
       )}
     </form>

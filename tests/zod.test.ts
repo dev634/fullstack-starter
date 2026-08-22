@@ -8,7 +8,8 @@ import { createMaterialSchema } from "@/schemas/projectMaterial";
 import { createTaskSeriesSchema } from "@/schemas/task";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
 import { createReserveSchema } from "@/schemas/reserve";
-import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, MAX_EMAIL_LENGTH } from "@/schemas/fields";
+import { createContactSchema } from "@/schemas/contact";
+import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, MAX_EMAIL_LENGTH, MAX_PHONE_LENGTH } from "@/schemas/fields";
 import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -293,6 +294,109 @@ describe("free-text length ceilings (adversarial pass 2, point 5)", () => {
     expect(
       createUserSchema.safeParse({ email: "a@example.com", role: "VIEWER", password: "longenough1" }).success
     ).toBe(true);
+  });
+});
+
+describe("MAX_PHONE_LENGTH (fix/blocked-legitimate-input, point 1)", () => {
+  // 30 was demonstrably a defect: this constant's own former comment said it
+  // fit "an international number with formatting (spaces, +, extension)",
+  // but neither of these two ordinary shapes (31 characters each) actually
+  // did — a company/contact record already carrying two phone numbers could
+  // no longer even be re-saved. This is the exact example from
+  // schemas/fields.ts's comment: the test that would have caught the defect.
+  it("accepts a phone number with an international prefix and an extension — the schema's own documented example", () => {
+    const result = createContactSchema.safeParse({
+      clientId: "1",
+      firstName: "Jean",
+      lastName: "Dupont",
+      phone: "+33 (0)1 23 45 67 89 poste 1234",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts two numbers separated by a slash (office + mobile) — the other documented example", () => {
+    const result = createContactSchema.safeParse({
+      clientId: "1",
+      firstName: "Jean",
+      lastName: "Dupont",
+      phone: "01 23 45 67 89 / 06 12 34 56 78",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("still rejects a phone number past MAX_PHONE_LENGTH", () => {
+    const result = createContactSchema.safeParse({
+      clientId: "1",
+      firstName: "Jean",
+      lastName: "Dupont",
+      phone: "0".repeat(MAX_PHONE_LENGTH + 1),
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("Numeric too_small/too_big messages (fix/blocked-legitimate-input, point 3)", () => {
+  // Before this, translateZodIssue (lib/i18n/zodErrors.ts) only special-cased
+  // too_small/too_big for origin "string" — a number fell all the way
+  // through to the generic fallbacks, which lie: -5 (too_small, min 0) said
+  // "Ce champ est requis." on a field that plainly wasn't empty, and
+  // 2 000 000 (too_big, max MAX_SCAN_QUANTITY) said "Champ invalide." with no
+  // indication of what the actual ceiling was.
+  const BASE = { projectId: "1", clientId: "1", name: "Panneau", link: "" };
+
+  it("says the actual minimum, not 'this field is required', for a negative quantity", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, quantity: "-5" });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const fr = getDictionary("fr");
+    expect(makeObjectFromZodError(result.error, fr).quantity).toBe(format(fr.errors.minValue, { min: 0 }));
+    expect(makeObjectFromZodError(result.error, fr).quantity).not.toBe(fr.errors.required);
+  });
+
+  it("says the actual maximum, not 'invalid field', for a quantity over MAX_SCAN_QUANTITY", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, quantity: String(MAX_SCAN_QUANTITY + 1) });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const fr = getDictionary("fr");
+    expect(makeObjectFromZodError(result.error, fr).quantity).toBe(
+      format(fr.errors.maxValue, { max: MAX_SCAN_QUANTITY })
+    );
+    expect(makeObjectFromZodError(result.error, fr).quantity).not.toBe(fr.errors.invalid);
+  });
+
+  it("still accepts a well-formed quantity", () => {
+    const result = createMaterialSchema.safeParse({ ...BASE, quantity: "10" });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("Reserve GPS coordinates accept a French decimal comma (fix/blocked-legitimate-input, point 3)", () => {
+  // A GPS field typed by hand on a French keyboard (inputMode="decimal")
+  // produces a comma, not a dot — "48,8566" used to coerce to NaN, which zod
+  // reports as invalid_type, translated as "Ce champ est requis." even
+  // though the field plainly wasn't empty.
+  const BASE = { planId: "1", x: "0.5", y: "0.5", description: "Fissure sur le raccordement" };
+
+  it("accepts '48,8566' as latitude, same value as '48.8566'", () => {
+    const result = createReserveSchema.safeParse({ ...BASE, latitude: "48,8566", longitude: "2,3522" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.latitude).toBeCloseTo(48.8566);
+    expect(result.data.longitude).toBeCloseTo(2.3522);
+  });
+
+  it("still accepts a dot-separated coordinate", () => {
+    const result = createReserveSchema.safeParse({ ...BASE, latitude: "48.8566" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.latitude).toBeCloseTo(48.8566);
+  });
+
+  it("still rejects a coordinate that isn't a number even after comma normalization", () => {
+    const result = createReserveSchema.safeParse({ ...BASE, latitude: "abc" });
+    expect(result.success).toBe(false);
   });
 });
 

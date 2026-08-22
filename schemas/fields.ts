@@ -21,7 +21,17 @@ export const MAX_CODE_LENGTH = 40; // a short structured code: a postal code, a 
 export const MAX_NOTE_LENGTH = 5000; // free-form prose: a description, project notes
 export const MAX_EMAIL_LENGTH = 254; // RFC 5321's practical mailbox length limit
 export const MAX_URL_LENGTH = 2048; // common browser/URL-bar length ceiling
-export const MAX_PHONE_LENGTH = 30; // an international number with formatting (spaces, +, extension)
+// 30 was a defect, not a tier: this constant's own former comment described
+// "an international number with formatting (spaces, +, extension)" as the
+// use case, but neither of the two most ordinary shapes of that fits —
+// "+33 (0)1 23 45 67 89 poste 1234" and "01 23 45 67 89 / 06 12 34 56 78" are
+// both 31 characters — so a company/contact record that already carried two
+// phone numbers (office + mobile, a very common case) could no longer be
+// re-saved at all. Measured up from there rather than rounded: two full
+// international numbers each labelled ("+33 1 23 45 67 89 (bureau) / +33 6
+// 12 34 56 78 (mobile)") is 55 characters. 60 leaves a small margin above
+// that measured worst case, not an arbitrary round number.
+export const MAX_PHONE_LENGTH = 60; // one formatted international number with an extension, or two numbers separated by " / " — see the measured examples above
 
 /**
  * A managed job function id coming from a <select> (or CSV import): a positive

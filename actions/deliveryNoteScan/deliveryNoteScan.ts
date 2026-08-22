@@ -1,5 +1,5 @@
 "use server";
-import { formDataToObject } from "@/lib/helpers";
+import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireSectionAccess } from "@/lib/sectionAccess";
@@ -380,7 +380,14 @@ export async function applyDeliveryNoteScan(
     if (isUnmatchedScanMaterialError(error)) {
       return { ...prevState, type: "error", message: t.materials.messages.invalidId };
     }
-    const message = isAppError(error) ? error.message : t.errors.serverError;
+    // isAppError still gates out anything that isn't this app's own shape
+    // (a third-party SDK error's raw .message never reaches the client);
+    // getErrorMessage then translates a stable i18n code when the error
+    // carries one — e.g. uploadProjectFile (lib/cloudinary.ts) below, whose
+    // English fallback used to be relayed verbatim (fix/blocked-legitimate-
+    // input, point 3) — and otherwise falls back to error.message unchanged,
+    // same as before.
+    const message = isAppError(error) ? getErrorMessage(error, t.errors.serverError, t) : t.errors.serverError;
     return { ...prevState, type: "error", message };
   }
 }
