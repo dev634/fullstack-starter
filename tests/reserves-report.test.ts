@@ -120,6 +120,30 @@ describe("summarizeReserves", () => {
   it("returns zeroes with no plans", () => {
     expect(summarizeReserves([])).toEqual({ total: 0, open: 0, resolved: 0 });
   });
+
+  it("accepts a plain repository row shape, not just a fully-shaped ReportPlan", () => {
+    // repository/reservePlans.ts::findByProject() rows have no `asset` on
+    // their plans/photos (that composition only happens for the PDF report) —
+    // this must still typecheck and tally correctly, since the project page
+    // and the client portal feed it their raw findByProject() result.
+    const rawPlans = [
+      { id: 1, reserves: [{ status: "OPEN" as const }, { status: "RESOLVED" as const }] },
+      { id: 2, reserves: [{ status: "OPEN" as const }] },
+    ];
+    expect(summarizeReserves(rawPlans)).toEqual({ total: 3, open: 2, resolved: 1 });
+  });
+
+  it("tallies a single plan the same way whether called alone or as part of a larger list", () => {
+    // ReservesSection's per-plan "N open" row counter calls this with a
+    // one-plan array (summarizeReserves([p])) instead of a dedicated
+    // per-plan helper — this must match what the same plan contributes
+    // inside a multi-plan call.
+    const a = plan({ id: 1, reserves: [reserve({ status: "OPEN" }), reserve({ status: "RESOLVED" })] });
+    const b = plan({ id: 2, reserves: [reserve({ status: "OPEN" })] });
+    expect(summarizeReserves([a])).toEqual({ total: 2, open: 1, resolved: 1 });
+    expect(summarizeReserves([b])).toEqual({ total: 1, open: 1, resolved: 0 });
+    expect(summarizeReserves([{ id: 3, reserves: [] }])).toEqual({ total: 0, open: 0, resolved: 0 });
+  });
 });
 
 describe("formatCoordinates", () => {

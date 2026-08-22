@@ -11,10 +11,12 @@ import {
   ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import ReserveFolderRow from "@/components/ReserveFolderRow";
+import ReserveStatusBadge from "@/components/ReserveStatusBadge";
 import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { assetPath } from "@/lib/assetPath";
+import { summarizeReserves } from "@/lib/reservesReportData";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import {
@@ -101,6 +103,16 @@ export default function ReservesSection({
   // browse/choose/delete a plan and pin réserves on it.
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [planToDelete, setPlanToDelete] = useState<PlanWithReserves | null>(null);
+
+  // "Open only" filter for the textual list below the viewer — local UI
+  // state on purpose, not the URL: the selected plan is itself local state,
+  // so a shared link wouldn't open any plan and the filter would have
+  // nothing to apply to.
+  const [openOnly, setOpenOnly] = useState(false);
+  const selectedPlanReserves = selectedPlan?.reserves ?? [];
+  const filteredReserves = openOnly
+    ? selectedPlanReserves.filter((r) => r.status === "OPEN")
+    : selectedPlanReserves;
 
   const plansInFolder = (folderId: number) => plans.filter((p) => p.folderId === folderId);
 
@@ -346,6 +358,12 @@ export default function ReservesSection({
                 <span className="truncate">{p.name}</span>
                 <span className="shrink-0 text-xs text-gray-400">
                   {format(t.reserves.reserveCount, { count: p.reserves.length })}
+                  {/* Total stays first (existing info, unchanged); "open" is
+                      appended rather than replacing it, and only when there's
+                      something to count. */}
+                  {p.reserves.length > 0 && (
+                    <> · {format(t.reserves.openCount, { count: summarizeReserves([p]).open })}</>
+                  )}
                 </span>
               </button>
               {canEdit && allFolders.length > 0 && (
@@ -450,6 +468,83 @@ export default function ReservesSection({
               >
                 <span className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white bg-rose-600/70 dark:border-gray-900" />
               </span>
+            )}
+          </div>
+
+          {/* Textual list of this plan's réserves — deliberately OUTSIDE the
+              planImgFailed check above: this is the whole point of the
+              feature. When the plan image can't load, the numbers,
+              descriptions, statuses and photos already sitting in `plans`
+              stay reachable here instead of disappearing along with the
+              pins. */}
+          <div className="flex flex-col gap-2">
+            {/* An "open only" filter only makes sense once there's something
+                to filter — an empty plan showed it anyway, a command over an
+                empty set. */}
+            {selectedPlanReserves.length > 0 && (
+              <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={openOnly}
+                  onChange={(e) => setOpenOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600"
+                />
+                {t.reserves.openOnlyFilter}
+              </label>
+            )}
+            {filteredReserves.length === 0 ? (
+              <p className="px-1 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                {openOnly ? t.reserves.noOpenReserves : t.reserves.noReserves}
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-300 dark:divide-gray-700 rounded border border-gray-300 dark:border-gray-700">
+                {filteredReserves.map((reserve) => (
+                  <li key={reserve.id}>
+                    <button
+                      type="button"
+                      onClick={() => openReserve(reserve)}
+                      aria-label={`${reserve.number} — ${reserve.description} — ${t.reserves.status[reserve.status]}${
+                        reserve.photos.length > 0
+                          ? ` — ${format(t.reserves.photoCount, { count: reserve.photos.length })}`
+                          : ""
+                      }`}
+                      // The description is what gets visually truncated on this
+                      // row (unlike the pin marker on the plan, which never
+                      // shows the text at all) — same native-tooltip escape
+                      // hatch the pin already has via its own `title`.
+                      title={reserve.description}
+                      className="flex min-h-11 w-full cursor-pointer flex-col items-start gap-1 px-3 py-2.5 text-left hover:bg-gray-500/10 sm:flex-row sm:items-center sm:gap-3"
+                    >
+                      {/* Same round marker as the pin on the plan (pinColor),
+                          just not positioned absolutely — number and status
+                          are re-announced via aria-label above (unlike the
+                          pin marker, which only names the number) since this
+                          list's whole point is to carry the status too when
+                          the plan image can't. */}
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${pinColor(reserve.status)}`}
+                      >
+                        {reserve.number}
+                      </span>
+                      {/* Own line on mobile (w-full) — squeezed to ~18 chars
+                          otherwise, with no way to read the rest. Back to a
+                          single row with the marker/badge/photo count from
+                          sm: up (sm:w-auto sm:flex-1). */}
+                      <span className="w-full min-w-0 truncate text-sm text-gray-900 dark:text-gray-100 sm:w-auto sm:flex-1">
+                        {reserve.description}
+                      </span>
+                      <ReserveStatusBadge status={reserve.status} />
+                      {reserve.photos.length > 0 && (
+                        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                          <PhotoIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                          {reserve.photos.length}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

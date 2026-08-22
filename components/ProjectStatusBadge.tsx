@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "@/components/LocaleProvider";
+import StatusPill from "@/components/StatusPill";
 
 const STATUS_CLASSES: Record<string, string> = {
   ETUDE: "border-gray-300 bg-gray-100 text-gray-600 dark:border-gray-500/30 dark:bg-gray-500/15 dark:text-gray-300",
@@ -15,11 +16,5 @@ export default function ProjectStatusBadge({ status }: { status: string }) {
   const { t } = useTranslation();
   const className = STATUS_CLASSES[status] ?? STATUS_CLASSES.ETUDE;
   const label = t.projects.status[status as keyof typeof t.projects.status] ?? t.projects.status.ETUDE;
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}
-    >
-      {label}
-    </span>
-  );
+  return <StatusPill className={className}>{label}</StatusPill>;
 }

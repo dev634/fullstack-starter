@@ -65,12 +65,24 @@ export function groupPlansForReport(
   return groups;
 }
 
-/** Open/resolved tallies shown on the cover page. */
-export function summarizeReserves(plans: readonly ReportPlan[]): {
-  total: number;
-  open: number;
-  resolved: number;
-} {
+/**
+ * The only two fields tallying needs — deliberately narrower than
+ * `ReportReserve`/`ReportPlan` so `summarizeReserves` stays usable on a plain
+ * repository row (e.g. `repository/reservePlans.ts::findByProject`'s return
+ * value, which has no `asset`/photo-delivery shaping applied) and not just on
+ * the PDF report's already-shaped `ReportPlan[]`. Both satisfy this shape
+ * structurally, so no adapter is needed at either call site.
+ */
+export type ReserveTallyInput = { status: "OPEN" | "RESOLVED" };
+export type PlanTallyInput = { id: number; reserves: readonly ReserveTallyInput[] };
+
+export type ReserveTally = { total: number; open: number; resolved: number };
+
+/** Open/resolved tallies across every given plan — used by the PDF cover page,
+ * the project page and client-portal section-wide counters, and (called with
+ * a single-plan array, `summarizeReserves([plan])`) the per-plan "N open"
+ * badge on each plan row. */
+export function summarizeReserves(plans: readonly PlanTallyInput[]): ReserveTally {
   let total = 0;
   let resolved = 0;
   for (const plan of plans) {
