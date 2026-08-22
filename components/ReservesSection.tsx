@@ -131,6 +131,11 @@ export default function ReservesSection({
   const [lng, setLng] = useState("");
   const [locating, setLocating] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  // Per-field messages from a zodError (e.g. description past MAX_NOTE_LENGTH,
+  // a GPS coordinate out of range) — kept alongside editorError rather than
+  // instead of it, since a refusal that isn't attached to any one field (a
+  // capability/scope check) only ever comes back as the generic message.
+  const [editorFieldErrors, setEditorFieldErrors] = useState<Record<string, string> | undefined>(undefined);
   const [confirmDeleteReserve, setConfirmDeleteReserve] = useState(false);
 
   function resetEditorFields(r?: Reserve) {
@@ -139,6 +144,7 @@ export default function ReservesSection({
     setLat(r?.latitude != null ? String(r.latitude) : "");
     setLng(r?.longitude != null ? String(r.longitude) : "");
     setEditorError(null);
+    setEditorFieldErrors(undefined);
     setLocating(false);
     setConfirmDeleteReserve(false);
   }
@@ -204,6 +210,7 @@ export default function ReservesSection({
       }
       if (res.type !== "success") {
         setEditorError(res.message);
+        setEditorFieldErrors(res.type === "zodError" ? res.fieldsForm : undefined);
         return;
       }
       closeEditor();
@@ -471,6 +478,9 @@ export default function ReservesSection({
               placeholder={t.reserves.descriptionPlaceholder}
               className={inputClass}
             />
+            {editorFieldErrors?.description && (
+              <p className="mt-1 text-xs text-red-500">{editorFieldErrors.description}</p>
+            )}
           </div>
 
           <div>
@@ -525,6 +535,10 @@ export default function ReservesSection({
                 className={inputClass}
               />
             </div>
+            {editorFieldErrors?.latitude && <p className="mt-1 text-xs text-red-500">{editorFieldErrors.latitude}</p>}
+            {editorFieldErrors?.longitude && (
+              <p className="mt-1 text-xs text-red-500">{editorFieldErrors.longitude}</p>
+            )}
           </div>
 
           <div>

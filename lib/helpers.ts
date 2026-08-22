@@ -1,3 +1,6 @@
+import type { Dictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
+
 export function formDataToObject(formData: FormData): Record<string, string | number> {
     const obj: Record<string, string | number> = {};
     for (const [key, value] of formData.entries()) {
@@ -17,7 +20,26 @@ export function deleteFormDataEntries(formData: FormData, keys: string[]) {
     });
 }
 
-export function getErrorMessage(error: unknown, fallback: string): string {
+// Stable codes an app-thrown `{ type: "error", message, i18n }` error can
+// carry so getErrorMessage renders a translated message instead of the
+// English string set as its `.message` fallback at the throw site
+// (lib/cloudinary.ts's 17 upload-validation throws — fix/blocked-legitimate-
+// input, point 3) — the same stable-code convention already used for a zod
+// `.refine()`'s params.i18n (lib/i18n/zodErrors.ts).
+const UPLOAD_ERROR_CODES = [
+    "uploadTooLarge",
+    "uploadNotImage",
+    "uploadTypeNotAllowed",
+    "uploadNotPdf",
+    "uploadFailed",
+] as const;
+type UploadErrorCode = (typeof UPLOAD_ERROR_CODES)[number];
+
+function isUploadErrorCode(code: unknown): code is UploadErrorCode {
+    return typeof code === "string" && (UPLOAD_ERROR_CODES as readonly string[]).includes(code);
+}
+
+export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary): string {
     // Repository functions throw `{ type: "repositoryError", message: "..." }`
     // on an unexpected DB failure — an internal, English-only diagnostic
     // string (already console.log'd by the repository itself, right before
@@ -30,6 +52,22 @@ export function getErrorMessage(error: unknown, fallback: string): string {
     // own (already localized) fallback for this one type instead.
     if (error && typeof error === "object" && "type" in error && (error as { type: unknown }).type === "repositoryError") {
         return fallback;
+    }
+    // An upload-validation error (lib/cloudinary.ts) carries a stable `i18n`
+    // code alongside its English `.message` — translated here, the same way
+    // a repository's raw diagnostic is replaced above, when the caller
+    // passes the active dictionary. Without `t` (a caller that hasn't been
+    // updated, or a test asserting the raw schema-declared message) this
+    // falls through to the English `.message` below, unchanged.
+    if (t && error && typeof error === "object" && "i18n" in error) {
+        const code = (error as { i18n?: unknown }).i18n;
+        if (isUploadErrorCode(code)) {
+            const params =
+                "i18nParams" in error
+                    ? (error as { i18nParams?: Record<string, string | number> }).i18nParams
+                    : undefined;
+            return params ? format(t.errors[code], params) : t.errors[code];
+        }
     }
     return error && typeof error === "object" && "message" in error
         ? String((error as { message: unknown }).message)

@@ -114,6 +114,12 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100 placeholder-gray-500"
           placeholder={t.projects.fields.notes}
         />
+        {/* `Input` (used by the fields above) already renders `errors[name]`
+            for a plain <input> — a <textarea> isn't one, so notes (free text,
+            MAX_NOTE_LENGTH) needs its own error line the same way. */}
+        {typeof errors === "object" && errors?.notes && (
+          <p className="text-start text-red-500 mb-6" aria-live="polite">{errors.notes}</p>
+        )}
       </div>
     </div>
   );

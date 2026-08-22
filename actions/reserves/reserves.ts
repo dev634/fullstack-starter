@@ -86,7 +86,7 @@ export async function addReservePlan(
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.planAdded, data: plan };
   } catch (error) {
-    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
 
@@ -304,7 +304,7 @@ export async function addReservePhoto(
     revalidatePath(projectPath(clientId, projectId));
     return { ...prevState, type: "success", message: t.reserves.messages.photoAdded, data: photo };
   } catch (error) {
-    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
 

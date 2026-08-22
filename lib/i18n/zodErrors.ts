@@ -31,6 +31,15 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         if (issue.origin === "string" && minimum > 1) {
             return format(t.errors.minLength, { min: minimum });
         }
+        // fix/blocked-legitimate-input, point 3: a number's too_small (e.g.
+        // ProjectMaterial.quantity's .nonnegative(), minimum 0) used to fall
+        // all the way through to "Ce champ est requis." for a value like -5 —
+        // a lie, the field wasn't empty, it was out of range. minLength above
+        // only handles origin "string" on purpose (a min of 1 there usually
+        // does mean "required"); a number's min is a real business bound.
+        if (issue.origin === "number") {
+            return format(t.errors.minValue, { min: minimum });
+        }
         return t.errors.required;
     }
 
@@ -41,6 +50,17 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         const maximum = "maximum" in issue ? Number(issue.maximum) : undefined;
         if (maximum !== undefined) {
             return format(t.errors.maxLength, { max: maximum });
+        }
+    }
+
+    // fix/blocked-legitimate-input, point 3: same gap as too_small above — a
+    // number's too_big (e.g. ProjectMaterial.quantity's .max(MAX_SCAN_QUANTITY))
+    // fell through to the generic "Champ invalide." instead of saying what the
+    // actual ceiling was.
+    if (issue.code === "too_big" && issue.origin === "number") {
+        const maximum = "maximum" in issue ? Number(issue.maximum) : undefined;
+        if (maximum !== undefined) {
+            return format(t.errors.maxValue, { max: maximum });
         }
     }
 

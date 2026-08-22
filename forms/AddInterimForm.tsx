@@ -74,14 +74,22 @@ export default function AddInterimForm({
           >
             <JobFunctionOptions functions={functions} noneLabel={t.interims.functionNone} />
           </select>
-          <input
-            type="text"
-            name="agency"
-            placeholder={t.interims.agencyPlaceholder}
-            aria-label={t.interims.agencyLabel}
-            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
-          />
-          {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
+          <div>
+            <input
+              type="text"
+              name="agency"
+              placeholder={t.interims.agencyPlaceholder}
+              aria-label={t.interims.agencyLabel}
+              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+            />
+            {state.type === "zodError" && state.fieldsForm?.agency && (
+              <p className="mt-1 text-xs text-red-500">{state.fieldsForm.agency}</p>
+            )}
+          </div>
+          {/* Was `type === "error"` only — a zodError rendered nothing. */}
+          {(state.type === "error" || state.type === "zodError") && (
+            <p className="text-xs text-red-500">{state.message}</p>
+          )}
           <div className="flex justify-end gap-3">
             <button
               type="button"
