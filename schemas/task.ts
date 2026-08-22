@@ -1,10 +1,18 @@
 import z from "zod";
 import { MAX_NAME_LENGTH } from "@/schemas/fields";
 
+// Same convention as schemas/project.ts's own optionalDate (which this was
+// missing — passe 3b (C2), point 3): empty string means "not provided", but
+// a non-empty value must still parse to a real date. Without the .refine()
+// below, an unparseable or out-of-range string (e.g. year 275760+) reached
+// the repository's `new Date(...)` unchecked and got stored — the exact
+// defect that made /projects/export 500 for everyone, permanently, the last
+// time a date field was left unvalidated (see project.ts's own comment).
 const optionalDate = z
     .string()
     .optional()
-    .transform((v) => (v && v.trim() !== "" ? v : undefined));
+    .transform((v) => (v && v.trim() !== "" ? v : undefined))
+    .refine((v) => v === undefined || !isNaN(Date.parse(v)), { message: "Date invalide" });
 
 // Empty string (nothing picked) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.

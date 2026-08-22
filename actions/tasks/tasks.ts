@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema, updateTaskQuantitySchema } from "@/schemas/task";
 import {
@@ -29,6 +30,8 @@ export async function addTask(
 ): Promise<TaskActionState<ProjectTask>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -96,6 +99,8 @@ export async function addTaskSeries(
 ): Promise<TaskActionState<AddTaskSeriesData>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -162,6 +167,8 @@ export async function toggleTask(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -197,6 +204,8 @@ export async function editTask(
 ): Promise<TaskActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -248,6 +257,8 @@ export async function updateTaskQuantity(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -291,6 +302,8 @@ export async function setTaskCategory(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -328,6 +341,8 @@ export async function deleteTask(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("tasks");
   if (sectionCheck.error) return sectionCheck.error;
 

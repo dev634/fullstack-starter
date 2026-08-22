@@ -72,6 +72,26 @@ export async function deleteJobFunction(id: number) {
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) throw { type: "error", message: t.errors.invalidId };
+
+    // Adversarial pass, lot C1, #2: a THIRD lever on top of setFunctionAreas
+    // and updateUser (both closed in passe 3b). onDelete: SetNull on
+    // User.jobFunctionId means deleting the function CURRENTLY ASSIGNED to
+    // the caller's own account clears their jobFunctionId in the same
+    // transaction — every hiddenAreas/hiddenSections/projectScope
+    // restriction it imposed disappears with it, with no SUPERADMIN
+    // involved. Same self-check as setFunctionAreas, for the same reason:
+    // the escape hatch stays SUPERADMIN, who bypasses hiddenAreas
+    // unconditionally anyway (lib/accessContext.ts) — a user must never be
+    // able to lock themselves out with no recourse.
+    const session = await auth();
+    if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
+      const email = session?.user?.email;
+      const ownFunctionId = email ? await findJobFunctionIdByEmail(email) : null;
+      if (ownFunctionId === id) {
+        return { type: "error" as const, message: t.jobFunctions.messages.cannotDeleteOwnFunction };
+      }
+    }
+
     const deleted = await remove(id);
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.deleted, data: deleted };

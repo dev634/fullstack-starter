@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectRasterImageMediaType, looksLikeDangerousMarkup } from "@/lib/fileSignature";
+import { detectRasterImageMediaType, looksLikeDangerousMarkup, looksLikePdf } from "@/lib/fileSignature";
 
 // Passe 3b, point 0 — regression fix: detectRasterImageMediaType used to
 // recognize only JPEG/PNG/GIF/WEBP. lib/cloudinary.ts's uploadClientPhoto/
@@ -123,5 +123,41 @@ describe("looksLikeDangerousMarkup (unaffected by the format-detection change ab
   it("does not flag a real JPEG", () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
     expect(looksLikeDangerousMarkup(jpeg)).toBe(false);
+  });
+});
+
+// Adversarial pass, lot C1, #3: lib/cloudinary.ts::uploadReservePlan used to
+// validate a "PDF" purely on `file.type`/the `.pdf` extension, never a byte —
+// the fifth upload path, and the only one left unread when the other four
+// were hardened. A plan is uploaded as `resource_type: "image"` so Cloudinary
+// can rasterise it, which this check must not break.
+describe("looksLikePdf", () => {
+  it("recognizes a real PDF header at byte 0", () => {
+    const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< >>\nendobj\n", "ascii");
+    expect(looksLikePdf(pdf)).toBe(true);
+  });
+
+  it("tolerates a few bytes of leading padding before the header, within the spec's 1024-byte window", () => {
+    const pdf = Buffer.concat([Buffer.from([0x00, 0x00, 0x00]), Buffer.from("%PDF-1.7\n", "ascii")]);
+    expect(looksLikePdf(pdf)).toBe(true);
+  });
+
+  it("rejects HTML content merely named/declared as a PDF", () => {
+    const html = Buffer.from("<html><body><script>alert(1)</script></body></html>", "utf8");
+    expect(looksLikePdf(html)).toBe(false);
+  });
+
+  it("rejects an SVG payload merely named/declared as a PDF", () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf8");
+    expect(looksLikePdf(svg)).toBe(false);
+  });
+
+  it("rejects an empty buffer", () => {
+    expect(looksLikePdf(Buffer.alloc(0))).toBe(false);
+  });
+
+  it("does not find the signature past the 1024-byte sniff window", () => {
+    const padded = Buffer.concat([Buffer.alloc(1024, 0x20), Buffer.from("%PDF-1.4\n", "ascii")]);
+    expect(looksLikePdf(padded)).toBe(false);
   });
 });

@@ -656,6 +656,14 @@ const fr = {
         openOnlyFilter: "Ouvertes seulement",
         openCount: "{count} ouverte(s)",
         resolvedCount: "{count} levée(s)",
+        // Passe 3b (C2), point 4: shown whenever repository/reservePlans.ts's
+        // findByProject bound cuts a plan's réserves short — never silently,
+        // per docs/CONVENTIONS.md. The app-side wording points at the PDF
+        // export (always present next to the section, unbounded) as the way
+        // to see everything; the portal has no export, so it gets the plain
+        // count instead (see app/portail/.../page.tsx's own usage).
+        moreReservesOnPlan: "… et {count} autre(s) réserve(s) sur ce plan (voir l'export PDF pour la liste complète).",
+        moreReservesInProject: "… et {count} autre(s) réserve(s) non affichée(s) ici.",
         photoCount: "{count} photo(s)",
         numberLabel: "n°{number}",
         noReserves: "Aucune réserve.",
@@ -771,6 +779,7 @@ const fr = {
             reordered: "Ordre mis à jour.",
             sectionsSaved: "Sections mises à jour.",
             cannotEditOwnFunction: "Vous ne pouvez pas modifier l'accès de votre propre fonction. Demandez à un super admin.",
+            cannotDeleteOwnFunction: "Vous ne pouvez pas supprimer votre propre fonction. Demandez à un super admin.",
         },
     },
     users: {

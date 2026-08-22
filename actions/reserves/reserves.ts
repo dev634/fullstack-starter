@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
 import {
@@ -39,6 +40,8 @@ export async function addReservePlan(
 ): Promise<ReservePlanActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -99,6 +102,8 @@ export async function addReserveFolder(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -133,6 +138,8 @@ export async function addReserveFolder(
 export async function deleteReserveFolder(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -160,6 +167,8 @@ export async function deleteReserveFolder(id: number, clientId: number, projectI
 export async function moveReservePlan(planId: number, folderId: number | null, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -183,6 +192,8 @@ export async function moveReservePlan(planId: number, folderId: number | null, c
 export async function deleteReservePlan(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -210,6 +221,8 @@ export async function addReserve(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -242,6 +255,8 @@ export async function updateReserve(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -274,6 +289,8 @@ export async function addReservePhoto(
 ): Promise<ReserveActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -312,6 +329,8 @@ export async function addReservePhoto(
 export async function deleteReservePhoto(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -337,6 +356,8 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
 export async function deleteReserve(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("reserves");
   if (sectionCheck.error) return sectionCheck.error;
 

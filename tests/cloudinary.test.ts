@@ -40,6 +40,7 @@ import {
   uploadClientPhoto,
   uploadLogo,
   uploadReservePhoto,
+  uploadReservePlan,
 } from "@/lib/cloudinary";
 
 const uploadStreamMock = vi.mocked(cloudinarySdk.uploader.upload_stream);
@@ -173,6 +174,43 @@ describe("uploadReservePhoto — content-based image validation", () => {
     const file = new File([FAKE_SVG_AS_PNG_BYTES], "photo.png", { type: "image/png" });
     await expect(uploadReservePhoto(file, 1)).rejects.toMatchObject({
       message: "The photo must be an image file.",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("uploadReservePlan — content-based PDF validation (adversarial pass, lot C1, #3)", () => {
+  // Before this fix, `isPdf` checked only `file.type`/the `.pdf` extension —
+  // never a byte. A file that merely CLAIMS to be a PDF (right label, right
+  // extension) but isn't one used to reach Cloudinary unread, uploaded as
+  // `resource_type: "image"` (so it can be rasterised), then served back
+  // through the same signed delivery path a real plan is.
+  it("accepts a real PDF (still calls upload_stream; the shared mock's unexpected resource_type then rejects downstream, unrelated to this check)", async () => {
+    const file = new File([REAL_PDF_BYTES], "plan.pdf", { type: "application/pdf" });
+    await expect(uploadReservePlan(file, 1)).rejects.toBeTruthy(); // guarded-fields rejection, not this check
+    expect(uploadStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects HTML content disguised as a PDF (declared application/pdf, .pdf extension) before ever calling Cloudinary", async () => {
+    const file = new File([HTML_AS_PDF_BYTES], "plan.pdf", { type: "application/pdf" });
+    await expect(uploadReservePlan(file, 1)).rejects.toMatchObject({
+      message: "The plan must be a PDF file.",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an SVG payload disguised as a PDF (declared application/pdf, .pdf extension) before ever calling Cloudinary", async () => {
+    const file = new File([FAKE_SVG_AS_PNG_BYTES], "plan.pdf", { type: "application/pdf" });
+    await expect(uploadReservePlan(file, 1)).rejects.toMatchObject({
+      message: "The plan must be a PDF file.",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("still rejects on the label alone (not a PDF by type or extension) before ever reading the content", async () => {
+    const file = new File([REAL_PNG_BYTES], "plan.png", { type: "image/png" });
+    await expect(uploadReservePlan(file, 1)).rejects.toMatchObject({
+      message: "The plan must be a PDF file.",
     });
     expect(uploadStreamMock).not.toHaveBeenCalled();
   });

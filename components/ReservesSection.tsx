@@ -38,7 +38,14 @@ import type { Reserve, ReservePlan, ReservePhoto, ReserveStatus } from "@/app/ge
 // prisma/schema.prisma). Every plan/photo image is built from its id alone
 // (lib/assetPath.ts), never from a stored URL.
 type ReserveWithPhotos = Reserve & { photos: Omit<ReservePhoto, "url">[] };
-type PlanWithReserves = Omit<ReservePlan, "url"> & { reserves: ReserveWithPhotos[] };
+// `_count.reserves` is the plan's TRUE réserve count — always present (see
+// repository/reservePlans.ts::findByProject's own doc), whether or not
+// `reserves` itself was bounded. Used instead of `reserves.length` for any
+// total, and to know when to show "…and N more" (passe 3b (C2), point 4).
+type PlanWithReserves = Omit<ReservePlan, "url"> & {
+  reserves: ReserveWithPhotos[];
+  _count: { reserves: number };
+};
 type Editor =
   | { mode: "new"; x: number; y: number }
   | { mode: "edit"; reserveId: number; number: number };
@@ -357,10 +364,16 @@ export default function ReservesSection({
                 <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
                 <span className="truncate">{p.name}</span>
                 <span className="shrink-0 text-xs text-gray-400">
-                  {format(t.reserves.reserveCount, { count: p.reserves.length })}
+                  {/* _count.reserves (the plan's TRUE total), not
+                      p.reserves.length — the fetch may be bounded, see
+                      PlanWithReserves's own comment above. */}
+                  {format(t.reserves.reserveCount, { count: p._count.reserves })}
                   {/* Total stays first (existing info, unchanged); "open" is
                       appended rather than replacing it, and only when there's
-                      something to count. */}
+                      something to count. Derived from `p.reserves` (possibly
+                      bounded, unlike the total just above), so this can
+                      undercount only in the same rare, pathological case the
+                      "…and N more" notice below already surfaces. */}
                   {p.reserves.length > 0 && (
                     <> · {format(t.reserves.openCount, { count: summarizeReserves([p]).open })}</>
                   )}
@@ -470,6 +483,18 @@ export default function ReservesSection({
               </span>
             )}
           </div>
+
+          {/* Passe 3b (C2), point 4: the pins above and the list below both
+              come from `selectedPlan.reserves`, which the page may have
+              bounded (findByProject's boundReserves) — never let that look
+              like the whole plan. */}
+          {selectedPlan._count.reserves > selectedPlan.reserves.length && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {format(t.reserves.moreReservesOnPlan, {
+                count: selectedPlan._count.reserves - selectedPlan.reserves.length,
+              })}
+            </p>
+          )}
 
           {/* Textual list of this plan's réserves — deliberately OUTSIDE the
               planImgFailed check above: this is the whole point of the

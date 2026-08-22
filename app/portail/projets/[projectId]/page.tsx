@@ -15,8 +15,8 @@ import { findByIdForPortal } from "@/repository/projects";
 import { findByProject as findTasksByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
+import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
 import { computeTaskProgress } from "@/lib/projectDashboard";
-import { summarizeReserves } from "@/lib/reservesReportData";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ReserveStatusBadge from "@/components/ReserveStatusBadge";
@@ -47,13 +47,25 @@ export default async function PortalProjectPage({
   const locale = await getLocale();
   const t = getDictionary(locale);
 
-  const [tasks, taskGroups, reservePlans] = await Promise.all([
+  const [tasks, taskGroups, reservePlans, reserveSummary] = await Promise.all([
     findTasksByProject(pid),
     findTaskGroupsByProject(pid),
-    findReservePlansByProject(pid),
+    // boundReserves: true — passe 3b (C2), point 4. See findByProject's own
+    // doc (repository/reservePlans.ts) for why this page opts in.
+    findReservePlansByProject(pid, { boundReserves: true }),
+    // Passe 3b (C2), point 4: a project-wide, always-accurate tally — see
+    // repository/reserves.ts::tallyByProject's own doc for why this can no
+    // longer be derived from reservePlans now that its réserves are bounded.
+    tallyReservesByProject(pid),
   ]);
   const progress = computeTaskProgress(tasks, taskGroups);
-  const reserveSummary = summarizeReserves(reservePlans);
+  // How many réserves this bounded fetch left out, across every plan — the
+  // flat list below must say so rather than silently look complete (see
+  // t.reserves.moreReservesInProject's own comment).
+  const omittedReserveCount = reservePlans.reduce(
+    (sum, plan) => sum + Math.max(0, plan._count.reserves - plan.reserves.length),
+    0
+  );
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -135,7 +147,7 @@ export default async function PortalProjectPage({
           <div className="flex flex-wrap items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
             <MapIcon className="h-5 w-5 shrink-0 text-red-500" />
             <h2 className="min-w-0 text-lg font-semibold">{t.reserves.heading}</h2>
-            {/* .open/.resolved were already computed above (summarizeReserves)
+            {/* .open/.resolved were already computed above (tallyReservesByProject)
                 but left unused here — the client only saw a bare total. There
                 is no PDF report in the portal (that export stays app-side and
                 refuses a CLIENT session); surfacing what's still open is the
@@ -172,6 +184,14 @@ export default async function PortalProjectPage({
                   ))
                 )}
               </ul>
+            )}
+            {/* Passe 3b (C2), point 4: never let a bounded fetch look
+                complete — see repository/reservePlans.ts::findByProject's
+                own doc. */}
+            {omittedReserveCount > 0 && (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {format(t.reserves.moreReservesInProject, { count: omittedReserveCount })}
+              </p>
             )}
           </div>
         </div>

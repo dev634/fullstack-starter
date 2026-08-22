@@ -658,6 +658,9 @@ const en: Dictionary = {
         openOnlyFilter: "Open only",
         openCount: "{count} open",
         resolvedCount: "{count} resolved",
+        // Adversarial pass 3b (C2), point 4: see fr.ts's own comment.
+        moreReservesOnPlan: "…and {count} more on this plan (see the PDF export for the full list).",
+        moreReservesInProject: "…and {count} more not shown here.",
         photoCount: "{count} photo(s)",
         numberLabel: "#{number}",
         noReserves: "No reserves.",
@@ -773,6 +776,7 @@ const en: Dictionary = {
             reordered: "Order updated.",
             sectionsSaved: "Sections updated.",
             cannotEditOwnFunction: "You can't edit your own function's access. Ask a super admin.",
+            cannotDeleteOwnFunction: "You can't delete your own function. Ask a super admin.",
         },
     },
     users: {

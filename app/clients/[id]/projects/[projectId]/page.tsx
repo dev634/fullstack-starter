@@ -10,6 +10,7 @@ import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
 import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
+import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
 import {
   findByProject as findReserveFoldersByProject,
   findChildren as findReserveChildFolders,
@@ -56,7 +57,6 @@ import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
 import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
-import { summarizeReserves } from "@/lib/reservesReportData";
 import {
   BoltIcon,
   HashtagIcon,
@@ -215,21 +215,29 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     reserveFolders,
     reserveSubfolders,
     reserveBreadcrumb,
+    reserveTally,
   ] = await Promise.all([
     findChildFolders(pid, currentFolderId),
     findFilesByFolder(pid, currentFolderId),
     getBreadcrumb(pid, currentFolderId),
-    findReservePlansByProject(pid),
+    // boundReserves: true — passe 3b (C2), point 4. See findByProject's own
+    // doc (repository/reservePlans.ts) for why this page opts in and the PDF
+    // report route does not.
+    findReservePlansByProject(pid, { boundReserves: true }),
     // Full flat list — for the plan "move to folder" target list + counts.
     findReserveFoldersByProject(pid),
     // Current level's children + its path, for the nested browser.
     findReserveChildFolders(pid, currentReserveFolderId),
     getReserveBreadcrumb(pid, currentReserveFolderId),
+    // Passe 3b (C2), point 4: a project-wide, always-accurate tally — see
+    // repository/reserves.ts::tallyByProject's own doc for why this can no
+    // longer be derived from reservePlans now that its réserves are bounded.
+    tallyReservesByProject(pid),
   ]);
   // What a foreman is actually looking for is what's left to treat — the
   // section badge below keeps showing the plan count (existing info, kept
-  // as-is) and appends how many réserves are still open.
-  const reserveTally = summarizeReserves(reservePlans);
+  // as-is) and appends how many réserves are still open (reserveTally, now
+  // fetched above via tallyReservesByProject rather than derived here).
 
   // SUPERADMIN-configured display order of the collapsible sections below,
   // normalized so a partial/stale stored value is always safe.

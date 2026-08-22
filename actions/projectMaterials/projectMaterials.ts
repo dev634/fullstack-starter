@@ -2,13 +2,40 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
 import { createOrAccumulate, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
+import { findProjectId as findTaskProjectId } from "@/repository/tasks";
+import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
+import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
+
+/**
+ * Confirms a parsed link (at most one of taskId/taskGroupId/taskCategoryId,
+ * mutually exclusive by construction of the picker — see schemas/projectMaterial.ts)
+ * resolves, in the database, to the same project the material belongs to.
+ *
+ * The picker (AddMaterialForm/EditMaterialForm) only ever lists the current
+ * project's own tasks/series/categories, but that's a client-side filter —
+ * nothing server-side checked the submitted id before. Same class of gap as
+ * setAssignee's assignedCompanyId/assignedInterimId cross-check
+ * (actions/taskAssignee/taskAssignee.ts): an id is encoded in a string
+ * (`task:<id>`) rather than carried as its own form field, which is exactly
+ * why the earlier sweep of FK-shaped fields missed it.
+ */
+async function linkTargetInProject(
+  data: { taskId?: number; taskGroupId?: number; taskCategoryId?: number },
+  projectId: number
+): Promise<boolean> {
+  if (data.taskId !== undefined) return (await findTaskProjectId(data.taskId)) === projectId;
+  if (data.taskGroupId !== undefined) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
+  if (data.taskCategoryId !== undefined) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
+  return true;
+}
 
 export async function addMaterial(
   prevState: ProjectMaterialActionState,
@@ -16,6 +43,8 @@ export async function addMaterial(
 ): Promise<ProjectMaterialActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("materials");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -33,6 +62,11 @@ export async function addMaterial(
 
   const scopeCheck = await requireProjectAccess(parsed.data.projectId);
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+
+  // Passe 3b (C2), point 1: see linkTargetInProject's own comment above.
+  if (!(await linkTargetInProject(parsed.data, parsed.data.projectId))) {
+    return { ...prevState, type: "error", message: t.errors.invalidId };
+  }
 
   try {
     const { material, accumulated } = await createOrAccumulate({
@@ -70,6 +104,8 @@ export async function editMaterial(
 ): Promise<ProjectMaterialActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("materials");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -95,6 +131,14 @@ export async function editMaterial(
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
+
+    // Passe 3b (C2), point 1: see linkTargetInProject's own comment above —
+    // the material's real project (realProjectId), not the client-submitted
+    // parsed.data.projectId, is what the new link must resolve into.
+    if (!(await linkTargetInProject(parsed.data, realProjectId))) {
+      return { ...prevState, type: "error", message: t.errors.invalidId };
+    }
+
     const material = await update(parsed.data.id, {
       name: parsed.data.name,
       quantity: parsed.data.quantity,
@@ -130,6 +174,8 @@ export async function editMaterial(
 export async function deleteMaterial(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("materials");
   if (sectionCheck.error) return sectionCheck.error;
 

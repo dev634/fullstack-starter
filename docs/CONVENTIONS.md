@@ -80,12 +80,42 @@ n'importe quel projet). Trois conséquences pour toute nouvelle lecture :
 Bypass : les fonctions masquent pour tous sauf **SUPERADMIN** sur `hiddenAreas`
 (un ADMIN y est soumis, sinon masquer l'Administration ne servirait à rien).
 
-**Personne ne modifie la contrainte qui le contraint.** Deux leviers permettaient
-à un ADMIN de lever sur lui-même les restrictions de sa fonction : éditer cette
-fonction (`setFunctionAreas`) ou repointer son propre compte vers une autre
-(`updateUser`). Les deux sont fermés, sortie de secours **SUPERADMIN** (qui
-n'est de toute façon pas soumis à `hiddenAreas`). Fermer un levier sans l'autre
-n'aurait rien fermé.
+**Les mutations de contenu d'un projet sont gardées par la rubrique, comme ses
+lectures** (passe adverse EDITOR, lot C1, #1). Ce n'était pas le cas : les
+lectures (page projet, tableau de bord, rapport PDF, `/api/assets`,
+`getClient`/`getProject`) avaient été fermées derrière `canAccessArea("projects")`,
+mais une trentaine — en réalité **41** — de mutations dans `actions/tasks`,
+`actions/taskGroups`, `actions/taskCategories`, `actions/taskAssignee`,
+`actions/projectMaterials`, `actions/projectFiles`, `actions/reserves`,
+`actions/interventions`, `actions/interims`, `actions/subcontractors` et
+`actions/deliveryNoteScan` n'avaient que `requireSectionAccess`, jamais
+`requireAreaAccess("projects")`. Conséquence : un EDITOR dont la fonction
+masque `projects` ne pouvait plus rien *voir* du chantier, mais gardait
+l'écriture et la suppression complètes dessus — `addTask`/`deleteTask`/
+`deleteMaterial`/`deleteReserve` (entre autres) suppriment réellement, et
+`editTask` renvoie la ligne qu'il modifie, donc c'est aussi une lecture.
+Corrigé en ajoutant `requireAreaAccess("projects")` juste après
+`requireCapability`, avant `requireSectionAccess` (même ordre que la route de
+lecture gardée : rubrique avant section). `tests/authz-coverage.test.ts`
+vérifiait déjà que ces fichiers appellent `requireSectionAccess` — il ne
+vérifiait **pas** `requireAreaAccess`, ce qui verrouillait le trou ; un
+second test, sur la même liste `OWNED_BY_SECTION`, ferme cet angle mort.
+
+**Personne ne modifie la contrainte qui le contraint.** ⚠️ Cette section
+affirmait « deux leviers » alors qu'il y en avait (au moins) **trois** — c'est
+la passe adverse EDITOR (lot C1, #2) qui a trouvé le troisième, resté invisible
+à la première revue. Trois leviers permettaient à un ADMIN de lever sur
+lui-même les restrictions de sa fonction : éditer cette fonction
+(`setFunctionAreas`), repointer son propre compte vers une autre
+(`updateUser`), ou **supprimer sa propre fonction** (`deleteJobFunction` —
+`onDelete: SetNull` sur `User.jobFunctionId` vide la contrainte aussi sûrement
+que l'éditer). Les trois sont fermés, sortie de secours **SUPERADMIN** (qui
+n'est de toute façon pas soumis à `hiddenAreas`). Fermer un levier sans les
+autres n'aurait rien fermé — d'où la consigne : **énumérer tous les chemins qui
+détachent un utilisateur de sa fonction, ou qui vident les restrictions d'une
+fonction** (suppression, y compris en masse ou via import — aucune des deux
+n'existe aujourd'hui pour `JobFunction`/`User`, vérifié par grep) avant de se
+déclarer fermé.
 
 `LOCKED_CAPABILITIES` (`lib/capabilities.ts`) = `settings.manage`,
 `functions.manage`, `users.manage` : **non délégables par la matrice de rôles**,
@@ -121,9 +151,17 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   n'avait de borne haute : une série de tâches amplifiait une requête de 200 Ko
   en ~40 Mo écrits en base.
 - **Vrai type d'un fichier** : `lib/fileSignature.ts`
-  (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`) — magic bytes,
-  extrait du scan de bulletin plutôt que dupliqué. Les quatre chemins d'upload
-  y passent. **HEIC/AVIF/BMP/TIFF sont explicitement couverts** : le HEIC est le
+  (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`, `looksLikePdf`) —
+  magic bytes, extrait du scan de bulletin plutôt que dupliqué. ⚠️ Ce point
+  affirmait « les quatre chemins d'upload » — il y en a **cinq** :
+  `uploadReservePlan` (`lib/cloudinary.ts`) validait un plan sur `file.type`
+  **ou** l'extension du nom, sans jamais lire un octet (passe adverse EDITOR,
+  lot C1, #3). Un HTML ou un SVG nommé `plan.pdf` passait et repartait
+  uploadé en `resource_type: "image"` (nécessaire pour que Cloudinary
+  rastérise le PDF — préservé). Fermé par `looksLikePdf`, qui cherche la
+  signature `%PDF-` dans les 1024 premiers octets (tolérance du format lui-même,
+  pas une largesse ajoutée ici). Les cinq chemins d'upload y passent
+  maintenant. **HEIC/AVIF/BMP/TIFF sont explicitement couverts** : le HEIC est le
   format par défaut des iPhone, et les réserves se photographient au téléphone.
   Resserrer cette détection sans le vérifier casse le chemin le plus utilisé.
 - Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer

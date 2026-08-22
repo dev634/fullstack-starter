@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterventionSchema, updateInterventionSchema, interventionStatusSchema } from "@/schemas/intervention";
 import {
@@ -22,6 +23,8 @@ export async function addIntervention(
 ): Promise<InterventionActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("interventions");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -69,6 +72,8 @@ export async function editIntervention(
 ): Promise<InterventionActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
   const sectionCheck = await requireSectionAccess("interventions");
   if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
 
@@ -128,6 +133,8 @@ export async function changeInterventionStatus(
 ) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("interventions");
   if (sectionCheck.error) return sectionCheck.error;
 
@@ -160,6 +167,8 @@ export async function changeInterventionStatus(
 export async function deleteIntervention(id: number, clientId: number, projectId: number) {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return roleCheck.error;
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return areaCheck.error;
   const sectionCheck = await requireSectionAccess("interventions");
   if (sectionCheck.error) return sectionCheck.error;
 
