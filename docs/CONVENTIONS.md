@@ -19,10 +19,19 @@ Ne jamais les croiser en matrice.
 **Ordre des gardes dans une mutation, toujours le même :**
 
 ```
-requireCapability(...)  →  requireSectionAccess(...) ou requireAreaAccess(...)
+requireCapability(...)  →  requireAreaAccess(<rubrique>)     ← rubrique d'abord
+                        →  requireSectionAccess(<section>)   ← puis section
                         →  parse Zod
                         →  requireProjectAccess(<id résolu>)
 ```
+
+**Les deux, pas l'un *ou* l'autre.** Ce bloc écrivait « ou » jusqu'à la passe
+adverse EDITOR : 41 mutations de contenu de projet n'avaient que la section, et
+un EDITOR dont la fonction masque `projects` gardait l'écriture et la
+suppression complètes sur un chantier qu'il ne pouvait plus voir (détail plus
+bas). Une mutation qui n'appartient à aucune section d'un projet (Administration,
+Clients) saute la ligne *section* — jamais la ligne *rubrique*. Même ordre que
+sur les routes de lecture ci-dessous : rubrique avant section.
 
 Le `projectId` passé à `requireProjectAccess` doit venir de **la base**, jamais
 d'un champ de formulaire (ex. `findCompanyProjectId(companyId)`). Un `projectId`
