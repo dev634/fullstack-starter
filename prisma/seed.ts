@@ -12,11 +12,25 @@ const prisma = new PrismaClient({ adapter });
 /** Give an organisation a primary contact if it doesn't have one yet (idempotent seed). */
 async function ensurePrimaryContact(
   clientId: number,
-  data: { firstName: string; lastName: string; email?: string; phone?: string; role?: string }
+  data: { firstName: string; lastName: string; email?: string; phone?: string }
 ) {
   const existing = await prisma.contact.findFirst({ where: { clientId } });
   if (!existing) {
-    await prisma.contact.create({ data: { clientId, isPrimary: true, ...data } });
+    // Champs listés un par un, jamais un spread : un spread laisse passer en
+    // silence une clé que le modèle ne porte plus. C'est ce qui a masqué
+    // `role`, supprimé de Contact par la migration 20260725193000 au profit de
+    // `jobFunctionId` — le seed échouait alors sur une base vierge, avant même
+    // d'avoir créé le moindre compte de connexion.
+    await prisma.contact.create({
+      data: {
+        clientId,
+        isPrimary: true,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+      },
+    });
   }
 }
 
@@ -36,8 +50,7 @@ async function main() {
   await ensurePrimaryContact(alice.id, {
     firstName: "Alice",
     lastName: "Smith",
-    email: "alice@sunrisecorp.com",
-    role: "Directrice",
+    email: "alice@sunrisecorp.com",
   });
     const bob = await prisma.client.upsert({
     where: { email: "contact@oakenergy.com" },
@@ -54,8 +67,7 @@ async function main() {
   await ensurePrimaryContact(bob.id, {
     firstName: "Bob",
     lastName: "Johnson",
-    email: "bob@oakenergy.com",
-    role: "Responsable technique",
+    email: "bob@oakenergy.com",
   });
   const superadmin = await prisma.user.upsert({
     where: { email: "superadmin@example.com" },
