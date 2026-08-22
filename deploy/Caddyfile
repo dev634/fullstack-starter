@@ -1,0 +1,44 @@
+devadn.com {
+  header -Server
+  log {
+    output file /var/log/caddy/devadn.access.log {
+      roll_size 20MiB
+      roll_keep 10
+      roll_keep_for 720h
+    }
+    format json
+  }
+
+  # Seules surfaces POST joignables sans session : connexion, mot de passe
+  # oublie, reinitialisation (les Server Actions postent sur leur URL de page)
+  # et Auth.js. Elles ne portent que des identifiants. Necessaire car
+  # bodySizeLimit de Next est global a toutes les Server Actions, et vaut
+  # 25 Mo pour rendre atteignable un plan de reserve.
+  @nonauth path /login /forgot-password /reset-password /api/auth/*
+  request_body @nonauth {
+    max_size 64KB
+  }
+
+  # Plafond general, juste au-dessus du plus grand plafond metier (25 Mo).
+  # Caddy refuse en 413 avant que Node ne bufferise.
+  request_body {
+    max_size 30MB
+  }
+
+  rate_limit {
+    zone dynamic {
+      key {remote_host}
+      events 100
+      window 10s
+    }
+  }
+
+  handle /deploy-hook {
+    rewrite * /hooks/deploy
+    reverse_proxy 127.0.0.1:9000
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:3000
+  }
+}

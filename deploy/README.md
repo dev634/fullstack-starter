@@ -164,6 +164,71 @@ journalctl -u deploy-webhook.service -n 40 --no-pager
 
 ---
 
+## Caddy — la configuration du reverse proxy
+
+`deploy/Caddyfile` est la **source de vérité** de `/etc/caddy/Caddyfile` sur le
+VPS. Il n'était versionné nulle part jusqu'ici : il ne vivait qu'à un seul
+endroit, sur une machine. Un audit de sécurité n'a pas pu relire les en-têtes
+faute de l'avoir, et trois collages manuels de suite s'y sont mal passés — un
+terminal qui complète les tabulations, un shell resté en continuation.
+
+Ce qu'il porte, au-delà du routage : la suppression de l'en-tête `Server`, la
+journalisation, la limite de débit, la route du webhook de déploiement, et
+**deux plafonds de corps de requête**.
+
+Ces plafonds ne sont pas décoratifs. `bodySizeLimit` de Next est **global à
+toutes les Server Actions** — impossible à restreindre par route. Il vaut 25 Mo
+pour rendre atteignable un plan de réserve, ce qui élargirait sinon aussi les
+pages joignables **sans session** : connexion, mot de passe oublié,
+réinitialisation (une Server Action poste sur l'URL de sa page). Le matcher
+`@nonauth` les ramène à 64 Ko, ce qu'un email et un mot de passe n'approchent
+jamais.
+
+### Déployer une modification
+
+Depuis le dépôt, vers le VPS :
+
+```bash
+scp deploy/Caddyfile deploy@<vps>:/tmp/Caddyfile
+```
+
+Puis sur le VPS :
+
+```bash
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak && sudo cp /tmp/Caddyfile /etc/caddy/Caddyfile && sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+```
+
+**Ne colle jamais ce fichier à la main dans un terminal.** C'est ce qui a échoué
+trois fois : les tabulations sont complétées par le shell, et un collage
+multi-ligne peut être avalé par une continuation restée ouverte. Copie le
+fichier, ne retape pas son contenu.
+
+### Vérifier qu'il n'a pas dérivé
+
+Le risque d'un fichier versionné est qu'il mente : quelqu'un modifie la prod
+sans mettre le dépôt à jour, et le fichier devient une documentation fausse.
+
+```bash
+ssh deploy@<vps> 'sudo cat /etc/caddy/Caddyfile' | diff -u deploy/Caddyfile -
+```
+
+### Après un changement, les trois contrôles
+
+```bash
+curl -s -o /dev/null -w "site: %{http_code}\n" https://devadn.com/login
+```
+
+```bash
+head -c 1000000 /dev/zero | curl -s -o /dev/null -w "corps 1 Mo: %{http_code}\n" -X POST --data-binary @- https://devadn.com/login
+```
+
+```bash
+curl -s https://devadn.com/api/health
+```
+
+Attendu : **200**, **413**, puis le JSON de santé. Le troisième compte autant que
+les deux autres — le webhook de déploiement passe par le même bloc Caddy.
+
 ## Bascule des assets guardés (migration one-shot)
 
 Depuis le passage des fichiers de projet (plans, photos de réserves, fichiers
