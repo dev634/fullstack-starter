@@ -656,6 +656,8 @@ const fr = {
         openOnlyFilter: "Ouvertes seulement",
         openCount: "{count} ouverte(s)",
         resolvedCount: "{count} levée(s)",
+        photoCount: "{count} photo(s)",
+        numberLabel: "n°{number}",
         noReserves: "Aucune réserve.",
         noOpenReserves: "Aucune réserve ouverte.",
         status: {

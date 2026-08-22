@@ -1,11 +1,13 @@
 "use client";
 
 import { useTranslation } from "@/components/LocaleProvider";
+import StatusPill from "@/components/StatusPill";
 import type { ReserveStatus } from "@/app/generated/prisma/client";
 
 // Same palette as the pin markers on the plan viewer (ReservesSection's
 // `pinColor`) so the badge reads as "the same status", just in pill form —
-// see ProjectStatusBadge/StatusBadge for the shared pill shape this mirrors.
+// the pill shape itself lives in StatusPill, shared with
+// ProjectStatusBadge/StatusBadge/ProjectTypeBadge/InterventionStatusBadge.
 const STATUS_CLASSES: Record<ReserveStatus, string> = {
   OPEN: "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300",
   RESOLVED: "border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300",
@@ -21,11 +23,5 @@ const STATUS_CLASSES: Record<ReserveStatus, string> = {
  */
 export default function ReserveStatusBadge({ status }: { status: ReserveStatus }) {
   const { t } = useTranslation();
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[status]}`}
-    >
-      {t.reserves.status[status]}
-    </span>
-  );
+  return <StatusPill className={`shrink-0 ${STATUS_CLASSES[status]}`}>{t.reserves.status[status]}</StatusPill>;
 }

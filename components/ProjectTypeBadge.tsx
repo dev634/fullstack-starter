@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "@/components/LocaleProvider";
+import StatusPill from "@/components/StatusPill";
 
 const TYPE_CLASSES: Record<string, string> = {
   CENTRALE_AU_SOL: "border-teal-300 bg-teal-100 text-teal-700 dark:border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-300",
@@ -13,11 +14,5 @@ export default function ProjectTypeBadge({ type }: { type: string }) {
   const { t } = useTranslation();
   const className = TYPE_CLASSES[type] ?? TYPE_CLASSES.AUTRE;
   const label = t.projects.type[type as keyof typeof t.projects.type] ?? t.projects.type.AUTRE;
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}
-    >
-      {label}
-    </span>
-  );
+  return <StatusPill className={className}>{label}</StatusPill>;
 }

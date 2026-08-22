@@ -3,7 +3,6 @@ import { v2 as cloudinary } from "cloudinary";
 import {
   groupPlansForReport,
   summarizeReserves,
-  summarizeReservesByPlan,
   formatCoordinates,
   slugify,
   reportFileName,
@@ -133,28 +132,17 @@ describe("summarizeReserves", () => {
     ];
     expect(summarizeReserves(rawPlans)).toEqual({ total: 3, open: 2, resolved: 1 });
   });
-});
 
-describe("summarizeReservesByPlan", () => {
-  it("tallies each plan individually and the whole section, without diverging from summarizeReserves", () => {
-    const plans = [
-      plan({ id: 1, reserves: [reserve({ status: "OPEN" }), reserve({ status: "RESOLVED" })] }),
-      plan({ id: 2, reserves: [reserve({ status: "OPEN" })] }),
-      plan({ id: 3, reserves: [] }),
-    ];
-
-    const { overall, byPlanId } = summarizeReservesByPlan(plans);
-
-    expect(overall).toEqual(summarizeReserves(plans));
-    expect(byPlanId.get(1)).toEqual({ total: 2, open: 1, resolved: 1 });
-    expect(byPlanId.get(2)).toEqual({ total: 1, open: 1, resolved: 0 });
-    expect(byPlanId.get(3)).toEqual({ total: 0, open: 0, resolved: 0 });
-  });
-
-  it("returns an empty map and zeroed overall with no plans", () => {
-    const { overall, byPlanId } = summarizeReservesByPlan([]);
-    expect(overall).toEqual({ total: 0, open: 0, resolved: 0 });
-    expect(byPlanId.size).toBe(0);
+  it("tallies a single plan the same way whether called alone or as part of a larger list", () => {
+    // ReservesSection's per-plan "N open" row counter calls this with a
+    // one-plan array (summarizeReserves([p])) instead of a dedicated
+    // per-plan helper — this must match what the same plan contributes
+    // inside a multi-plan call.
+    const a = plan({ id: 1, reserves: [reserve({ status: "OPEN" }), reserve({ status: "RESOLVED" })] });
+    const b = plan({ id: 2, reserves: [reserve({ status: "OPEN" })] });
+    expect(summarizeReserves([a])).toEqual({ total: 2, open: 1, resolved: 1 });
+    expect(summarizeReserves([b])).toEqual({ total: 1, open: 1, resolved: 0 });
+    expect(summarizeReserves([{ id: 3, reserves: [] }])).toEqual({ total: 0, open: 0, resolved: 0 });
   });
 });
 

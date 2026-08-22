@@ -16,7 +16,7 @@ import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { assetPath } from "@/lib/assetPath";
-import { summarizeReservesByPlan } from "@/lib/reservesReportData";
+import { summarizeReserves } from "@/lib/reservesReportData";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import {
@@ -77,12 +77,6 @@ export default function ReservesSection({
   // Plans shown at this level are those filed directly in the current folder
   // (or unfiled, at the root). Subfolders are navigated into, not expanded.
   const visiblePlans = plans.filter((p) => (p.folderId ?? null) === currentFolderId);
-
-  // Open/resolved tallies per plan, for the row counter below and the
-  // filterable list under the viewer — a single call over the full `plans`
-  // prop (summarizeReservesByPlan is pure and structurally typed, see
-  // lib/reservesReportData.ts), never a second hand-rolled count.
-  const { byPlanId: reserveTallyByPlanId } = summarizeReservesByPlan(plans);
 
   // Selection is derived, not stored: navigating into a folder whose plans
   // don't include the previous pick falls back to the first one here, so no
@@ -368,7 +362,7 @@ export default function ReservesSection({
                       appended rather than replacing it, and only when there's
                       something to count. */}
                   {p.reserves.length > 0 && (
-                    <> · {format(t.reserves.openCount, { count: reserveTallyByPlanId.get(p.id)?.open ?? 0 })}</>
+                    <> · {format(t.reserves.openCount, { count: summarizeReserves([p]).open })}</>
                   )}
                 </span>
               </button>
@@ -484,15 +478,20 @@ export default function ReservesSection({
               stay reachable here instead of disappearing along with the
               pins. */}
           <div className="flex flex-col gap-2">
-            <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-              <input
-                type="checkbox"
-                checked={openOnly}
-                onChange={(e) => setOpenOnly(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600"
-              />
-              {t.reserves.openOnlyFilter}
-            </label>
+            {/* An "open only" filter only makes sense once there's something
+                to filter — an empty plan showed it anyway, a command over an
+                empty set. */}
+            {selectedPlanReserves.length > 0 && (
+              <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={openOnly}
+                  onChange={(e) => setOpenOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600"
+                />
+                {t.reserves.openOnlyFilter}
+              </label>
+            )}
             {filteredReserves.length === 0 ? (
               <p className="px-1 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
                 {openOnly ? t.reserves.noOpenReserves : t.reserves.noReserves}
@@ -504,8 +503,17 @@ export default function ReservesSection({
                     <button
                       type="button"
                       onClick={() => openReserve(reserve)}
-                      aria-label={`${reserve.number} — ${reserve.description} — ${t.reserves.status[reserve.status]}`}
-                      className="flex min-h-11 w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-500/10"
+                      aria-label={`${reserve.number} — ${reserve.description} — ${t.reserves.status[reserve.status]}${
+                        reserve.photos.length > 0
+                          ? ` — ${format(t.reserves.photoCount, { count: reserve.photos.length })}`
+                          : ""
+                      }`}
+                      // The description is what gets visually truncated on this
+                      // row (unlike the pin marker on the plan, which never
+                      // shows the text at all) — same native-tooltip escape
+                      // hatch the pin already has via its own `title`.
+                      title={reserve.description}
+                      className="flex min-h-11 w-full cursor-pointer flex-col items-start gap-1 px-3 py-2.5 text-left hover:bg-gray-500/10 sm:flex-row sm:items-center sm:gap-3"
                     >
                       {/* Same round marker as the pin on the plan (pinColor),
                           just not positioned absolutely — number and status
@@ -519,7 +527,11 @@ export default function ReservesSection({
                       >
                         {reserve.number}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-900 dark:text-gray-100">
+                      {/* Own line on mobile (w-full) — squeezed to ~18 chars
+                          otherwise, with no way to read the rest. Back to a
+                          single row with the marker/badge/photo count from
+                          sm: up (sm:w-auto sm:flex-1). */}
+                      <span className="w-full min-w-0 truncate text-sm text-gray-900 dark:text-gray-100 sm:w-auto sm:flex-1">
                         {reserve.description}
                       </span>
                       <ReserveStatusBadge status={reserve.status} />

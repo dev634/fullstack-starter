@@ -78,9 +78,10 @@ export type PlanTallyInput = { id: number; reserves: readonly ReserveTallyInput[
 
 export type ReserveTally = { total: number; open: number; resolved: number };
 
-/** Open/resolved tallies across every given plan — used by the PDF cover page
- * and, per-project or per-plan, by the counters on the project page and the
- * client portal (see `summarizeReservesByPlan` below for the per-plan form). */
+/** Open/resolved tallies across every given plan — used by the PDF cover page,
+ * the project page and client-portal section-wide counters, and (called with
+ * a single-plan array, `summarizeReserves([plan])`) the per-plan "N open"
+ * badge on each plan row. */
 export function summarizeReserves(plans: readonly PlanTallyInput[]): ReserveTally {
   let total = 0;
   let resolved = 0;
@@ -91,24 +92,6 @@ export function summarizeReserves(plans: readonly PlanTallyInput[]): ReserveTall
     }
   }
   return { total, open: total - resolved, resolved };
-}
-
-/**
- * Same tally, broken down per plan AND for the whole section — for the "N
- * open" badges on each plan plus the section-wide counter. Delegates every
- * count to `summarizeReserves` (once per plan, once for the full list)
- * instead of re-walking `reserves` a second way, so the two can never
- * diverge.
- */
-export function summarizeReservesByPlan(plans: readonly PlanTallyInput[]): {
-  overall: ReserveTally;
-  byPlanId: Map<number, ReserveTally>;
-} {
-  const byPlanId = new Map<number, ReserveTally>();
-  for (const plan of plans) {
-    byPlanId.set(plan.id, summarizeReserves([plan]));
-  }
-  return { overall: summarizeReserves(plans), byPlanId };
 }
 
 /** "Lat, Lng" with a fixed precision, or null when the réserve has no GPS fix. */

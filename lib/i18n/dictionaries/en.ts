@@ -658,6 +658,8 @@ const en: Dictionary = {
         openOnlyFilter: "Open only",
         openCount: "{count} open",
         resolvedCount: "{count} resolved",
+        photoCount: "{count} photo(s)",
+        numberLabel: "#{number}",
         noReserves: "No reserves.",
         noOpenReserves: "No open reserves.",
         status: {

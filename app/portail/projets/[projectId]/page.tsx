@@ -132,13 +132,14 @@ export default async function PortalProjectPage({
 
         {/* Réserves (read-only) */}
         <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm">
-          <div className="flex items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
-            <MapIcon className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold">{t.reserves.heading}</h2>
+          <div className="flex flex-wrap items-center gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+            <MapIcon className="h-5 w-5 shrink-0 text-red-500" />
+            <h2 className="min-w-0 text-lg font-semibold">{t.reserves.heading}</h2>
             {/* .open/.resolved were already computed above (summarizeReserves)
-                but left unused here — the client only saw a bare total, next
-                to a PDF report that names each réserve's status. Surfacing
-                what's still open is the actionable half of that total. */}
+                but left unused here — the client only saw a bare total. There
+                is no PDF report in the portal (that export stays app-side and
+                refuses a CLIENT session); surfacing what's still open is the
+                actionable half of the total instead of a mute number. */}
             {reserveSummary.total > 0 && (
               <span className="text-sm text-gray-500 dark:text-gray-400">
                 ({format(t.reserves.openCount, { count: reserveSummary.open })} · {format(t.reserves.resolvedCount, { count: reserveSummary.resolved })})
@@ -147,16 +148,19 @@ export default async function PortalProjectPage({
           </div>
           <div className="px-4 py-4 text-sm sm:px-6">
             {reserveSummary.total === 0 ? (
-              <p className="text-gray-500 dark:text-gray-400">{format(t.reserves.reserveCount, { count: 0 })}</p>
+              <p className="text-gray-500 dark:text-gray-400">{t.reserves.noReserves}</p>
             ) : (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {reservePlans.flatMap((plan) =>
                   plan.reserves.map((reserve) => (
-                    <li key={reserve.id} className="flex items-center gap-3 py-2.5">
+                    <li key={reserve.id} className="flex flex-col items-start gap-1 py-2.5 sm:flex-row sm:items-center sm:gap-3">
                       <span className="shrink-0 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                        n°{reserve.number}
+                        {format(t.reserves.numberLabel, { number: reserve.number })}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{reserve.description}</span>
+                      {/* Own line on mobile (w-full) — squeezed to ~18 chars
+                          otherwise, with no way to read the rest. Back to a
+                          single row from sm: up (sm:w-auto sm:flex-1). */}
+                      <span className="w-full min-w-0 truncate sm:w-auto sm:flex-1">{reserve.description}</span>
                       <ReserveStatusBadge status={reserve.status} />
                       {reserve.photos.length > 0 && (
                         <span className="inline-flex shrink-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
