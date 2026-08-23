@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { buildDeliveryUrl } from "@/lib/cloudinaryDelivery";
-import { contrastTextColor } from "@/lib/color";
+import { contrastTextColor, mixTowardBlack } from "@/lib/color";
 import {
   groupPlansForReport,
   summarizeReserves,
@@ -150,11 +150,14 @@ export type ReportLabels = {
   businessNumber: string;
   address: string;
   generatedOn: string;
-  /** Cover tiles — counts, so these read as plurals ("Ouvertes"). */
   total: string;
-  summaryOpen: string;
-  summaryResolved: string;
-  /** Per-réserve badge — singular ("Ouverte"), shared with the on-screen UI. */
+  /** This project's configured OPEN/RESOLVED label (falls back to the i18n
+   * default) — the SAME string draws the cover tiles' counts AND the
+   * per-réserve badges. Used to read "Ouvertes"/"Levées" on the cover and
+   * "Ouverte"/"Levée" on the cards: two fixed, hard-coded product strings
+   * that could silently drift from a project's own configured wording (a
+   * chantier set to "À traiter" would say "Ouvertes : 3" at the top and "À
+   * traiter" on every card below it — arbitrage, PR #196). */
   statusOpen: string;
   statusResolved: string;
   /** Heading for plans that sit at the project root rather than in a folder. */
@@ -301,11 +304,20 @@ function renderCover(
     y = Math.max(doc.y, y + 16) + 6;
   }
 
-  // Summary tiles: total / open / resolved.
+  // Summary tiles: total / open / resolved. The open/resolved tiles' NUMBER
+  // is drawn with mixTowardBlack(...), never the raw configured hex: this is
+  // text straight on the white cover page (no coloured disc behind it, unlike
+  // the plan pin or the card's own number badge), so a pale, admin-picked
+  // colour (bright yellow, say) needs the exact same contrast floor the
+  // on-screen pill's text already has — see lib/color.ts::mixTowardBlack's
+  // own doc. The label BELOW each tile now reuses labels.statusOpen/
+  // statusResolved too (see ReportLabels's own doc) — never fed to
+  // mixTowardBlack, it's always drawn in COLORS.muted, same as `total`'s own
+  // label.
   const tiles: [string, number, string][] = [
     [labels.total, summary.total, COLORS.text],
-    [labels.summaryOpen, summary.open, statusColors.open],
-    [labels.summaryResolved, summary.resolved, statusColors.resolved],
+    [labels.statusOpen, summary.open, mixTowardBlack(statusColors.open)],
+    [labels.statusResolved, summary.resolved, mixTowardBlack(statusColors.resolved)],
   ];
   const gap = 12;
   const tileW = (CONTENT_W - gap * 2) / 3;
@@ -428,7 +440,10 @@ function renderReserveCard(
   doc.font("bold").fontSize(9).fillColor(contrastTextColor(color));
   doc.text(String(reserve.number), MARGIN, top + 6.6, { width: 20, align: "center", lineBreak: false });
 
-  doc.font("bold").fontSize(9).fillColor(color);
+  // Straight on the white card background (unlike the disc above it, or the
+  // pin on the plan) — same contrast floor as the cover tiles' numbers, see
+  // ReportLabels's own doc and lib/color.ts::mixTowardBlack.
+  doc.font("bold").fontSize(9).fillColor(mixTowardBlack(color));
   doc.text(
     reserve.status === "RESOLVED" ? labels.statusResolved : labels.statusOpen,
     textX,

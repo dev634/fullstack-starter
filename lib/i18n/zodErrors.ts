@@ -19,6 +19,7 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         if (i18nCode === "seriesRangeInvalid") return t.errors.seriesRangeInvalid;
         if (i18nCode === "seriesTooLarge") return format(t.errors.seriesTooLarge, { max: MAX_SERIES_SIZE });
         if (i18nCode === "requiredQuantityMissing") return t.errors.requiredQuantityMissing;
+        if (i18nCode === "invalidCharacters") return t.errors.invalidCharacters;
         return issue.message;
     }
 

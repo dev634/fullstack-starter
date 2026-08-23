@@ -40,6 +40,7 @@ import AddInterimForm from "@/forms/AddInterimForm";
 import CreateFolderForm from "@/forms/CreateFolderForm";
 import UploadFileForm from "@/forms/UploadFileForm";
 import ReservesSection from "@/components/ReservesSection";
+import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import AddReservePlanForm from "@/forms/AddReservePlanForm";
 import AddReserveFolderForm from "@/forms/AddReserveFolderForm";
 import ReserveStatusStyleForm from "@/forms/ReserveStatusStyleForm";
@@ -260,6 +261,16 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
+      {/* This project's OPEN/RESOLVED réserve colours, as CSS custom
+          properties — see ReserveStatusStyleVars's own doc. Rendered
+          unconditionally (not nested inside the collapsible réserves
+          section below) so it never depends on that section's open/hidden
+          state: it always mounts in the exact same pass as anything that
+          reads --reserve-open/--reserve-resolved (the pins inside
+          ReservesSection, the badge inside ReserveStatusBadge), which is all
+          that actually matters — see docs/CONVENTIONS.md's collapsible-
+          section note on a signal being read at mount. */}
+      <ReserveStatusStyleVars style={reserveStatusStyle} />
       <div className="w-full max-w-3xl mx-auto space-y-6">
 
         {/* Header */}
@@ -605,7 +616,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             badge={
               reservePlans.length > 0
                 ? reserveTally.total > 0
-                  ? `(${reservePlans.length}) · ${format(t.reserves.openCount, { count: reserveTally.open })}`
+                  ? `(${reservePlans.length}) · ${format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}`
                   : `(${reservePlans.length})`
                 : undefined
             }
@@ -638,7 +649,27 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                     button renders; updateReserveStatusStyle guards the write
                     itself regardless. */}
                 {canEdit && (
-                  <ReserveStatusStyleForm clientId={clientId} projectId={pid} project={project} />
+                  <ReserveStatusStyleForm
+                    clientId={clientId}
+                    projectId={pid}
+                    // Built literally here, not `project={project}`: `project`
+                    // is `findById`'s full row (include: { client: true }) —
+                    // budget/notes and the company's email/phone/address,
+                    // gated behind the `clients.info` rubrique on its own
+                    // screen. ReserveStatusStyleForm's prop type only names
+                    // four columns, but TypeScript is structural: passing the
+                    // wider `project` object would satisfy that type while
+                    // still serializing every other field into this Client
+                    // Component's props (and so into the page's HTML/RSC
+                    // payload) — an EDITOR whose function hides `clients`
+                    // would read them straight from the page source.
+                    project={{
+                      reserveOpenLabel: project.reserveOpenLabel,
+                      reserveOpenColor: project.reserveOpenColor,
+                      reserveResolvedLabel: project.reserveResolvedLabel,
+                      reserveResolvedColor: project.reserveResolvedColor,
+                    }}
+                  />
                 )}
               </>
             }

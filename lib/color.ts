@@ -47,3 +47,34 @@ export function contrastTextColor(hex: string): "#ffffff" | "#000000" {
   if (!match) return "#ffffff";
   return relativeLuminance(match[1]) > EQUAL_CONTRAST_LUMINANCE ? "#000000" : "#ffffff";
 }
+
+/**
+ * Mix a colour 65% toward black — the same ratio app/globals.css's
+ * `.reserve-pill-*` classes use for the on-screen pill's text
+ * (`color-mix(in srgb, var(--reserve-open) 65%, var(--pill-text-mix))`),
+ * always toward black here rather than reading `--pill-text-mix`: a PDF page
+ * has no dark mode, it's always white paper. Shared by lib/reservesReport.ts
+ * so a réserve's status label and a cover tile's count read the same way
+ * printed as they do on screen — a pale, admin-picked colour (a bright
+ * yellow, say) stays legible on paper instead of vanishing into it, the way
+ * drawing the raw, unmixed hex directly on white did before.
+ *
+ * Not a hard WCAG AA guarantee for every possible input hue (no fixed mix
+ * ratio can promise that against a fixed backdrop — same caveat the on-screen
+ * pill's own math documents, see its test) — just the same pull toward the
+ * readable end every other reading of a configured colour in this app gets.
+ *
+ * `hex` is assumed already validated to `#RRGGBB` (schemas/reserve.ts's Zod
+ * schema and the database CHECK underneath it) — malformed input falls back
+ * to black outright, never an unmixed passthrough.
+ */
+export function mixTowardBlack(hex: string, weight = 0.65): string {
+  const match = HEX6.exec(hex);
+  if (!match) return "#000000";
+  const int = parseInt(match[1], 16);
+  const mix = (shift: number) => Math.round(((int >> shift) & 0xff) * weight);
+  return (
+    "#" +
+    [mix(16), mix(8), mix(0)].map((c) => c.toString(16).padStart(2, "0")).join("")
+  );
+}

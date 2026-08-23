@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useTransition, type CSSProperties, type MouseEvent } from "react";
+import { useRef, useState, useTransition, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -17,7 +17,6 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { assetPath } from "@/lib/assetPath";
 import { summarizeReserves } from "@/lib/reservesReportData";
-import { contrastTextColor } from "@/lib/color";
 import type { ResolvedReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
@@ -313,15 +312,16 @@ export default function ReservesSection({
   const photos = editingReserve?.photos ?? [];
 
   // The pin marker (plan) and the round marker (list) both need a solid
-  // fill — unlike ReserveStatusBadge's translucent pill (which composes by
-  // transparency, see lib/reserveStatusPillStyle.ts), a marker sits directly
-  // on top of the plan image or the page background, so its own colour is
-  // opaque and the NUMBER drawn on it needs a real black/white choice
-  // (contrastTextColor), not a mix.
-  const pinStyle = (s: ReserveStatus): CSSProperties => {
-    const color = (s === "RESOLVED" ? statusStyle.resolved : statusStyle.open).color;
-    return { backgroundColor: color, color: contrastTextColor(color) };
-  };
+  // fill — unlike ReserveStatusBadge's translucent pill, a marker sits
+  // directly on top of the plan image or the page background, so its own
+  // colour is opaque and the NUMBER drawn on it needs a real black/white
+  // choice, not a mix. Both come from a CSS class (app/globals.css's
+  // .reserve-pin-open/.reserve-pin-resolved), never an inline `style=""`
+  // attribute: this app's CSP has no 'unsafe-inline' for style-src, and a
+  // nonce only authorizes a <style> ELEMENT, never a style ATTRIBUTE — see
+  // ReserveStatusStyleVars (rendered once by this project's page) for the
+  // CSS custom properties these classes read the actual colour from.
+  const pinClass = (s: ReserveStatus) => (s === "RESOLVED" ? "reserve-pin-resolved" : "reserve-pin-open");
 
   return (
     <div className="flex flex-col">
@@ -391,7 +391,7 @@ export default function ReservesSection({
                       undercount only in the same rare, pathological case the
                       "…and N more" notice below already surfaces. */}
                   {p.reserves.length > 0 && (
-                    <> · {format(t.reserves.openCount, { count: summarizeReserves([p]).open })}</>
+                    <> · {format(t.reserves.countWithLabel, { count: summarizeReserves([p]).open, label: statusStyle.open.label })}</>
                   )}
                 </span>
               </button>
@@ -489,8 +489,7 @@ export default function ReservesSection({
                     hard-coded white this used before per-project colours
                     existed. */}
                 <span
-                  style={pinStyle(reserve.status)}
-                  className="flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 border-white text-xs font-bold shadow dark:border-gray-900"
+                  className={`flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 border-white text-xs font-bold shadow dark:border-gray-900 ${pinClass(reserve.status)}`}
                 >
                   <span className="-rotate-45">{reserve.number}</span>
                 </span>
@@ -503,13 +502,11 @@ export default function ReservesSection({
               >
                 {/* A new reserve is always created OPEN (createReserveSchema's
                     default) — this preview pin is tinted with the OPEN
-                    colour at reduced opacity (color-mix, same mechanism as
-                    the pill's translucent fill) rather than the pin's own
-                    solid style, to keep reading as "not placed yet". */}
-                <span
-                  style={{ backgroundColor: `color-mix(in srgb, ${statusStyle.open.color} 70%, transparent)` }}
-                  className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white dark:border-gray-900"
-                />
+                    colour at reduced opacity (.reserve-pin-preview's
+                    color-mix, same mechanism as the pill's translucent fill)
+                    rather than the pin's own solid style, to keep reading as
+                    "not placed yet". */}
+                <span className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white dark:border-gray-900 reserve-pin-preview" />
               </span>
             )}
           </div>
@@ -544,12 +541,14 @@ export default function ReservesSection({
                   onChange={(e) => setOpenOnly(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600"
                 />
-                {t.reserves.openOnlyFilter}
+                {format(t.reserves.openOnlyFilterLabel, { label: statusStyle.open.label })}
               </label>
             )}
             {filteredReserves.length === 0 ? (
               <p className="px-1 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                {openOnly ? t.reserves.noOpenReserves : t.reserves.noReserves}
+                {openOnly
+                  ? format(t.reserves.noReservesWithLabel, { label: statusStyle.open.label })
+                  : t.reserves.noReserves}
               </p>
             ) : (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700 rounded border border-gray-300 dark:border-gray-700">
@@ -580,8 +579,7 @@ export default function ReservesSection({
                           the plan image can't. */}
                       <span
                         aria-hidden="true"
-                        style={pinStyle(reserve.status)}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${pinClass(reserve.status)}`}
                       >
                         {reserve.number}
                       </span>

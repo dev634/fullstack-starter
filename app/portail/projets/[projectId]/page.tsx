@@ -20,6 +20,7 @@ import { computeTaskProgress } from "@/lib/projectDashboard";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import ReserveStatusBadge from "@/components/ReserveStatusBadge";
+import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -76,6 +77,14 @@ export default async function PortalProjectPage({
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
+      {/* This project's OPEN/RESOLVED réserve colours, as CSS custom
+          properties — see ReserveStatusStyleVars's own doc. This page is a
+          pure Server Component (no client-side re-render to fall back on),
+          so without this the ReserveStatusBadge below would render with NO
+          colour at all: a nonce authorizes a <style> ELEMENT, never an
+          inline style="" ATTRIBUTE, and this app's CSP has no
+          'unsafe-inline' for style-src. */}
+      <ReserveStatusStyleVars style={reserveStatusStyle} />
       <div className="w-full max-w-3xl mx-auto space-y-6">
         <Link
           href="/portail"
@@ -161,7 +170,8 @@ export default async function PortalProjectPage({
                 actionable half of the total instead of a mute number. */}
             {reserveSummary.total > 0 && (
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                ({format(t.reserves.openCount, { count: reserveSummary.open })} · {format(t.reserves.resolvedCount, { count: reserveSummary.resolved })})
+                ({format(t.reserves.countWithLabel, { count: reserveSummary.open, label: reserveStatusStyle.open.label })} ·{" "}
+                {format(t.reserves.countWithLabel, { count: reserveSummary.resolved, label: reserveStatusStyle.resolved.label })})
               </span>
             )}
           </div>

@@ -12,8 +12,6 @@
  * (and spam filters that read it) treat a missing text/plain as a bad signal.
  */
 
-import { contrastTextColor } from "@/lib/color";
-
 /** Escape a value destined for HTML. Templates interpolate user data — a
  * réserve description, a project name — so this is the default, not an option. */
 export function escapeHtml(value: string): string {
@@ -72,14 +70,6 @@ const FONT =
 export function renderEmail(brand: EmailBrand, content: EmailContent): { html: string; text: string } {
   const name = escapeHtml(brand.name);
   const color = /^#[0-9a-f]{3,8}$/i.test(brand.primaryColor) ? brand.primaryColor : "#3b82f6";
-  // The button's own text used to be hard-coded #ffffff regardless of the
-  // background: a pale configured primaryColor already renders every
-  // transactional email's call-to-action unreadable today. contrastTextColor
-  // only understands a strict 6-digit #RRGGBB (the shape every colour this
-  // app itself ever writes is validated to) — a shorthand/alpha form the
-  // regex above tolerates but this app never produces falls back to white,
-  // same as before this function existed.
-  const ctaTextColor = contrastTextColor(color);
 
   const header = brand.logoUrl
     ? `<img src="${safeUrl(brand.logoUrl)}" alt="${name}" height="32" style="display:block;height:32px;width:auto;border:0;">`
@@ -96,7 +86,7 @@ export function renderEmail(brand: EmailBrand, content: EmailContent): { html: s
   const cta = content.cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;">
          <tr><td style="border-radius:6px;background-color:${color};">
-           <a href="${safeUrl(content.cta.url)}" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:700;color:${ctaTextColor};text-decoration:none;border-radius:6px;">${escapeHtml(content.cta.label)}</a>
+           <a href="${safeUrl(content.cta.url)}" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:6px;">${escapeHtml(content.cta.label)}</a>
          </td></tr>
        </table>`
     : "";

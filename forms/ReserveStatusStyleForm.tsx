@@ -57,11 +57,25 @@ export default function ReserveStatusStyleForm({
     if (state.type === "success") setOpen(false);
   }
 
+  // `state` itself, unlike the fields ModalShell demounts, lives in THIS
+  // always-mounted component — useActionState has no reset API, so an error
+  // from an abandoned attempt (closed without fixing/resubmitting) otherwise
+  // survives the close and reappears the instant the modal reopens, before
+  // the user has done anything in the new session. Snapshotted at the exact
+  // moment the modal opens; while `state` is still THAT reference, no new
+  // submission has resolved yet during the CURRENT open session, so it's
+  // hidden behind `initialState` instead.
+  const [openedWithState, setOpenedWithState] = useState(state);
+  const visibleState = state === openedWithState ? initialState : state;
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpenedWithState(state);
+          setOpen(true);
+        }}
         className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600 cursor-pointer"
       >
         <SwatchIcon className="h-3.5 w-3.5" />
@@ -75,7 +89,7 @@ export default function ReserveStatusStyleForm({
           project={project}
           formAction={formAction}
           isPending={isPending}
-          state={state}
+          state={visibleState}
           onCancel={() => setOpen(false)}
         />
       </ModalShell>
@@ -242,6 +256,10 @@ function StatusStyleFieldset({
               <button
                 type="button"
                 onClick={() => onLabelChange("")}
+                aria-label={format(t.reserves.statusStyle.resetToDefaultAria, {
+                  field: t.reserves.statusStyle.labelFieldLabel,
+                  section: legend,
+                })}
                 className="inline-flex min-h-11 items-center font-medium text-primary hover:underline cursor-pointer"
               >
                 {t.reserves.statusStyle.resetToDefault}
@@ -252,19 +270,22 @@ function StatusStyleFieldset({
         </div>
 
         <div>
+          {/* No standalone colour-preview dot here: the native swatch inside
+              ColorPickerInput already shows the colour currently in effect
+              (via `fallback`, this component's authoritative default text
+              below never has anything to contradict) — a second, independent
+              rendering of the same colour would also need an inline
+              style="" attribute this app's CSP can't authorize (a nonce only
+              covers a <style> ELEMENT, never a style ATTRIBUTE). */}
           <ColorPickerInput
             label={t.reserves.statusStyle.colorFieldLabel}
             name={colorName}
             value={colorValue}
             onChange={onColorChange}
             error={colorError}
+            fallback={defaultColor}
           />
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-            <span
-              aria-hidden="true"
-              className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-gray-300 dark:border-gray-600"
-              style={{ backgroundColor: isColorConfigured ? colorValue : defaultColor }}
-            />
             <span>
               {isColorConfigured
                 ? `${t.reserves.statusStyle.customColorSet} (${colorValue})`
@@ -274,6 +295,10 @@ function StatusStyleFieldset({
               <button
                 type="button"
                 onClick={() => onColorChange("")}
+                aria-label={format(t.reserves.statusStyle.resetToDefaultAria, {
+                  field: t.reserves.statusStyle.colorFieldLabel,
+                  section: legend,
+                })}
                 className="inline-flex min-h-11 items-center font-medium text-primary hover:underline cursor-pointer"
               >
                 {t.reserves.statusStyle.resetToDefault}

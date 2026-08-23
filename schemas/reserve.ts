@@ -85,7 +85,7 @@ const nullableStatusLabel = z
         z
             .string()
             .max(MAX_NAME_LENGTH)
-            .refine((v) => !CONTROL_CHAR.test(v), "Invalid characters")
+            .refine((v) => !CONTROL_CHAR.test(v), { message: "Invalid characters", params: { i18n: "invalidCharacters" } })
             .nullable()
     )
     .optional();

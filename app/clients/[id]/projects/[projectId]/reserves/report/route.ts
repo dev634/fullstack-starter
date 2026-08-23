@@ -142,8 +142,6 @@ export async function GET(
         address: t.projects.detail.address,
         generatedOn: t.reserves.report.generatedOn,
         total: t.reserves.report.total,
-        summaryOpen: t.reserves.report.summaryOpen,
-        summaryResolved: t.reserves.report.summaryResolved,
         statusOpen: statusStyle.open.label,
         statusResolved: statusStyle.resolved.label,
         rootGroup: t.reserves.noFolder,

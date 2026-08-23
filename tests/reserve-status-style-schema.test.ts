@@ -24,14 +24,24 @@ describe("updateReserveStatusStyleSchema", () => {
     }
   });
 
-  it("resolves every field missing entirely to null (the degenerate, most common case: nothing configured)", () => {
+  it("leaves every field missing entirely as undefined when the form sends nothing at all (the degenerate, most common case: nothing configured)", () => {
+    // NOT `result.data.openLabel ?? null` — that coalesces BOTH `null` and
+    // `undefined` to the same assertion, so it can't tell "the schema
+    // resolved this to null" apart from "this key was never even parsed".
+    // The real answer: ZodOptional short-circuits to `undefined` without
+    // running the inner preprocess/refine chain at all when the key is
+    // absent — the schema itself never produces `null` here. It's
+    // actions/reserves/reserves.ts's `updateReserveStatusStyle` that turns
+    // `undefined` into the database's NULL via its own `?? null` right
+    // before writing (see its own test in tests/reserve-actions.test.ts) —
+    // this test only covers what THIS schema does on its own.
     const result = updateReserveStatusStyleSchema.safeParse({ projectId: "2" });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.openLabel ?? null).toBeNull();
-      expect(result.data.openColor ?? null).toBeNull();
-      expect(result.data.resolvedLabel ?? null).toBeNull();
-      expect(result.data.resolvedColor ?? null).toBeNull();
+      expect(result.data.openLabel).toBeUndefined();
+      expect(result.data.openColor).toBeUndefined();
+      expect(result.data.resolvedLabel).toBeUndefined();
+      expect(result.data.resolvedColor).toBeUndefined();
     }
   });
 
@@ -92,9 +102,23 @@ describe("updateReserveStatusStyleSchema", () => {
       openColor: "#ff8800",
     });
     expect(result.success).toBe(true);
+    // Same reasoning as the "missing entirely" test above: an absent field
+    // stays undefined at the schema level, never null.
     if (result.success) {
-      expect(result.data.resolvedLabel ?? null).toBeNull();
-      expect(result.data.resolvedColor ?? null).toBeNull();
+      expect(result.data.resolvedLabel).toBeUndefined();
+      expect(result.data.resolvedColor).toBeUndefined();
     }
+  });
+
+  it.each([
+    // A colour is interpolated raw into a <style> tag (ReserveStatusStyleVars)
+    // and into a PDF fillColor call — both anchors of hexColor's regex
+    // (^...$) must actually block anything past the 6 hex digits, not just
+    // reject it in the common case.
+    ["a CSS declaration smuggled after a valid-looking prefix", "#000000; background:url(https://evil/)"],
+    ["a valid hex followed by a trailing newline", "#000000\n"],
+  ])("rejects %s as a colour", (_label, value) => {
+    const result = updateReserveStatusStyleSchema.safeParse({ ...valid, openColor: value });
+    expect(result.success).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 /**
  * Shared pill shell for every status/type badge in the app (StatusBadge,
@@ -9,29 +9,19 @@ import type { CSSProperties, ReactNode } from "react";
  * `className` carries the per-status color classes, plus any per-badge extra
  * (e.g. `shrink-0`) — the shape itself lives here once.
  *
- * `style` is optional and additive: ReserveStatusBadge is the one caller that
- * needs it, for a per-project configured colour Tailwind can't turn into a
- * class (lib/reserveStatusPillStyle.ts) — every other badge keeps coloring
- * itself purely through `className`, unaffected by this extension.
- *
  * No `"use client"` here: it's plain JSX with no client-only API, so it stays
  * safe to render from either a Server or a Client Component, exactly like the
  * badges that use it today.
  */
 export default function StatusPill({
   className,
-  style,
   children,
 }: {
   className: string;
-  style?: CSSProperties;
   children: ReactNode;
 }) {
   return (
-    <span
-      style={style}
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}
-    >
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
       {children}
     </span>
   );
