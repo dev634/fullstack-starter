@@ -172,8 +172,15 @@ model Project {
   // Enforced by the database, not only by Zod (a psql session or an admin
   // script goes around Zod, never around a CHECK) — migration 20260823090000:
   //   *Color: NULL or /^#[0-9a-fA-F]{6}$/. These values are interpolated into
-  //           a <style> tag and a style attribute, so anything looser is a CSS
-  //           injection vector (same rule as AppSettings.primaryColor).
+  //           a <style nonce> BLOCK (components/ReserveStatusStyleVars.tsx),
+  //           so anything looser is a CSS injection vector — and a block is
+  //           worse than an attribute: a stray "}" closes the rule and opens
+  //           another. NOT into a style attribute: the CSP is
+  //           "style-src self nonce-..." with no unsafe-inline, and a nonce
+  //           authorises an ELEMENT, never an ATTRIBUTE. Rendering the colours
+  //           by attribute is what PR #196 had to undo — do not reintroduce it
+  //           on the strength of this comment. (Same rule as
+  //           AppSettings.primaryColor, same safeHex guard at the sink.)
   //   *Label: NULL or a non-blank, control-character-free string of at most
   //           MAX_NAME_LENGTH (200, schemas/fields.ts). It is a one-line pill
   //           label rendered in HTML and drawn into the PDF report. The empty

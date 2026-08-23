@@ -182,9 +182,9 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
 
 ## Migrations
 
-Les règles générales (nommage à vérifier contre le dernier timestamp,
-ajouter → backfill → supprimer, index sur chaque FK) sont dans
-`~/.claude/CLAUDE.md` — pas recopiées ici. Propre à ce dépôt :
+Les règles générales (nommage à vérifier contre le dernier timestamp, ajouter →
+backfill → supprimer et son domaine de validité, index sur chaque FK) sont dans
+le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à ce dépôt :
 
 - Nom : `AAAAMMJJHHMMSS_description`.
 - Générer le SQL avec
@@ -192,6 +192,44 @@ ajouter → backfill → supprimer, index sur chaque FK) sont dans
   puis relire : le diff doit contenir *exactement* le changement voulu.
 - La prod applique les migrations **au démarrage du conteneur**
   (`docker-entrypoint.sh`) — une migration mergée part automatiquement.
+
+## Couleurs dynamiques et CSP
+
+`proxy.ts` pose `style-src 'self' 'nonce-…'`, **sans `unsafe-inline`**. Un nonce
+n'autorise qu'un **élément** `<style>`, jamais un **attribut** `style` ; et
+Tailwind ne génère aucune classe depuis une valeur connue seulement à
+l'exécution. Toute couleur qui vient de la base passe donc par une **variable
+CSS** :
+
+- `app/layout.tsx` → `--primary` / `--accent` (thème global, `AppSettings`).
+- `components/ReserveStatusStyleVars.tsx` → `--reserve-open`,
+  `--reserve-resolved` et leurs `-text` pré-calculés, rendu **une fois** par page
+  de projet (`:root` est sûr : une page ne rend jamais deux projets). Les classes
+  `.reserve-pill-*` / `.reserve-pin-*` d'`app/globals.css` sont les seules à lire
+  ces variables.
+- `lib/chartColors.ts` → hex pour les SVG + classes Tailwind **littérales**
+  jumelles pour les pastilles DOM, écrites en toutes lettres pour que le scanner
+  statique les voie. Le commentaire en tête portait déjà la contrainte CSP.
+- `lib/color.ts::contrastTextColor` (luminance WCAG) — même fonction pour le HTML
+  et pour le PDF (`lib/reservesReport.ts`), pour que les deux ne divergent pas.
+  ⚠️ Elle a un appelant **hors réserves** : le bouton des e-mails transactionnels.
+  Les e-mails ne sont pas sous CSP et leur couleur est un choix de marque : y
+  toucher est une PR à part.
+
+Le mode d'échec d'un attribut `style` n'est pas franc : sur un composant
+**client**, React réapplique la propriété par le CSSOM après hydratation — donc
+« ça marche après un clic » et pas au chargement ; sur un composant **serveur**,
+rien ne s'affiche jamais. Il reste **8 attributs `style` dans 5 fichiers**
+(`ClientAvatar`, positions des pastilles de `ReservesSection`, aperçu
+d'`AppSettingsForm`, transformes dnd-kit de `SectionOrderForm` et
+`JobFunctionsManager`), tous des composants client : violations en console plus
+un état pré-hydratation faux. Ne pas en ajouter.
+
+Une couleur interpolée dans un `<style>` est validée **trois fois** : Zod à
+l'écriture (`hexColor`), `CHECK` en base, et `safeHex` juste avant
+l'interpolation (`app/layout.tsx` et `ReserveStatusStyleVars`). Les ancres du
+`CHECK` portent la sécurité : `~` en PostgreSQL est une correspondance **non
+ancrée**, sans `^…$` la valeur `#000000; background:url(https://evil/)` passe.
 
 ## Sections repliables (page projet)
 
