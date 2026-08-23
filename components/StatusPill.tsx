@@ -13,7 +13,13 @@ import type { ReactNode } from "react";
  * safe to render from either a Server or a Client Component, exactly like the
  * badges that use it today.
  */
-export default function StatusPill({ className, children }: { className: string; children: ReactNode }) {
+export default function StatusPill({
+  className,
+  children,
+}: {
+  className: string;
+  children: ReactNode;
+}) {
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
       {children}

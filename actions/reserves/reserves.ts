@@ -4,13 +4,14 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
-import { createReserveSchema, updateReserveSchema } from "@/schemas/reserve";
+import { createReserveSchema, updateReserveSchema, updateReserveStatusStyleSchema } from "@/schemas/reserve";
 import {
   create as createReserve,
   update as updateReserveRow,
   remove as removeReserve,
   findProjectId as findReserveProjectId,
 } from "@/repository/reserves";
+import { updateReserveStatusStyle as updateReserveStatusStyleRow } from "@/repository/projects";
 import { create as createPlan, findById as findPlanById, remove as removePlan, setFolder as setPlanFolder } from "@/repository/reservePlans";
 import {
   create as createFolder,
@@ -27,7 +28,7 @@ import { uploadReservePlan, destroyReservePlan, uploadReservePhoto, destroyReser
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
-import type { ReservePlanActionState, ReserveActionState } from "@/types/reserve";
+import type { ReservePlanActionState, ReserveActionState, ReserveStatusStyleActionState } from "@/types/reserve";
 
 function projectPath(clientId: number, projectId: number) {
   return `/clients/${clientId}/projects/${projectId}`;
@@ -374,5 +375,65 @@ export async function deleteReserve(id: number, clientId: number, projectId: num
     return { type: "success" as const, message: t.reserves.messages.deleted, data: reserve };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
+  }
+}
+
+/**
+ * Configure this project's OPEN/RESOLVED réserve status labels + colours
+ * (the ReserveStatus enum itself never changes — see prisma/schema.prisma's
+ * Project doc). Whoever may write on the project may set this: no new
+ * capability, same content.edit gate as every other mutation in this file.
+ *
+ * `projectId` is used directly for requireProjectAccess, not resolved via a
+ * separate lookup — unlike a child réserve/plan/photo above, this mutation's
+ * target row IS the project the caller names, exactly the way updateProject
+ * (actions/projects/projects.ts) checks `parsed.data.id`. There is no other
+ * row whose real project this claim could diverge from.
+ *
+ * The integrator's screen (not built here) consumes this as a `useActionState`
+ * form action, same shape as updateReserve above: fields `projectId`,
+ * `clientId` (revalidatePath only), `openLabel`, `openColor`, `resolvedLabel`,
+ * `resolvedColor` — an empty label/color field clears that value back to the
+ * product default (see schemas/reserve.ts's updateReserveStatusStyleSchema).
+ * Reading it back for display goes through
+ * lib/reserveStatusStyle.ts::resolveReserveStatusStyle, not the raw columns.
+ */
+export async function updateReserveStatusStyle(
+  prevState: ReserveStatusStyleActionState,
+  formData: FormData
+): Promise<ReserveStatusStyleActionState> {
+  const roleCheck = await requireCapability("content.edit");
+  if (roleCheck.error) return { ...prevState, ...roleCheck.error };
+  const areaCheck = await requireAreaAccess("projects");
+  if (areaCheck.error) return { ...prevState, ...areaCheck.error };
+  const sectionCheck = await requireSectionAccess("reserves");
+  if (sectionCheck.error) return { ...prevState, ...sectionCheck.error };
+
+  const t = getDictionary(await getLocale());
+  const clientId = Number(formData.get("clientId"));
+  const parsed = updateReserveStatusStyleSchema.safeParse(formDataToObject(formData));
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
+
+  const scopeCheck = await requireProjectAccess(parsed.data.projectId);
+  if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
+
+  try {
+    const project = await updateReserveStatusStyleRow(parsed.data.projectId, {
+      openLabel: parsed.data.openLabel ?? null,
+      openColor: parsed.data.openColor ?? null,
+      resolvedLabel: parsed.data.resolvedLabel ?? null,
+      resolvedColor: parsed.data.resolvedColor ?? null,
+    });
+    revalidatePath(projectPath(clientId, parsed.data.projectId));
+    return { ...prevState, type: "success", message: t.reserves.messages.statusStyleUpdated, data: project };
+  } catch (error) {
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
 }

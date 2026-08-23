@@ -40,6 +40,7 @@ const fr = {
         seriesRangeInvalid: "La valeur « à » doit être supérieure ou égale à « de ».",
         seriesTooLarge: "La série ne peut pas dépasser {max} tâches.",
         requiredQuantityMissing: "La quantité requise est nécessaire quand une tâche ou une série est liée.",
+        invalidCharacters: "Ne peut pas contenir de caractères de contrôle.",
         validationError: "Erreur de validation. Vérifie les informations saisies et réessaie.",
         unauthorized: "Non autorisé. Merci de te connecter.",
         forbidden: "Accès refusé. Ton rôle ne permet pas cette action.",
@@ -650,12 +651,16 @@ const fr = {
         deletePlanText: "Supprimer « {name} » et toutes ses réserves ? Cette action est irréversible.",
         addHint: "Cliquez sur le plan pour ajouter une réserve.",
         reserveCount: "{count} réserve(s)",
-        // UI-level counters/labels for the textual list of réserves (project
-        // page + client portal) — deliberately separate from
-        // report.summaryOpen/summaryResolved, which style the PDF cover page.
-        openOnlyFilter: "Ouvertes seulement",
-        openCount: "{count} ouverte(s)",
-        resolvedCount: "{count} levée(s)",
+        // Réserve status counters — the project-page badge, the per-plan row,
+        // the "open only" filter, its empty state, the portal header AND the
+        // PDF cover tiles all resolve their noun from THIS project's
+        // configured status label (lib/reserveStatusStyle.ts) instead of a
+        // fixed "ouverte(s)"/"Ouvertes" baked into the string. A chantier
+        // configured "À traiter" must read "3 À traiter" everywhere, never
+        // "3 ouverte(s)" in one place and "À traiter" in another (arbitrage,
+        // PR #196).
+        countWithLabel: "{count} {label}",
+        openOnlyFilterLabel: "{label} seulement",
         // Passe 3b (C2), point 4: shown whenever repository/reservePlans.ts's
         // findByProject bound cuts a plan's réserves short — never silently,
         // per docs/CONVENTIONS.md. The app-side wording points at the PDF
@@ -667,7 +672,7 @@ const fr = {
         photoCount: "{count} photo(s)",
         numberLabel: "n°{number}",
         noReserves: "Aucune réserve.",
-        noOpenReserves: "Aucune réserve ouverte.",
+        noReservesWithLabel: "Aucune réserve {label}.",
         status: {
             OPEN: "Ouverte",
             RESOLVED: "Levée",
@@ -714,8 +719,6 @@ const fr = {
             title: "Rapport de réserves",
             generatedOn: "Édité le",
             total: "Total",
-            summaryOpen: "Ouvertes",
-            summaryResolved: "Levées",
             noReserves: "Aucune réserve sur ce plan.",
             planUnavailable: "Le plan n'a pas pu être chargé.",
             page: "Page {current} / {total}",
@@ -734,6 +737,33 @@ const fr = {
             chooseFile: "Merci de choisir un fichier PDF.",
             choosePhoto: "Merci de choisir une image.",
             invalidId: "Identifiant invalide.",
+            statusStyleUpdated: "Présentation des statuts mise à jour.",
+        },
+        // Per-project OPEN/RESOLVED label + colour, configurable by whoever may
+        // write on the chantier — see lib/reserveStatusStyle.ts. The button
+        // lives in the Réserves section header itself, next to its other
+        // commands (folder/plan add), not in a separate settings screen or the
+        // project action bar.
+        statusStyle: {
+            configureButton: "Réglages",
+            modalTitle: "Statuts des réserves",
+            intro: "Personnalisez le libellé et la couleur des statuts « Ouverte » et « Levée » pour ce chantier. Laissez un champ vide pour revenir à la valeur par défaut de l'application.",
+            openSectionTitle: "Statut « Ouverte »",
+            resolvedSectionTitle: "Statut « Levée »",
+            labelFieldLabel: "Libellé",
+            labelPlaceholder: "Par défaut : {label}",
+            usingDefaultLabel: "Valeur par défaut : « {label} »",
+            customLabelSet: "Libellé personnalisé",
+            colorFieldLabel: "Couleur",
+            usingDefaultColor: "Couleur par défaut",
+            customColorSet: "Couleur personnalisée",
+            resetToDefault: "Revenir à la valeur par défaut",
+            // Accessible name for the four "reset" buttons (label/couleur ×
+            // ouverte/levée) — all four shared the SAME name via
+            // resetToDefault alone, so a screen reader announced four
+            // identical buttons with no way to tell them apart. Starts with
+            // the visible text itself (WCAG 2.5.3 "Label in Name").
+            resetToDefaultAria: "Revenir à la valeur par défaut — {field} ({section})",
         },
     },
     jobFunctions: {

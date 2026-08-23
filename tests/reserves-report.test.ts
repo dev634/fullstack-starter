@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { inflateSync } from "node:zlib";
 import { v2 as cloudinary } from "cloudinary";
 import {
   groupPlansForReport,
@@ -193,8 +194,6 @@ const labels: ReportLabels = {
   address: "Adresse",
   generatedOn: "Édité le",
   total: "Total",
-  summaryOpen: "Ouvertes",
-  summaryResolved: "Levées",
   statusOpen: "Ouverte",
   statusResolved: "Levée",
   rootGroup: "Sans dossier",
@@ -220,8 +219,47 @@ const baseInput = {
   companyName: "ACME BTP",
   locale: "fr-FR",
   labels,
+  // Deliberately NOT the product default pair (#e11d48/#16a34a, see
+  // lib/reserveStatusStyle.ts) — a fixture using the exact default doesn't
+  // distinguish "honours this project's configuration" from "silently
+  // replays the hard-coded default regardless of what's passed in", which is
+  // exactly the regression the "draws THIS project's configured colours"
+  // test below exists to catch. Same non-default pair
+  // tests/reserve-status-style-schema.test.ts already uses.
+  statusColors: { open: "#ff8800", resolved: "#059669" },
   generatedAt: new Date("2026-07-31T10:00:00Z"),
 };
+
+/** pdfkit Flate-compresses every page content stream by default — this pulls
+ * the raw drawing operators back out so a test can grep for a specific
+ * fillColor operator. The only way to prove the report actually drew a
+ * project's CONFIGURED colour rather than the hard-coded default, now that
+ * baseInput.statusColors above is deliberately not that default pair. */
+function decompressedContent(pdf: Buffer): string {
+  const raw = pdf.toString("latin1");
+  const streamRe = /stream\r?\n([\s\S]*?)endstream/g;
+  let out = "";
+  let match: RegExpExecArray | null;
+  while ((match = streamRe.exec(raw))) {
+    try {
+      out += inflateSync(Buffer.from(match[1], "latin1")).toString("latin1");
+    } catch {
+      // Not a Flate-compressed stream (an embedded image XObject, e.g.) — skip.
+    }
+  }
+  return out;
+}
+
+/** The exact `scn` fill-colour operator pdfkit emits for a #RRGGBB hex —
+ * `_normalizeColor` divides each channel by 255 with no rounding, so this
+ * must match its raw float-to-string output exactly (verified against the
+ * real pdfkit output, not just derived independently — see this test's own
+ * assertions). */
+function fillColorOperator(hex: string): string {
+  const int = parseInt(hex.slice(1), 16);
+  const channels = [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff].map((c) => c / 255);
+  return `${channels.join(" ")} scn`;
+}
 
 describe("fetchRemoteImage", () => {
   const SIGNED_URL =
@@ -363,5 +401,22 @@ describe("buildReservesReport", () => {
     const fetchImage = vi.fn<ImageFetcher>(async () => PNG_1X1);
     await buildReservesReport({ ...baseInput, folders: [], plans: [], fetchImage });
     expect(fetchImage).not.toHaveBeenCalled();
+  });
+
+  it("draws THIS project's configured status colours, not the product default (point 6, PR #196 arbitrage)", async () => {
+    const plans = [
+      plan({
+        id: 1,
+        reserves: [reserve({ status: "OPEN" }), reserve({ status: "RESOLVED" })],
+      }),
+    ];
+    const pdf = await buildReservesReport({ ...baseInput, folders: [], plans, fetchImage: async () => PNG_1X1 });
+    const content = decompressedContent(pdf);
+
+    expect(content).toContain(fillColorOperator(baseInput.statusColors.open));
+    expect(content).toContain(fillColorOperator(baseInput.statusColors.resolved));
+    // And never silently falls back to the hard-coded product default either.
+    expect(content).not.toContain(fillColorOperator("#e11d48"));
+    expect(content).not.toContain(fillColorOperator("#16a34a"));
   });
 });

@@ -17,6 +17,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { assetPath } from "@/lib/assetPath";
 import { summarizeReserves } from "@/lib/reservesReportData";
+import type { ResolvedReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import {
@@ -63,6 +64,7 @@ export default function ReservesSection({
   allFolders,
   currentFolderId,
   canEdit,
+  statusStyle,
 }: {
   clientId: number;
   projectId: number;
@@ -76,6 +78,13 @@ export default function ReservesSection({
   /** Folder being browsed, or null for the project root (from ?rfolder=). */
   currentFolderId: number | null;
   canEdit: boolean;
+  /** This project's resolved OPEN/RESOLVED label+colour — see
+   * lib/reserveStatusStyle.ts::resolveReserveStatusStyle. Computed once by
+   * the page (it already has the project row + the dictionary) and passed
+   * down, rather than re-resolved here, so the plan pin, the list marker,
+   * the pill and the editor's own status `<select>` can never drift from
+   * each other. */
+  statusStyle: ResolvedReserveStatusStyle;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -302,10 +311,17 @@ export default function ReservesSection({
     editor?.mode === "edit" ? selectedPlan?.reserves.find((r) => r.id === editor.reserveId) : undefined;
   const photos = editingReserve?.photos ?? [];
 
-  const pinColor = (s: ReserveStatus) =>
-    s === "RESOLVED"
-      ? "bg-green-600 border-white dark:border-gray-900"
-      : "bg-rose-600 border-white dark:border-gray-900";
+  // The pin marker (plan) and the round marker (list) both need a solid
+  // fill — unlike ReserveStatusBadge's translucent pill, a marker sits
+  // directly on top of the plan image or the page background, so its own
+  // colour is opaque and the NUMBER drawn on it needs a real black/white
+  // choice, not a mix. Both come from a CSS class (app/globals.css's
+  // .reserve-pin-open/.reserve-pin-resolved), never an inline `style=""`
+  // attribute: this app's CSP has no 'unsafe-inline' for style-src, and a
+  // nonce only authorizes a <style> ELEMENT, never a style ATTRIBUTE — see
+  // ReserveStatusStyleVars (rendered once by this project's page) for the
+  // CSS custom properties these classes read the actual colour from.
+  const pinClass = (s: ReserveStatus) => (s === "RESOLVED" ? "reserve-pin-resolved" : "reserve-pin-open");
 
   return (
     <div className="flex flex-col">
@@ -375,7 +391,7 @@ export default function ReservesSection({
                       undercount only in the same rare, pathological case the
                       "…and N more" notice below already surfaces. */}
                   {p.reserves.length > 0 && (
-                    <> · {format(t.reserves.openCount, { count: summarizeReserves([p]).open })}</>
+                    <> · {format(t.reserves.countWithLabel, { count: summarizeReserves([p]).open, label: statusStyle.open.label })}</>
                   )}
                 </span>
               </button>
@@ -466,9 +482,14 @@ export default function ReservesSection({
                 className="absolute -translate-x-1/2 -translate-y-full cursor-pointer"
               >
                 {/* Teardrop map marker: round head, sharp corner rotated to a
-                    downward tip that sits on the exact spot. */}
+                    downward tip that sits on the exact spot. Colour comes
+                    from the project's configured status style; the number's
+                    black/white reads correctly against ANY chosen colour
+                    (contrastTextColor, inside pinStyle) rather than the
+                    hard-coded white this used before per-project colours
+                    existed. */}
                 <span
-                  className={`flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 text-xs font-bold text-white shadow ${pinColor(reserve.status)}`}
+                  className={`flex h-6 w-6 rotate-45 items-center justify-center rounded-full rounded-bl-none border-2 border-white text-xs font-bold shadow dark:border-gray-900 ${pinClass(reserve.status)}`}
                 >
                   <span className="-rotate-45">{reserve.number}</span>
                 </span>
@@ -479,7 +500,13 @@ export default function ReservesSection({
                 style={{ left: `${editor.x * 100}%`, top: `${editor.y * 100}%` }}
                 className="pointer-events-none absolute -translate-x-1/2 -translate-y-full"
               >
-                <span className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white bg-rose-600/70 dark:border-gray-900" />
+                {/* A new reserve is always created OPEN (createReserveSchema's
+                    default) — this preview pin is tinted with the OPEN
+                    colour at reduced opacity (.reserve-pin-preview's
+                    color-mix, same mechanism as the pill's translucent fill)
+                    rather than the pin's own solid style, to keep reading as
+                    "not placed yet". */}
+                <span className="block h-6 w-6 rotate-45 animate-pulse rounded-full rounded-bl-none border-2 border-white dark:border-gray-900 reserve-pin-preview" />
               </span>
             )}
           </div>
@@ -514,12 +541,14 @@ export default function ReservesSection({
                   onChange={(e) => setOpenOnly(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary dark:border-gray-600"
                 />
-                {t.reserves.openOnlyFilter}
+                {format(t.reserves.openOnlyFilterLabel, { label: statusStyle.open.label })}
               </label>
             )}
             {filteredReserves.length === 0 ? (
               <p className="px-1 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                {openOnly ? t.reserves.noOpenReserves : t.reserves.noReserves}
+                {openOnly
+                  ? format(t.reserves.noReservesWithLabel, { label: statusStyle.open.label })
+                  : t.reserves.noReserves}
               </p>
             ) : (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700 rounded border border-gray-300 dark:border-gray-700">
@@ -528,7 +557,9 @@ export default function ReservesSection({
                     <button
                       type="button"
                       onClick={() => openReserve(reserve)}
-                      aria-label={`${reserve.number} — ${reserve.description} — ${t.reserves.status[reserve.status]}${
+                      aria-label={`${reserve.number} — ${reserve.description} — ${
+                        (reserve.status === "RESOLVED" ? statusStyle.resolved : statusStyle.open).label
+                      }${
                         reserve.photos.length > 0
                           ? ` — ${format(t.reserves.photoCount, { count: reserve.photos.length })}`
                           : ""
@@ -540,7 +571,7 @@ export default function ReservesSection({
                       title={reserve.description}
                       className="flex min-h-11 w-full cursor-pointer flex-col items-start gap-1 px-3 py-2.5 text-left hover:bg-gray-500/10 sm:flex-row sm:items-center sm:gap-3"
                     >
-                      {/* Same round marker as the pin on the plan (pinColor),
+                      {/* Same round marker as the pin on the plan (pinStyle),
                           just not positioned absolutely — number and status
                           are re-announced via aria-label above (unlike the
                           pin marker, which only names the number) since this
@@ -548,7 +579,7 @@ export default function ReservesSection({
                           the plan image can't. */}
                       <span
                         aria-hidden="true"
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${pinColor(reserve.status)}`}
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${pinClass(reserve.status)}`}
                       >
                         {reserve.number}
                       </span>
@@ -559,7 +590,7 @@ export default function ReservesSection({
                       <span className="w-full min-w-0 truncate text-sm text-gray-900 dark:text-gray-100 sm:w-auto sm:flex-1">
                         {reserve.description}
                       </span>
-                      <ReserveStatusBadge status={reserve.status} />
+                      <ReserveStatusBadge status={reserve.status} style={statusStyle} />
                       {reserve.photos.length > 0 && (
                         <span className="inline-flex shrink-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                           <PhotoIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -645,8 +676,8 @@ export default function ReservesSection({
               disabled={!canEdit || pending}
               className={inputClass}
             >
-              <option value="OPEN">{t.reserves.status.OPEN}</option>
-              <option value="RESOLVED">{t.reserves.status.RESOLVED}</option>
+              <option value="OPEN">{statusStyle.open.label}</option>
+              <option value="RESOLVED">{statusStyle.resolved.label}</option>
             </select>
           </div>
 

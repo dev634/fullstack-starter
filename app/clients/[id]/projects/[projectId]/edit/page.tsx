@@ -44,7 +44,22 @@ export default async function EditProjectPage({ params }: PageProps) {
         <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto px-6 py-8">
             <div className="w-full max-w-2xl">
                 <Title title={t.projects.editSubmit} />
-                <UpdateProjectForm project={result.data!} />
+                <UpdateProjectForm
+                    project={{
+                        id: result.data!.id,
+                        clientId: result.data!.clientId,
+                        name: result.data!.name,
+                        businessNumber: result.data!.businessNumber,
+                        type: result.data!.type,
+                        status: result.data!.status,
+                        power: result.data!.power,
+                        budget: result.data!.budget,
+                        address: result.data!.address,
+                        startDate: result.data!.startDate,
+                        endDate: result.data!.endDate,
+                        notes: result.data!.notes,
+                    }}
+                />
             </div>
         </main>
     );

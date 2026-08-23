@@ -10,6 +10,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { buildReservesReport } from "@/lib/reservesReport";
 import { reportFileName, type ReportPlan } from "@/lib/reservesReportData";
+import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import type { DeliveryAsset } from "@/lib/cloudinaryDelivery";
 
 function toDeliveryAsset(row: DeliveryAsset): DeliveryAsset {
@@ -114,6 +115,14 @@ export async function GET(
     // straddling midnight can't label them differently.
     const generatedAt = new Date();
 
+    // Same resolution the on-screen UI uses (lib/reserveStatusStyle.ts): a
+    // project's own configured label/colour, falling back to the i18n
+    // dictionary / product default. Without this the report would always
+    // draw the default label and colour, even for a project that has
+    // customised them — a document handed to a sous-traitant contradicting
+    // what the app itself shows on screen.
+    const statusStyle = resolveReserveStatusStyle(project, t.reserves.status);
+
     const pdf = await buildReservesReport({
       generatedAt,
       project: {
@@ -125,6 +134,7 @@ export async function GET(
       folders,
       plans: reportPlans,
       locale: localeTag(locale),
+      statusColors: { open: statusStyle.open.color, resolved: statusStyle.resolved.color },
       labels: {
         title: t.reserves.report.title,
         // Reuse the labels the project page already shows for these fields.
@@ -132,10 +142,8 @@ export async function GET(
         address: t.projects.detail.address,
         generatedOn: t.reserves.report.generatedOn,
         total: t.reserves.report.total,
-        summaryOpen: t.reserves.report.summaryOpen,
-        summaryResolved: t.reserves.report.summaryResolved,
-        statusOpen: t.reserves.status.OPEN,
-        statusResolved: t.reserves.status.RESOLVED,
+        statusOpen: statusStyle.open.label,
+        statusResolved: statusStyle.resolved.label,
         rootGroup: t.reserves.noFolder,
         noReserves: t.reserves.report.noReserves,
         gps: t.reserves.gpsHeading,

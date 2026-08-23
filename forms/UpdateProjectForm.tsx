@@ -8,6 +8,33 @@ import { useTranslation } from "@/components/LocaleProvider";
 import type { ProjectActionState } from "@/types/project";
 import type { Project } from "@/app/generated/prisma/client";
 
+// Exactement les colonnes que ce formulaire lit — pas la ligne Project
+// entiere, et surtout pas sa relation `client`. Le typage de TypeScript
+// est structurel : passer une valeur plus large ne produit aucune erreur,
+// et React serialise alors TOUT dans la charge RSC, donc dans le HTML.
+// C est ainsi que l email, le telephone et l adresse de l entreprise
+// partaient vers le navigateur sur une page gardee par la rubrique
+// `projects` et non `clients` — lisibles par un compte a qui la rubrique
+// `clients` a justement ete retiree.
+// Un Pick ne suffit pas seul : c est le fait de construire un objet
+// LITTERAL au site d appel qui declenche le controle des proprietes
+// excedentaires. Les deux moities comptent.
+type UpdateProjectFormProject = Pick<
+  Project,
+  | "id"
+  | "clientId"
+  | "name"
+  | "businessNumber"
+  | "type"
+  | "status"
+  | "power"
+  | "budget"
+  | "address"
+  | "startDate"
+  | "endDate"
+  | "notes"
+>;
+
 const initialState: ProjectActionState = {
   type: null,
   message: "",
@@ -18,7 +45,7 @@ function toDateInputValue(date: Date | null): string {
   return new Date(date).toISOString().slice(0, 10);
 }
 
-export default function UpdateProjectForm({ project }: { project: Project }) {
+export default function UpdateProjectForm({ project }: { project: UpdateProjectFormProject }) {
   const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ProjectActionState, FormData>(

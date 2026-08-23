@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { buildDeliveryUrl } from "@/lib/cloudinaryDelivery";
+import { contrastTextColor, mixTowardBlack } from "@/lib/color";
 import {
   groupPlansForReport,
   summarizeReserves,
@@ -22,11 +23,18 @@ const COLORS = {
   text: "#111827",
   muted: "#6b7280",
   line: "#d1d5db",
-  open: "#e11d48", // rose-600 — matches the open pin in the UI
-  resolved: "#16a34a", // green-600 — matches the resolved pin
   accent: "#2563eb",
   white: "#ffffff",
 } as const;
+
+// The OPEN/RESOLVED pin, badge and tile colours are NOT in the constant
+// above: they are per-project configurable (Project.reserveOpenColor /
+// reserveResolvedColor, resolved by lib/reserveStatusStyle.ts's
+// resolveReserveStatusStyle — the ONLY place the #e11d48/#16a34a defaults
+// still live). They arrive as `statusColors` on ReservesReportInput instead,
+// so the report always draws the exact same colours the screen shows for
+// this project, never a hard-coded, forever-default pair.
+type StatusColors = { open: string; resolved: string };
 
 /** Only our own asset host may be fetched — these URLs end up in a server-side
  * request, so an attacker-controlled one would be an SSRF vector. */
@@ -142,11 +150,14 @@ export type ReportLabels = {
   businessNumber: string;
   address: string;
   generatedOn: string;
-  /** Cover tiles — counts, so these read as plurals ("Ouvertes"). */
   total: string;
-  summaryOpen: string;
-  summaryResolved: string;
-  /** Per-réserve badge — singular ("Ouverte"), shared with the on-screen UI. */
+  /** This project's configured OPEN/RESOLVED label (falls back to the i18n
+   * default) — the SAME string draws the cover tiles' counts AND the
+   * per-réserve badges. Used to read "Ouvertes"/"Levées" on the cover and
+   * "Ouverte"/"Levée" on the cards: two fixed, hard-coded product strings
+   * that could silently drift from a project's own configured wording (a
+   * chantier set to "À traiter" would say "Ouvertes : 3" at the top and "À
+   * traiter" on every card below it — arbitrage, PR #196). */
   statusOpen: string;
   statusResolved: string;
   /** Heading for plans that sit at the project root rather than in a folder. */
@@ -163,6 +174,11 @@ export type ReservesReportInput = {
   folders: readonly ReportFolder[];
   plans: readonly ReportPlan[];
   labels: ReportLabels;
+  /** OPEN/RESOLVED pin, badge and tile colours — see the module doc above.
+   * Callers resolve this with lib/reserveStatusStyle.ts's
+   * resolveReserveStatusStyle, the SAME call the on-screen UI makes, so the
+   * two never draw a different colour for the same status. */
+  statusColors: StatusColors;
   locale: string;
   generatedAt?: Date;
   fetchImage?: ImageFetcher;
@@ -178,7 +194,7 @@ export type ReservesReportInput = {
  * cite the same reference even after other réserves have been deleted.
  */
 export async function buildReservesReport(input: ReservesReportInput): Promise<Buffer> {
-  const { project, companyName, folders, plans, labels, locale } = input;
+  const { project, companyName, folders, plans, labels, statusColors, locale } = input;
   const generatedAt = input.generatedAt ?? new Date();
   const fetchImage = input.fetchImage ?? fetchRemoteImage;
 
@@ -217,7 +233,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
     if (doc.y + needed > BOTTOM) doc.addPage();
   };
 
-  renderCover(doc, { project, companyName, labels, dateText, summary });
+  renderCover(doc, { project, companyName, labels, statusColors, dateText, summary });
 
   for (const group of groups) {
     for (const plan of group.plans) {
@@ -227,7 +243,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
         planName: plan.name,
         labels,
       });
-      renderPlanImage(doc, { plan, labels, images });
+      renderPlanImage(doc, { plan, labels, statusColors, images });
 
       if (plan.reserves.length === 0) {
         ensureSpace(24);
@@ -238,7 +254,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
 
       doc.y += 16;
       for (const reserve of plan.reserves) {
-        renderReserveCard(doc, { reserve, labels, images, ensureSpace });
+        renderReserveCard(doc, { reserve, labels, statusColors, images, ensureSpace });
       }
     }
   }
@@ -256,11 +272,12 @@ function renderCover(
     project: ReservesReportInput["project"];
     companyName: string;
     labels: ReportLabels;
+    statusColors: StatusColors;
     dateText: string;
     summary: Summary;
   }
 ) {
-  const { project, companyName, labels, dateText, summary } = args;
+  const { project, companyName, labels, statusColors, dateText, summary } = args;
   doc.addPage();
 
   doc.fillColor(COLORS.accent).font("bold").fontSize(11);
@@ -287,11 +304,20 @@ function renderCover(
     y = Math.max(doc.y, y + 16) + 6;
   }
 
-  // Summary tiles: total / open / resolved.
+  // Summary tiles: total / open / resolved. The open/resolved tiles' NUMBER
+  // is drawn with mixTowardBlack(...), never the raw configured hex: this is
+  // text straight on the white cover page (no coloured disc behind it, unlike
+  // the plan pin or the card's own number badge), so a pale, admin-picked
+  // colour (bright yellow, say) needs the exact same contrast floor the
+  // on-screen pill's text already has — see lib/color.ts::mixTowardBlack's
+  // own doc. The label BELOW each tile now reuses labels.statusOpen/
+  // statusResolved too (see ReportLabels's own doc) — never fed to
+  // mixTowardBlack, it's always drawn in COLORS.muted, same as `total`'s own
+  // label.
   const tiles: [string, number, string][] = [
     [labels.total, summary.total, COLORS.text],
-    [labels.summaryOpen, summary.open, COLORS.open],
-    [labels.summaryResolved, summary.resolved, COLORS.resolved],
+    [labels.statusOpen, summary.open, mixTowardBlack(statusColors.open)],
+    [labels.statusResolved, summary.resolved, mixTowardBlack(statusColors.resolved)],
   ];
   const gap = 12;
   const tileW = (CONTENT_W - gap * 2) / 3;
@@ -331,9 +357,9 @@ function renderPlanHeading(
 /** Draw the plan page with a numbered pin per réserve, matching the UI's colors. */
 function renderPlanImage(
   doc: PDFKit.PDFDocument,
-  args: { plan: ReportPlan; labels: ReportLabels; images: Map<string, Buffer> }
+  args: { plan: ReportPlan; labels: ReportLabels; statusColors: StatusColors; images: Map<string, Buffer> }
 ) {
-  const { plan, labels, images } = args;
+  const { plan, labels, statusColors, images } = args;
   const buffer = images.get(planKey(plan));
 
   if (!buffer) {
@@ -366,10 +392,13 @@ function renderPlanImage(
     // x/y are stored relative (0..1) so they survive any rescale.
     const cx = x + reserve.x * w;
     const cy = y + reserve.y * h;
-    const color = reserve.status === "RESOLVED" ? COLORS.resolved : COLORS.open;
+    const color = reserve.status === "RESOLVED" ? statusColors.resolved : statusColors.open;
     doc.circle(cx, cy, radius).fillColor(color).fill();
     doc.circle(cx, cy, radius).lineWidth(1.2).strokeColor(COLORS.white).stroke();
-    doc.font("bold").fontSize(8).fillColor(COLORS.white);
+    // The number is written on top of `color` — a project-configured colour
+    // may be pale, so its readable text colour is computed, never assumed
+    // white (see lib/color.ts::contrastTextColor).
+    doc.font("bold").fontSize(8).fillColor(contrastTextColor(color));
     doc.text(String(reserve.number), cx - radius, cy - 3.6, {
       width: radius * 2,
       align: "center",
@@ -387,11 +416,12 @@ function renderReserveCard(
   args: {
     reserve: ReportReserve;
     labels: ReportLabels;
+    statusColors: StatusColors;
     images: Map<string, Buffer>;
     ensureSpace: (needed: number) => void;
   }
 ) {
-  const { reserve, labels, images, ensureSpace } = args;
+  const { reserve, labels, statusColors, images, ensureSpace } = args;
   const firstPhoto = reserve.photos[0];
   const photo = firstPhoto ? images.get(photoKey(firstPhoto)) : undefined;
 
@@ -402,14 +432,18 @@ function renderReserveCard(
   ensureSpace(cardHeight);
 
   const top = doc.y;
-  const color = reserve.status === "RESOLVED" ? COLORS.resolved : COLORS.open;
+  const color = reserve.status === "RESOLVED" ? statusColors.resolved : statusColors.open;
 
   // Numbered badge, same colour coding as the pin on the plan.
   doc.circle(MARGIN + 10, top + 10, 10).fillColor(color).fill();
-  doc.font("bold").fontSize(9).fillColor(COLORS.white);
+  // Same readability rule as the plan pin above.
+  doc.font("bold").fontSize(9).fillColor(contrastTextColor(color));
   doc.text(String(reserve.number), MARGIN, top + 6.6, { width: 20, align: "center", lineBreak: false });
 
-  doc.font("bold").fontSize(9).fillColor(color);
+  // Straight on the white card background (unlike the disc above it, or the
+  // pin on the plan) — same contrast floor as the cover tiles' numbers, see
+  // ReportLabels's own doc and lib/color.ts::mixTowardBlack.
+  doc.font("bold").fontSize(9).fillColor(mixTowardBlack(color));
   doc.text(
     reserve.status === "RESOLVED" ? labels.statusResolved : labels.statusOpen,
     textX,

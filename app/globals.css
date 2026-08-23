@@ -7,11 +7,18 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Anchor colour for any single-hex "pill" badge that must guarantee AA
+     text contrast in both themes without a `dark:` class per instance — see
+     .reserve-pill-open/.reserve-pill-resolved further down (réserve status
+     pill) for the reasoning. Flipped by the same `.dark` class as
+     --background/--foreground above. */
+  --pill-text-mix: #000000;
 }
 
 .dark {
   --background: #0a0a0a;
   --foreground: #ededed;
+  --pill-text-mix: #ffffff;
 }
 
 @theme inline {
@@ -33,6 +40,58 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Réserve status (OPEN/RESOLVED) colours — per-PROJECT, unlike --primary/
+   --accent above, so they can't live in the unconditional :root block: a
+   page injects --reserve-open/--reserve-resolved (+ their pre-computed
+   contrastTextColor pair) into a nonce-authorized <style> scoped to the one
+   project it's rendering (components/ReserveStatusStyleVars.tsx). These
+   selectors stay static either way — only two statuses ever exist — so
+   Tailwind's arbitrary-value JIT scanning (which needs literal source text,
+   never a runtime template — see lib/chartColors.ts's own doc) isn't a
+   concern here at all; this is plain CSS, not a Tailwind utility.
+   The var() fallback on each use is the same trick as --color-primary
+   above, and doubles as this module's product default (lib/reserveStatusStyle.ts's
+   DEFAULT_RESERVE_STATUS_COLOR) in case that <style> is ever missing.
+
+   This is the fix for CSP, not a style preference: this app's CSP has no
+   'unsafe-inline' for style-src, and a nonce only authorizes a <style>
+   ELEMENT, never a style="" ATTRIBUTE (style-src-attr has no separate
+   nonce/hash source in CSP3 — it falls back to style-src, which requires
+   'unsafe-inline' with nothing else able to stand in for it). A hex only
+   known per-project can't be a literal Tailwind class either (same
+   constraint as PROGRESS_*_DOT_CLASS in lib/chartColors.ts). These classes
+   are the only place a réserve's colour may reach the DOM. */
+.reserve-pill-open {
+  background-color: color-mix(in srgb, var(--reserve-open, #e11d48) 15%, transparent);
+  border-color: color-mix(in srgb, var(--reserve-open, #e11d48) 35%, transparent);
+  color: color-mix(in srgb, var(--reserve-open, #e11d48) 65%, var(--pill-text-mix));
+}
+.reserve-pill-resolved {
+  background-color: color-mix(in srgb, var(--reserve-resolved, #16a34a) 15%, transparent);
+  border-color: color-mix(in srgb, var(--reserve-resolved, #16a34a) 35%, transparent);
+  color: color-mix(in srgb, var(--reserve-resolved, #16a34a) 65%, var(--pill-text-mix));
+}
+
+/* Plan pin / list marker: a SOLID fill (unlike the translucent pill above),
+   so its number needs a real black/white choice — contrastTextColor,
+   pre-computed server-side into --reserve-open-text/--reserve-resolved-text
+   alongside the colour itself (picking black vs white from a hex's WCAG
+   luminance isn't portable CSS without an extra dependency). */
+.reserve-pin-open {
+  background-color: var(--reserve-open, #e11d48);
+  color: var(--reserve-open-text, #ffffff);
+}
+.reserve-pin-resolved {
+  background-color: var(--reserve-resolved, #16a34a);
+  color: var(--reserve-resolved-text, #ffffff);
+}
+/* "New réserve" placement preview — always OPEN (createReserveSchema's
+   default), tinted at reduced opacity to read as "not placed yet" rather
+   than the pin's own solid style. */
+.reserve-pin-preview {
+  background-color: color-mix(in srgb, var(--reserve-open, #e11d48) 70%, transparent);
+}
+
 /* A printed report should always be light — regardless of the viewer's
    dark-mode setting — and shouldn't waste ink on the app chrome. Placed
    last so it wins the cascade against the unconditional `body` rule above
@@ -40,6 +99,15 @@ body {
    themselves with the `print:hidden` utility instead of being listed here,
    so this stays a single global reset rather than a chase-every-component list. */
 @media print {
+  :root {
+    /* A printed page has no dark mode: without this reset, a réserve status
+       pill (.reserve-pill-*) printed from dark mode keeps mixing its text
+       toward --pill-text-mix's dark-mode value (white) — white text on
+       white paper. Same specificity as .dark's own declaration (a single
+       class-level selector each, both targeting <html>); this block wins on
+       source order, same reasoning as body's reset just below. */
+    --pill-text-mix: #000000;
+  }
   body {
     background: #ffffff;
     color: #171717;

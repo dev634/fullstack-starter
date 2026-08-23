@@ -159,7 +159,19 @@ export async function findById(id: number) {
     try {
         return await prisma.project.findUnique({
             where: { id },
-            include: { client: true },
+            // La relation client est resserree a ce que ses appelants lisent
+            // reellement — un seul champ, le nom de l entreprise sur la page
+            // de garde du rapport PDF. `client: true` remontait la ligne
+            // entiere (email, telephone, adresse, site), et deux pages la
+            // passaient telle quelle a un composant client : React serialise
+            // alors TOUT dans la charge RSC, donc dans le HTML. Un compte a
+            // qui la rubrique `clients` a ete retiree les lisait dans la
+            // source d une page gardee par la rubrique `projects`.
+            // Resserrer ici plutot que sur chaque site d appel : un Pick sur
+            // la prop ne protege rien (le typage structurel accepte une valeur
+            // plus large), seule l absence de la donnee la rend impossible a
+            // fuir.
+            include: { client: { select: { companyName: true } } },
         });
     } catch (error) {
         console.log("Repository findById (project) error:", error);
@@ -200,6 +212,19 @@ export async function findByIdForPortal(id: number) {
                 startDate: true,
                 endDate: true,
                 deletedAt: true,
+                // Not sensitive (unlike budget/notes, deliberately excluded
+                // above) — the portal's own réserves view needs these to
+                // render the exact same status labels/colours as the
+                // internal app (lib/reserveStatusStyle.ts's
+                // resolveReserveStatusStyle). Omitting them here wouldn't
+                // fail loudly: this allowlist would just silently fall back
+                // to the product default on the portal only, while the
+                // internal project page (findById, no select) already shows
+                // the project's real configuration.
+                reserveOpenLabel: true,
+                reserveOpenColor: true,
+                reserveResolvedLabel: true,
+                reserveResolvedColor: true,
             },
         });
     } catch (error) {
@@ -280,6 +305,50 @@ export async function update(id: number, data: ProjectData) {
         throw {
             type: "repositoryError",
             message: "Database Error updating project.",
+        };
+    }
+}
+
+export type ReserveStatusStyleData = {
+    openLabel: string | null;
+    openColor: string | null;
+    resolvedLabel: string | null;
+    resolvedColor: string | null;
+};
+
+/**
+ * Persists this project's OPEN/RESOLVED réserve status presentation. A null
+ * field means "not configured, use the product default" — see the Project
+ * model doc and migration 20260823090000. The database CHECK constraints are
+ * the backstop for anything Zod already rejected upstream (actions/reserves).
+ *
+ * Explicit `select` (not the bare updated row): Project also carries
+ * `budget`/`notes`, deliberately never returned to callers that only need to
+ * confirm this narrower write succeeded.
+ */
+export async function updateReserveStatusStyle(id: number, data: ReserveStatusStyleData) {
+    try {
+        return await prisma.project.update({
+            where: { id },
+            data: {
+                reserveOpenLabel: data.openLabel,
+                reserveOpenColor: data.openColor,
+                reserveResolvedLabel: data.resolvedLabel,
+                reserveResolvedColor: data.resolvedColor,
+            },
+            select: {
+                id: true,
+                reserveOpenLabel: true,
+                reserveOpenColor: true,
+                reserveResolvedLabel: true,
+                reserveResolvedColor: true,
+            },
+        });
+    } catch (error) {
+        console.log("Repository updateReserveStatusStyle (project) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error updating project reserve status style.",
         };
     }
 }

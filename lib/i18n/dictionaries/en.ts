@@ -42,6 +42,7 @@ const en: Dictionary = {
         seriesRangeInvalid: "\"to\" must be greater than or equal to \"from\".",
         seriesTooLarge: "A series can't exceed {max} tasks.",
         requiredQuantityMissing: "The required quantity is needed when a task or series is linked.",
+        invalidCharacters: "Cannot contain control characters.",
         validationError: "Validation error. Please check your input and try again.",
         unauthorized: "Unauthorized. Please sign in.",
         forbidden: "Forbidden. Your role does not allow this action.",
@@ -652,19 +653,16 @@ const en: Dictionary = {
         deletePlanText: "Delete “{name}” and all its reserves? This action is irreversible.",
         addHint: "Click on the plan to add a reserve.",
         reserveCount: "{count} reserve(s)",
-        // UI-level counters/labels for the textual list of réserves (project
-        // page + client portal) — deliberately separate from
-        // report.summaryOpen/summaryResolved, which style the PDF cover page.
-        openOnlyFilter: "Open only",
-        openCount: "{count} open",
-        resolvedCount: "{count} resolved",
+        // Reserve status counters — see fr.ts's own comment (arbitrage, PR #196).
+        countWithLabel: "{count} {label}",
+        openOnlyFilterLabel: "{label} only",
         // Adversarial pass 3b (C2), point 4: see fr.ts's own comment.
         moreReservesOnPlan: "…and {count} more on this plan (see the PDF export for the full list).",
         moreReservesInProject: "…and {count} more not shown here.",
         photoCount: "{count} photo(s)",
         numberLabel: "#{number}",
         noReserves: "No reserves.",
-        noOpenReserves: "No open reserves.",
+        noReservesWithLabel: "No {label} reserves.",
         status: {
             OPEN: "Open",
             RESOLVED: "Resolved",
@@ -711,8 +709,6 @@ const en: Dictionary = {
             title: "Snag report",
             generatedOn: "Issued on",
             total: "Total",
-            summaryOpen: "Open",
-            summaryResolved: "Resolved",
             noReserves: "No réserve on this plan.",
             planUnavailable: "The plan could not be loaded.",
             page: "Page {current} / {total}",
@@ -731,6 +727,27 @@ const en: Dictionary = {
             chooseFile: "Please choose a PDF file.",
             choosePhoto: "Please choose an image.",
             invalidId: "Invalid id.",
+            statusStyleUpdated: "Status presentation updated.",
+        },
+        // See fr.ts's own comment: per-project OPEN/RESOLVED label + colour,
+        // button in the Réserves section header itself.
+        statusStyle: {
+            configureButton: "Settings",
+            modalTitle: "Reserve statuses",
+            intro: "Customize the label and colour of the “Open” and “Resolved” statuses for this project. Leave a field empty to fall back to the app's default.",
+            openSectionTitle: "“Open” status",
+            resolvedSectionTitle: "“Resolved” status",
+            labelFieldLabel: "Label",
+            labelPlaceholder: "Default: {label}",
+            usingDefaultLabel: "Default value: “{label}”",
+            customLabelSet: "Custom label",
+            colorFieldLabel: "Colour",
+            usingDefaultColor: "Default colour",
+            customColorSet: "Custom colour",
+            resetToDefault: "Reset to default",
+            // See fr.ts's own comment: distinguishes the four otherwise-
+            // identically-named reset buttons for a screen reader.
+            resetToDefaultAria: "Reset to default — {field} ({section})",
         },
     },
     jobFunctions: {
