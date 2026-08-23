@@ -7,11 +7,17 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Anchor colour for any single-hex "pill" badge that must guarantee AA
+     text contrast in both themes without a `dark:` class per instance — see
+     lib/reserveStatusPillStyle.ts (réserve status pill) for the reasoning.
+     Flipped by the same `.dark` class as --background/--foreground above. */
+  --pill-text-mix: #000000;
 }
 
 .dark {
   --background: #0a0a0a;
   --foreground: #ededed;
+  --pill-text-mix: #ffffff;
 }
 
 @theme inline {

@@ -145,6 +145,48 @@ model Project {
   // highest existing number drops when a réserve is deleted, which would hand
   // its number to a different défaut — and a report already sent cites it.
   reserveCounter Int                   @default(0)
+  // Per-project presentation of the two réserve statuses. The ReserveStatus
+  // enum itself is closed — exactly OPEN and RESOLVED — only their label and
+  // colour are configurable.
+  //
+  // NULL is meaningful, and is the normal state: "not configured, use the
+  // product default". The default lives in CODE, not in the database, so
+  // these columns carry no @default on purpose:
+  //   - the label falls back to the i18n dictionary (t.reserves.status.OPEN /
+  //     .RESOLVED), which is per-locale — a single database DEFAULT would
+  //     freeze one language for every locale;
+  //   - the colour falls back to the shared constants (#e11d48 open,
+  //     #16a34a resolved — today duplicated between the pin, the pill and
+  //     lib/reservesReport.ts).
+  // Storing the defaults in every row instead would make every project look
+  // explicitly configured: the edit form could no longer tell "default" from
+  // "custom", and changing the product default would reach nobody.
+  //
+  // Four scalar columns rather than a JSON blob or a child table: the set of
+  // (status × attribute) pairs is closed and tiny, it is always read with the
+  // project row itself (findById already returns the whole row), and each
+  // value gets its own type and its own database CHECK. The day statuses
+  // become user-defined, this becomes a child table keyed by
+  // (projectId, statusId) — not before.
+  //
+  // Enforced by the database, not only by Zod (a psql session or an admin
+  // script goes around Zod, never around a CHECK) — migration 20260823090000:
+  //   *Color: NULL or /^#[0-9a-fA-F]{6}$/. These values are interpolated into
+  //           a <style> tag and a style attribute, so anything looser is a CSS
+  //           injection vector (same rule as AppSettings.primaryColor).
+  //   *Label: NULL or a non-blank, control-character-free string of at most
+  //           MAX_NAME_LENGTH (200, schemas/fields.ts). It is a one-line pill
+  //           label rendered in HTML and drawn into the PDF report. The empty
+  //           string is rejected so "not configured" has exactly ONE
+  //           representation: NULL.
+  reserveOpenLabel     String?
+  reserveOpenColor     String?
+  reserveResolvedLabel String?
+  reserveResolvedColor String?
+  // No index on those four: never filtered, sorted or joined on — they are
+  // read as part of the project row, by primary key. Indexing a column that is
+  // NULL for essentially every row and appears in no WHERE clause would only
+  // tax every write to Project.
   // Contacts (client-portal logins) allowed to see this project.
   linkedContacts Contact[]             @relation("ContactProjects")
   // Internal users assigned to this project (see JobFunction.projectScope).

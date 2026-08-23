@@ -25,6 +25,9 @@ vi.mock("@/repository/reservePhotos", () => ({
   remove: vi.fn(),
   findProjectId: vi.fn().mockResolvedValue(2),
 }));
+vi.mock("@/repository/projects", () => ({
+  updateReserveStatusStyle: vi.fn(),
+}));
 vi.mock("@/lib/cloudinary", () => ({
   uploadReservePlan: vi.fn(),
   destroyReservePlan: vi.fn(),
@@ -43,6 +46,7 @@ import {
   addReservePlan,
   deleteReservePlan,
   deleteReservePhoto,
+  updateReserveStatusStyle,
 } from "@/actions/reserves/reserves";
 import { requireRole } from "@/lib/authz";
 import { requireSectionAccess } from "@/lib/sectionAccess";
@@ -51,6 +55,7 @@ import { create, update, remove, findProjectId as findReserveProjectId } from "@
 import { create as createPhoto, findById as findPhotoById } from "@/repository/reservePhotos";
 import { create as createPlan, findById as findPlanById } from "@/repository/reservePlans";
 import { findProjectId as findReserveFolderProjectId } from "@/repository/reservePlanFolders";
+import { updateReserveStatusStyle as updateReserveStatusStyleRow } from "@/repository/projects";
 import { uploadReservePhoto, uploadReservePlan, destroyReservePlan, destroyReservePhoto } from "@/lib/cloudinary";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -68,6 +73,7 @@ const uploadReservePhotoMock = vi.mocked(uploadReservePhoto);
 const uploadReservePlanMock = vi.mocked(uploadReservePlan);
 const findPlanByIdMock = vi.mocked(findPlanById);
 const findPhotoByIdMock = vi.mocked(findPhotoById);
+const updateReserveStatusStyleRowMock = vi.mocked(updateReserveStatusStyleRow);
 const destroyReservePlanMock = vi.mocked(destroyReservePlan);
 const destroyReservePhotoMock = vi.mocked(destroyReservePhoto);
 const initial = { type: null, message: "" } as const;
@@ -395,5 +401,95 @@ describe("reserve actions", () => {
       expect((outOfScope as { message: string }).message).toBe(fr.reserves.messages.invalidId);
       expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
     });
+  });
+});
+
+describe("updateReserveStatusStyle", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const validStyleFields = {
+    projectId: "2",
+    clientId: "1",
+    openLabel: "À traiter",
+    openColor: "#ff8800",
+    resolvedLabel: "Terminée",
+    resolvedColor: "#059669",
+  };
+
+  it("refuses a job function barred from the réserves section", async () => {
+    requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+    requireSectionMock.mockResolvedValueOnce({ error: { type: "error", message: "forbidden" } } as never);
+
+    const res = await updateReserveStatusStyle(initial, form(validStyleFields));
+
+    expect(res.type).toBe("error");
+    expect(updateReserveStatusStyleRowMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-ADMIN", async () => {
+    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);
+    const res = await updateReserveStatusStyle(initial, form(validStyleFields));
+    expect(res.type).toBe("error");
+    expect(updateReserveStatusStyleRowMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid colour with a zodError, before ever touching the database", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    const res = await updateReserveStatusStyle(initial, form({ ...validStyleFields, openColor: "not-a-color" }));
+    expect(res.type).toBe("zodError");
+    expect(updateReserveStatusStyleRowMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a project outside the caller's scope, after Zod, before writing", async () => {
+    requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+    canReachProjectMock.mockReturnValueOnce(false);
+    const res = await updateReserveStatusStyle(initial, form(validStyleFields));
+    expect(res.type).toBe("error");
+    expect(updateReserveStatusStyleRowMock).not.toHaveBeenCalled();
+  });
+
+  it("persists the trimmed labels and colours for the resolved project", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    updateReserveStatusStyleRowMock.mockResolvedValue({ id: 2 } as never);
+
+    const res = await updateReserveStatusStyle(
+      initial,
+      form({ ...validStyleFields, openLabel: "  À traiter  " })
+    );
+
+    expect(res.type).toBe("success");
+    expect(updateReserveStatusStyleRowMock).toHaveBeenCalledWith(2, {
+      openLabel: "À traiter",
+      openColor: "#ff8800",
+      resolvedLabel: "Terminée",
+      resolvedColor: "#059669",
+    });
+  });
+
+  it("clears a status back to the product default when its label/colour fields are submitted empty", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    updateReserveStatusStyleRowMock.mockResolvedValue({ id: 2 } as never);
+
+    const res = await updateReserveStatusStyle(
+      initial,
+      form({ projectId: "2", clientId: "1", openLabel: "", openColor: "", resolvedLabel: "", resolvedColor: "" })
+    );
+
+    expect(res.type).toBe("success");
+    expect(updateReserveStatusStyleRowMock).toHaveBeenCalledWith(2, {
+      openLabel: null,
+      openColor: null,
+      resolvedLabel: null,
+      resolvedColor: null,
+    });
+  });
+
+  it("resolves requireProjectAccess against the project id being configured, not a stray form field", async () => {
+    requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
+    updateReserveStatusStyleRowMock.mockResolvedValue({ id: 2 } as never);
+
+    await updateReserveStatusStyle(initial, form(validStyleFields));
+
+    expect(canReachProjectMock).toHaveBeenCalledWith(expect.anything(), 2);
   });
 });

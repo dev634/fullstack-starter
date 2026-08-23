@@ -220,6 +220,9 @@ const baseInput = {
   companyName: "ACME BTP",
   locale: "fr-FR",
   labels,
+  // Same defaults resolveReserveStatusStyle falls back to — see
+  // lib/reserveStatusStyle.ts.
+  statusColors: { open: "#e11d48", resolved: "#16a34a" },
   generatedAt: new Date("2026-07-31T10:00:00Z"),
 };
 

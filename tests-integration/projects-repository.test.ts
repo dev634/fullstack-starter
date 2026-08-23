@@ -1,6 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { create as createProject, findByIdForPortal, search } from "@/repository/projects";
+import {
+  create as createProject,
+  findByIdForPortal,
+  search,
+  updateReserveStatusStyle,
+} from "@/repository/projects";
 import { create as createClient, softDelete } from "@/repository/clients";
 
 const TEST_DOMAIN = "@projects-integration-test.local";
@@ -91,5 +96,118 @@ describe("findByIdForPortal() against a real Postgres", () => {
   it("returns null for an id that doesn't exist", async () => {
     const portalProject = await findByIdForPortal(-1);
     expect(portalProject).toBeNull();
+  });
+
+  // The four réserve status style columns are configured per-project and
+  // read by the client portal's own réserves view — an allowlist select is
+  // silent about a forgotten column (TS never flags it), so this is the one
+  // place that would actually catch a regression there.
+  it("does select the réserve status style columns, once configured", async () => {
+    const client = await makeClient({ companyName: "PortalReserveStyleTest" });
+    const project = await createProject({ clientId: client.id, name: "Toiture Sud", status: "ETUDE" });
+    await updateReserveStatusStyle(project.id, {
+      openLabel: "À traiter",
+      openColor: "#ff8800",
+      resolvedLabel: "Terminée",
+      resolvedColor: "#059669",
+    });
+
+    const portalProject = await findByIdForPortal(project.id);
+
+    expect(portalProject).toMatchObject({
+      reserveOpenLabel: "À traiter",
+      reserveOpenColor: "#ff8800",
+      reserveResolvedLabel: "Terminée",
+      reserveResolvedColor: "#059669",
+    });
+  });
+});
+
+describe("updateReserveStatusStyle() against a real Postgres", () => {
+  it("persists all four columns, and NULL clears a column back to 'not configured'", async () => {
+    const client = await makeClient({ companyName: "ReserveStatusStyleTest" });
+    const project = await createProject({ clientId: client.id, name: "Ombrière Est", status: "ETUDE" });
+
+    const configured = await updateReserveStatusStyle(project.id, {
+      openLabel: "À traiter",
+      openColor: "#ff8800",
+      resolvedLabel: "Terminée",
+      resolvedColor: "#059669",
+    });
+    expect(configured).toMatchObject({
+      reserveOpenLabel: "À traiter",
+      reserveOpenColor: "#ff8800",
+      reserveResolvedLabel: "Terminée",
+      reserveResolvedColor: "#059669",
+    });
+
+    const cleared = await updateReserveStatusStyle(project.id, {
+      openLabel: null,
+      openColor: null,
+      resolvedLabel: "Terminée",
+      resolvedColor: "#059669",
+    });
+    expect(cleared).toMatchObject({
+      reserveOpenLabel: null,
+      reserveOpenColor: null,
+      reserveResolvedLabel: "Terminée",
+      reserveResolvedColor: "#059669",
+    });
+  });
+
+  it("only ever returns the four style columns plus id — never budget/notes", async () => {
+    const client = await makeClient({ companyName: "ReserveStatusStyleSelectTest" });
+    const project = await createProject({
+      clientId: client.id,
+      name: "Centrale Nord",
+      status: "ETUDE",
+      budget: 99000,
+      notes: "Marge interne : ne jamais montrer au client.",
+    });
+
+    const updated = await updateReserveStatusStyle(project.id, {
+      openLabel: "À traiter",
+      openColor: "#ff8800",
+      resolvedLabel: null,
+      resolvedColor: null,
+    });
+
+    expect(updated).not.toHaveProperty("budget");
+    expect(updated).not.toHaveProperty("notes");
+    expect(Object.keys(updated).sort()).toEqual(
+      ["id", "reserveOpenColor", "reserveOpenLabel", "reserveResolvedColor", "reserveResolvedLabel"].sort()
+    );
+  });
+
+  // Belt-and-suspenders check on migration 20260823090000's own CHECK
+  // constraints: Zod (schemas/reserve.ts) already rejects these upstream, but
+  // this proves the database itself refuses them too — a psql session or an
+  // admin script goes around Zod, never around a CHECK.
+  it("rejects a blank label at the database level even if a caller bypasses Zod", async () => {
+    const client = await makeClient({ companyName: "ReserveStatusStyleCheckTest" });
+    const project = await createProject({ clientId: client.id, name: "Toiture Ouest", status: "ETUDE" });
+
+    await expect(
+      updateReserveStatusStyle(project.id, {
+        openLabel: "   ",
+        openColor: null,
+        resolvedLabel: null,
+        resolvedColor: null,
+      })
+    ).rejects.toBeTruthy();
+  });
+
+  it("rejects a malformed colour at the database level even if a caller bypasses Zod", async () => {
+    const client = await makeClient({ companyName: "ReserveStatusStyleColorCheckTest" });
+    const project = await createProject({ clientId: client.id, name: "Toiture Est", status: "ETUDE" });
+
+    await expect(
+      updateReserveStatusStyle(project.id, {
+        openLabel: null,
+        openColor: "not-a-color",
+        resolvedLabel: null,
+        resolvedColor: null,
+      })
+    ).rejects.toBeTruthy();
   });
 });

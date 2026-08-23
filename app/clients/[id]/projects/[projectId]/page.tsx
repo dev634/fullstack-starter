@@ -42,7 +42,9 @@ import UploadFileForm from "@/forms/UploadFileForm";
 import ReservesSection from "@/components/ReservesSection";
 import AddReservePlanForm from "@/forms/AddReservePlanForm";
 import AddReserveFolderForm from "@/forms/AddReserveFolderForm";
+import ReserveStatusStyleForm from "@/forms/ReserveStatusStyleForm";
 import { parseReserveFolderId } from "@/lib/reserveFolderParam";
+import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -238,6 +240,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   // section badge below keeps showing the plan count (existing info, kept
   // as-is) and appends how many réserves are still open (reserveTally, now
   // fetched above via tallyReservesByProject rather than derived here).
+
+  // This project's OPEN/RESOLVED label + colour — `project` already carries
+  // the four raw columns (findById has no `select`). Resolved ONCE here and
+  // passed down, so the plan pin, the list marker, the pill and the editor's
+  // status `<select>` (all inside ReservesSection) can never drift from each
+  // other or from ReserveStatusStyleForm's own "what's the default" hint.
+  const reserveStatusStyle = resolveReserveStatusStyle(project, t.reserves.status);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
   // normalized so a partial/stale stored value is always safe.
@@ -622,6 +631,15 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                 {canEdit && (
                   <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
                 )}
+                {/* Configures the section it sits in — label/colour of the two
+                    statuses — so it lives in this header next to the section's
+                    other commands, not in a separate settings screen or the
+                    project action bar. `canEdit` only decides whether the
+                    button renders; updateReserveStatusStyle guards the write
+                    itself regardless. */}
+                {canEdit && (
+                  <ReserveStatusStyleForm clientId={clientId} projectId={pid} project={project} />
+                )}
               </>
             }
           >
@@ -634,6 +652,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               allFolders={reserveFolders}
               currentFolderId={currentReserveFolderId}
               canEdit={canEdit}
+              statusStyle={reserveStatusStyle}
             />
           </CollapsibleSection>
         ),

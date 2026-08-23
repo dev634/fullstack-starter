@@ -11,3 +11,10 @@ export type ReserveActionState = {
   fieldsForm?: Record<string, string>;
   data?: unknown;
 };
+
+export type ReserveStatusStyleActionState = {
+  type: "error" | "success" | "zodError" | null;
+  message: string;
+  fieldsForm?: Record<string, string>;
+  data?: unknown;
+};

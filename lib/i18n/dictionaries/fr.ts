@@ -734,6 +734,27 @@ const fr = {
             chooseFile: "Merci de choisir un fichier PDF.",
             choosePhoto: "Merci de choisir une image.",
             invalidId: "Identifiant invalide.",
+            statusStyleUpdated: "Présentation des statuts mise à jour.",
+        },
+        // Per-project OPEN/RESOLVED label + colour, configurable by whoever may
+        // write on the chantier — see lib/reserveStatusStyle.ts. The button
+        // lives in the Réserves section header itself, next to its other
+        // commands (folder/plan add), not in a separate settings screen or the
+        // project action bar.
+        statusStyle: {
+            configureButton: "Réglages",
+            modalTitle: "Statuts des réserves",
+            intro: "Personnalisez le libellé et la couleur des statuts « Ouverte » et « Levée » pour ce chantier. Laissez un champ vide pour revenir à la valeur par défaut de l'application.",
+            openSectionTitle: "Statut « Ouverte »",
+            resolvedSectionTitle: "Statut « Levée »",
+            labelFieldLabel: "Libellé",
+            labelPlaceholder: "Par défaut : {label}",
+            usingDefaultLabel: "Valeur par défaut : « {label} »",
+            customLabelSet: "Libellé personnalisé",
+            colorFieldLabel: "Couleur",
+            usingDefaultColor: "Couleur par défaut",
+            customColorSet: "Couleur personnalisée",
+            resetToDefault: "Revenir à la valeur par défaut",
         },
     },
     jobFunctions: {

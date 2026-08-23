@@ -1,27 +1,36 @@
-"use client";
-
-import { useTranslation } from "@/components/LocaleProvider";
 import StatusPill from "@/components/StatusPill";
+import { reserveStatusPillStyle } from "@/lib/reserveStatusPillStyle";
 import type { ReserveStatus } from "@/app/generated/prisma/client";
-
-// Same palette as the pin markers on the plan viewer (ReservesSection's
-// `pinColor`) so the badge reads as "the same status", just in pill form —
-// the pill shape itself lives in StatusPill, shared with
-// ProjectStatusBadge/StatusBadge/ProjectTypeBadge/InterventionStatusBadge.
-const STATUS_CLASSES: Record<ReserveStatus, string> = {
-  OPEN: "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300",
-  RESOLVED: "border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300",
-};
+import type { ResolvedReserveStatusStyle } from "@/lib/reserveStatusStyle";
 
 /**
- * Shared "OPEN"/"RESOLVED" pill. `ReserveStatus` is a type-only import
- * (erased at compile time, see ReservesSection.tsx's doc on the same type),
- * so this stays safe to render straight from a Server Component — no server
- * dependency is pulled in, exactly like ProjectStatusBadge is already
- * rendered from the client-portal page without that page itself needing
- * `"use client"`.
+ * Shared "OPEN"/"RESOLVED" pill. Label and colour are no longer fixed: they
+ * come from `style`, this project's resolved status presentation
+ * (lib/reserveStatusStyle.ts::resolveReserveStatusStyle — already merges the
+ * project's own configured label/colour with the product default, so this
+ * component never touches the raw nullable columns or the i18n dictionary
+ * itself). `reserveStatusPillStyle` turns the single configured hex into the
+ * pill's background/border/text via `color-mix()` — see its own doc for why
+ * text needs a different mechanism than background/border.
+ *
+ * No `"use client"`: label/colour now arrive as plain props instead of
+ * through `useTranslation()`, so — like StatusPill itself — this is plain
+ * JSX with no client-only API, safe to render from either a Server or a
+ * Client Component (the client portal page renders it directly, and stays a
+ * Server Component doing so; ReservesSection, a Client Component, renders it
+ * too).
  */
-export default function ReserveStatusBadge({ status }: { status: ReserveStatus }) {
-  const { t } = useTranslation();
-  return <StatusPill className={`shrink-0 ${STATUS_CLASSES[status]}`}>{t.reserves.status[status]}</StatusPill>;
+export default function ReserveStatusBadge({
+  status,
+  style,
+}: {
+  status: ReserveStatus;
+  style: ResolvedReserveStatusStyle;
+}) {
+  const entry = status === "RESOLVED" ? style.resolved : style.open;
+  return (
+    <StatusPill className="shrink-0" style={reserveStatusPillStyle(entry.color)}>
+      {entry.label}
+    </StatusPill>
+  );
 }
