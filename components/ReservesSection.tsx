@@ -588,20 +588,52 @@ export default function ReservesSection({
         <div className="flex flex-col gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t.reserves.descriptionLabel}
+              {t.reserves.photosHeading}
             </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={!canEdit || pending}
-              rows={3}
-              placeholder={t.reserves.descriptionPlaceholder}
-              className={inputClass}
-            />
-            {editorFieldErrors?.description && (
-              <p className="mt-1 text-xs text-red-500">{editorFieldErrors.description}</p>
+            {editor?.mode === "edit" ? (
+              <div className="flex flex-wrap gap-2">
+                {photos.map((p, i) => (
+                  <ReservePhotoThumbnail
+                    key={p.id}
+                    photoId={p.id}
+                    alt={format(t.reserves.photoAlt, { index: i + 1, number: editor.number })}
+                    canEdit={canEdit}
+                    pending={pending}
+                    onDelete={removePhoto}
+                  />
+                ))}
+                {canEdit && (
+                  <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-gray-300 text-gray-400 hover:bg-gray-500/10 dark:border-gray-600">
+                    {pending ? (
+                      <span className="px-1 text-center text-[10px]">{t.reserves.uploadingPhoto}</span>
+                    ) : (
+                      <>
+                        <PhotoIcon className="h-5 w-5" />
+                        <span className="px-1 text-center text-[10px] leading-tight">{t.reserves.addPhoto}</span>
+                      </>
+                    )}
+                    {/* No `capture` attribute: on mobile this lets the user pick the
+                        camera OR an existing photo from the gallery. */}
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      disabled={pending}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadPhoto(f);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+                {photos.length === 0 && !canEdit && <p className="text-xs text-gray-400">—</p>}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500">{t.reserves.photosAfterSave}</p>
             )}
           </div>
+
 
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -663,52 +695,20 @@ export default function ReservesSection({
 
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t.reserves.photosHeading}
+              {t.reserves.descriptionLabel}
             </label>
-            {editor?.mode === "edit" ? (
-              <div className="flex flex-wrap gap-2">
-                {photos.map((p, i) => (
-                  <ReservePhotoThumbnail
-                    key={p.id}
-                    photoId={p.id}
-                    alt={format(t.reserves.photoAlt, { index: i + 1, number: editor.number })}
-                    canEdit={canEdit}
-                    pending={pending}
-                    onDelete={removePhoto}
-                  />
-                ))}
-                {canEdit && (
-                  <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-gray-300 text-gray-400 hover:bg-gray-500/10 dark:border-gray-600">
-                    {pending ? (
-                      <span className="px-1 text-center text-[10px]">{t.reserves.uploadingPhoto}</span>
-                    ) : (
-                      <>
-                        <PhotoIcon className="h-5 w-5" />
-                        <span className="px-1 text-center text-[10px] leading-tight">{t.reserves.addPhoto}</span>
-                      </>
-                    )}
-                    {/* No `capture` attribute: on mobile this lets the user pick the
-                        camera OR an existing photo from the gallery. */}
-                    <input
-                      ref={photoInputRef}
-                      type="file"
-                      accept="image/*"
-                      disabled={pending}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) uploadPhoto(f);
-                      }}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-                {photos.length === 0 && !canEdit && <p className="text-xs text-gray-400">—</p>}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 dark:text-gray-500">{t.reserves.photosAfterSave}</p>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={!canEdit || pending}
+              rows={3}
+              placeholder={t.reserves.descriptionPlaceholder}
+              className={inputClass}
+            />
+            {editorFieldErrors?.description && (
+              <p className="mt-1 text-xs text-red-500">{editorFieldErrors.description}</p>
             )}
           </div>
-
           {editorError && <p className="text-xs text-red-500">{editorError}</p>}
 
           <div className="flex flex-wrap items-center justify-end gap-2">
