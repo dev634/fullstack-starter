@@ -244,7 +244,8 @@ Inspiré des outils type FinalCad :
 
 - on **importe un plan PDF** (une ou plusieurs planches, ex. un plan par niveau) ;
 - on **pose des réserves** en cliquant sur le plan (position relative conservée quel que soit le zoom) ;
-- chaque réserve a une **description**, un **statut** (ouverte / levée), une **position GPS** optionnelle et des **photos**.
+- chaque réserve a une **description**, un **statut** (ouverte / levée), une **position GPS** optionnelle et des **photos** ;
+- le **libellé** et la **couleur** des deux statuts se règlent **par chantier**, via le bouton **« Réglages »** dans l'en-tête de la section Réserves (« Ouverte » peut devenir « À traiter », etc.). Un champ laissé vide revient au défaut de l'application. Qui peut écrire sur le chantier peut le configurer.
 
 *Note* : l'affichage des plans PDF nécessite que la **diffusion des PDF** soit activée dans le compte Cloudinary.
 

@@ -27,6 +27,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 | Échappement de sortie | React échappe par défaut ; `lib/email/render.ts` échappe explicitement et rejette les URL non-http(s) | ✅ |
 | Pas d'injection SQL | Accès exclusivement via Prisma (paramétré), aucune concaténation | ✅ |
 | En-tête `Content-Disposition` | Nom de fichier PDF slugifié en ASCII (testé) | ✅ |
+| Valeurs de la base interpolées dans du CSS | Couleurs de thème et de statut de réserve : Zod `hexColor` à l'écriture, `CHECK` **ancré** en base (`~` est une correspondance non ancrée en PostgreSQL — sans `^…$`, `#000000; background:url(…)` passe), puis `safeHex` juste avant l'interpolation dans le `<style nonce>` (`app/layout.tsx`, `components/ReserveStatusStyleVars.tsx`) | ✅ |
 
 ## V2 — Validation et logique métier
 
@@ -44,7 +45,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 | CSP sans `unsafe-inline` | CSP à nonce, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri`/`form-action 'self'` | ✅ |
 | Anti-clickjacking | `X-Frame-Options: DENY` + `frame-ancestors` | ✅ |
 | `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP | vérifiés live | ✅ |
-| Violations CSP `style-src` en console | styles inline résiduels — bruit connu, **non traité** | ⚠️ |
+| Violations CSP `style-src` en console | **8 attributs `style` résiduels dans 5 fichiers**, tous des composants client (recomptés le 2026-08-23) : violations en console et état pré-hydratation faux. ⚠️ Ce n'est du « bruit » que par accident — sur un Server Component le même attribut ne rend **rien du tout**, et c'est ainsi que toute la PR #196 avait été écrite. Mécanisme correct et liste des 8 : `docs/CONVENTIONS.md` § Couleurs dynamiques et CSP | ⚠️ |
 
 ## V4 — API et services web
 
@@ -119,8 +120,8 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 
 | Exigence | Où | État |
 |---|---|---|
-| Pas de champ sensible vers le client | `select` explicite ; `findAllOptions` pour les dropdowns (ne sérialise pas la posture d'accès) | ✅ |
-| `Cache-Control: no-store` sur les PDF | ✅ |
+| Pas de champ sensible vers le client | `select` explicite ; `findAllOptions` pour les dropdowns (ne sérialise pas la posture d'accès). ⚠️ **Cette ligne était ✅ à tort avant PR #196** : `repository/projects.ts::findById` faisait `include: { client: true }` et deux pages passaient le résultat tel quel à un composant client — toute la ligne entreprise (e-mail, téléphone, adresse) partait dans la charge RSC, donc dans le HTML, sur des pages gardées par la rubrique `projects` et non `clients`. Resserrer le **type de la prop** ne protège rien (TypeScript est structurel) : cette ligne se re-vérifie sur les `include`/`select` des repositories, jamais sur les types des composants | ✅ |
+| `Cache-Control: no-store` sur les PDF | `…/reserves/report/route.ts` et `/api/assets/[kind]/[id]` | ✅ |
 | Aucun secret journalisé, messages d’erreur génériques | `getErrorMessage` ; les erreurs de SDK tiers ne sont plus relayées (garde `isAppError` au site d’appel) | ✅ |
 | Rétention / purge des données personnelles (RGPD) | aucune politique implémentée | ⬜ |
 
