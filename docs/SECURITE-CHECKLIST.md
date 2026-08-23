@@ -11,6 +11,13 @@ qui reste à vérifier.
 
 **Légende** — ✅ acquis et prouvé · ⚠️ à confirmer · ⬜ jamais audité · ➖ non applicable
 
+Le symbole de la colonne **État** donne l'état d'**aujourd'hui**. Un ⚠️ à
+l'intérieur de la colonne **Où** ne s'y substitue pas : il raconte un **écart
+passé** — une ligne qui a porté ✅ à tort — et se lit comme de l'historique.
+Il est conservé parce qu'une ligne déjà fausse une fois est la première à
+re-vérifier, et parce que quatre ✅ de ce document se sont révélés faux d'un
+coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
+
 ---
 
 ## V1 — Encodage et assainissement

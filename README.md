@@ -13,8 +13,13 @@ npm run db:seed               # optional: seed demo data + admin user
 npm run dev
 ```
 
-Dev accounts (from the seed): `admin@example.com` (role `ADMIN`, full access) and
-`viewer@example.com` (role `VIEWER`, read-only) — both `password123`.
+Dev accounts (from the seed), all `password123`:
+`superadmin@example.com` (`SUPERADMIN`), `admin@example.com` (`ADMIN`),
+`editor@example.com` (`EDITOR`), `viewer@example.com` (`VIEWER`, read-only).
+
+`ADMIN` is **not** full access: a job function's hidden rubriques/sections apply
+to it, and it cannot lift its own restrictions. `SUPERADMIN` is the only escape
+hatch — see `docs/CONVENTIONS.md`, "Modèle d'accès".
 
 ## Deploying to production
 
