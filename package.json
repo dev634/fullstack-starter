@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "docs:pdf": "node scripts/build-docs-pdf.mjs",
-    "docs:security": "node scripts/build-docs-pdf.mjs docs/SECURITE-SSH.md docs/SECURITE-SSH.pdf \"Sécurité serveur\" \"Durcissement SSH et fail2ban\""
+    "docs:asvs": "node scripts/build-docs-pdf.mjs docs/ASVS-2026-08.md docs/ASVS-2026-08.pdf \"Évaluation OWASP ASVS\" \"devadn.com — août 2026\" 2026-08-02",
+    "docs:security": "node scripts/build-docs-pdf.mjs docs/SECURITE-SSH.md docs/SECURITE-SSH.pdf \"Sécurité serveur\" \"Durcissement SSH et fail2ban\" 2026-08-01"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

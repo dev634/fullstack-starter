@@ -1,6 +1,6 @@
 // Render a markdown doc to PDF. Pure JS (pdfkit) — no headless browser.
 //
-//   node scripts/build-docs-pdf.mjs [source.md] [output.pdf] [title] [subtitle]
+//   node scripts/build-docs-pdf.mjs [source.md] [output.pdf] [title] [subtitle] [AAAA-MM-JJ]
 //
 // Defaults to the main documentation, so `npm run docs:pdf` keeps working;
 // other docs pass their own arguments rather than copying this script.
@@ -11,13 +11,66 @@ import { fileURLToPath } from "url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..");
-const [srcArg, outArg, titleArg, subtitleArg] = process.argv.slice(2);
+const [srcArg, outArg, titleArg, subtitleArg, dateArg] = process.argv.slice(2);
 const SRC = path.resolve(REPO, srcArg ?? "docs/DOCUMENTATION.md");
 const OUT = path.resolve(REPO, outArg ?? "docs/DOCUMENTATION.pdf");
 
+// ---- encodage : ce que Helvetica/Courier savent reellement ecrire ----
+//
+// Helvetica et Courier sont des fontes standard du PDF : pdfkit les encode en
+// WinAnsi, qui ne couvre que Latin-1 plus une trentaine de signes. Un caractere
+// hors de ce jeu n'est pas refuse, il est **silencieusement deforme** : U+2192
+// ("->") sortait en "!’" a neuf endroits de DOCUMENTATION.pdf, et y est reste
+// a travers chaque regeneration parce que personne ne regardait une page rendue.
+// Le controle qui l'a trouve est un rendu image, pas une relecture du source.
+//
+// D'ou la regle ici : substituer ce qu'on utilise deliberement, et LEVER sur
+// tout le reste. Une generation qui echoue se rattrape ; un PDF qui affiche
+// "!’" la ou la source dit "->" ne se rattrape pas, il se decouvre des mois
+// apres.
+const SUBSTITUTIONS = new Map([
+  // Garde une fleche lisible plutot que ">" : la fleche sert ici a deux choses,
+  // un chemin de navigation ("Administration -> Fonctions") et une
+  // correspondance ("capacite -> role minimum"). ">" trahirait la seconde en la
+  // faisant lire "superieur a", dans un document qui decrit des droits.
+  ["→", "->"],
+]);
+
+// Les signes hors Latin-1 que WinAnsi sait rendre, et qui apparaissent
+// vraiment dans ces documents : puce, tirets cadratins, guillemets et
+// apostrophes typographiques, points de suspension, euro, oe lie.
+const WINANSI_EXTRA = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+
+function encodable(ch) {
+  const c = ch.codePointAt(0);
+  if (c === 0x09 || c === 0x0a || c === 0x0d) return true;
+  if (c >= 0x20 && c <= 0x7e) return true;
+  if (c >= 0xa0 && c <= 0xff) return true;
+  return WINANSI_EXTRA.includes(ch);
+}
+
+/** Rend un texte sur : substitue le connu, leve sur l'inconnu. */
+function encodeForPdf(text, where) {
+  let out = "";
+  for (const ch of text) {
+    const sub = SUBSTITUTIONS.get(ch);
+    if (sub !== undefined) { out += sub; continue; }
+    if (!encodable(ch)) {
+      const hex = ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+      throw new Error(
+        `${where} : le caractere U+${hex} (${JSON.stringify(ch)}) n'existe pas en WinAnsi, ` +
+          "donc Helvetica l'ecrirait de travers sans rien signaler. Ajoute-le a " +
+          "SUBSTITUTIONS avec un equivalent lisible, ou retire-le de la source."
+      );
+    }
+    out += ch;
+  }
+  return out;
+}
+
 const BRAND = "Devadn";
-const TITLE = titleArg ?? "Documentation";
-const SUBTITLE = subtitleArg ?? "Gestion d'entreprises, projets et chantiers photovoltaïques";
+const TITLE = encodeForPdf(titleArg ?? "Documentation", "titre");
+const SUBTITLE = encodeForPdf(subtitleArg ?? "Gestion d'entreprises, projets et chantiers photovoltaïques", "sous-titre");
 
 // ---- palette ----
 const C = { text: "#111827", muted: "#6b7280", primary: "#2563eb", rule: "#d1d5db", codeBg: "#f3f4f6", codeText: "#1f2937" };
@@ -105,7 +158,20 @@ doc.fillColor(C.primary).font("bold").fontSize(13).text(BRAND.toUpperCase(), MAR
 doc.fillColor(C.text).font("bold").fontSize(40).text(TITLE, MARGIN, 210, { width: CONTENT_W });
 doc.fillColor(C.muted).font("body").fontSize(15).text(SUBTITLE, MARGIN, doc.y + 10, { width: CONTENT_W });
 doc.moveTo(MARGIN, 340).lineTo(A4W - MARGIN, 340).lineWidth(2).stroke(C.primary);
-const today = new Date().toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" });
+// Datee du jour par defaut, mais surchargeable (5e argument, AAAA-MM-JJ).
+// Un document date -- un rapport d'audit -- ne peut pas etre regenere sans ca :
+// la seule facon de corriger une coquille dedans serait de lui faire annoncer
+// la date de la correction au lieu de celle de l'audit. Le cas s'est presente
+// des la premiere regeneration : ASVS-2026-08 est passe de "2 aout" a "28 aout"
+// alors que seuls deux caracteres changeaient.
+const coverDate = dateArg ? new Date(dateArg + "T12:00:00Z") : new Date();
+if (Number.isNaN(coverDate.getTime())) {
+  throw new Error(`date de couverture invalide : ${JSON.stringify(dateArg)} (attendu AAAA-MM-JJ)`);
+}
+const today = encodeForPdf(
+  coverDate.toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }),
+  "date de couverture"
+);
 doc.fillColor(C.muted).font("body").fontSize(11).text("De l'installation à l'utilisation", MARGIN, 360);
 doc.text(today, MARGIN, A4H - 120);
 
@@ -113,7 +179,7 @@ doc.text(today, MARGIN, A4H - 120);
 doc.addPage();
 doc.fillColor(C.text).font("bold").fontSize(22).text("Sommaire", MARGIN, MARGIN);
 doc.moveDown(1);
-const blocks = parse(fs.readFileSync(SRC, "utf8"));
+const blocks = parse(encodeForPdf(fs.readFileSync(SRC, "utf8"), SRC));
 const tocEntries = blocks.filter((b) => b.type === "h1" || b.type === "h2").map((b) => ({ ...b, pageNo: null, tocPage: null, tocY: null }));
 let chapNo = 0;
 for (const e of tocEntries) {
