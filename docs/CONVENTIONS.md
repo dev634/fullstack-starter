@@ -244,10 +244,25 @@ ne se recopie pas — et parser ne suffit pas : il faut ne garder que les balise
 l'attribut au DOM comme `next/image`.
 
 Une couleur interpolée dans un `<style>` est validée **trois fois** : Zod à
-l'écriture (`hexColor`), `CHECK` en base, et `safeHex` juste avant
+l'écriture (`hexColor`), `CHECK` **ancré** en base, et `safeHex` juste avant
 l'interpolation (`app/layout.tsx` et `ReserveStatusStyleVars`). Les ancres du
 `CHECK` portent la sécurité : `~` en PostgreSQL est une correspondance **non
 ancrée**, sans `^…$` la valeur `#000000; background:url(https://evil/)` passe.
+Les quatre contraintes vivent dans `20260823090000` (colonnes de `Project`) et
+`20260828100000` (`AppSettings.primaryColor` / `accentColor`), à la forme
+identique — caractère pour caractère — à `hexColor` et à `safeHex`.
+
+⚠️ Cette phrase a été **fausse pour la moitié des couleurs qu'elle décrit**, du
+2026-08-23 au 2026-08-28. Le `CHECK` n'existait que sur les colonnes de
+`Project` ; `AppSettings.primaryColor` et `accentColor` — précisément celles
+qu'`app/layout.tsx` écrit dans le `:root` — n'avaient **aucune** contrainte, et
+la ligne correspondante de `docs/SECURITE-CHECKLIST.md` portait un ✅. Elle et
+l'affirmation sur l'appelant e-mail plus haut viennent du **même** commit,
+`f9b204a`, dont l'objet était justement de retirer un acquis faux de la
+documentation. Une couche annoncée mais absente coûte plus cher que pas de
+couche du tout : on croit en avoir trois, on en a une, et personne ne la compte
+en la retirant. Ça se vérifie en base (`pg_constraint`), pas en relisant ce
+paragraphe.
 
 ## Sections repliables (page projet)
 

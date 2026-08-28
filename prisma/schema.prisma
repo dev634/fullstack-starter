@@ -729,6 +729,27 @@ model AppSettings {
   appName      String   @default("Fullstack Starter")
   logoUrl      String?
   logoPublicId String?
+  // Theme colours, enforced by the database and not only by Zod — migration
+  // 20260828100000 adds CHECK ("primaryColor" ~ '^#[0-9a-fA-F]{6}$') and the
+  // same on accentColor. Prisma cannot express a CHECK, so this comment is the
+  // only trace of it for anyone reading the schema instead of the migration:
+  // the constraint IS there in the database, do not conclude from a silent
+  // schema that these two columns are unconstrained.
+  //   - Shape: exactly #RRGGBB. Identical, character for character, to
+  //     schemas/appSettings.ts's hexColor and lib/color.ts's safeHex. Both
+  //     values are interpolated into the TEXT of a <style nonce> BLOCK in
+  //     app/layout.tsx (:root{--primary:...}), so anything looser is a CSS
+  //     injection vector — and a block is worse than an attribute: a stray "}"
+  //     closes the rule and opens another. Not a style attribute: the CSP is
+  //     "style-src 'self' 'nonce-...'" with no unsafe-inline, and a nonce
+  //     authorises an ELEMENT, never an ATTRIBUTE. (Same rule and same sink as
+  //     Project.reserveOpenColor / reserveResolvedColor, above.)
+  //   - The CHECK has no "IS NULL OR" branch, unlike Project's: these two
+  //     columns are NOT NULL. Making either nullable would silently make the
+  //     constraint accept NULL — amend the CHECK in the same migration.
+  //   - The DEFAULTs below are also the fallbacks safeHex is given at every
+  //     sink; keep the two in sync, or a rejected stored value renders as one
+  //     colour and a fresh row as another.
   primaryColor String   @default("#3b82f6")
   accentColor  String   @default("#8b5cf6")
   // Global display order of the project detail page's collapsible sections,
