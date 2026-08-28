@@ -73,10 +73,18 @@ export function renderEmail(brand: EmailBrand, content: EmailContent): { html: s
   const name = escapeHtml(brand.name);
   // Re-validated at the sink, like every other place a stored colour lands
   // in raw markup (app/layout.tsx, components/ReserveStatusStyleVars.tsx).
-  // Strict #RRGGBB now, where this used to accept 3-to-8 digits: nothing
-  // reachable writes a shorthand (schemas/appSettings.ts is strict, and app
-  // settings is the only writer), and a looser shape here would disagree
-  // with the label colour derived from it just below.
+  //
+  // NOT a security hardening, and worth saying so plainly: the shape this
+  // replaced (/^#[0-9a-f]{3,8}$/i) was already anchored and hex-only, so a
+  // value carrying a quote, a semicolon or a url() never got through it
+  // either. The capability this takes away from an attacker is nil.
+  //
+  // What it removes is a rendering divergence. #fff passed HERE as a
+  // background while contrastTextColor just below rejected it and fell back
+  // to white - a white label on a white button. Nothing reachable writes a
+  // shorthand (schemas/appSettings.ts is strict, and app settings is the
+  // only writer), but two different bounds on the same value is exactly how
+  // that defect gets built.
   const color = safeHex(brand.primaryColor, "#3b82f6");
   // The label used to be hard-coded pure white, which fails WCAG AA on any
   // brand colour light enough — including the shipped default #3b82f6, at
