@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { contrastTextColor, mixTowardBlack } from "@/lib/color";
+import { contrastTextColor, mixTowardBlack, safeHex } from "@/lib/color";
+
+describe("safeHex", () => {
+  it("passes a strict 6-digit #RRGGBB value through untouched, in either case", () => {
+    expect(safeHex("#3b82f6", "#000000")).toBe("#3b82f6");
+    expect(safeHex("#3B82F6", "#000000")).toBe("#3B82F6");
+  });
+
+  it("falls back on anything that could break out of the markup it lands in", () => {
+    // The shapes that matter: a CSS payload closing the declaration, a
+    // url(), a missing hash, an empty value.
+    expect(safeHex("red; } body{display:none", "#3b82f6")).toBe("#3b82f6");
+    expect(safeHex("url(https://evil.example/x)", "#3b82f6")).toBe("#3b82f6");
+    expect(safeHex("3b82f6", "#3b82f6")).toBe("#3b82f6");
+    expect(safeHex("", "#3b82f6")).toBe("#3b82f6");
+  });
+
+  it("accepts exactly what contrastTextColor and mixTowardBlack accept, and nothing more", () => {
+    // The point of sharing one gate: a shape accepted here but rejected by
+    // the colour math downstream is how a caller ends up painting a white
+    // label on a white background. Shorthand and 8-digit alpha are the two
+    // shapes a hand-rolled regex tends to let through.
+    for (const shape of ["#fff", "#ffff", "#ffffffff", "#GGGGGG"]) {
+      expect(safeHex(shape, "#111111")).toBe("#111111");
+      expect(contrastTextColor(shape)).toBe("#ffffff");
+      expect(mixTowardBlack(shape)).toBe("#000000");
+    }
+  });
+});
 
 describe("contrastTextColor", () => {
   it("picks black text on a white background", () => {

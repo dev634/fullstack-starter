@@ -12,6 +12,8 @@
  * (and spam filters that read it) treat a missing text/plain as a bad signal.
  */
 
+import { contrastTextColor, safeHex } from "@/lib/color";
+
 /** Escape a value destined for HTML. Templates interpolate user data — a
  * réserve description, a project name — so this is the default, not an option. */
 export function escapeHtml(value: string): string {
@@ -69,7 +71,28 @@ const FONT =
 /** Render one email into the HTML and plain-text bodies Resend expects. */
 export function renderEmail(brand: EmailBrand, content: EmailContent): { html: string; text: string } {
   const name = escapeHtml(brand.name);
-  const color = /^#[0-9a-f]{3,8}$/i.test(brand.primaryColor) ? brand.primaryColor : "#3b82f6";
+  // Re-validated at the sink, like every other place a stored colour lands
+  // in raw markup (app/layout.tsx, components/ReserveStatusStyleVars.tsx).
+  //
+  // NOT a security hardening, and worth saying so plainly: the shape this
+  // replaced (/^#[0-9a-f]{3,8}$/i) was already anchored and hex-only, so a
+  // value carrying a quote, a semicolon or a url() never got through it
+  // either. The capability this takes away from an attacker is nil.
+  //
+  // What it removes is a rendering divergence. #fff passed HERE as a
+  // background while contrastTextColor just below rejected it and fell back
+  // to white - a white label on a white button. Nothing reachable writes a
+  // shorthand (schemas/appSettings.ts is strict, and app settings is the
+  // only writer), but two different bounds on the same value is exactly how
+  // that defect gets built.
+  const color = safeHex(brand.primaryColor, "#3b82f6");
+  // The label used to be hard-coded pure white, which fails WCAG AA on any
+  // brand colour light enough — including the shipped default #3b82f6, at
+  // 3.7:1 for 15px bold text where AA asks 4.5:1. An admin can set ANY hex
+  // (a bright yellow makes white unreadable outright), so the label follows
+  // its background instead of assuming it — the same call the on-screen
+  // réserve pills and the PDF report already make.
+  const ctaTextColor = contrastTextColor(color);
 
   const header = brand.logoUrl
     ? `<img src="${safeUrl(brand.logoUrl)}" alt="${name}" height="32" style="display:block;height:32px;width:auto;border:0;">`
@@ -86,7 +109,7 @@ export function renderEmail(brand: EmailBrand, content: EmailContent): { html: s
   const cta = content.cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;">
          <tr><td style="border-radius:6px;background-color:${color};">
-           <a href="${safeUrl(content.cta.url)}" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:6px;">${escapeHtml(content.cta.label)}</a>
+           <a href="${safeUrl(content.cta.url)}" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:700;color:${ctaTextColor};text-decoration:none;border-radius:6px;">${escapeHtml(content.cta.label)}</a>
          </td></tr>
        </table>`
     : "";

@@ -45,7 +45,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 | CSP sans `unsafe-inline` | CSP à nonce, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri`/`form-action 'self'` | ✅ |
 | Anti-clickjacking | `X-Frame-Options: DENY` + `frame-ancestors` | ✅ |
 | `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP | vérifiés live | ✅ |
-| Violations CSP `style-src` en console | **8 attributs `style` résiduels dans 5 fichiers**, tous des composants client (recomptés le 2026-08-23) : violations en console et état pré-hydratation faux. ⚠️ Ce n'est du « bruit » que par accident — sur un Server Component le même attribut ne rend **rien du tout**, et c'est ainsi que toute la PR #196 avait été écrite. Mécanisme correct et liste des 8 : `docs/CONVENTIONS.md` § Couleurs dynamiques et CSP | ⚠️ |
+| Violations CSP `style-src` en console | **6 attributs `style` résiduels dans 4 fichiers**, tous des composants client (recomptés le 2026-08-28 en parsant l'AST, balises intrinsèques + `next/image` seulement) : violations en console et état pré-hydratation faux. ⚠️ Ce n'est du « bruit » que par accident — sur un Server Component le même attribut ne rend **rien du tout**, et c'est ainsi que toute la PR #196 avait été écrite. Mécanisme correct, liste des 6 et méthode de recomptage : `docs/CONVENTIONS.md` § Couleurs dynamiques et CSP | ⚠️ |
 
 ## V4 — API et services web
 

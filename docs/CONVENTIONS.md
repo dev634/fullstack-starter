@@ -210,20 +210,38 @@ CSS** :
 - `lib/chartColors.ts` → hex pour les SVG + classes Tailwind **littérales**
   jumelles pour les pastilles DOM, écrites en toutes lettres pour que le scanner
   statique les voie. Le commentaire en tête portait déjà la contrainte CSP.
-- `lib/color.ts::contrastTextColor` (luminance WCAG) — même fonction pour le HTML
-  et pour le PDF (`lib/reservesReport.ts`), pour que les deux ne divergent pas.
-  ⚠️ Elle a un appelant **hors réserves** : le bouton des e-mails transactionnels.
-  Les e-mails ne sont pas sous CSP et leur couleur est un choix de marque : y
-  toucher est une PR à part.
+- `lib/color.ts::safeHex` — la garde d'injection elle-même, partagée par les deux
+  sites ci-dessus depuis la PR #200, où elle était encore écrite trois fois. Une
+  quatrième copie du même prédicat subsiste dans `ColorPickerInput` : ce n'est pas
+  un puits d'injection (repli d'affichage du sélecteur natif), mais elle périmera
+  en silence le jour où la borne bougera. `tests/style-color-injection-guard.test.ts`
+  interdit qu'elle disparaisse d'un puits sans que la suite rougisse.
+- `lib/color.ts::contrastTextColor` (luminance WCAG) — même fonction pour le HTML,
+  pour le PDF (`lib/reservesReport.ts`) et, depuis la PR #200, pour le bouton des
+  e-mails transactionnels (`lib/email/render.ts`), pour que les trois ne divergent
+  pas. Le bouton codait `#ffffff` en dur : 3,68:1 sur le bleu livré par défaut, là
+  où AA en demande 4,5 — et 1,32:1 si l'admin choisit un jaune vif.
+  ⚠️ Cette ligne a annoncé cet appelant pendant des semaines **avant qu'il
+  existe** : le rendu d'e-mail n'importait rien de `lib/color`. Une déclaration
+  n'est pas un usage, y compris dans cette carte-ci — ce qui y est écrit se
+  vérifie par `grep`, jamais par la mémoire de qui l'a rédigé.
 
 Le mode d'échec d'un attribut `style` n'est pas franc : sur un composant
 **client**, React réapplique la propriété par le CSSOM après hydratation — donc
 « ça marche après un clic » et pas au chargement ; sur un composant **serveur**,
-rien ne s'affiche jamais. Il reste **8 attributs `style` dans 5 fichiers**
-(`ClientAvatar`, positions des pastilles de `ReservesSection`, aperçu
-d'`AppSettingsForm`, transformes dnd-kit de `SectionOrderForm` et
-`JobFunctionsManager`), tous des composants client : violations en console plus
-un état pré-hydratation faux. Ne pas en ajouter.
+rien ne s'affiche jamais. Il reste **6 attributs `style` dans 4 fichiers**
+(`ClientAvatar` ×2 — dont un `<Image>`, qui reporte l'attribut sur le `<img>`
+rendu —, positions des pastilles de `ReservesSection` ×2, transformes dnd-kit de
+`SectionOrderForm` et `JobFunctionsManager`), tous des composants client :
+violations en console plus un état pré-hydratation faux. Ne pas en ajouter.
+
+Ce compte-là a déjà été faux deux fois. « 8 dans 5 » l'est resté après le passage
+de l'aperçu d'`AppSettingsForm` au CSSOM (`6049e5b`) ; un recomptage ultérieur a
+annoncé « 10 dans 6 » parce qu'il parsait bien l'AST mais retenait aussi les props
+React *nommées* `style` (`<ReserveStatusBadge style={…} />`). Il se recompte, il
+ne se recopie pas — et parser ne suffit pas : il faut ne garder que les balises
+**intrinsèques** (initiale minuscule), plus les composants qui reportent
+l'attribut au DOM comme `next/image`.
 
 Une couleur interpolée dans un `<style>` est validée **trois fois** : Zod à
 l'écriture (`hexColor`), `CHECK` en base, et `safeHex` juste avant
