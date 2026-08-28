@@ -1,16 +1,6 @@
 import { headers } from "next/headers";
-import { contrastTextColor } from "@/lib/color";
+import { contrastTextColor, safeHex } from "@/lib/color";
 import type { ResolvedReserveStatusStyle } from "@/lib/reserveStatusStyle";
-
-// Belt-and-suspenders re-validation before raw interpolation into HTML — same
-// reasoning and shape as app/layout.tsx's own safeHex for primaryColor/
-// accentColor: these two colours are already validated on write
-// (schemas/reserve.ts's hexColor + the database CHECK), but a value edited
-// directly in the database should never be trusted for injection.
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
-function safeHex(value: string, fallback: string): string {
-  return HEX_COLOR.test(value) ? value : fallback;
-}
 
 /**
  * Emits one project's resolved OPEN/RESOLVED réserve colours as CSS custom

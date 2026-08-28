@@ -11,15 +11,7 @@ import { canAccessArea } from "@/lib/areaAccess";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { getAppSettings } from "@/lib/appSettings";
-
-// Belt-and-suspenders re-validation of stored colors before they're
-// interpolated into a raw <style> tag — the DB values are already validated
-// on write (schemas/appSettings.ts), but a value edited directly in the
-// database should never be trusted for injection into HTML.
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
-function safeHex(value: string, fallback: string): string {
-  return HEX_COLOR.test(value) ? value : fallback;
-}
+import { safeHex } from "@/lib/color";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

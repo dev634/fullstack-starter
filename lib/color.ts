@@ -4,6 +4,25 @@
 
 const HEX6 = /^#([0-9a-fA-F]{6})$/;
 
+/**
+ * Belt-and-suspenders re-validation of a stored colour before it is
+ * interpolated raw into markup — a nonce-authorized <style> element's text,
+ * or an email's inline style attribute. Every colour this app stores is
+ * already validated on write (schemas/appSettings.ts's hexColor,
+ * schemas/reserve.ts, plus the database CHECK on Project's reserve status
+ * columns), but a value edited directly in the database should never be
+ * trusted at an injection sink.
+ *
+ * Deliberately the SAME strict #RRGGBB shape contrastTextColor and
+ * mixTowardBlack accept. A caller that validates a colour one way and then
+ * derives a text colour from it another way gets the two disagreeing about
+ * what a colour is: a shorthand #fff accepted here would paint a white
+ * background and then, rejected there, a white label on top of it.
+ */
+export function safeHex(value: string, fallback: string): string {
+  return HEX6.test(value) ? value : fallback;
+}
+
 /** One sRGB channel (0-255) converted to linear light, per the WCAG formula. */
 function linearizeChannel(channel: number): number {
   const s = channel / 255;

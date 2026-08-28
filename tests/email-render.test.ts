@@ -86,6 +86,35 @@ describe("renderEmail", () => {
     expect(html).toContain("#3b82f6");
   });
 
+  it("picks the CTA label colour from the button colour instead of assuming white", () => {
+    const cta = { label: "Go", url: "https://devadn.com" };
+    // The shipped default #3b82f6 is light enough that white on it reads at
+    // 3.7:1 - below the 4.5:1 WCAG AA asks for this button's 15px bold label.
+    // Black on the same blue clears it at 5.7:1.
+    const light = renderEmail(brand, { ...base, cta });
+    expect(light.html).toContain("background-color:#3b82f6");
+    expect(light.html).toContain("color:#000000;text-decoration:none");
+
+    // A dark brand colour keeps the white label the button always had.
+    const dark = renderEmail({ ...brand, primaryColor: "#1e1b4b" }, { ...base, cta });
+    expect(dark.html).toContain("background-color:#1e1b4b");
+    expect(dark.html).toContain("color:#ffffff;text-decoration:none");
+  });
+
+  it("refuses a shorthand hex outright rather than painting a white label on a white button", () => {
+    // Nothing writes shorthand today - schemas/appSettings.ts's hexColor is
+    // strict 6-digit and app settings is the only writer - but the looser
+    // 3-to-8-digit shape this used to accept would have passed #fff through
+    // as the background while contrastTextColor rejected it and returned
+    // white for the label on top.
+    const { html } = renderEmail({ ...brand, primaryColor: "#fff" }, {
+      ...base,
+      cta: { label: "Go", url: "https://devadn.com" },
+    });
+    expect(html).toContain("background-color:#3b82f6");
+    expect(html).toContain("color:#000000;text-decoration:none");
+  });
+
   it("uses the logo when one is configured, and the wordmark otherwise", () => {
     const withLogo = renderEmail({ ...brand, logoUrl: "https://res.cloudinary.com/x/logo.png" }, base);
     expect(withLogo.html).toContain("<img src=");
