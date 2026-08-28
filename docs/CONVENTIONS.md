@@ -252,6 +252,15 @@ Les quatre contraintes vivent dans `20260823090000` (colonnes de `Project`) et
 `20260828100000` (`AppSettings.primaryColor` / `accentColor`), à la forme
 identique — caractère pour caractère — à `hexColor` et à `safeHex`.
 
+⚠️ Le commentaire d'en-tête de `20260823090000` annonce encore que ces couleurs
+atterrissent « dans un `<style>` **et dans un attribut `style`** » — c'est-à-dire
+le mécanisme que la CSP interdit, et qui *était* le bug de la PR #196. Il n'est
+pas corrigeable : Prisma stocke une somme de contrôle de chaque migration
+appliquée, donc éditer le fichier ferait échouer le prochain `migrate deploy`,
+c'est-à-dire le démarrage du conteneur en production. Une migration appliquée
+est un artefact daté — ce qu'elle affirme ne fait pas foi, la référence est
+ici et dans `schema.prisma`.
+
 ⚠️ Cette phrase a été **fausse pour la moitié des couleurs qu'elle décrit**, du
 2026-08-23 au 2026-08-28. Le `CHECK` n'existait que sur les colonnes de
 `Project` ; `AppSettings.primaryColor` et `accentColor` — précisément celles
