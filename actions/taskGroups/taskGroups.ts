@@ -42,6 +42,7 @@ export async function setTaskGroupCategory(
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const group = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: group };
   } catch (error) {
     return {
@@ -76,6 +77,7 @@ export async function deleteTaskGroup(id: number, clientId: number, projectId: n
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const group = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return { type: "success" as const, message: t.tasks.group.messages.deleted, data: group };
   } catch (error) {
     return {

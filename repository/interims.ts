@@ -45,6 +45,32 @@ export async function findByProject(projectId: number) {
     }
 }
 
+export type InterimOption = { id: number; name: string };
+
+/**
+ * Just id + name of every intérimaire in a project — for the task/série/
+ * category assignee picker (components/AssigneePicker.tsx's AssigneeOption),
+ * which never reads an intérimaire's job function or agency to populate a
+ * `<select>`. Avoids the `include: { jobFunction: ... } }` findByProject
+ * (above) needs for its own callers, same reasoning as
+ * repository/tasks.ts::findLinkOptions.
+ */
+export async function findOptionsByProject(projectId: number): Promise<InterimOption[]> {
+    try {
+        return await prisma.interim.findMany({
+            where: { projectId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+        });
+    } catch (error) {
+        console.log("Repository findOptionsByProject (interim) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching interim options.",
+        };
+    }
+}
+
 /** The interim's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
 export async function findProjectId(id: number): Promise<number | null> {
     try {

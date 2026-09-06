@@ -1,7 +1,7 @@
 import { getProject } from "@/actions/projects/projects";
-import { findByProject } from "@/repository/tasks";
-import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
-import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
+import { findLinkOptions as findTaskLinkOptions, computeProgressByProject as computeTaskProgressByProject } from "@/repository/tasks";
+import { findLinkOptions as findTaskGroupLinkOptions } from "@/repository/taskGroups";
+import { findLinkOptions as findTaskCategoryLinkOptions } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findByProject as findInterventionsByProject } from "@/repository/interventions";
 import { findCompaniesByProject } from "@/repository/subcontractors";
@@ -15,11 +15,7 @@ import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
-import ProjectTaskRow from "@/components/ProjectTaskRow";
-import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
-import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import CollapsibleSection from "@/components/CollapsibleSection";
-import TasksSection from "@/components/TasksSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
 import ProjectInterventionRow from "@/components/ProjectInterventionRow";
@@ -45,7 +41,7 @@ import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
-import { computeTaskProgress, computeMaterialStockStats } from "@/lib/projectDashboard";
+import { computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
   BoltIcon,
   HashtagIcon,
@@ -137,9 +133,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   // listes complètes, et seulement pour la section correspondante quand elle
   // n'est pas masquée.
   const [
-    tasks,
-    taskGroups,
-    taskCategories,
+    taskLinkOptions,
+    taskGroupLinkOptions,
+    taskCategoryLinkOptions,
+    taskProgress,
     materials,
     interventions,
     subcontractorCompanies,
@@ -149,9 +146,16 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     reserveTally,
     fileCount,
   ] = await Promise.all([
-    findByProject(pid),
-    findTaskGroupsByProject(pid),
-    findTaskCategoriesByProject(pid),
+    // Tâches a quitté cette page pour sa propre route (`.../tasks`, même
+    // garde-avant-lecture que Réserves/Fichiers) — cette page ne lit plus
+    // les tâches/séries/catégories en entier, seulement les deux projections
+    // étroites que le hub consomme réellement : les options du sélecteur de
+    // matériel (id + titre/nom) et l'agrégat d'avancement (voir les docs de
+    // ces trois fonctions).
+    findTaskLinkOptions(pid),
+    findTaskGroupLinkOptions(pid),
+    findTaskCategoryLinkOptions(pid),
+    computeTaskProgressByProject(pid),
     findMaterialsByProject(pid),
     findInterventionsByProject(pid),
     findCompaniesByProject(pid),
@@ -168,52 +172,14 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   // series, or a whole category at once — series and categories are single
   // collapsed options, never expanded into their individual member tasks/series.
   const materialLinkOptions: MaterialLinkOption[] = [
-    ...tasks.map((task): MaterialLinkOption => ({ kind: "task", id: task.id, title: task.title })),
-    ...taskGroups.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
-    ...taskCategories.map((category): MaterialLinkOption => ({ kind: "category", id: category.id, name: category.name })),
+    ...taskLinkOptions.map((task): MaterialLinkOption => ({ kind: "task", id: task.id, title: task.title })),
+    ...taskGroupLinkOptions.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
+    ...taskCategoryLinkOptions.map((category): MaterialLinkOption => ({ kind: "category", id: category.id, name: category.name })),
   ];
 
-  // Series can optionally belong to a category (a higher-level grouping of
-  // several series, e.g. "Toiture" containing "Strings onduleur" +
-  // "Fixations") — a standalone task can now join the same category
-  // directly too (no need to wrap a lone task in its own series). Both are
-  // rendered inside the category's own section, so only uncategorized
-  // standalone tasks and ungrouped series go into the flat list below.
-  const ungroupedTasks = tasks.filter((task) => task.categoryId == null);
-  const ungroupedTaskGroups = taskGroups.filter((group) => group.categoryId == null);
-  const categorySections = taskCategories.map((category) => ({
-    category,
-    groups: taskGroups.filter((group) => group.categoryId === category.id),
-    tasks: tasks.filter((task) => task.categoryId === category.id),
-  }));
-
-  // Combine plain tasks and ungrouped task-series into one chronological
-  // list (unfinished first, oldest first) — a group counts as "done" once
-  // every task in it is done, matching the per-task ordering rule.
-  type TaskRow = { kind: "task"; createdAt: Date; done: boolean; data: (typeof tasks)[number] };
-  type GroupRow = { kind: "group"; createdAt: Date; done: boolean; data: (typeof taskGroups)[number] };
-  const rows: (TaskRow | GroupRow)[] = [
-    ...ungroupedTasks.map((task): TaskRow => ({ kind: "task", createdAt: task.createdAt, done: task.done, data: task })),
-    ...ungroupedTaskGroups.map((group): GroupRow => ({
-      kind: "group",
-      createdAt: group.createdAt,
-      done: group.totalCount > 0 && group.doneCount === group.totalCount,
-      data: group,
-    })),
-  ].sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
-    return a.createdAt.getTime() - b.createdAt.getTime();
-  });
-  const taskProgress = computeTaskProgress(tasks, taskGroups);
   const doneCount = taskProgress.done;
   const totalCount = taskProgress.total;
   const materialStats = computeMaterialStockStats(materials);
-  // Options for the task/series/category assignee picker: either a
-  // subcontractor company or an intérimaire (mutually exclusive).
-  const assigneeOptions = {
-    companies: subcontractorCompanies.map((c) => ({ id: c.id, name: c.name })),
-    interims: interims.map((i) => ({ id: i.id, name: i.name })),
-  };
 
   // This project's resolved OPEN/RESOLVED label + colour, for the Réserves
   // link card below: the open count is the single most useful figure on this
@@ -371,61 +337,21 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         {(() => {
         const sectionContent: Record<ProjectSectionKey, ReactNode> = {
         tasks: (
-          <TasksSection
-            clientId={clientId}
-            projectId={pid}
-            categories={taskCategories}
-            canEdit={canEdit}
-            icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
-            title={t.projects.detail.tasksHeading}
-            badge={totalCount > 0 ? `(${doneCount}/${totalCount})` : undefined}
+          <Link
+            href={`/clients/${id}/projects/${pid}/tasks`}
+            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
           >
-          {categorySections.map(({ category, groups, tasks: categoryTasks }) => (
-            <ProjectTaskCategorySection
-              key={`category-${category.id}`}
-              category={category}
-              groups={groups}
-              tasks={categoryTasks}
-              categories={taskCategories}
-              clientId={clientId}
-              projectId={pid}
-              canEdit={canEdit}
-              assignees={assigneeOptions}
-            />
-          ))}
-
-          {rows.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {rows.map((row) =>
-                row.kind === "task" ? (
-                  <ProjectTaskRow
-                    key={`task-${row.data.id}`}
-                    task={row.data}
-                    clientId={clientId}
-                    projectId={pid}
-                    canEdit={canEdit}
-                    categories={taskCategories}
-                    assignees={assigneeOptions}
-                  />
-                ) : (
-                  <ProjectTaskGroupRow
-                    key={`group-${row.data.id}`}
-                    group={row.data}
-                    clientId={clientId}
-                    projectId={pid}
-                    canEdit={canEdit}
-                    categories={taskCategories}
-                    assignees={assigneeOptions}
-                  />
-                )
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
+              <ClipboardDocumentListIcon className="h-5 w-5 shrink-0 text-blue-500" />
+              <span className="truncate">{t.projects.detail.tasksHeading}</span>
+              {totalCount > 0 && (
+                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  ({doneCount}/{totalCount})
+                </span>
               )}
-            </ul>
-          ) : categorySections.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.noTasks}
-            </div>
-          ) : null}
-          </TasksSection>
+            </h2>
+            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          </Link>
         ),
         materials: (
           <CollapsibleSection

@@ -38,6 +38,30 @@ export async function findByProject(projectId: number) {
     }
 }
 
+export type TaskCategoryLinkOption = { id: number; name: string };
+
+/**
+ * Just id + name of every category in a project — for the material-link
+ * picker (forms/AddMaterialForm.tsx's MaterialLinkOption) on the project
+ * hub, which never reads anything else off a category. Same reasoning as
+ * repository/tasks.ts::findLinkOptions / repository/taskGroups.ts::findLinkOptions.
+ */
+export async function findLinkOptions(projectId: number): Promise<TaskCategoryLinkOption[]> {
+    try {
+        return await prisma.projectTaskCategory.findMany({
+            where: { projectId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+        });
+    } catch (error) {
+        console.log("Repository findLinkOptions (task category) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching task category link options.",
+        };
+    }
+}
+
 /** The category's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
 export async function findProjectId(id: number): Promise<number | null> {
     try {

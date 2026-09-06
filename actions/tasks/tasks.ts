@@ -70,6 +70,10 @@ export async function addTask(
       categoryId: parsed.data.categoryId,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    // The dedicated tasks page (below the hub) renders the same task list —
+    // both must be revalidated, or a create from one still shows stale data
+    // on the other until its own next natural refresh.
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
     return {
       ...prevState,
       type: "success",
@@ -136,6 +140,7 @@ export async function addTaskSeries(
     }
     const result = await createMany(items);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return {
       ...prevState,
       type: "success",
@@ -188,6 +193,7 @@ export async function toggleTask(
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
@@ -233,6 +239,7 @@ export async function editTask(
       quantityTarget: parsed.data.quantityTarget,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
     return {
       ...prevState,
       type: "success",
@@ -279,6 +286,7 @@ export async function updateTaskQuantity(
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const task = await updateQuantity(parsed.data.id, parsed.data.quantityDone);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {
@@ -324,6 +332,7 @@ export async function setTaskCategory(
     }
     const task = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return { type: "success" as const, message: t.tasks.messages.updated, data: task };
   } catch (error) {
     return {
@@ -358,6 +367,7 @@ export async function deleteTask(
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
     return { type: "success" as const, message: t.tasks.messages.deleted, data: task };
   } catch (error) {

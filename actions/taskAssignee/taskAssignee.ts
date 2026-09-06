@@ -80,6 +80,7 @@ export async function setAssignee(
     else await setCategoryAssigneeRepo(targetId, parsed);
 
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return { type: "success" as const, message: t.assignees.messages.updated };
   } catch (error) {
     return {

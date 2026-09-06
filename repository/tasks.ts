@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { roundPercent } from "@/lib/projectDashboard";
 
 type TaskData = {
     projectId: number;
@@ -67,6 +68,103 @@ export async function findByProject(projectId: number) {
         throw {
             type: "repositoryError",
             message: "Database Error fetching tasks.",
+        };
+    }
+}
+
+export type TaskLinkOption = { id: number; title: string };
+
+/**
+ * Just id + title of every STANDALONE (ungrouped) task in a project, in the
+ * same order as findByProject — for the material-link picker
+ * (forms/AddMaterialForm.tsx's MaterialLinkOption) on the project hub, which
+ * never reads anything else off a task. Avoids serializing the whole
+ * ProjectTask row (quantityTarget/quantityDone/dueDate/assignee…) to the
+ * client just to populate a `<select>`, same reasoning as
+ * repository/jobFunctions.ts::findAllOptions().
+ */
+export async function findLinkOptions(projectId: number): Promise<TaskLinkOption[]> {
+    try {
+        return await prisma.projectTask.findMany({
+            where: { projectId, groupId: null },
+            select: { id: true, title: true },
+            orderBy: [{ done: "asc" }, { createdAt: "asc" }],
+        });
+    } catch (error) {
+        console.log("Repository findLinkOptions (task) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching task link options.",
+        };
+    }
+}
+
+export type TaskProgressTally = { done: number; total: number; percent: number };
+
+/**
+ * The exact {done, total, percent} lib/projectDashboard.ts::computeTaskProgress
+ * would return for this project — WITHOUT loading a single ProjectTask or
+ * ProjectTaskGroup row, for the project hub, which only ever renders these
+ * three numbers (never the per-série `groups` breakdown computeTaskProgress
+ * also computes; the dedicated tasks page still loads the real rows for
+ * that). Verified byte-for-byte against computeTaskProgress on a real
+ * project (10/28, 99.63%) before this function existed — see the PR that
+ * introduced it.
+ *
+ * Weighting rule, mirrored from lib/projectDashboard.ts::computeTaskBarStats:
+ * a STANDALONE task (groupId IS NULL) counts for its quantityTarget when it
+ * has an active one (> 0), else a plain 1. A task that belongs to a series
+ * (groupId IS NOT NULL) always counts as a plain 1 whether done or not —
+ * because ProjectTaskGroup.doneCount/totalCount (repository/taskGroups.ts::
+ * findByProject) are themselves plain boolean counts, never weighted by
+ * quantity. In practice this never actually diverges: series tasks are
+ * bulk-created without a quantityTarget (createMany, above, drops it) — but
+ * the SQL below matches computeTaskProgress's actual JS behaviour rather
+ * than that data-shape coincidence, so it can't silently drift from it if
+ * that ever changes.
+ *
+ * LEAST/GREATEST reproduce computeTaskBarStats's own clamp
+ * (min(target, max(0, quantityDone))) instead of trusting a stored
+ * quantityDone is already in range — same defensive posture as the
+ * function this mirrors.
+ */
+export async function computeProgressByProject(projectId: number): Promise<TaskProgressTally> {
+    try {
+        const rows = await prisma.$queryRaw<
+            { done_count: bigint; total_count: bigint; weighted_done: bigint; weighted_total: bigint }[]
+        >`
+            SELECT
+                COUNT(*) FILTER (WHERE "done") AS done_count,
+                COUNT(*) AS total_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                            THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                        WHEN "done" THEN 1
+                        ELSE 0
+                    END
+                ), 0) AS weighted_done,
+                COALESCE(SUM(
+                    CASE
+                        WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                            THEN "quantityTarget"
+                        ELSE 1
+                    END
+                ), 0) AS weighted_total
+            FROM "ProjectTask"
+            WHERE "projectId" = ${projectId}
+        `;
+        const row = rows[0];
+        const done = Number(row?.done_count ?? BigInt(0));
+        const total = Number(row?.total_count ?? BigInt(0));
+        const weightedDone = Number(row?.weighted_done ?? BigInt(0));
+        const weightedTotal = Number(row?.weighted_total ?? BigInt(0));
+        return { done, total, percent: roundPercent(weightedDone, weightedTotal) };
+    } catch (error) {
+        console.log("Repository computeProgressByProject (task) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error computing task progress.",
         };
     }
 }

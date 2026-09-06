@@ -44,6 +44,32 @@ export async function findCompaniesByProject(projectId: number) {
     }
 }
 
+export type SubcontractorCompanyOption = { id: number; name: string };
+
+/**
+ * Just id + name of every subcontractor company in a project — for the
+ * task/série/category assignee picker (components/AssigneePicker.tsx's
+ * AssigneeOption), which never reads a company's personnel to populate a
+ * `<select>`. Avoids the nested `include: { personnel: ... } }`
+ * findCompaniesByProject (above) needs for its own callers, same reasoning
+ * as repository/tasks.ts::findLinkOptions.
+ */
+export async function findCompanyOptionsByProject(projectId: number): Promise<SubcontractorCompanyOption[]> {
+    try {
+        return await prisma.subcontractorCompany.findMany({
+            where: { projectId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+        });
+    } catch (error) {
+        console.log("Repository findCompanyOptionsByProject (subcontractor) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching subcontractor company options.",
+        };
+    }
+}
+
 /** The company's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
 export async function findCompanyProjectId(id: number): Promise<number | null> {
     try {

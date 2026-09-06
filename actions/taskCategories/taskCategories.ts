@@ -40,6 +40,7 @@ export async function addTaskCategory(
   try {
     const category = await create({ projectId: parsed.data.projectId, name: parsed.data.name });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
     return {
       ...prevState,
       type: "success",
@@ -84,6 +85,7 @@ export async function deleteTaskCategory(id: number, clientId: number, projectId
     if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const category = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     return { type: "success" as const, message: t.tasks.category.messages.deleted, data: category };
   } catch (error) {
     return {

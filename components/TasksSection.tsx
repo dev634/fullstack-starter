@@ -1,12 +1,34 @@
 'use client'
-import { useState, type ComponentProps } from "react";
-import CollapsibleSection from "@/components/CollapsibleSection";
+import { useState, type ReactNode } from "react";
 import AddTaskForm from "@/forms/AddTaskForm";
 import GenerateTaskSeriesForm, { type TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import AddTaskCategoryForm from "@/forms/AddTaskCategoryForm";
 import { CategoryRevealProvider, type CategoryRevealSignal } from "@/components/TaskCategoryReveal";
 
-type PassThrough = Pick<ComponentProps<typeof CollapsibleSection>, "icon" | "title" | "badge" | "children">;
+/**
+ * The Tasks section's own header (icon/title/count + add-task/add-série/
+ * add-category buttons) plus the CategoryRevealProvider its children need —
+ * now the dedicated `.../tasks` page's top card, not a collapsible dropdown
+ * on the project hub (that card is now a plain link to this page, same as
+ * Réserves/Fichiers before it). Content is always visible here, so unlike
+ * the hub version this used to be, there is no `open`/`onOpenChange`
+ * anymore: the header renders exactly once, in the same "static card
+ * header" shape as ProjectReservesPage / ProjectFilesPage.
+ *
+ * CategoryRevealProvider survives the move: creating a task/série into a
+ * category still needs to open THAT category's own (still-collapsible)
+ * ProjectTaskCategorySection and scroll it into view. docs/CONVENTIONS.md's
+ * "sections repliables" note — a child can mount AFTER the signal it derives
+ * from, so it must read it at mount, not just react to it changing — no
+ * longer describes an actual race on THIS page: nothing here hides
+ * `children` the way `{open && children}` used to on the hub, so every
+ * ProjectTaskCategorySection is already mounted before any creation can
+ * happen. The lazy `useState` read-at-mount in ProjectTaskCategorySection
+ * itself is untouched (this component doesn't own it) — it stays correct as
+ * a no-op safeguard, and costs nothing to keep in case this content is ever
+ * wrapped in a collapse again.
+ */
+type PassThrough = { icon: ReactNode; title: string; badge?: string; children: ReactNode };
 
 export default function TasksSection({
   clientId,
@@ -23,38 +45,21 @@ export default function TasksSection({
   categories: TaskCategoryOption[];
   canEdit: boolean;
 }) {
-  // The Tasks section is collapsed by default; creating a task or a series
-  // reveals the section itself. When the new task/series lands in a
-  // category, that category is also revealed via CategoryRevealProvider —
-  // the category rows are opaque children rendered by the server, so a
-  // React context is the only way to signal them from here. Groups stay
-  // collapsed: a series creates a group, and seeing the group row is enough.
-  //
-  // Not cleared after consumption on purpose: a category may mount *after*
-  // the signal (RSC refresh, section opening) and reads it at mount. Relies
-  // on the stable per-category keys in the project page.
-  const [open, setOpen] = useState(false);
   const [reveal, setReveal] = useState<CategoryRevealSignal>(null);
 
-  const handleCreated = (revealCategoryId: number | null) => {
-    setOpen(true);
+  function handleCreated(revealCategoryId: number | null) {
     if (revealCategoryId != null) setReveal({ categoryId: revealCategoryId });
-  };
+  }
 
   return (
-    <CollapsibleSection
-      icon={icon}
-      title={title}
-      badge={badge}
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        // Collapsing the section drops any pending reveal, so re-opening it
-        // later doesn't re-expand a category from an old creation.
-        if (!next) setReveal(null);
-      }}
-      headerExtra={
-        canEdit && (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+        <h2 className="flex min-w-[8rem] flex-1 items-center gap-2 text-lg font-semibold">
+          {icon}
+          <span className="truncate">{title}</span>
+          {badge && <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">{badge}</span>}
+        </h2>
+        {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             <AddTaskForm
               clientId={clientId}
@@ -70,10 +75,10 @@ export default function TasksSection({
             />
             <AddTaskCategoryForm clientId={clientId} projectId={projectId} />
           </div>
-        )
-      }
-    >
+        )}
+      </div>
+
       <CategoryRevealProvider value={reveal}>{children}</CategoryRevealProvider>
-    </CollapsibleSection>
+    </>
   );
 }
