@@ -997,6 +997,7 @@ const fr = {
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
         categoriesTitle: "Avancement par catégorie / groupe",
+        groupProgressLabel: "{name} : {percent} % ({done}/{total})",
         detailedTitle: "Avancement détaillé, tâche par tâche",
         materialsTitle: "Stock matériel",
         materialsNone: "Aucun matériel lié à une tâche pour le moment.",

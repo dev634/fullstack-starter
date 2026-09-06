@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskGroup, setTaskGroupCategory } from "@/actions/taskGroups/taskGroups";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import { NESTED_LIST_INDENT } from "@/lib/nesting";
 import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 import type { ProjectTask } from "@/app/generated/prisma/client";
@@ -120,13 +121,13 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
 
       {open && (
         group.tasks.length ? (
-          <ul className="ml-4 border-l-2 border-gray-300 divide-y divide-gray-300 bg-gray-50 dark:border-gray-700 dark:divide-gray-700 dark:bg-gray-900/40 sm:ml-6">
+          <ul className={`${NESTED_LIST_INDENT} divide-y divide-gray-300 bg-gray-50 dark:divide-gray-700 dark:bg-gray-900/40`}>
             {group.tasks.map((task) => (
               <ProjectTaskRow key={task.id} task={task} clientId={clientId} projectId={projectId} canEdit={canEdit} />
             ))}
           </ul>
         ) : (
-          <p className="ml-4 border-l-2 border-gray-300 bg-gray-50 px-4 py-3 text-center text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400 sm:ml-6 sm:px-6">
+          <p className={`${NESTED_LIST_INDENT} bg-gray-50 px-4 py-3 text-center text-xs text-gray-500 dark:bg-gray-900/40 dark:text-gray-400 sm:px-6`}>
             {t.projects.detail.noTasks}
           </p>
         )

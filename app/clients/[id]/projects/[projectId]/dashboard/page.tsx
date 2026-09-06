@@ -14,6 +14,7 @@ import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
 import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
+import SeriesProgressRings from "@/components/charts/SeriesProgressRings";
 import MaterialStockDonut from "@/components/charts/MaterialStockDonut";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import PrintReportButton from "@/components/PrintReportButton";
@@ -207,7 +208,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               {categoryProgress.length > 0 && (
                 <div className="border-t border-gray-300 dark:border-gray-700 pt-4">
                   <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.projectDashboard.categoriesTitle}</h3>
-                  <SeriesProgressBars items={categoryProgress} />
+                  <SeriesProgressRings items={categoryProgress} t={t} />
                 </div>
               )}
 
