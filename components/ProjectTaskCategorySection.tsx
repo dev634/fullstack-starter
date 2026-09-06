@@ -8,6 +8,7 @@ import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteTaskCategory } from "@/actions/taskCategories/taskCategories";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskRow from "@/components/ProjectTaskRow";
+import { NESTED_LIST_INDENT } from "@/lib/nesting";
 import AssigneePicker, { type AssigneeOption } from "@/components/AssigneePicker";
 import { useCategoryReveal } from "@/components/TaskCategoryReveal";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
@@ -152,7 +153,7 @@ export default function ProjectTaskCategorySection({
         )}
       </div>
       {open && (
-        <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+        <ul className={`${NESTED_LIST_INDENT} divide-y divide-gray-300 dark:divide-gray-700`}>
           {rows.map((row) =>
             row.kind === "task" ? (
               <ProjectTaskRow
