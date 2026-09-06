@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { useDeleteConfirm } from "@/lib/useDeleteConfirm";
 import { deleteSubcontractorCompany } from "@/actions/subcontractors/subcontractors";
 import ProjectSubcontractorPersonRow from "@/components/ProjectSubcontractorPersonRow";
+import { NESTED_LIST_INDENT } from "@/lib/nesting";
 import AddSubcontractorPersonForm from "@/forms/AddSubcontractorPersonForm";
 import type { SubcontractorPerson } from "@/app/generated/prisma/client";
 import type { JobFunctionOption } from "@/forms/JobFunctionOptions";
@@ -70,13 +71,13 @@ export default function ProjectSubcontractorCompanyRow({ company, clientId, proj
       {open && (
         <>
           {company.personnel.length ? (
-            <ul className="divide-y divide-gray-300 bg-gray-50 dark:divide-gray-700 dark:bg-gray-900/40">
+            <ul className={`${NESTED_LIST_INDENT} divide-y divide-gray-300 bg-gray-50 dark:divide-gray-700 dark:bg-gray-900/40`}>
               {company.personnel.map((person) => (
                 <ProjectSubcontractorPersonRow key={person.id} person={person} clientId={clientId} projectId={projectId} canEdit={canEdit} />
               ))}
             </ul>
           ) : (
-            <p className="bg-gray-50 px-4 py-3 text-center text-xs text-gray-500 dark:bg-gray-900/40 dark:text-gray-400 sm:px-6">
+            <p className={`${NESTED_LIST_INDENT} bg-gray-50 px-4 py-3 text-center text-xs text-gray-500 dark:bg-gray-900/40 dark:text-gray-400 sm:px-6`}>
               {t.subcontractors.person.none}
             </p>
           )}
