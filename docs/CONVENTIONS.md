@@ -309,14 +309,18 @@ seulement à son changement. Ignorer ça produit une feature qui compile, passe
 les tests, et ne marche pas.
 
 Le composant accepte soit `open` **et** `onOpenChange` (mode contrôlé), soit
-aucun des deux, avec en option `defaultOpen` pour choisir l'état initial du
-mode non contrôlé (par défaut fermé) — le type interdit `defaultOpen` en même
-temps que `open`/`onOpenChange` (erreur de compilation, pas juste une
-convention en commentaire). Chaque appelant garde son propre défaut : le
-tableau de bord d'un projet passe `defaultOpen` sur ses cinq sections
-(ouvertes à l'arrivée, chacune avec son `badge` — l'info utile visible sans
-ouvrir), les sections Contacts/Projets de la page client et Matériel avant
-elles restent fermées par défaut, comme avant.
+aucun des deux — le type l'impose. En mode non contrôlé une section démarre
+toujours **fermée**, partout : les cinq sections du tableau de bord d'un
+projet comme celles de la page client.
+
+C'est pourquoi **chaque section porte un `badge`** : fermée, c'est la seule
+chose qu'on voie d'elle, et une section repliée qui n'affiche rien se rouvre
+systématiquement — on n'a alors ajouté qu'un clic.
+
+⚠️ Et c'est pourquoi un rapport PDF ne peut pas s'obtenir par `window.print()` :
+une section fermée n'est pas montée, donc absente du DOM imprimé. Un rapport
+se génère **côté serveur**, sur le modèle de `lib/reservesReport.ts` et de sa
+route gardée — indépendant de ce qui est déplié dans le navigateur.
 
 ## Formulaires (modales)
 
