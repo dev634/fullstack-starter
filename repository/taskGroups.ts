@@ -36,7 +36,16 @@ export async function findByProject(projectId: number) {
     try {
         const groups = await prisma.projectTaskGroup.findMany({
             where: { projectId },
-            include: { tasks: { orderBy: [{ done: "asc" }, { createdAt: "asc" }] } },
+            // Ordre de creation, et rien d'autre : cocher une case ne doit pas
+            // deplacer sa ligne. Trier par `done` la faisait tomber en bas au
+            // rendu suivant, ce qui fait perdre sa place dans une liste longue.
+            //
+            // Par `id` et non par `createdAt` : une liste generee nait d'un
+            // createMany, donc TOUTES ses lignes partagent un seul horodatage
+            // (verifie en base : 8 lignes / 1 valeur distincte, 27/1, 25/1).
+            // `createdAt` ne departage rien ici, et se contenter de retirer
+            // `done` aurait rendu l'ordre arbitraire au lieu de stable.
+            include: { tasks: { orderBy: [{ id: "asc" }] } },
         });
         return groups.map((group) => ({
             id: group.id,
