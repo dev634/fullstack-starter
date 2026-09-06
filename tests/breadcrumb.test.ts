@@ -44,9 +44,11 @@ describe("buildBreadcrumb", () => {
   });
 
   it("yields an empty chain when the starting folder belongs to a different project", async () => {
-    // A crafted ?folder=/?rfolder= id from another project must not surface
-    // that project's folder name in the caller's breadcrumb — this is the
-    // cross-project leak the projectId scoping closes.
+    // A crafted `?folder=` id from another project must not surface that
+    // project's folder name in the caller's breadcrumb — this is the
+    // cross-project leak the projectId scoping closes. Applies to both
+    // buildBreadcrumb callers: the Files module's own `?folder=` and the
+    // réserves browser's (`.../reserves?folder=` since it got its own route).
     const find = tree([{ id: 5, name: "Another client's folder", parentId: null, projectId: 99 }]);
     expect(await buildBreadcrumb(5, 1, find)).toEqual([]);
   });

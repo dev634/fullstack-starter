@@ -73,6 +73,22 @@ export async function findByProject(projectId: number, options?: { boundReserves
 }
 
 /**
+ * Total plan count for a project — a lightweight COUNT for the project hub's
+ * link card. Deliberately NOT `(await findByProject(projectId)).length`: the
+ * whole point of moving Réserves to its own route is that the hub must never
+ * fetch every plan (and every plan's réserves and photos) just to show a
+ * number that gets thrown away at render.
+ */
+export async function countByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.reservePlan.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countByProject (reservePlan) error:", error);
+        throw { type: "repositoryError", message: "Database Error counting plans." };
+    }
+}
+
+/**
  * `url` is omitted here too — used by the guarded delivery route (which
  * signs its own URL from publicId + the guarded columns, never reads it
  * back) and by the plan mutations (which only need publicId/deliveryType/

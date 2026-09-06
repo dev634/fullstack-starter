@@ -12,7 +12,6 @@ import {
 } from "@heroicons/react/24/outline";
 import ReserveFolderRow from "@/components/ReserveFolderRow";
 import ReserveStatusBadge from "@/components/ReserveStatusBadge";
-import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { assetPath } from "@/lib/assetPath";
@@ -75,7 +74,7 @@ export default function ReservesSection({
   breadcrumb: { id: number; name: string }[];
   /** Every folder in the project — the "move to folder" target list. */
   allFolders: { id: number; name: string }[];
-  /** Folder being browsed, or null for the project root (from ?rfolder=). */
+  /** Folder being browsed, or null for the project root (from ?folder=). */
   currentFolderId: number | null;
   canEdit: boolean;
   /** This project's resolved OPEN/RESOLVED label+colour — see
@@ -132,16 +131,16 @@ export default function ReservesSection({
 
   const plansInFolder = (folderId: number) => plans.filter((p) => p.folderId === folderId);
 
-  // Build a browse href for a given réserve folder (null = root), keeping any
-  // other section's query state — the Files module browses through ?folder= on
-  // this same page and must not be reset.
+  // Build a browse href for a given réserve folder (null = root). This page
+  // owns `?folder=` outright, so no other section's query state needs to be
+  // preserved here.
   const searchParams = useSearchParams();
   const folderHref = (folderId: number | null) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (folderId == null) params.delete(RESERVE_FOLDER_PARAM);
-    else params.set(RESERVE_FOLDER_PARAM, String(folderId));
+    if (folderId == null) params.delete("folder");
+    else params.set("folder", String(folderId));
     const q = params.toString();
-    return `/clients/${clientId}/projects/${projectId}${q ? `?${q}` : ""}`;
+    return `/clients/${clientId}/projects/${projectId}/reserves${q ? `?${q}` : ""}`;
   };
 
   function movePlanToFolder(planId: number, folderId: number | null) {

@@ -20,7 +20,7 @@ import { create as createFile } from "@/repository/projectFiles";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
 import { uploadProjectFile } from "@/lib/cloudinary";
-import { revalidatePath } from "next/cache";
+import { revalidateFiles } from "@/lib/revalidateFiles";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -363,7 +363,13 @@ export async function applyDeliveryNoteScan(
       });
     }
 
-    revalidatePath(`/clients/${project.clientId}/projects/${projectId}`);
+    // Invalidates the hub (its Files link card shows a plain COUNT) and the
+    // dedicated files page — the archive step above may have just created a
+    // ProjectFile there. Reuses the same helper
+    // actions/projectFiles/projectFiles.ts calls for its own four mutations
+    // (lib/revalidateFiles.ts) rather than a second hard-coded revalidatePath,
+    // so "what invalidating Files means" stays defined in one place.
+    revalidateFiles(project.clientId, projectId);
     return { ...prevState, type: "success", message: t.materials.scan.messages.applied };
   } catch (error) {
     // readAndValidateDeliveryNoteImage (above) throws lib/deliveryNoteScan.ts's

@@ -39,7 +39,7 @@ export default function ProjectFolderRow({ folder, clientId, projectId, canEdit 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
       <Link
-        href={`/clients/${clientId}/projects/${projectId}?folder=${folder.id}`}
+        href={`/clients/${clientId}/projects/${projectId}/files?folder=${folder.id}`}
         className="flex min-w-0 flex-1 items-center gap-2 text-sm hover:opacity-80"
       >
         <FolderIcon className="h-5 w-5 shrink-0 text-amber-400" />
