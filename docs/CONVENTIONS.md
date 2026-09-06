@@ -5,6 +5,32 @@ Carte des patterns récurrents, pour éviter de les re-dériver à chaque featur
 aujourd'hui. Vérifie contre le code avant de t'appuyer dessus, et corrige ce
 fichier s'il a dérivé.
 
+## Copie de travail d'un agent — ce qu'il faut y remettre
+
+Les agents travaillent dans une **copie isolée** du dépôt, pour que leurs
+états intermédiaires ne soient pas servis en direct par le serveur de
+développement de quelqu'un d'autre. Un import retiré avant ses usages a déjà
+produit un `ReferenceError` sous les yeux de la personne qui testait.
+
+Mais une copie fraîche n'a **rien de ce que git ignore**, et ce qui manque
+est exactement ce qui permet de vérifier :
+
+| absent | ce qui devient impossible |
+|---|---|
+| `node_modules` | `tsc`, `eslint`, `vitest` |
+| `app/generated/prisma` | `tsc` échoue dès l'import du client |
+| `.env` | `prisma generate`, toute lecture en base |
+
+Donc, avant la première ligne de code, dans la copie :
+
+```bash
+cp <dépôt principal>/.env .env && npm ci && npx prisma generate
+```
+
+Ce coût appartient au **lancement**, pas à la feature. Sans lui, l'agent ne
+peut lancer aucun contrôle et rend un rapport que rien n'étaye — ce qui est
+pire qu'une absence de rapport, parce que ça se lit comme une preuve.
+
 ## Modèle d'accès — trois axes orthogonaux
 
 Ne jamais les croiser en matrice.
