@@ -201,10 +201,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             {t.projectDashboard.title} · {project.name}
           </h1>
           <div className="flex flex-wrap items-center gap-3">
-            <ReportDownloadLink
-              href={`/clients/${id}/projects/${pid}/dashboard/report`}
-              label={t.projectDashboard.generateFullReport}
-            />
             <Link
               href={`/clients/${id}/projects/${pid}`}
               className="print:hidden inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
@@ -427,6 +423,17 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
           </div>
         </div>
         )}
+
+        {/* Le rapport complet vit SOUS les sections, pas dans l'en-tete : on le
+            demande apres avoir parcouru ce qu'il contient. Il porte aussi la
+            seule action de la page qui ne depende d'aucune section — chaque
+            section a deja son propre bouton dans son en-tete. */}
+        <div className="flex justify-center print:hidden">
+          <ReportDownloadLink
+            href={`/clients/${id}/projects/${pid}/dashboard/report`}
+            label={t.projectDashboard.generateFullReport}
+          />
+        </div>
       </div>
     </main>
   );
