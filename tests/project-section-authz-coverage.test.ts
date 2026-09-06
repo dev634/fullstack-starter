@@ -2,28 +2,34 @@ import { describe, it, expect } from "vitest";
 import ts from "typescript";
 import { join, relative, resolve, dirname, sep } from "node:path";
 import { sourceFilesIn, callsIn, parseSource } from "./helpers/astScan";
-import { PROJECT_SECTION_KEYS } from "@/lib/projectSections";
+import { PROJECT_SECTION_ROUTES } from "@/lib/projectSections";
 
 /**
  * Structural guarantee: every project-section page — a `page.tsx` living
- * directly under a folder named after one of `PROJECT_SECTION_KEYS`
- * (`app/clients/[id]/projects/[projectId]/<key>/...`) — resolves its access
- * through `resolveProjectSectionAccess` (`lib/projectSectionGuard.ts`), the
- * one place the canonical read-guard order for a project section lives
- * (rubrique → section → resolve the row → scope). Without this, a third
- * section page added tomorrow with no gate at all — or with the four checks
- * copied inline, in the wrong order — leaves the whole suite green: the
- * existing `authz-coverage.test.ts` only walks `app/**\/route.ts` files
- * (`.tsx` is never even collected), and its two page-level checks are two
- * hard-coded paths recognized by the bare name `canAccessArea`.
+ * directly under a folder named after a route segment of
+ * `PROJECT_SECTION_ROUTES` (`app/clients/[id]/projects/[projectId]/<segment>/...`)
+ * — resolves its access through `resolveProjectSectionAccess`
+ * (`lib/projectSectionGuard.ts`), the one place the canonical read-guard
+ * order for a project section lives (rubrique → section → resolve the row →
+ * scope). Without this, a third section page added tomorrow with no gate at
+ * all — or with the four checks copied inline, in the wrong order — leaves
+ * the whole suite green: the existing `authz-coverage.test.ts` only walks
+ * `app/**\/route.ts` files (`.tsx` is never even collected), and its two
+ * page-level checks are two hard-coded paths recognized by the bare name
+ * `canAccessArea`.
  *
  * "Section page" is discovered from `lib/projectSections.ts`'s own
- * `PROJECT_SECTION_KEYS` — the single source of truth this repo already
- * uses for the reorderable dropdowns — rather than a hand-maintained list
- * here. A folder that doesn't share a name with a key (the hub itself,
- * `dashboard/`, `edit/`) is deliberately not swept up: those pages pose the
- * same preamble inline today and may converge onto the shared guard later,
- * but this test must not force that convergence to stay green.
+ * `PROJECT_SECTION_ROUTES` — the single source of truth for the route
+ * segment -> section key(s) correspondence — rather than inferred from the
+ * folder name matching a bare `ProjectSectionKey`. That inference used to be
+ * enough (every routed section depended on exactly one key, so the folder
+ * WAS the key), until `workforce` fused two keys (`subcontractors` +
+ * `interims`) into one page with a name that is neither: a route can now
+ * depend on one key or several, and this table is what says which. A folder
+ * that names no entry of the table (the hub itself, `dashboard/`, `edit/`)
+ * is deliberately not swept up: those pages pose the same preamble inline
+ * today and may converge onto the shared guard later, but this test must not
+ * force that convergence to stay green.
  *
  * The call must be resolved by its IMPORT, not by the bare identifier
  * "resolveProjectSectionAccess" — matching on the name alone is exactly what
@@ -41,18 +47,23 @@ const PROJECT_SECTION_ROOT = join(APP_DIR, "clients", "[id]", "projects", "[proj
 const ROOT = process.cwd();
 const GUARD_LIB_FILE = resolve(ROOT, "lib", "projectSectionGuard.ts").toLowerCase();
 const GUARD_EXPORT_NAME = "resolveProjectSectionAccess";
-
 /** Next.js entry-point filenames for a page route. */
 const ENTRY_FILENAMES = new Set(["page.tsx", "page.ts"]);
 
 type SectionPage = { file: string; sectionKey: string };
 
+/** Whether `value` names an entry of `PROJECT_SECTION_ROUTES` — a real type guard, not a cast, so `discoverSectionPages` below can index the table with it safely. */
+function isProjectSectionRouteSegment(value: string): value is keyof typeof PROJECT_SECTION_ROUTES {
+  return Object.prototype.hasOwnProperty.call(PROJECT_SECTION_ROUTES, value);
+}
+
 /**
  * Every `page.tsx`/`page.ts` under `app/clients/[id]/projects/[projectId]`
- * whose first path segment names one of `PROJECT_SECTION_KEYS` — discovered
- * from the filesystem and the shared key list, never hard-coded here. A page
- * two levels deep under a section key (`<key>/anything/page.tsx`) still
- * counts: it's still content reached only through that section.
+ * whose first path segment names a route segment of `PROJECT_SECTION_ROUTES`
+ * — discovered from the filesystem and that shared table, never hard-coded
+ * here. A page two levels deep under a section's route segment
+ * (`<segment>/anything/page.tsx`) still counts: it's still content reached
+ * only through that route.
  */
 function discoverSectionPages(): SectionPage[] {
   const pages: SectionPage[] = [];
@@ -60,10 +71,10 @@ function discoverSectionPages(): SectionPage[] {
     const filename = file.split(sep).pop()!;
     if (!ENTRY_FILENAMES.has(filename)) continue;
     const segments = relative(PROJECT_SECTION_ROOT, file).split(sep);
-    if (segments.length < 2) continue; // the hub's own page.tsx — no section segment
-    const [sectionKey] = segments;
-    if ((PROJECT_SECTION_KEYS as readonly string[]).includes(sectionKey)) {
-      pages.push({ file, sectionKey });
+    if (segments.length < 2) continue; // the hub's own page.tsx — no route segment
+    const [routeSegment] = segments;
+    if (isProjectSectionRouteSegment(routeSegment)) {
+      pages.push({ file, sectionKey: PROJECT_SECTION_ROUTES[routeSegment].join("+") });
     }
   }
   return pages;
@@ -186,7 +197,7 @@ describe("every project-section page resolves access through the shared project-
   const pages = discoverSectionPages();
 
   it("finds the project-section pages (guards against a silently empty scan)", () => {
-    // If PROJECT_SECTION_KEYS or the app/ tree moves, this would otherwise
+    // If PROJECT_SECTION_ROUTES or the app/ tree moves, this would otherwise
     // pass vacuously — the same trap the sibling coverage tests guard against.
     expect(pages.length).toBeGreaterThan(0);
   });

@@ -69,6 +69,15 @@ export type ProjectSectionAccess =
       clientId: number;
       projectId: number;
       project: ProjectSectionRow;
+      /**
+       * Which of the requested key(s) are actually visible to this caller —
+       * always all of them for a single-key call, but a genuine subset for a
+       * multi-key one (e.g. `["subcontractors", "interims"]` when only one
+       * of the two is hidden by the caller's function). The page renders
+       * only the halves this set contains; it must not re-derive this by
+       * calling canAccessSection itself, or the two could drift.
+       */
+      visibleSections: ReadonlySet<ProjectSectionKey>;
     }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "forbidden" }
@@ -76,10 +85,11 @@ export type ProjectSectionAccess =
 
 export async function resolveProjectSectionAccess(
   routeParams: { id: string; projectId: string },
-  section: ProjectSectionKey
+  section: ProjectSectionKey | readonly ProjectSectionKey[]
 ): Promise<ProjectSectionAccess> {
   const clientId = parseInt(routeParams.id, 10);
   const pid = parseInt(routeParams.projectId, 10);
+  const sections = Array.isArray(section) ? section : [section];
 
   // The `projects` rubrique — the same one gating the standalone /projects
   // list, its CSV export, and the guarded asset delivery route (see
@@ -93,13 +103,24 @@ export async function resolveProjectSectionAccess(
     return { ok: false, reason: "not-found" };
   }
 
-  // A hidden SECTION, unlike the rubrique/scope checks above and below, is a
-  // blanket, function-level refusal that names no project — it can say so
-  // plainly, the same message requireSectionAccess already returns to a
-  // mutation, checked before a single row of this section's own data (a
-  // réserve, a plan, a file) is read — not merely before it is rendered,
-  // which is the render-time filter this whole route exists to close.
-  if (!(await canAccessSection(section))) {
+  // A page can now depend on more than one section key at once (a route
+  // fusing several sections into a single page, e.g. `workforce` fusing
+  // `subcontractors` + `interims` — see lib/projectSections.ts's
+  // PROJECT_SECTION_ROUTES). Refuse only when EVERY requested key is
+  // hidden: the whole point of keeping the keys separate is that a caller
+  // missing just one of them still gets the other half of the page, the
+  // same granularity a single-key page already had. A hidden SECTION,
+  // unlike the rubrique/scope checks above and below, is a blanket,
+  // function-level refusal that names no project — it can say so plainly,
+  // the same message requireSectionAccess already returns to a mutation,
+  // checked before a single row of this section's own data (a réserve, a
+  // plan, a file) is read — not merely before it is rendered, which is the
+  // render-time filter this whole route exists to close.
+  const visibleSections = new Set<ProjectSectionKey>();
+  for (const key of sections) {
+    if (await canAccessSection(key)) visibleSections.add(key);
+  }
+  if (visibleSections.size === 0) {
     return { ok: false, reason: "forbidden" };
   }
 
@@ -130,6 +151,7 @@ export async function resolveProjectSectionAccess(
     ok: true,
     clientId,
     projectId: pid,
+    visibleSections,
     project: {
       name: result.data.name,
       reserveOpenLabel: result.data.reserveOpenLabel,

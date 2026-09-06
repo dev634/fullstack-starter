@@ -38,7 +38,7 @@ export default async function ProjectTasksPage({ params }: PageProps) {
         <Title title={t.projects.detail.tasksHeading} />
         <p className={access.reason === "error" ? "text-red-500" : undefined}>
           {access.reason === "forbidden"
-            ? t.errors.forbidden
+            ? t.errors.forbiddenSection
             : access.reason === "error"
               ? access.message
               : t.projects.detail.notFound}

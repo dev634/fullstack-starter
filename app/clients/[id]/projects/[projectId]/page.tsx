@@ -4,9 +4,8 @@ import { findLinkOptions as findTaskGroupLinkOptions } from "@/repository/taskGr
 import { findLinkOptions as findTaskCategoryLinkOptions } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findByProject as findInterventionsByProject } from "@/repository/interventions";
-import { findCompaniesByProject } from "@/repository/subcontractors";
-import { findByProject as findInterimsByProject } from "@/repository/interims";
-import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
+import { countCompaniesByProject } from "@/repository/subcontractors";
+import { countByProject as countInterimsByProject } from "@/repository/interims";
 import { countByProject as countFilesByProject } from "@/repository/projectFiles";
 import { countByProject as countReservePlansByProject } from "@/repository/reservePlans";
 import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
@@ -19,12 +18,8 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
 import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
 import ProjectInterventionRow from "@/components/ProjectInterventionRow";
-import ProjectSubcontractorCompanyRow from "@/components/ProjectSubcontractorCompanyRow";
-import ProjectInterimRow from "@/components/ProjectInterimRow";
 import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
 import AddInterventionForm from "@/forms/AddInterventionForm";
-import AddSubcontractorCompanyForm from "@/forms/AddSubcontractorCompanyForm";
-import AddInterimForm from "@/forms/AddInterimForm";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import StatusPill from "@/components/StatusPill";
@@ -35,7 +30,7 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
-import { normalizeSectionOrder, type ProjectSectionKey } from "@/lib/projectSections";
+import { normalizeSectionOrder, buildHubSlots, type ProjectSectionKey, type ProjectSectionRouteSegment } from "@/lib/projectSections";
 import { getHiddenSections } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
@@ -56,8 +51,7 @@ import {
   FolderIcon,
   ChartBarIcon,
   WrenchScrewdriverIcon,
-  BuildingOfficeIcon,
-  UsersIcon,
+  UserGroupIcon,
 } from "@heroicons/react/24/outline";
 
 type PageProps = {
@@ -127,11 +121,15 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   // haut. Ce qui sépare les deux groupes ci-dessous n'est que de la
   // dérivation synchrone, plus bas, des résultats du premier.
   //
-  // Réserves et Fichiers ont quitté cette page pour leurs propres routes
-  // (`.../reserves`, `.../files`), où leur garde de section précède leur
-  // lecture — cette page ne lit plus que leurs COMPTEURS, jamais leurs
-  // listes complètes, et seulement pour la section correspondante quand elle
-  // n'est pas masquée.
+  // Réserves, Fichiers, Tâches et désormais Personnel (fusion de
+  // Sous-traitants + Intérimaires) ont quitté cette page pour leurs propres
+  // routes, où leur garde de section précède leur lecture — cette page ne
+  // lit plus que leurs COMPTEURS, jamais leurs listes complètes, et
+  // seulement pour la ou les sections correspondantes quand elles ne sont
+  // pas masquées. Personnel affiche deux compteurs indépendants (l'un peut
+  // être visible sans l'autre — les deux clés restent séparées, voir
+  // lib/accessContext.ts), donc chacun saute sa propre requête quand SA
+  // clé est masquée, pas seulement quand les deux le sont.
   const [
     taskLinkOptions,
     taskGroupLinkOptions,
@@ -139,9 +137,8 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     taskProgress,
     materials,
     interventions,
-    subcontractorCompanies,
-    interims,
-    jobFunctions,
+    subcontractorCount,
+    interimCount,
     reservePlanCount,
     reserveTally,
     fileCount,
@@ -158,10 +155,8 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     computeTaskProgressByProject(pid),
     findMaterialsByProject(pid),
     findInterventionsByProject(pid),
-    findCompaniesByProject(pid),
-    findInterimsByProject(pid),
-    // Managed job functions offered in the intérimaire add form's dropdown.
-    canEdit ? findJobFunctions() : Promise.resolve([]),
+    hiddenSections.has("subcontractors") ? Promise.resolve(0) : countCompaniesByProject(pid),
+    hiddenSections.has("interims") ? Promise.resolve(0) : countInterimsByProject(pid),
     hiddenSections.has("reserves") ? Promise.resolve(0) : countReservePlansByProject(pid),
     hiddenSections.has("reserves")
       ? Promise.resolve({ total: 0, open: 0, resolved: 0 })
@@ -326,16 +321,18 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </div>
         </div>
 
-        {/* Reorderable "dropdown" sections. Built as a key -> node map so the
-            display order is a pure data concern (the SUPERADMIN order from
-            lib/projectSections.ts), then each is wrapped once in the shared
-            card chrome and rendered in that order. Réserves and Files are no
-            longer inline collapsible sections — they're link cards carrying
-            only a COUNT, to their own guarded routes — but they keep their
-            place in this same reorderable map so an admin's configured
-            section order still positions them exactly as before. */}
+        {/* Reorderable "dropdown" sections. Routed pages (Tâches, Personnel,
+            Fichiers, Réserves) are link cards carrying only a COUNT, to their
+            own guarded route — built from lib/projectSections.ts's
+            PROJECT_SECTION_ROUTES via buildHubSlots below, which is also
+            what collapses Personnel's two keys (subcontractors + interims)
+            into the single slot its merged page occupies. Materials and
+            Interventions have no route of their own and stay inline
+            collapsible sections, in `sectionContent`. Each slot is wrapped
+            once in the shared card chrome and rendered in the admin's
+            configured order. */}
         {(() => {
-        const sectionContent: Record<ProjectSectionKey, ReactNode> = {
+        const routeContent: Record<ProjectSectionRouteSegment, ReactNode> = {
         tasks: (
           <Link
             href={`/clients/${id}/projects/${pid}/tasks`}
@@ -353,6 +350,88 @@ export default async function ProjectDetailPage({ params }: PageProps) {
             <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
           </Link>
         ),
+        workforce: (
+          <Link
+            href={`/clients/${id}/projects/${pid}/workforce`}
+            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
+          >
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
+              <UserGroupIcon className="h-5 w-5 shrink-0 text-teal-500" />
+              <span className="truncate">{t.projects.detail.workforceHeading}</span>
+              {(subcontractorCount > 0 || interimCount > 0) && (
+                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  {[
+                    subcontractorCount > 0
+                      ? format(t.projects.detail.workforceSubcontractorsCount, { count: subcontractorCount })
+                      : null,
+                    interimCount > 0
+                      ? format(t.projects.detail.workforceInterimsCount, { count: interimCount })
+                      : null,
+                  ]
+                    .filter((segment): segment is string => segment !== null)
+                    .join(" · ")}
+                </span>
+              )}
+            </h2>
+            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          </Link>
+        ),
+        files: (
+          <Link
+            href={`/clients/${id}/projects/${pid}/files`}
+            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
+          >
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
+              <FolderIcon className="h-5 w-5 shrink-0 text-amber-500" />
+              <span className="truncate">{t.projects.detail.filesHeading}</span>
+              {fileCount > 0 && (
+                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">({fileCount})</span>
+              )}
+            </h2>
+            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          </Link>
+        ),
+        reserves: (
+          <Link
+            href={`/clients/${id}/projects/${pid}/reserves`}
+            className="flex items-start justify-between gap-3 px-4 py-4 sm:items-center sm:px-6"
+          >
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
+                <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
+                <span className="truncate">{t.reserves.heading}</span>
+                {reservePlanCount > 0 && (
+                  <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                    ({reservePlanCount})
+                  </span>
+                )}
+              </h2>
+              {/* The open-réserve count is the single most useful figure on
+                  this page for a conducteur de travaux: he no longer has to
+                  open this card to know whether there's something to treat.
+                  A coloured pill (the exact classes the dedicated réserves
+                  page's own status badges use) instead of the same small grey
+                  text as the plan count above, so it reads as a status at a
+                  glance rather than blending into it. */}
+              {reserveTally.total > 0 ? (
+                <StatusPill className={reserveTally.open > 0 ? "reserve-pill-open" : "reserve-pill-resolved"}>
+                  {format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}
+                </StatusPill>
+              ) : (
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {reservePlanCount > 0 ? t.reserves.noReserves : t.reserves.noPlans}
+                </span>
+              )}
+            </div>
+            <ArrowRightIcon className="mt-1 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 sm:mt-0" />
+          </Link>
+        ),
+        };
+        // Only materials/interventions: the two keys with no routed page of
+        // their own (see PROJECT_SECTION_ROUTES's own doc) — a Partial is
+        // enough since buildHubSlots below only ever asks this map for one
+        // of these two keys.
+        const sectionContent: Partial<Record<ProjectSectionKey, ReactNode>> = {
         materials: (
           <CollapsibleSection
             icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
@@ -413,110 +492,16 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           )}
           </CollapsibleSection>
         ),
-        subcontractors: (
-          <CollapsibleSection
-            icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
-            title={t.projects.detail.subcontractorsHeading}
-            badge={subcontractorCompanies.length > 0 ? `(${subcontractorCompanies.length})` : undefined}
-            headerExtra={canEdit && <AddSubcontractorCompanyForm clientId={clientId} projectId={pid} />}
-          >
-          {subcontractorCompanies.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {subcontractorCompanies.map((company) => (
-                <ProjectSubcontractorCompanyRow
-                  key={company.id}
-                  company={company}
-                  clientId={clientId}
-                  projectId={pid}
-                  canEdit={canEdit}
-                  functions={jobFunctions}
-                />
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.noSubcontractors}
-            </div>
-          )}
-          </CollapsibleSection>
-        ),
-        interims: (
-          <CollapsibleSection
-            icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
-            title={t.projects.detail.interimsHeading}
-            badge={interims.length > 0 ? `(${interims.length})` : undefined}
-            headerExtra={canEdit && <AddInterimForm clientId={clientId} projectId={pid} functions={jobFunctions} />}
-          >
-          {interims.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {interims.map((interim) => (
-                <ProjectInterimRow key={interim.id} interim={interim} clientId={clientId} projectId={pid} canEdit={canEdit} />
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.noInterims}
-            </div>
-          )}
-          </CollapsibleSection>
-        ),
-        files: (
-          <Link
-            href={`/clients/${id}/projects/${pid}/files`}
-            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
-          >
-            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
-              <FolderIcon className="h-5 w-5 shrink-0 text-amber-500" />
-              <span className="truncate">{t.projects.detail.filesHeading}</span>
-              {fileCount > 0 && (
-                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">({fileCount})</span>
-              )}
-            </h2>
-            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-          </Link>
-        ),
-        reserves: (
-          <Link
-            href={`/clients/${id}/projects/${pid}/reserves`}
-            className="flex items-start justify-between gap-3 px-4 py-4 sm:items-center sm:px-6"
-          >
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
-                <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
-                <span className="truncate">{t.reserves.heading}</span>
-                {reservePlanCount > 0 && (
-                  <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                    ({reservePlanCount})
-                  </span>
-                )}
-              </h2>
-              {/* The open-réserve count is the single most useful figure on
-                  this page for a conducteur de travaux: he no longer has to
-                  open this card to know whether there's something to treat.
-                  A coloured pill (the exact classes the dedicated réserves
-                  page's own status badges use) instead of the same small grey
-                  text as the plan count above, so it reads as a status at a
-                  glance rather than blending into it. */}
-              {reserveTally.total > 0 ? (
-                <StatusPill className={reserveTally.open > 0 ? "reserve-pill-open" : "reserve-pill-resolved"}>
-                  {format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}
-                </StatusPill>
-              ) : (
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {reservePlanCount > 0 ? t.reserves.noReserves : t.reserves.noPlans}
-                </span>
-              )}
-            </div>
-            <ArrowRightIcon className="mt-1 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 sm:mt-0" />
-          </Link>
-        ),
         };
-        return sectionOrder.map((key) => (
+        const hubSlots = buildHubSlots(sectionOrder);
+        return hubSlots.map((slot) => (
           <div
-            key={key}
+            key={slot.kind === "route" ? slot.segment : slot.key}
             className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600"
           >
-            <div className="overflow-hidden rounded-xl">{sectionContent[key]}</div>
+            <div className="overflow-hidden rounded-xl">
+              {slot.kind === "route" ? routeContent[slot.segment] : sectionContent[slot.key]}
+            </div>
           </div>
         ));
         })()}
