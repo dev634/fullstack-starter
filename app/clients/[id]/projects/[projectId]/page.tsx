@@ -147,18 +147,62 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
-  const [tasks, taskGroups, taskCategories, materials, interventions, subcontractorCompanies, interims, jobFunctions] =
-    await Promise.all([
-      findByProject(pid),
-      findTaskGroupsByProject(pid),
-      findTaskCategoriesByProject(pid),
-      findMaterialsByProject(pid),
-      findInterventionsByProject(pid),
-      findCompaniesByProject(pid),
-      findInterimsByProject(pid),
-      // Managed job functions offered in the intérimaire add form's dropdown.
-      canEdit ? findJobFunctions() : Promise.resolve([]),
-    ]);
+  // Une seule barrière, pas deux. Ces seize requêtes étaient réparties en deux
+  // `Promise.all` successifs, donc le second attendait la fin du premier alors
+  // qu'il n'en dépend pas : il ne prend que `pid` et les dossiers courants, lus
+  // dans l'URL bien plus haut (`currentFolderId`, `currentReserveFolderId`). Ce
+  // qui sépare les deux groupes ci-dessous n'est que de la dérivation
+  // synchrone, plus bas, des résultats du premier.
+  //
+  // Mesuré sur un volume réaliste (180 tâches, 256 réserves, 768 photos, 350
+  // fichiers) : 8,4 ms + 18,3 ms en séquence contre ~18,3 ms fusionnés, la
+  // barrière valant sa requête la plus lente. Celle-là est
+  // `findReservePlansByProject` à elle seule, 18,2 des 18,3 ms : si ce coût
+  // redevient un sujet, c'est elle qu'il faut regarder, pas leur répartition.
+  const [
+    tasks,
+    taskGroups,
+    taskCategories,
+    materials,
+    interventions,
+    subcontractorCompanies,
+    interims,
+    jobFunctions,
+    subfolders,
+    files,
+    breadcrumb,
+    reservePlans,
+    reserveFolders,
+    reserveSubfolders,
+    reserveBreadcrumb,
+    reserveTally,
+  ] = await Promise.all([
+    findByProject(pid),
+    findTaskGroupsByProject(pid),
+    findTaskCategoriesByProject(pid),
+    findMaterialsByProject(pid),
+    findInterventionsByProject(pid),
+    findCompaniesByProject(pid),
+    findInterimsByProject(pid),
+    // Managed job functions offered in the intérimaire add form's dropdown.
+    canEdit ? findJobFunctions() : Promise.resolve([]),
+    findChildFolders(pid, currentFolderId),
+    findFilesByFolder(pid, currentFolderId),
+    getBreadcrumb(pid, currentFolderId),
+    // boundReserves: true — passe 3b (C2), point 4. See findByProject's own
+    // doc (repository/reservePlans.ts) for why this page opts in and the PDF
+    // report route does not.
+    findReservePlansByProject(pid, { boundReserves: true }),
+    // Full flat list — for the plan "move to folder" target list + counts.
+    findReserveFoldersByProject(pid),
+    // Current level's children + its path, for the nested browser.
+    findReserveChildFolders(pid, currentReserveFolderId),
+    getReserveBreadcrumb(pid, currentReserveFolderId),
+    // Passe 3b (C2), point 4: a project-wide, always-accurate tally — see
+    // repository/reserves.ts::tallyByProject's own doc for why this can no
+    // longer be derived from reservePlans now that its réserves are bounded.
+    tallyReservesByProject(pid),
+  ]);
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
   // collapsed options, never expanded into their individual member tasks/series.
@@ -210,33 +254,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     interims: interims.map((i) => ({ id: i.id, name: i.name })),
   };
 
-  const [
-    subfolders,
-    files,
-    breadcrumb,
-    reservePlans,
-    reserveFolders,
-    reserveSubfolders,
-    reserveBreadcrumb,
-    reserveTally,
-  ] = await Promise.all([
-    findChildFolders(pid, currentFolderId),
-    findFilesByFolder(pid, currentFolderId),
-    getBreadcrumb(pid, currentFolderId),
-    // boundReserves: true — passe 3b (C2), point 4. See findByProject's own
-    // doc (repository/reservePlans.ts) for why this page opts in and the PDF
-    // report route does not.
-    findReservePlansByProject(pid, { boundReserves: true }),
-    // Full flat list — for the plan "move to folder" target list + counts.
-    findReserveFoldersByProject(pid),
-    // Current level's children + its path, for the nested browser.
-    findReserveChildFolders(pid, currentReserveFolderId),
-    getReserveBreadcrumb(pid, currentReserveFolderId),
-    // Passe 3b (C2), point 4: a project-wide, always-accurate tally — see
-    // repository/reserves.ts::tallyByProject's own doc for why this can no
-    // longer be derived from reservePlans now that its réserves are bounded.
-    tallyReservesByProject(pid),
-  ]);
   // What a foreman is actually looking for is what's left to treat — the
   // section badge below keeps showing the plan count (existing info, kept
   // as-is) and appends how many réserves are still open (reserveTally, now
