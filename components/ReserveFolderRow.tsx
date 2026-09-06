@@ -7,7 +7,6 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import { deleteReserveFolder } from "@/actions/reserves/reserves";
-import { RESERVE_FOLDER_PARAM } from "@/lib/reserveFolderParam";
 
 /**
  * One folder in the réserves browser — the same shape as ProjectFolderRow in
@@ -33,10 +32,10 @@ export default function ReserveFolderRow({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep every other query param (the Files module browses through ?folder=
-  // on this same page) so entering a réserve folder doesn't reset it.
+  // This page owns `?folder=` outright — it no longer shares it with the
+  // Files module, which now lives on its own route.
   const params = new URLSearchParams(searchParams.toString());
-  params.set(RESERVE_FOLDER_PARAM, String(folder.id));
+  params.set("folder", String(folder.id));
 
   async function handleConfirmDelete() {
     setPending(true);
@@ -54,7 +53,7 @@ export default function ReserveFolderRow({
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
       <Link
-        href={`/clients/${clientId}/projects/${projectId}?${params.toString()}`}
+        href={`/clients/${clientId}/projects/${projectId}/reserves?${params.toString()}`}
         className="flex min-w-0 flex-1 items-center gap-2 text-sm hover:opacity-80"
       >
         <FolderIcon className="h-5 w-5 shrink-0 text-amber-400" />

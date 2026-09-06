@@ -99,6 +99,25 @@ export async function findById(id: number) {
 }
 
 /**
+ * Total file count for a project — a lightweight COUNT for the project hub's
+ * link card. Deliberately NOT summing `findByFolder` across every folder:
+ * the whole point of moving Files to its own route is that the hub must
+ * never fetch every row just to show a number that gets thrown away at
+ * render.
+ */
+export async function countByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.projectFile.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countByProject (file) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error counting files.",
+        };
+    }
+}
+
+/**
  * publicIds (with the guarded deliveryType/resourceType, for the correct
  * Cloudinary `type` + resource_type) of every file in a project — used to
  * clean up Cloudinary assets before the project (and its files, via cascade)

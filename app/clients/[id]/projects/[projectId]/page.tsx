@@ -7,15 +7,9 @@ import { findByProject as findInterventionsByProject } from "@/repository/interv
 import { findCompaniesByProject } from "@/repository/subcontractors";
 import { findByProject as findInterimsByProject } from "@/repository/interims";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
-import { findChildren as findChildFolders, getBreadcrumb } from "@/repository/projectFolders";
-import { findByFolder as findFilesByFolder } from "@/repository/projectFiles";
-import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
+import { countByProject as countFilesByProject } from "@/repository/projectFiles";
+import { countByProject as countReservePlansByProject } from "@/repository/reservePlans";
 import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
-import {
-  findByProject as findReserveFoldersByProject,
-  findChildren as findReserveChildFolders,
-  getBreadcrumb as getReserveBreadcrumb,
-} from "@/repository/reservePlanFolders";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import Title from "@/components/Title";
@@ -31,21 +25,13 @@ import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
 import ProjectInterventionRow from "@/components/ProjectInterventionRow";
 import ProjectSubcontractorCompanyRow from "@/components/ProjectSubcontractorCompanyRow";
 import ProjectInterimRow from "@/components/ProjectInterimRow";
-import ProjectFolderRow from "@/components/ProjectFolderRow";
-import ProjectFileRow from "@/components/ProjectFileRow";
 import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
 import AddInterventionForm from "@/forms/AddInterventionForm";
 import AddSubcontractorCompanyForm from "@/forms/AddSubcontractorCompanyForm";
 import AddInterimForm from "@/forms/AddInterimForm";
-import CreateFolderForm from "@/forms/CreateFolderForm";
-import UploadFileForm from "@/forms/UploadFileForm";
-import ReservesSection from "@/components/ReservesSection";
-import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
-import AddReservePlanForm from "@/forms/AddReservePlanForm";
-import AddReserveFolderForm from "@/forms/AddReserveFolderForm";
-import ReserveStatusStyleForm from "@/forms/ReserveStatusStyleForm";
-import { parseReserveFolderId } from "@/lib/reserveFolderParam";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
+import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
+import StatusPill from "@/components/StatusPill";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -68,14 +54,11 @@ import {
   CalendarIcon,
   PencilSquareIcon,
   ArrowLeftIcon,
-  ArrowDownTrayIcon,
+  ArrowRightIcon,
   ClipboardDocumentListIcon,
   CubeIcon,
   FolderIcon,
-  HomeIcon,
-  ChevronRightIcon,
   ChartBarIcon,
-  ArrowRightIcon,
   WrenchScrewdriverIcon,
   BuildingOfficeIcon,
   UsersIcon,
@@ -86,23 +69,13 @@ type PageProps = {
     id: string;
     projectId: string;
   }>;
-  searchParams: Promise<{
-    /** Files module browser. */
-    folder?: string;
-    /** Réserves browser — a separate param so both can be open at once. */
-    rfolder?: string;
-  }>;
 };
 
-export default async function ProjectDetailPage({ params, searchParams }: PageProps) {
+export default async function ProjectDetailPage({ params }: PageProps) {
   await blockClientFromApp();
   const { id, projectId } = await params;
-  const { folder: folderParam, rfolder: reserveFolderParam } = await searchParams;
   const clientId = parseInt(id, 10);
   const pid = parseInt(projectId, 10);
-  const parsedFolderId = folderParam ? parseInt(folderParam, 10) : NaN;
-  const currentFolderId = Number.isNaN(parsedFolderId) ? null : parsedFolderId;
-  const currentReserveFolderId = parseReserveFolderId(reserveFolderParam);
 
   const result = await getProject(pid);
   const isError = result.type === "error";
@@ -147,18 +120,22 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const project = result.data!;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
-  // Une seule barrière, pas deux. Ces seize requêtes étaient réparties en deux
+  // Sections this user's job function hides — computed before the barrier
+  // below (not after, as it used to be) so the Réserves/Files counters can
+  // skip their own COUNT entirely when hidden, the same conditional-fetch
+  // pattern the project dashboard already uses for its own two sections.
+  const hiddenSections = await getHiddenSections();
+  // Une seule barrière, pas deux. Ces requêtes étaient réparties en deux
   // `Promise.all` successifs, donc le second attendait la fin du premier alors
-  // qu'il n'en dépend pas : il ne prend que `pid` et les dossiers courants, lus
-  // dans l'URL bien plus haut (`currentFolderId`, `currentReserveFolderId`). Ce
-  // qui sépare les deux groupes ci-dessous n'est que de la dérivation
-  // synchrone, plus bas, des résultats du premier.
+  // qu'il n'en dépend pas : il ne prend que `pid`, lu dans l'URL bien plus
+  // haut. Ce qui sépare les deux groupes ci-dessous n'est que de la
+  // dérivation synchrone, plus bas, des résultats du premier.
   //
-  // Mesuré sur un volume réaliste (180 tâches, 256 réserves, 768 photos, 350
-  // fichiers) : 8,4 ms + 18,3 ms en séquence contre ~18,3 ms fusionnés, la
-  // barrière valant sa requête la plus lente. Celle-là est
-  // `findReservePlansByProject` à elle seule, 18,2 des 18,3 ms : si ce coût
-  // redevient un sujet, c'est elle qu'il faut regarder, pas leur répartition.
+  // Réserves et Fichiers ont quitté cette page pour leurs propres routes
+  // (`.../reserves`, `.../files`), où leur garde de section précède leur
+  // lecture — cette page ne lit plus que leurs COMPTEURS, jamais leurs
+  // listes complètes, et seulement pour la section correspondante quand elle
+  // n'est pas masquée.
   const [
     tasks,
     taskGroups,
@@ -168,14 +145,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     subcontractorCompanies,
     interims,
     jobFunctions,
-    subfolders,
-    files,
-    breadcrumb,
-    reservePlans,
-    reserveFolders,
-    reserveSubfolders,
-    reserveBreadcrumb,
+    reservePlanCount,
     reserveTally,
+    fileCount,
   ] = await Promise.all([
     findByProject(pid),
     findTaskGroupsByProject(pid),
@@ -186,22 +158,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     findInterimsByProject(pid),
     // Managed job functions offered in the intérimaire add form's dropdown.
     canEdit ? findJobFunctions() : Promise.resolve([]),
-    findChildFolders(pid, currentFolderId),
-    findFilesByFolder(pid, currentFolderId),
-    getBreadcrumb(pid, currentFolderId),
-    // boundReserves: true — passe 3b (C2), point 4. See findByProject's own
-    // doc (repository/reservePlans.ts) for why this page opts in and the PDF
-    // report route does not.
-    findReservePlansByProject(pid, { boundReserves: true }),
-    // Full flat list — for the plan "move to folder" target list + counts.
-    findReserveFoldersByProject(pid),
-    // Current level's children + its path, for the nested browser.
-    findReserveChildFolders(pid, currentReserveFolderId),
-    getReserveBreadcrumb(pid, currentReserveFolderId),
-    // Passe 3b (C2), point 4: a project-wide, always-accurate tally — see
-    // repository/reserves.ts::tallyByProject's own doc for why this can no
-    // longer be derived from reservePlans now that its réserves are bounded.
-    tallyReservesByProject(pid),
+    hiddenSections.has("reserves") ? Promise.resolve(0) : countReservePlansByProject(pid),
+    hiddenSections.has("reserves")
+      ? Promise.resolve({ total: 0, open: 0, resolved: 0 })
+      : tallyReservesByProject(pid),
+    hiddenSections.has("files") ? Promise.resolve(0) : countFilesByProject(pid),
   ]);
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
@@ -254,16 +215,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     interims: interims.map((i) => ({ id: i.id, name: i.name })),
   };
 
-  // What a foreman is actually looking for is what's left to treat — the
-  // section badge below keeps showing the plan count (existing info, kept
-  // as-is) and appends how many réserves are still open (reserveTally, now
-  // fetched above via tallyReservesByProject rather than derived here).
-
-  // This project's OPEN/RESOLVED label + colour — `project` already carries
-  // the four raw columns (findById has no `select`). Resolved ONCE here and
-  // passed down, so the plan pin, the list marker, the pill and the editor's
-  // status `<select>` (all inside ReservesSection) can never drift from each
-  // other or from ReserveStatusStyleForm's own "what's the default" hint.
+  // This project's resolved OPEN/RESOLVED label + colour, for the Réserves
+  // link card below: the open count is the single most useful figure on this
+  // whole page for a conducteur de travaux, so it's rendered as the same
+  // coloured pill as the dedicated réserves page rather than buried in grey
+  // text — which is why, unlike before this card existed, this page now also
+  // needs ReserveStatusStyleVars (rendered once, further down) so that pill
+  // never drifts from the project's own configured colour.
   const reserveStatusStyle = resolveReserveStatusStyle(project, t.reserves.status);
 
   // SUPERADMIN-configured display order of the collapsible sections below,
@@ -271,7 +229,6 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const appSettings = await getAppSettings();
   // SUPERADMIN order, then drop any section the current user's job function
   // hides (ADMIN+ are exempt and see them all).
-  const hiddenSections = await getHiddenSections();
   const sectionOrder = normalizeSectionOrder(appSettings.projectSectionOrder).filter(
     (key) => !hiddenSections.has(key)
   );
@@ -280,13 +237,10 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       {/* This project's OPEN/RESOLVED réserve colours, as CSS custom
           properties — see ReserveStatusStyleVars's own doc. Rendered
-          unconditionally (not nested inside the collapsible réserves
-          section below) so it never depends on that section's open/hidden
-          state: it always mounts in the exact same pass as anything that
-          reads --reserve-open/--reserve-resolved (the pins inside
-          ReservesSection, the badge inside ReserveStatusBadge), which is all
-          that actually matters — see docs/CONVENTIONS.md's collapsible-
-          section note on a signal being read at mount. */}
+          unconditionally (same as the dedicated réserves page): the Réserves
+          link card below reads --reserve-open/--reserve-resolved through the
+          exact same .reserve-pill-* classes, whether or not this function's
+          hidden sections end up showing that card at all. */}
       <ReserveStatusStyleVars style={reserveStatusStyle} />
       <div className="w-full max-w-3xl mx-auto space-y-6">
 
@@ -409,7 +363,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         {/* Reorderable "dropdown" sections. Built as a key -> node map so the
             display order is a pure data concern (the SUPERADMIN order from
             lib/projectSections.ts), then each is wrapped once in the shared
-            card chrome and rendered in that order. */}
+            card chrome and rendered in that order. Réserves and Files are no
+            longer inline collapsible sections — they're link cards carrying
+            only a COUNT, to their own guarded routes — but they keep their
+            place in this same reorderable map so an admin's configured
+            section order still positions them exactly as before. */}
         {(() => {
         const sectionContent: Record<ProjectSectionKey, ReactNode> = {
         tasks: (
@@ -577,132 +535,54 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </CollapsibleSection>
         ),
         files: (
-          <CollapsibleSection
-            icon={<FolderIcon className="h-5 w-5 text-amber-500" />}
-            title={t.projects.detail.filesHeading}
-            headerExtra={canEdit && <CreateFolderForm clientId={clientId} projectId={pid} parentId={currentFolderId} />}
+          <Link
+            href={`/clients/${id}/projects/${pid}/files`}
+            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
           >
-          {/* Breadcrumb */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-gray-300 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-            <Link
-              href={`/clients/${id}/projects/${pid}`}
-              className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
-              aria-label={t.files.home}
-            >
-              <HomeIcon className="h-4 w-4" />
-            </Link>
-            {breadcrumb.map((crumb) => (
-              <span key={crumb.id} className="flex items-center gap-1">
-                <ChevronRightIcon className="h-3.5 w-3.5" />
-                <Link
-                  href={`/clients/${id}/projects/${pid}?folder=${crumb.id}`}
-                  className="truncate hover:text-gray-700 dark:hover:text-gray-200"
-                >
-                  {crumb.name}
-                </Link>
-              </span>
-            ))}
-          </div>
-
-          {subfolders.length || files.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {subfolders.map((folder) => (
-                <ProjectFolderRow key={`folder-${folder.id}`} folder={folder} clientId={clientId} projectId={pid} canEdit={canEdit} />
-              ))}
-              {files.map((file) => (
-                <ProjectFileRow key={`file-${file.id}`} file={file} clientId={clientId} projectId={pid} canEdit={canEdit} />
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.emptyFolder}
-            </div>
-          )}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <UploadFileForm clientId={clientId} projectId={pid} folderId={currentFolderId} />
-            </div>
-          )}
-          </CollapsibleSection>
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
+              <FolderIcon className="h-5 w-5 shrink-0 text-amber-500" />
+              <span className="truncate">{t.projects.detail.filesHeading}</span>
+              {fileCount > 0 && (
+                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">({fileCount})</span>
+              )}
+            </h2>
+            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          </Link>
         ),
         reserves: (
-          <CollapsibleSection
-            icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
-            title={t.reserves.heading}
-            badge={
-              reservePlans.length > 0
-                ? reserveTally.total > 0
-                  ? `(${reservePlans.length}) · ${format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}`
-                  : `(${reservePlans.length})`
-                : undefined
-            }
-            headerExtra={
-              // Siblings, not a wrapper div: the header is a flex-wrap row, so
-              // each button must be its own item or they'd stay glued together
-              // and squeeze the section title off-screen on mobile.
-              <>
-                {/* Export is read-only: anyone who can open the project may
-                    download what the section already shows them. */}
-                {reservePlans.length > 0 && (
-                  <a
-                    href={`/clients/${clientId}/projects/${pid}/reserves/report`}
-                    className="inline-flex items-center gap-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-xs font-medium hover:bg-[#d1d5dc] dark:hover:bg-gray-600"
-                  >
-                    <ArrowDownTrayIcon className="h-3.5 w-3.5" />
-                    {t.reserves.exportPdf}
-                  </a>
-                )}
-                {canEdit && (
-                  <AddReserveFolderForm clientId={clientId} projectId={pid} parentId={currentReserveFolderId} />
-                )}
-                {canEdit && (
-                  <AddReservePlanForm clientId={clientId} projectId={pid} folders={reserveFolders} />
-                )}
-                {/* Configures the section it sits in — label/colour of the two
-                    statuses — so it lives in this header next to the section's
-                    other commands, not in a separate settings screen or the
-                    project action bar. `canEdit` only decides whether the
-                    button renders; updateReserveStatusStyle guards the write
-                    itself regardless. */}
-                {canEdit && (
-                  <ReserveStatusStyleForm
-                    clientId={clientId}
-                    projectId={pid}
-                    // Built literally here, not `project={project}`: `project`
-                    // is `findById`'s full row (include: { client: true }) —
-                    // budget/notes and the company's email/phone/address,
-                    // gated behind the `clients.info` rubrique on its own
-                    // screen. ReserveStatusStyleForm's prop type only names
-                    // four columns, but TypeScript is structural: passing the
-                    // wider `project` object would satisfy that type while
-                    // still serializing every other field into this Client
-                    // Component's props (and so into the page's HTML/RSC
-                    // payload) — an EDITOR whose function hides `clients`
-                    // would read them straight from the page source.
-                    project={{
-                      reserveOpenLabel: project.reserveOpenLabel,
-                      reserveOpenColor: project.reserveOpenColor,
-                      reserveResolvedLabel: project.reserveResolvedLabel,
-                      reserveResolvedColor: project.reserveResolvedColor,
-                    }}
-                  />
-                )}
-              </>
-            }
+          <Link
+            href={`/clients/${id}/projects/${pid}/reserves`}
+            className="flex items-start justify-between gap-3 px-4 py-4 sm:items-center sm:px-6"
           >
-            <ReservesSection
-              clientId={clientId}
-              projectId={pid}
-              plans={reservePlans}
-              subfolders={reserveSubfolders}
-              breadcrumb={reserveBreadcrumb}
-              allFolders={reserveFolders}
-              currentFolderId={currentReserveFolderId}
-              canEdit={canEdit}
-              statusStyle={reserveStatusStyle}
-            />
-          </CollapsibleSection>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
+                <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
+                <span className="truncate">{t.reserves.heading}</span>
+                {reservePlanCount > 0 && (
+                  <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                    ({reservePlanCount})
+                  </span>
+                )}
+              </h2>
+              {/* The open-réserve count is the single most useful figure on
+                  this page for a conducteur de travaux: he no longer has to
+                  open this card to know whether there's something to treat.
+                  A coloured pill (the exact classes the dedicated réserves
+                  page's own status badges use) instead of the same small grey
+                  text as the plan count above, so it reads as a status at a
+                  glance rather than blending into it. */}
+              {reserveTally.total > 0 ? (
+                <StatusPill className={reserveTally.open > 0 ? "reserve-pill-open" : "reserve-pill-resolved"}>
+                  {format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}
+                </StatusPill>
+              ) : (
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {reservePlanCount > 0 ? t.reserves.noReserves : t.reserves.noPlans}
+                </span>
+              )}
+            </div>
+            <ArrowRightIcon className="mt-1 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 sm:mt-0" />
+          </Link>
         ),
         };
         return sectionOrder.map((key) => (

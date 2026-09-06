@@ -13,7 +13,7 @@ import {
 } from "@/repository/projectFolders";
 import { create as createFile, remove as removeFile, findById as findFileById } from "@/repository/projectFiles";
 import { uploadProjectFile, destroyProjectFile } from "@/lib/cloudinary";
-import { revalidatePath } from "next/cache";
+import { revalidateFiles } from "@/lib/revalidateFiles";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectFileActionState } from "@/types/projectFile";
@@ -63,7 +63,7 @@ export async function addFolder(
       name: parsed.data.name,
       parentId: parsed.data.parentId ?? null,
     });
-    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidateFiles(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,
       type: "success",
@@ -133,7 +133,7 @@ export async function uploadFile(
       size: uploaded.size,
       mimeType: uploaded.mimeType,
     });
-    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidateFiles(clientId, projectId);
     return {
       ...prevState,
       type: "success",
@@ -180,7 +180,7 @@ export async function deleteFile(id: number, clientId: number, projectId: number
     if (scopeCheck.error) return { type: "error" as const, message: t.files.messages.fileNotFound };
     await destroyProjectFile(file.publicId, { deliveryType: file.deliveryType, resourceType: file.resourceType });
     await removeFile(id);
-    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidateFiles(clientId, projectId);
     return { type: "success" as const, message: t.files.messages.fileDeleted };
   } catch (error) {
     return {
@@ -213,7 +213,7 @@ export async function deleteFolder(id: number, clientId: number, projectId: numb
       files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))
     );
     await removeFolder(id);
-    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidateFiles(clientId, projectId);
     return { type: "success" as const, message: t.files.messages.folderDeleted };
   } catch (error) {
     return {

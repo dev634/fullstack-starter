@@ -34,6 +34,25 @@ function projectPath(clientId: number, projectId: number) {
   return `/clients/${clientId}/projects/${projectId}`;
 }
 
+/**
+ * Every réserve/plan/folder mutation invalidates both the project hub (its
+ * Réserves link card shows a plan count + open tally, both derived straight
+ * from this data — repository/reservePlans.ts::countByProject and
+ * repository/reserves.ts::tallyByProject) AND the dedicated réserves page
+ * (`.../reserves`), which now owns the actual list/viewer this data feeds.
+ * Applied uniformly to every mutation in this file rather than special-cased
+ * per call site (e.g. a folder create/delete never changes the hub's plan
+ * count or tally): a stale réserves page is a silent defect exactly of the
+ * kind this refactor exists to close, and telling ALL eleven call sites
+ * apart correctly is a standing invitation to miss one the day a mutation's
+ * effect on the counters changes.
+ */
+function revalidateReserves(clientId: number, projectId: number) {
+  const base = projectPath(clientId, projectId);
+  revalidatePath(base);
+  revalidatePath(`${base}/reserves`);
+}
+
 /** Upload a PDF plan for a project and store it (ADMIN). */
 export async function addReservePlan(
   prevState: ReservePlanActionState,
@@ -87,7 +106,7 @@ export async function addReservePlan(
       version,
       folderId,
     });
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.planAdded, data: plan };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
@@ -128,7 +147,7 @@ export async function addReserveFolder(
     }
 
     const folder = await createFolder({ projectId, name: trimmed, parentId: validParentId });
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.folderAdded, data: folder };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -157,7 +176,7 @@ export async function deleteReserveFolder(id: number, clientId: number, projectI
     // whole company just from the response shape (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: t.errors.invalidId };
     const folder = await removeFolder(id, realProjectId);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.folderDeleted, data: folder };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -182,7 +201,7 @@ export async function moveReservePlan(planId: number, folderId: number | null, c
     // Passe 3b, point 2 — see deleteReserveFolder's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: t.errors.invalidId };
     await setPlanFolder(planId, folderId, plan.projectId);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.planMoved };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -208,7 +227,7 @@ export async function deleteReservePlan(id: number, clientId: number, projectId:
     if (scopeCheck.error) return { type: "error" as const, message: t.errors.invalidId };
     const plan = await removePlan(id);
     await destroyReservePlan(existing);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.planDeleted, data: plan };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -242,7 +261,7 @@ export async function addReserve(
     // Passe 3b, point 2 — see deleteReserveFolder's comment above.
     if (scopeCheck.error) return { ...prevState, type: "error", message: t.errors.invalidId };
     const reserve = await createReserve(parsed.data);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.added, data: reserve };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
@@ -276,7 +295,7 @@ export async function updateReserve(
     // Passe 3b, point 2 — see deleteReserveFolder's comment above.
     if (scopeCheck.error) return { ...prevState, type: "error", message: t.errors.invalidId };
     const reserve = await updateReserveRow(parsed.data.id, parsed.data);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.updated, data: reserve };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
@@ -319,7 +338,7 @@ export async function addReservePhoto(
       realProjectId
     );
     const photo = await createPhoto({ reserveId, url, publicId, deliveryType, resourceType, format, version });
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.photoAdded, data: photo };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
@@ -346,7 +365,7 @@ export async function deleteReservePhoto(id: number, clientId: number, projectId
     const existing = await findPhotoById(id);
     const photo = await removePhoto(id);
     await destroyReservePhoto(existing);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.photoDeleted, data: photo };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -371,7 +390,7 @@ export async function deleteReserve(id: number, clientId: number, projectId: num
     // Passe 3b, point 2 — see deleteReserveFolder's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: t.reserves.messages.invalidId };
     const reserve = await removeReserve(id);
-    revalidatePath(projectPath(clientId, projectId));
+    revalidateReserves(clientId, projectId);
     return { type: "success" as const, message: t.reserves.messages.deleted, data: reserve };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -431,7 +450,7 @@ export async function updateReserveStatusStyle(
       resolvedLabel: parsed.data.resolvedLabel ?? null,
       resolvedColor: parsed.data.resolvedColor ?? null,
     });
-    revalidatePath(projectPath(clientId, parsed.data.projectId));
+    revalidateReserves(clientId, parsed.data.projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.statusStyleUpdated, data: project };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
