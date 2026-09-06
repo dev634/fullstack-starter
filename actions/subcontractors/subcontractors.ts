@@ -47,6 +47,7 @@ export async function addSubcontractorCompany(
   try {
     const company = await createCompany({ projectId: parsed.data.projectId, name: parsed.data.name });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/workforce`);
     return {
       ...prevState,
       type: "success",
@@ -91,6 +92,7 @@ export async function deleteSubcontractorCompany(id: number, clientId: number, p
     if (scopeCheck.error) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const company = await removeCompany(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
     return { type: "success" as const, message: t.subcontractors.messages.companyDeleted, data: company };
   } catch (error) {
     return {
@@ -138,6 +140,7 @@ export async function addSubcontractorPerson(
       phone: parsed.data.phone,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/workforce`);
     return {
       ...prevState,
       type: "success",
@@ -173,6 +176,7 @@ export async function deleteSubcontractorPerson(id: number, clientId: number, pr
     if (scopeCheck.error) return { type: "error" as const, message: t.subcontractors.messages.invalidId };
     const person = await removePerson(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
     return { type: "success" as const, message: t.subcontractors.messages.personDeleted, data: person };
   } catch (error) {
     return {

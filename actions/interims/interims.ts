@@ -45,6 +45,7 @@ export async function addInterim(
       agency: parsed.data.agency,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/workforce`);
     return {
       ...prevState,
       type: "success",
@@ -84,6 +85,7 @@ export async function deleteInterim(id: number, clientId: number, projectId: num
     if (scopeCheck.error) return { type: "error" as const, message: t.interims.messages.invalidId };
     const interim = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
     return { type: "success" as const, message: t.interims.messages.deleted, data: interim };
   } catch (error) {
     return {

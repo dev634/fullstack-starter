@@ -45,6 +45,22 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/**
+ * Number of intérimaires in a project — the workforce hub card's badge,
+ * never the full `findByProject` list with its included job function.
+ */
+export async function countByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.interim.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countByProject (interim) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error counting interims.",
+        };
+    }
+}
+
 export type InterimOption = { id: number; name: string };
 
 /**

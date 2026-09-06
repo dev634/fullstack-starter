@@ -44,6 +44,23 @@ export async function findCompaniesByProject(projectId: number) {
     }
 }
 
+/**
+ * Number of subcontractor companies in a project — the workforce hub card's
+ * badge (and, before the sections merged, this page's own hub card), never
+ * the full `findCompaniesByProject` list with its nested personnel.
+ */
+export async function countCompaniesByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.subcontractorCompany.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countCompaniesByProject (subcontractor) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error counting subcontractor companies.",
+        };
+    }
+}
+
 export type SubcontractorCompanyOption = { id: number; name: string };
 
 /**
