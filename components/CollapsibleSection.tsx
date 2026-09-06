@@ -4,8 +4,11 @@ import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 
 // Controlled mode: pass `open` together with `onOpenChange` when a parent
 // needs to force the section open — e.g. reveal it after creating something
-// inside. Omit both to keep the section fully self-contained (uncontrolled).
-// The union prevents passing one without the other.
+// inside. Omit both to keep the section fully self-contained (uncontrolled),
+// which always starts CLOSED. A `defaultOpen` briefly existed to open a
+// caller's sections on arrival; it was removed the day that decision was
+// reversed rather than kept as an unused prop — an API nobody calls is dead
+// code, not optionality.
 type ControlMode =
   | { open: boolean; onOpenChange: (open: boolean) => void }
   | { open?: never; onOpenChange?: never };

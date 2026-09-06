@@ -993,7 +993,13 @@ const fr = {
         backToProject: "Retour au projet",
         notFound: "Ce projet n'existe pas...",
         tasksTitle: "Avancement des tâches",
+        // Badge shown on the collapsed section header — same "percent (done/total)"
+        // grammar as groupProgressLabel below, just without the leading "{name} :".
+        tasksBadge: "{percent} % ({done}/{total})",
         generateReport: "Générer rapport PDF",
+        // The whole-dashboard PDF (every visible section combined) — distinct
+        // from generateReport above, which downloads a single section.
+        generateFullReport: "Générer le rapport complet (PDF)",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
         categoriesTitle: "Avancement par catégorie / groupe",
@@ -1006,7 +1012,31 @@ const fr = {
             remaining: "Restantes",
             other: "Autres",
         },
+        // Un materiau sans quantite requise n'a aucun statut de stock
+        // calculable, donc aucune part dans le graphique. Le taire ferait
+        // disparaitre du tableau de bord un materiau qu'on possede.
+        materialsUntracked: "{count} matériau(x) sans quantité requise, non pris en compte — rattachez-les à une tâche pour les suivre.",
         materialsListTitle: "Détail par matériau",
+        interimsTitle: "Avancement par intérimaire",
+        interimsNone: "Aucune tâche, série ou catégorie assignée à un intérimaire pour le moment.",
+        companiesTitle: "Avancement par entreprise sous-traitante",
+        companiesNone: "Aucune tâche, série ou catégorie assignée à une entreprise sous-traitante pour le moment.",
+        reservesTitle: "Avancement des réserves",
+        reservesNone: "Aucune réserve pour le moment.",
+        // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —
+        // deliberately its own namespace rather than reusing
+        // reserves.report.* (generatedOn/total/page there mean the exact same
+        // thing, but importing a réserves-owned key from a Tasks/Interims/…
+        // report would read as this file depending on that domain).
+        report: {
+            globalTitle: "Rapport complet du tableau de bord",
+            generatedOn: "Édité le",
+            total: "Total",
+            done: "Terminées",
+            percent: "Avancement",
+            percentValue: "{value} %",
+            page: "Page {current} / {total}",
+        },
     },
 };
 

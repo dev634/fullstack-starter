@@ -13,6 +13,7 @@ import {
 } from "@/lib/reservesReportData";
 import { buildReservesReport, fetchRemoteImage, type ReportLabels, type ImageFetcher } from "@/lib/reservesReport";
 import type { DeliveryAsset } from "@/lib/cloudinaryDelivery";
+import { pageCount } from "./helpers/pdf";
 
 // buildReservesReport now signs its own delivery URLs (buildDeliveryUrl) —
 // fixed, fake credentials make that fully deterministic here, independent of
@@ -208,11 +209,6 @@ const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64"
 );
-
-/** Count page objects in the raw PDF ("/Type /Pages" is the tree, not a page). */
-function pageCount(pdf: Buffer): number {
-  return (pdf.toString("latin1").match(/\/Type\s*\/Page(?![s])/g) ?? []).length;
-}
 
 const baseInput = {
   project: { name: "Toiture Nord", businessNumber: "AFF-2026-001", address: "12 rue des Lilas" },

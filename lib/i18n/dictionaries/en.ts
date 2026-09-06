@@ -971,7 +971,13 @@ const en: Dictionary = {
         backToProject: "Back to project",
         notFound: "This project doesn't exist...",
         tasksTitle: "Task progress",
+        // Badge shown on the collapsed section header — same "percent (done/total)"
+        // grammar as groupProgressLabel below, just without the leading "{name}:".
+        tasksBadge: "{percent}% ({done}/{total})",
         generateReport: "Generate PDF report",
+        // The whole-dashboard PDF (every visible section combined) — distinct
+        // from generateReport above, which downloads a single section.
+        generateFullReport: "Generate full report (PDF)",
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
         categoriesTitle: "Progress by category / group",
@@ -984,7 +990,26 @@ const en: Dictionary = {
             remaining: "Remaining",
             other: "Other",
         },
+        materialsUntracked: "{count} material(s) with no required quantity, not counted — link them to a task to track them.",
         materialsListTitle: "Material breakdown",
+        interimsTitle: "Progress by temp worker",
+        interimsNone: "No task, series or category assigned to a temp worker yet.",
+        companiesTitle: "Progress by subcontractor company",
+        companiesNone: "No task, series or category assigned to a subcontractor company yet.",
+        reservesTitle: "Snag progress",
+        reservesNone: "No snags yet.",
+        // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —
+        // see fr.ts's own comment for why this is its own namespace instead of
+        // reusing reserves.report.*.
+        report: {
+            globalTitle: "Full dashboard report",
+            generatedOn: "Issued on",
+            total: "Total",
+            done: "Done",
+            percent: "Progress",
+            percentValue: "{value}%",
+            page: "Page {current} / {total}",
+        },
     },
 };
 

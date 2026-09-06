@@ -32,3 +32,17 @@ export function materialStockStatus(quantity: number, requiredQuantity: number):
   if (quantity >= requiredQuantity) return "green";
   return "orange";
 }
+
+/**
+ * Per-status tally across an already-tracked material list — shared by the
+ * on-screen stock donut (components/charts/MaterialStockDonut.tsx) and the
+ * project dashboard's materials PDF report, so both read the exact same
+ * three counts for the exact same materials instead of each re-deriving them.
+ */
+export function countByStockStatus(
+  materials: readonly { status: MaterialStockStatus }[]
+): Record<MaterialStockStatus, number> {
+  const counts: Record<MaterialStockStatus, number> = { green: 0, orange: 0, red: 0 };
+  for (const material of materials) counts[material.status] += 1;
+  return counts;
+}

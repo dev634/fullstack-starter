@@ -210,6 +210,20 @@ Chaque entreprise possède des **projets**. Un projet comporte :
 
 ![Le formulaire de création d'un projet.](screenshots/project-add.png)
 
+> ⚠️ **Passage ci-dessous périmé (PR #206 à #213, septembre 2026) — à réécrire.**
+> La page d'un projet n'affiche plus ces sections dépliées sur place : c'est
+> désormais un **hub de cartes**, chacune menant à sa propre page (Tâches,
+> Réserves, Fichiers, Personnel, Interventions). **Matériel** n'a plus de page
+> à lui : il vit dans la page **Tâches**. **Sous-traitants** et **Intérimaires**
+> sont réunis dans une seule page **Personnel**. Restent exacts : l'ordre des
+> sections reste configurable (il ordonne les cartes), et la visibilité par
+> fonction se règle toujours sur les **sept** clés listées ici. Les captures de
+> cette section montrent l'ancienne organisation. Enfin, le bouton « Générer
+> rapport PDF » imprime la page telle qu'elle est affichée : les sections du
+> tableau de bord étant repliées au chargement, le rapport ne contient que
+> leurs en-têtes tant qu'on ne les a pas ouvertes (défaut connu, voir
+> `docs/CONVENTIONS.md`).
+
 La page d'un projet est organisée en **sections dépliables**, dont l'ordre est configurable par un Super administrateur (Administration → Ordre des sections) :
 
 - **Tâches** — suivi d'avancement (voir ci-dessous).
