@@ -17,7 +17,7 @@ import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
 import SeriesProgressRings from "@/components/charts/SeriesProgressRings";
 import MaterialStockDonut from "@/components/charts/MaterialStockDonut";
 import CollapsibleSection from "@/components/CollapsibleSection";
-import PrintReportButton from "@/components/PrintReportButton";
+import ReportDownloadLink from "@/components/ReportDownloadLink";
 import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import StatusPill from "@/components/StatusPill";
 import Link from "next/link";
@@ -200,13 +200,15 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
             {t.projectDashboard.title} · {project.name}
           </h1>
-          <Link
-            href={`/clients/${id}/projects/${pid}`}
-            className="print:hidden inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-          >
-            <ArrowLeftIcon className="h-4 w-4" />
-            {t.projectDashboard.backToProject}
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={`/clients/${id}/projects/${pid}`}
+              className="print:hidden inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+              {t.projectDashboard.backToProject}
+            </Link>
+          </div>
         </div>
 
         {/* Task progress */}
@@ -217,7 +219,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
               title={t.projectDashboard.tasksTitle}
               badge={taskBadge}
-              headerExtra={<PrintReportButton />}
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/dashboard/report/tasks`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
             >
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
               {taskProgress.total > 0 ? (
@@ -270,6 +277,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
               title={t.projectDashboard.interimsTitle}
               badge={interimBadge}
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/dashboard/report/interims`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
             >
             <div className="px-4 py-6 sm:px-6">
               {interimProgress.length > 0 ? (
@@ -292,6 +305,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
               title={t.projectDashboard.companiesTitle}
               badge={companyBadge}
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/dashboard/report/companies`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
             >
             <div className="px-4 py-6 sm:px-6">
               {companyProgress.length > 0 ? (
@@ -321,6 +340,17 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
               title={t.projectDashboard.reservesTitle}
               badge={reservesBadge}
+              // Points at the existing, richer réserves report (plans, pins,
+              // photos) instead of a new dashboard-owned one: this section's
+              // own tally is a strict subset of what that report already
+              // shows, and a second réserves report would just be two
+              // documents that drift apart at the first change to either.
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/reserves/report`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
             >
             <div className="flex flex-col items-center gap-3 px-4 py-6 sm:px-6">
               {reserveTally.total > 0 ? (
@@ -352,6 +382,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
               icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
               title={t.projectDashboard.materialsTitle}
               badge={materialsBadge}
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/dashboard/report/materials`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
             >
             <div className="flex flex-col items-center gap-1 px-4 py-6 sm:px-6">
               {namedMaterials.length > 0 ? (
@@ -387,6 +423,17 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
           </div>
         </div>
         )}
+
+        {/* Le rapport complet vit SOUS les sections, pas dans l'en-tete : on le
+            demande apres avoir parcouru ce qu'il contient. Il porte aussi la
+            seule action de la page qui ne depende d'aucune section — chaque
+            section a deja son propre bouton dans son en-tete. */}
+        <div className="flex justify-center print:hidden">
+          <ReportDownloadLink
+            href={`/clients/${id}/projects/${pid}/dashboard/report`}
+            label={t.projectDashboard.generateFullReport}
+          />
+        </div>
       </div>
     </main>
   );
