@@ -15,6 +15,7 @@ import ProjectTypeBadge from "@/components/ProjectTypeBadge";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import StatusPill from "@/components/StatusPill";
+import ProjectHubCard from "@/components/ProjectHubCard";
 import DeleteProjectButton from "@/app/clients/[id]/_components/DeleteProjectButton";
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -315,57 +316,43 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         {(() => {
         const routeContent: Record<ProjectSectionRouteSegment, ReactNode> = {
         tasks: (
-          <Link
+          <ProjectHubCard
             href={`/clients/${id}/projects/${pid}/tasks`}
-            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
-          >
-            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
-              <ClipboardDocumentListIcon className="h-5 w-5 shrink-0 text-blue-500" />
-              <span className="truncate">{t.projects.detail.tasksHeading}</span>
-              {(totalCount > 0 || materialsCount > 0) && (
-                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  {[
+            icon={<ClipboardDocumentListIcon className="h-5 w-5 shrink-0 text-blue-500" />}
+            title={t.projects.detail.tasksHeading}
+            description={t.projects.detail.tasksDescription}
+            counter={
+              totalCount > 0 || materialsCount > 0
+                ? [
                     totalCount > 0 ? `(${doneCount}/${totalCount})` : null,
                     materialsCount > 0
                       ? format(t.projects.detail.tasksMaterialsCount, { count: materialsCount })
                       : null,
                   ]
                     .filter((segment): segment is string => segment !== null)
-                    .join(" · ")}
-                </span>
-              )}
-            </h2>
-            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-          </Link>
+                    .join(" · ")
+                : undefined
+            }
+          />
         ),
         interventions: (
-          <Link
+          <ProjectHubCard
             href={`/clients/${id}/projects/${pid}/interventions`}
-            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
-          >
-            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
-              <WrenchScrewdriverIcon className="h-5 w-5 shrink-0 text-amber-500" />
-              <span className="truncate">{t.projects.detail.interventionsHeading}</span>
-              {interventionsCount > 0 && (
-                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({interventionsCount})
-                </span>
-              )}
-            </h2>
-            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-          </Link>
+            icon={<WrenchScrewdriverIcon className="h-5 w-5 shrink-0 text-amber-500" />}
+            title={t.projects.detail.interventionsHeading}
+            description={t.projects.detail.interventionsDescription}
+            counter={interventionsCount > 0 ? `(${interventionsCount})` : undefined}
+          />
         ),
         workforce: (
-          <Link
+          <ProjectHubCard
             href={`/clients/${id}/projects/${pid}/workforce`}
-            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
-          >
-            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
-              <UserGroupIcon className="h-5 w-5 shrink-0 text-teal-500" />
-              <span className="truncate">{t.projects.detail.workforceHeading}</span>
-              {(subcontractorCount > 0 || interimCount > 0) && (
-                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  {[
+            icon={<UserGroupIcon className="h-5 w-5 shrink-0 text-teal-500" />}
+            title={t.projects.detail.workforceHeading}
+            description={t.projects.detail.workforceDescription}
+            counter={
+              subcontractorCount > 0 || interimCount > 0
+                ? [
                     subcontractorCount > 0
                       ? format(t.projects.detail.workforceSubcontractorsCount, { count: subcontractorCount })
                       : null,
@@ -374,62 +361,45 @@ export default async function ProjectDetailPage({ params }: PageProps) {
                       : null,
                   ]
                     .filter((segment): segment is string => segment !== null)
-                    .join(" · ")}
-                </span>
-              )}
-            </h2>
-            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-          </Link>
+                    .join(" · ")
+                : undefined
+            }
+          />
         ),
         files: (
-          <Link
+          <ProjectHubCard
             href={`/clients/${id}/projects/${pid}/files`}
-            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
-          >
-            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
-              <FolderIcon className="h-5 w-5 shrink-0 text-amber-500" />
-              <span className="truncate">{t.projects.detail.filesHeading}</span>
-              {fileCount > 0 && (
-                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">({fileCount})</span>
-              )}
-            </h2>
-            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-          </Link>
+            icon={<FolderIcon className="h-5 w-5 shrink-0 text-amber-500" />}
+            title={t.projects.detail.filesHeading}
+            description={t.projects.detail.filesDescription}
+            counter={fileCount > 0 ? `(${fileCount})` : undefined}
+          />
         ),
         reserves: (
-          <Link
+          <ProjectHubCard
             href={`/clients/${id}/projects/${pid}/reserves`}
-            className="flex items-start justify-between gap-3 px-4 py-4 sm:items-center sm:px-6"
+            icon={<MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />}
+            title={t.reserves.heading}
+            description={t.projects.detail.reservesDescription}
+            counter={reservePlanCount > 0 ? `(${reservePlanCount})` : undefined}
           >
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
-                <MapPinIcon className="h-5 w-5 shrink-0 text-rose-500" />
-                <span className="truncate">{t.reserves.heading}</span>
-                {reservePlanCount > 0 && (
-                  <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                    ({reservePlanCount})
-                  </span>
-                )}
-              </h2>
-              {/* The open-réserve count is the single most useful figure on
-                  this page for a conducteur de travaux: he no longer has to
-                  open this card to know whether there's something to treat.
-                  A coloured pill (the exact classes the dedicated réserves
-                  page's own status badges use) instead of the same small grey
-                  text as the plan count above, so it reads as a status at a
-                  glance rather than blending into it. */}
-              {reserveTally.total > 0 ? (
-                <StatusPill className={reserveTally.open > 0 ? "reserve-pill-open" : "reserve-pill-resolved"}>
-                  {format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}
-                </StatusPill>
-              ) : (
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {reservePlanCount > 0 ? t.reserves.noReserves : t.reserves.noPlans}
-                </span>
-              )}
-            </div>
-            <ArrowRightIcon className="mt-1 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 sm:mt-0" />
-          </Link>
+            {/* The open-réserve count is the single most useful figure on
+                this page for a conducteur de travaux: he no longer has to
+                open this card to know whether there's something to treat.
+                A coloured pill (the exact classes the dedicated réserves
+                page's own status badges use) instead of the same small grey
+                text as the plan count above, so it reads as a status at a
+                glance rather than blending into it. */}
+            {reserveTally.total > 0 ? (
+              <StatusPill className={reserveTally.open > 0 ? "reserve-pill-open" : "reserve-pill-resolved"}>
+                {format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })}
+              </StatusPill>
+            ) : (
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {reservePlanCount > 0 ? t.reserves.noReserves : t.reserves.noPlans}
+              </span>
+            )}
+          </ProjectHubCard>
         ),
         };
         const hubSlots = buildHubSlots(sectionOrder);
