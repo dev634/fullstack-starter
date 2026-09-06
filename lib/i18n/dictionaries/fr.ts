@@ -466,6 +466,11 @@ const fr = {
         editTitle: "Modifier le matériel",
         linkedTaskLabel: "Tâche liée",
         linkedTaskNone: "Aucune tâche liée",
+        // Les mots de l'interface, pas ceux du schéma : ProjectTaskGroup
+        // s'affiche « série », ProjectTaskCategory s'affiche « groupe ».
+        linkedTaskTasksGroup: "Tâches",
+        linkedTaskSeriesGroup: "Séries",
+        linkedTaskCategoriesGroup: "Groupes",
         linkedTask: "Pour : {title}",
         requiredQuantityLabel: "Quantité requise",
         requiredQuantityPlaceholder: "Requis",
