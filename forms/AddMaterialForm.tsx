@@ -2,6 +2,7 @@
 import { addMaterial } from "@/actions/projectMaterials/projectMaterials";
 import { useActionState, useEffect, useRef } from "react";
 import { useTranslation } from "@/components/LocaleProvider";
+import MaterialLinkOptions from "@/components/MaterialLinkOptions";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
 
 // A linkable target for a material: a standalone (ungrouped) task, an
@@ -112,21 +113,7 @@ export default function AddMaterialForm({
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             >
               <option value="">{t.materials.linkedTaskNone}</option>
-              {linkOptions.map((option) =>
-                option.kind === "task" ? (
-                  <option key={`task-${option.id}`} value={`task:${option.id}`}>
-                    {option.title}
-                  </option>
-                ) : option.kind === "group" ? (
-                  <option key={`group-${option.id}`} value={`group:${option.id}`}>
-                    {option.name}
-                  </option>
-                ) : (
-                  <option key={`category-${option.id}`} value={`category:${option.id}`}>
-                    {option.name}
-                  </option>
-                )
-              )}
+              <MaterialLinkOptions options={linkOptions} t={t} />
             </select>
           </div>
           <div className="w-1/2 sm:w-28">
