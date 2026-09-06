@@ -142,6 +142,285 @@ export async function computeProgressByProject(projectId: number): Promise<TaskP
     }
 }
 
+export type AssigneeProgress = { id: number; name: string; done: number; total: number; percent: number };
+
+/**
+ * Per-assignee {id, name, done, total, percent} for every intérimaire who has
+ * at least one task, série or catégorie assigned to them in this project —
+ * WITHOUT loading a single ProjectTask/ProjectTaskGroup/ProjectTaskCategory
+ * row, for the project dashboard's "Avancement par intérimaire" section.
+ *
+ * Three independent sources are summed per assignee, matching the three
+ * places components/AssigneePicker.tsx can attach an intérimaire (a task
+ * — standalone OR nested inside a série —, a whole série, or a whole
+ * catégorie):
+ *
+ *   1. `ProjectTask.assignedInterimId` directly on a task, weighted exactly
+ *      like lib/projectDashboard.ts::computeTaskBarStats (a STANDALONE task
+ *      with an active quantityTarget counts for that quantity; every other
+ *      task — including one individually assigned while nested inside a
+ *      série — counts as a plain 1/0, same `groupId IS NULL` guard as
+ *      computeProgressByProject above, and for the same reason: a nested
+ *      task's own quantityTarget, even if one were ever set, must not leak
+ *      in here).
+ *   2. `ProjectTaskGroup.assignedInterimId` on a whole série — its ENTIRE
+ *      child task count, unweighted (1 per task), mirroring
+ *      repository/taskGroups.ts::findByProject's own doneCount/totalCount.
+ *   3. `ProjectTaskCategory.assignedInterimId` on a whole catégorie — the sum
+ *      of every group filed under it (plain child-task counts, as above)
+ *      plus every standalone task filed directly under it (quantity-weighted
+ *      via computeTaskBarStats), i.e. exactly
+ *      lib/projectDashboard.ts::computeTaskProgress's own `categoryBars`
+ *      branch for that one catégorie.
+ *
+ * An assignee shows up even when a group/catégorie assigned to them happens
+ * to be EMPTY (0 tasks under it) — a 0/0 row, not a silent omission: the
+ * LEFT JOINs below intentionally still produce a zero-valued row for that
+ * source rather than dropping the intérimaire from the result the way an
+ * INNER JOIN would. Two assignees CAN legitimately double-count the same
+ * task if it's individually reassigned away from its own série/catégorie's
+ * assignee (e.g. a série assigned to A with one task inside it reassigned to
+ * B) — each of the two people's own tally reflects what's actually assigned
+ * to THEM, independently, across the same three orthogonal levels the picker
+ * itself exposes; nothing here reconciles the two.
+ *
+ * Verified against lib/projectDashboard.ts::computeTaskBarStats/
+ * computeTaskProgress with a hand-built scenario covering every branch above
+ * (direct task, quantity-tracked direct task, task nested in a série,
+ * an assignee's own série, an EMPTY série, a catégorie with a standalone
+ * task + a nested série, and an EMPTY catégorie) before this function
+ * existed — see the PR that introduced it.
+ */
+export async function computeProgressByInterim(projectId: number): Promise<AssigneeProgress[]> {
+    try {
+        const rows = await prisma.$queryRaw<{ id: number; name: string; done: bigint; total: bigint }[]>`
+            WITH task_level AS (
+                SELECT
+                    "assignedInterimId" AS assignee_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "assignedInterimId" IS NOT NULL
+                GROUP BY "assignedInterimId"
+            ),
+            group_level AS (
+                SELECT
+                    g."assignedInterimId" AS assignee_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."assignedInterimId" IS NOT NULL
+                GROUP BY g.id, g."assignedInterimId"
+            ),
+            category_children AS (
+                SELECT "categoryId" AS category_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "groupId" IS NULL AND "categoryId" IS NOT NULL
+                GROUP BY "categoryId"
+
+                UNION ALL
+
+                SELECT g."categoryId" AS category_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."categoryId" IS NOT NULL
+                GROUP BY g.id, g."categoryId"
+            ),
+            category_level AS (
+                SELECT
+                    c."assignedInterimId" AS assignee_id,
+                    COALESCE(SUM(cc.done), 0) AS done,
+                    COALESCE(SUM(cc.total), 0) AS total
+                FROM "ProjectTaskCategory" c
+                LEFT JOIN category_children cc ON cc.category_id = c.id
+                WHERE c."projectId" = ${projectId} AND c."assignedInterimId" IS NOT NULL
+                GROUP BY c.id, c."assignedInterimId"
+            ),
+            combined AS (
+                SELECT assignee_id, done, total FROM task_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM group_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM category_level
+            )
+            SELECT
+                i.id AS id,
+                i.name AS name,
+                COALESCE(SUM(combined.done), 0) AS done,
+                COALESCE(SUM(combined.total), 0) AS total
+            FROM combined
+            JOIN "Interim" i ON i.id = combined.assignee_id
+            WHERE i."projectId" = ${projectId}
+            GROUP BY i.id, i.name
+            ORDER BY i.name ASC
+        `;
+        return rows.map((row) => {
+            const done = Number(row.done);
+            const total = Number(row.total);
+            return { id: row.id, name: row.name, done, total, percent: roundPercent(done, total) };
+        });
+    } catch (error) {
+        console.log("Repository computeProgressByInterim (task) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error computing task progress by intérimaire.",
+        };
+    }
+}
+
+/**
+ * Same computation as computeProgressByInterim, mirror-imaged onto
+ * SubcontractorCompany/assignedCompanyId — see that function's own doc for
+ * the full reasoning (three sources summed, empty série/catégorie still
+ * shown as a 0/0 row). Kept as a literal duplicate rather than a shared
+ * helper parameterized by column/table name: the two column names
+ * (`assignedInterimId`/`assignedCompanyId`) and joined tables
+ * (`Interim`/`SubcontractorCompany`) are SQL identifiers, not values a
+ * `$queryRaw` template can parameterize — the only way to share this would
+ * be `Prisma.raw(...)` string-splicing a table/column name into the query,
+ * which has no precedent anywhere else in this codebase's raw SQL. Two
+ * occurrences of the same shape is exactly this project's own "leave it,
+ * signal it" DRY threshold, not the "extract" one.
+ */
+export async function computeProgressByCompany(projectId: number): Promise<AssigneeProgress[]> {
+    try {
+        const rows = await prisma.$queryRaw<{ id: number; name: string; done: bigint; total: bigint }[]>`
+            WITH task_level AS (
+                SELECT
+                    "assignedCompanyId" AS assignee_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "assignedCompanyId" IS NOT NULL
+                GROUP BY "assignedCompanyId"
+            ),
+            group_level AS (
+                SELECT
+                    g."assignedCompanyId" AS assignee_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."assignedCompanyId" IS NOT NULL
+                GROUP BY g.id, g."assignedCompanyId"
+            ),
+            category_children AS (
+                SELECT "categoryId" AS category_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "groupId" IS NULL AND "categoryId" IS NOT NULL
+                GROUP BY "categoryId"
+
+                UNION ALL
+
+                SELECT g."categoryId" AS category_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."categoryId" IS NOT NULL
+                GROUP BY g.id, g."categoryId"
+            ),
+            category_level AS (
+                SELECT
+                    c."assignedCompanyId" AS assignee_id,
+                    COALESCE(SUM(cc.done), 0) AS done,
+                    COALESCE(SUM(cc.total), 0) AS total
+                FROM "ProjectTaskCategory" c
+                LEFT JOIN category_children cc ON cc.category_id = c.id
+                WHERE c."projectId" = ${projectId} AND c."assignedCompanyId" IS NOT NULL
+                GROUP BY c.id, c."assignedCompanyId"
+            ),
+            combined AS (
+                SELECT assignee_id, done, total FROM task_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM group_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM category_level
+            )
+            SELECT
+                comp.id AS id,
+                comp.name AS name,
+                COALESCE(SUM(combined.done), 0) AS done,
+                COALESCE(SUM(combined.total), 0) AS total
+            FROM combined
+            JOIN "SubcontractorCompany" comp ON comp.id = combined.assignee_id
+            WHERE comp."projectId" = ${projectId}
+            GROUP BY comp.id, comp.name
+            ORDER BY comp.name ASC
+        `;
+        return rows.map((row) => {
+            const done = Number(row.done);
+            const total = Number(row.total);
+            return { id: row.id, name: row.name, done, total, percent: roundPercent(done, total) };
+        });
+    } catch (error) {
+        console.log("Repository computeProgressByCompany (task) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error computing task progress by subcontractor company.",
+        };
+    }
+}
+
 /**
  * The task's real project id, or null if it doesn't exist — resolved from
  * the row itself so callers can check project-scope access against the

@@ -985,6 +985,12 @@ const en: Dictionary = {
             other: "Other",
         },
         materialsListTitle: "Material breakdown",
+        interimsTitle: "Progress by temp worker",
+        interimsNone: "No task, series or category assigned to a temp worker yet.",
+        companiesTitle: "Progress by subcontractor company",
+        companiesNone: "No task, series or category assigned to a subcontractor company yet.",
+        reservesTitle: "Snag progress",
+        reservesNone: "No snags yet.",
     },
 };
 

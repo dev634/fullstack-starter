@@ -1007,6 +1007,12 @@ const fr = {
             other: "Autres",
         },
         materialsListTitle: "Détail par matériau",
+        interimsTitle: "Avancement par intérimaire",
+        interimsNone: "Aucune tâche, série ou catégorie assignée à un intérimaire pour le moment.",
+        companiesTitle: "Avancement par entreprise sous-traitante",
+        companiesNone: "Aucune tâche, série ou catégorie assignée à une entreprise sous-traitante pour le moment.",
+        reservesTitle: "Avancement des réserves",
+        reservesNone: "Aucune réserve pour le moment.",
     },
 };
 
