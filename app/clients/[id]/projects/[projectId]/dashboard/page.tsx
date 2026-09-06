@@ -214,7 +214,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
-              defaultOpen
               icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
               title={t.projectDashboard.tasksTitle}
               badge={taskBadge}
@@ -268,7 +267,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
-              defaultOpen
               icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
               title={t.projectDashboard.interimsTitle}
               badge={interimBadge}
@@ -291,7 +289,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
-              defaultOpen
               icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
               title={t.projectDashboard.companiesTitle}
               badge={companyBadge}
@@ -321,7 +318,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
-              defaultOpen
               icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
               title={t.projectDashboard.reservesTitle}
               badge={reservesBadge}
@@ -353,7 +349,6 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
-              defaultOpen
               icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
               title={t.projectDashboard.materialsTitle}
               badge={materialsBadge}
