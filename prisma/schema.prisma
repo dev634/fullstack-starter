@@ -133,6 +133,11 @@ model Project {
   tasks          ProjectTask[]
   taskGroups     ProjectTaskGroup[]
   taskCategories ProjectTaskCategory[]
+  // TWO different kinds of category hang off a project, and both are reachable
+  // from ProjectMaterial: taskCategories = phases of the WORKS,
+  // materialCategories = the NATURE of the articles. Read
+  // ProjectMaterialCategory own comment before touching either.
+  materialCategories ProjectMaterialCategory[]
   folders        ProjectFolder[]
   files          ProjectFile[]
   materials      ProjectMaterial[]
@@ -482,6 +487,76 @@ model ProjectFolder {
   @@index([parentId])
 }
 
+// A material NATURE, per project: Electricite, Couverture, Fixations... — how
+// a conducteur de travaux files what he stores on a chantier, independently of
+// the task that consumes it.
+//
+// READ THIS FIRST: THE WORD "CATEGORY" WAS ALREADY TAKEN NEXT DOOR.
+// ProjectMaterial points at TWO different "category" models, and the other one
+// got the word first. They answer different questions:
+//
+//   ProjectMaterial.taskCategoryId -> ProjectTaskCategory
+//     "WHY is this material here?" — which phase of the works consumes it. One
+//     of three mutually exclusive link targets (task / series / task category)
+//     and, together with requiredQuantity, it drives the stock indicator
+//     (red/orange/green, lib/materialStock.ts). ProjectTaskCategory also owns
+//     tasks, task series and an assignee: it is a unit of WORK.
+//
+//   ProjectMaterial.materialCategoryId -> ProjectMaterialCategory (this model)
+//     "WHAT is this material?" — filing, nothing else. It drives no stock
+//     indicator, no progress figure, no assignment. It owns nothing but
+//     materials.
+//
+// The two are independent, and carrying BOTH is the normal case rather than a
+// contradiction: a breaker filed under "Electricite" (material category)
+// needed for "Raccordement" (task category). Neither can be derived from the
+// other, and clearing one must never clear the other.
+//
+// Modelled on ProjectTaskCategory — owned by exactly one project, cascade
+// deleted with it, one name — minus everything that makes a task category a
+// unit of work: no groups, no tasks, no assignedCompany/assignedInterim.
+//
+// Like ProjectTaskCategory, this table carries no cross-project guard of its
+// own: nothing in the database stops a material of project A from being filed
+// under a category of project B. The FK only proves the category exists. That
+// invariant is the action layer job (resolve the category, check its projectId
+// against the material own, 404 otherwise) — the same duty taskCategoryId
+// already has. It is deliberately not a composite FK on (projectId, id): a
+// composite FK with ON DELETE SET NULL nulls EVERY column of the key, which
+// would try to null the NOT NULL projectId and turn a category deletion into a
+// hard error.
+//
+// No @@unique([projectId, name]) on purpose. A plain unique would still admit
+// "Electricite" next to "electricite " and "ELECTRICITE", so it would buy
+// confidence it does not deliver; the constraint that would actually mean
+// something is a functional unique index on (projectId, lower(btrim(name))),
+// which Prisma cannot express in this file and which ProjectTaskCategory does
+// not carry either. If duplicate names become a real complaint, add it as a
+// raw index in its own migration — as a decision, de-duplicating the existing
+// rows in the same transaction.
+model ProjectMaterialCategory {
+  id        Int               @id @default(autoincrement())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId Int
+  // Non-blank, control-character-free, at most MAX_NAME_LENGTH (200,
+  // schemas/fields.ts — the same "name or title" tier every other name in this
+  // app uses; not a new number, so a category name and a task name cannot
+  // drift apart). Enforced by a database CHECK in migration
+  // 20260906120000_project_material_category, not only by Zod: an admin
+  // script, a data fix or a psql session goes around Zod, never around a
+  // CHECK. Same shape as the Project.reserve*Label CHECKs of 20260823090000.
+  // The empty string is rejected so an unnamed category cannot masquerade as a
+  // named one in a <select>.
+  name      String
+  createdAt DateTime          @default(now())
+  materials ProjectMaterial[]
+
+  // projectId backs the per-project category list AND the Project
+  // onDelete: Cascade scan. Postgres does not auto-index a foreign key column:
+  // without this, deleting one project sequentially scans this whole table.
+  @@index([projectId])
+}
+
 // Inventory line for a project's equipment/material (panels, inverters,
 // mounting hardware, ...). Quantity-only tracking — no per-unit status.
 model ProjectMaterial {
@@ -506,14 +581,41 @@ model ProjectMaterial {
   taskCategory     ProjectTaskCategory? @relation(fields: [taskCategoryId], references: [id], onDelete: SetNull)
   taskCategoryId   Int?
   requiredQuantity Float?
+  // WHAT this material is (Electricite, Couverture, Fixations...) — filing
+  // only. This is NOT taskCategoryId a few lines above: that one says which
+  // phase of the works the material is needed FOR and drives the stock
+  // indicator; this one says what kind of article it is and drives nothing.
+  // The two are independent and a material commonly carries both — see
+  // ProjectMaterialCategory own comment for the full distinction.
+  //
+  // Optional, and NULL is a legitimate, PERMANENT state: "non classe". It is
+  // not a hole waiting to be filled, which is why this column carries no
+  // @default and why its migration deliberately performs NO backfill. Writing
+  // a category into every existing row would invent a filing decision nobody
+  // made, and would erase the difference between "not filed yet" and "filed
+  // there on purpose".
+  //
+  // SetNull, exactly like the three link FKs above: deleting a category must
+  // not delete the material filed under it. Those materials fall back to
+  // "non classe" — a state they are already allowed to be in — so the deletion
+  // costs the filing and nothing else.
+  materialCategory   ProjectMaterialCategory? @relation(fields: [materialCategoryId], references: [id], onDelete: SetNull)
+  materialCategoryId Int?
   createdAt        DateTime             @default(now())
 
   // projectId backs findMaterialsByProject; the link FKs back the SetNull
   // scans when a linked task/series/category is deleted.
+  //
+  // materialCategoryId earns its index twice over: it backs the SetNull scan
+  // when a material category is deleted (without it, deleting one category
+  // sequentially scans every material row of every project), and it backs the
+  // grouped/filtered read this whole feature exists for
+  // (WHERE "projectId" = $1 AND "materialCategoryId" = $2).
   @@index([projectId])
   @@index([taskId])
   @@index([taskGroupId])
   @@index([taskCategoryId])
+  @@index([materialCategoryId])
 }
 
 enum InterventionStatus {
