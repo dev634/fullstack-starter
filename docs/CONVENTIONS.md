@@ -95,6 +95,28 @@ soumis à `canAccessArea("projects")`, ce qui n'était pas le cas avant — les
 fichiers/plans/photos n'existent qu'à l'intérieur d'un projet, masquer la
 rubrique qui y mène doit donc masquer ce qu'elle contient.
 
+**Page projet : un hub, une route par section** (PR #206 → #213). Le
+`page.tsx` du projet ne rend plus les sections en ligne : c'est une grille de
+cartes menant à `.../tasks`, `.../reserves`, `.../files`, `.../workforce`,
+`.../interventions` (plus `dashboard` et `edit`). Trois invariants, à ne pas
+re-dériver :
+
+- `lib/projectSections.ts::PROJECT_SECTION_ROUTES` est **la table** segment de
+  route → clé(s) de section, et `buildHubSlots` en déduit l'ordre des cartes.
+  Une route peut dépendre de **deux** clés (`workforce` = `subcontractors` +
+  `interims`, `tasks` = `tasks` + `materials`) ; les clés, elles, restent
+  séparées — une fonction qui n'en masque qu'une laisse voir l'autre moitié.
+- Toute page de section passe par `resolveProjectSectionAccess`
+  (`lib/projectSectionGuard.ts`) : le seul endroit où vit l'ordre rubrique →
+  section → résolution de la ligne, et qui ne rend au composant que les colonnes
+  qu'une page de section lit. Sur une **page** (rendu, pas statut HTTP), la
+  rubrique masquée se rend en « introuvable » et la section masquée en
+  « interdit » — choix de rendu, pas entorse au 403/404 des routes ci-dessus.
+- `tests/project-section-authz-coverage.test.ts` découvre ses cibles **par cette
+  table** et exige un appel résolu par l'**import** (un homonyme local ne compte
+  pas). C'est ce qui lui a fait attraper seul une page créée après lui. Ajouter
+  une section = une entrée dans la table + le garde partagé, rien d'autre.
+
 Hors périmètre ⇒ **« introuvable », jamais « interdit »** (anti-énumération).
 
 **Les lectures sont gardées comme les mutations** (passe adverse, PR #187). Ce
@@ -309,14 +331,31 @@ seulement à son changement. Ignorer ça produit une feature qui compile, passe
 les tests, et ne marche pas.
 
 Le composant accepte soit `open` **et** `onOpenChange` (mode contrôlé), soit
-aucun des deux, avec en option `defaultOpen` pour choisir l'état initial du
-mode non contrôlé (par défaut fermé) — le type interdit `defaultOpen` en même
-temps que `open`/`onOpenChange` (erreur de compilation, pas juste une
-convention en commentaire). Chaque appelant garde son propre défaut : le
-tableau de bord d'un projet passe `defaultOpen` sur ses cinq sections
-(ouvertes à l'arrivée, chacune avec son `badge` — l'info utile visible sans
-ouvrir), les sections Contacts/Projets de la page client et Matériel avant
-elles restent fermées par défaut, comme avant.
+aucun des deux — le type l'impose. En mode non contrôlé une section démarre
+toujours **fermée**, partout : les cinq sections du tableau de bord d'un
+projet comme celles de la page client.
+
+C'est pourquoi **chaque section porte un `badge`** : fermée, c'est la seule
+chose qu'on voie d'elle, et une section repliée qui n'affiche rien se rouvre
+systématiquement — on n'a alors ajouté qu'un clic.
+
+⚠️ Et c'est pourquoi un rapport PDF ne peut pas s'obtenir par `window.print()` :
+une section fermée n'est pas montée, donc absente du DOM imprimé. Un rapport
+se génère **côté serveur**, sur le modèle de `lib/reservesReport.ts` et de sa
+route gardée — indépendant de ce qui est déplié dans le navigateur.
+
+⚠️ **Ce défaut est encore là au moment où ces lignes sont écrites**, et il a
+empiré : `components/PrintReportButton.tsx` appelle toujours `window.print()`,
+et il vit dans l'en-tête de la première des **cinq** `CollapsibleSection` du
+tableau de bord projet, toutes non contrôlées donc toutes fermées au
+chargement depuis la PR #222. Le rapport imprimé, aujourd'hui, c'est le titre
+du projet et cinq en-têtes avec leurs badges — rien d'autre n'est monté.
+Avant #221 il n'y avait qu'une section repliable, elle aussi fermée, et c'est
+le **même commit** (2026-07-18) qui a ajouté le bouton et rendu cette section
+repliable : le rapport ne l'a donc jamais contenue, sans que personne le
+remarque — un défaut de **sortie** ne se voit pas à l'écran, il faut ouvrir
+l'artefact produit. Refaire ce rapport côté serveur est une tâche à part
+entière, pas une retouche.
 
 ## Formulaires (modales)
 

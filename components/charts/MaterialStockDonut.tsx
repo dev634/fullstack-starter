@@ -1,13 +1,17 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 import { STOCK_HEX, STOCK_DOT_CLASSES, STOCK_STATUS_ORDER, countByStockStatus, type MaterialStockStatus } from "@/lib/materialStock";
 
 type MaterialStockDonutProps = {
   materials: { id: number; name: string; status: MaterialStockStatus }[];
+  /** Matériaux du projet SANS quantité requise, donc absents du graphique.
+   *  Sans ce nombre, un matériau qu'on possède disparaît sans un mot. */
+  untracked: number;
 };
 
-export default function MaterialStockDonut({ materials }: MaterialStockDonutProps) {
+export default function MaterialStockDonut({ materials, untracked }: MaterialStockDonutProps) {
   const { t } = useTranslation();
   const total = materials.length;
   const counts = countByStockStatus(materials);
@@ -40,8 +44,20 @@ export default function MaterialStockDonut({ materials }: MaterialStockDonutProp
         <Tooltip formatter={(_, __, item) => [t.materials.stockStatus[item.payload.status as MaterialStockStatus], item.payload.name]} />
       </PieChart>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-gray-900 dark:text-gray-100">
-        <span className="text-2xl font-semibold">{total}</span>
+        <span className="text-2xl font-semibold">
+          {total > 0 ? `${Math.round((counts.green / total) * 100)} %` : "—"}
+        </span>
+        {total > 0 && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {counts.green} / {total}
+          </span>
+        )}
       </div>
+      {untracked > 0 && (
+        <p className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+          {format(t.projectDashboard.materialsUntracked, { count: untracked })}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
         <span className="flex items-center gap-1.5">
           <span className={`h-2.5 w-2.5 rounded-full ${STOCK_DOT_CLASSES.green}`} />

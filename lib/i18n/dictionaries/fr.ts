@@ -1012,6 +1012,10 @@ const fr = {
             remaining: "Restantes",
             other: "Autres",
         },
+        // Un materiau sans quantite requise n'a aucun statut de stock
+        // calculable, donc aucune part dans le graphique. Le taire ferait
+        // disparaitre du tableau de bord un materiau qu'on possede.
+        materialsUntracked: "{count} matériau(x) sans quantité requise, non pris en compte — rattachez-les à une tâche pour les suivre.",
         materialsListTitle: "Détail par matériau",
         interimsTitle: "Avancement par intérimaire",
         interimsNone: "Aucune tâche, série ou catégorie assignée à un intérimaire pour le moment.",
