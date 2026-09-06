@@ -987,6 +987,7 @@ const en: Dictionary = {
             remaining: "Remaining",
             other: "Other",
         },
+        materialsUntracked: "{count} material(s) with no required quantity, not counted — link them to a task to track them.",
         materialsListTitle: "Material breakdown",
         interimsTitle: "Progress by temp worker",
         interimsNone: "No task, series or category assigned to a temp worker yet.",

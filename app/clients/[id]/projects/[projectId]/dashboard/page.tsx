@@ -355,7 +355,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
             >
             <div className="flex flex-col items-center gap-1 px-4 py-6 sm:px-6">
               {namedMaterials.length > 0 ? (
-                <MaterialStockDonut materials={namedMaterials} />
+                <MaterialStockDonut materials={namedMaterials} untracked={materials.length - namedMaterials.length} />
               ) : (
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.materialsNone}</p>
               )}
