@@ -9,7 +9,7 @@ import { createOrAccumulate, update, remove, findProjectId as findMaterialProjec
 import { findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
 import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
-import { revalidatePath } from "next/cache";
+import { revalidateMaterials } from "@/lib/revalidateMaterials";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
@@ -81,7 +81,7 @@ export async function addMaterial(
       taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
     });
-    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,
       type: "success",
@@ -150,7 +150,7 @@ export async function editMaterial(
       taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
     });
-    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,
       type: "success",
@@ -190,7 +190,7 @@ export async function deleteMaterial(id: number, clientId: number, projectId: nu
     // Passe 3b, point 2 — see editMaterial's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: t.materials.messages.invalidId };
     const material = await remove(id);
-    revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidateMaterials(clientId, projectId);
     return { type: "success" as const, message: t.materials.messages.deleted, data: material };
   } catch (error) {
     return {

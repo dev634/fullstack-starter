@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { MaterialStockStats } from "@/lib/projectDashboard";
 
 type MaterialData = {
     projectId: number;
@@ -121,6 +122,71 @@ export async function findByProject(projectId: number) {
         throw {
             type: "repositoryError",
             message: "Database Error fetching materials.",
+        };
+    }
+}
+
+/**
+ * Total material count for a project — a lightweight COUNT for the project
+ * hub's Tâches link card (which now also carries the materials count, since
+ * Matériel joined the dedicated `.../tasks` page). Same reasoning as
+ * repository/projectFiles.ts::countByProject: the hub must never load every
+ * row just to show a number thrown away at render.
+ */
+export async function countByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.projectMaterial.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countByProject (material) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error counting materials.",
+        };
+    }
+}
+
+/**
+ * The exact {tracked, untracked, red, orange, green} breakdown
+ * lib/projectDashboard.ts::computeMaterialStockStats would return for this
+ * project — WITHOUT loading a single ProjectMaterial row (or the task/
+ * série/catégorie joins findByProject needs for its own callers) — for the
+ * project hub's "Avancement" summary card, which only ever renders this
+ * breakdown as one line of text, never the per-material list (the dedicated
+ * `.../tasks` page, where Matériel now lives, still loads real rows for
+ * that). Mirrors materialStockStatus's own precedence exactly — "red" first
+ * (quantity <= 0), so a material with both quantity <= 0 AND
+ * quantity >= requiredQuantity (e.g. both zero) counts as "red" and never
+ * also "green" — so the two views can't drift apart, same reasoning as
+ * repository/tasks.ts::computeProgressByProject mirroring
+ * lib/projectDashboard.ts::computeTaskProgress.
+ */
+export async function computeStockStatsByProject(projectId: number): Promise<MaterialStockStats> {
+    try {
+        const rows = await prisma.$queryRaw<
+            { tracked: bigint; untracked: bigint; red: bigint; orange: bigint; green: bigint }[]
+        >`
+            SELECT
+                COUNT(*) FILTER (WHERE "requiredQuantity" IS NOT NULL) AS tracked,
+                COUNT(*) FILTER (WHERE "requiredQuantity" IS NULL) AS untracked,
+                COUNT(*) FILTER (WHERE "requiredQuantity" IS NOT NULL AND "quantity" <= 0) AS red,
+                COUNT(*) FILTER (WHERE "requiredQuantity" IS NOT NULL AND "quantity" > 0 AND "quantity" >= "requiredQuantity") AS green,
+                COUNT(*) FILTER (WHERE "requiredQuantity" IS NOT NULL AND "quantity" > 0 AND "quantity" < "requiredQuantity") AS orange
+            FROM "ProjectMaterial"
+            WHERE "projectId" = ${projectId}
+        `;
+        const row = rows[0];
+        return {
+            tracked: Number(row?.tracked ?? BigInt(0)),
+            untracked: Number(row?.untracked ?? BigInt(0)),
+            red: Number(row?.red ?? BigInt(0)),
+            orange: Number(row?.orange ?? BigInt(0)),
+            green: Number(row?.green ?? BigInt(0)),
+        };
+    } catch (error) {
+        console.log("Repository computeStockStatsByProject error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error computing material stock stats.",
         };
     }
 }

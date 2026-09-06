@@ -69,31 +69,6 @@ export async function findByProject(projectId: number) {
     }
 }
 
-export type TaskGroupLinkOption = { id: number; name: string };
-
-/**
- * Just id + name of every série in a project — for the material-link picker
- * (forms/AddMaterialForm.tsx's MaterialLinkOption) on the project hub, which
- * never reads a group's tasks, counts or assignee to populate a `<select>`.
- * Avoids the nested `include: { tasks: ... }` findByProject (above) needs
- * for its own callers, same reasoning as repository/tasks.ts::findLinkOptions.
- */
-export async function findLinkOptions(projectId: number): Promise<TaskGroupLinkOption[]> {
-    try {
-        return await prisma.projectTaskGroup.findMany({
-            where: { projectId },
-            select: { id: true, name: true },
-            orderBy: { id: "asc" },
-        });
-    } catch (error) {
-        console.log("Repository findLinkOptions (task group) error:", error);
-        throw {
-            type: "repositoryError",
-            message: "Database Error fetching task group link options.",
-        };
-    }
-}
-
 /** The group's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
 export async function findProjectId(id: number): Promise<number | null> {
     try {

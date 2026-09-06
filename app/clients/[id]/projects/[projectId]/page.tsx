@@ -1,9 +1,7 @@
 import { getProject } from "@/actions/projects/projects";
-import { findLinkOptions as findTaskLinkOptions, computeProgressByProject as computeTaskProgressByProject } from "@/repository/tasks";
-import { findLinkOptions as findTaskGroupLinkOptions } from "@/repository/taskGroups";
-import { findLinkOptions as findTaskCategoryLinkOptions } from "@/repository/taskCategories";
-import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
-import { findByProject as findInterventionsByProject } from "@/repository/interventions";
+import { computeProgressByProject as computeTaskProgressByProject } from "@/repository/tasks";
+import { countByProject as countMaterialsByProject, computeStockStatsByProject } from "@/repository/projectMaterials";
+import { countByProject as countInterventionsByProject } from "@/repository/interventions";
 import { countCompaniesByProject } from "@/repository/subcontractors";
 import { countByProject as countInterimsByProject } from "@/repository/interims";
 import { countByProject as countFilesByProject } from "@/repository/projectFiles";
@@ -14,12 +12,6 @@ import { can } from "@/lib/access";
 import Title from "@/components/Title";
 import ProjectStatusBadge from "@/components/ProjectStatusBadge";
 import ProjectTypeBadge from "@/components/ProjectTypeBadge";
-import CollapsibleSection from "@/components/CollapsibleSection";
-import ProjectMaterialRow from "@/components/ProjectMaterialRow";
-import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
-import ProjectInterventionRow from "@/components/ProjectInterventionRow";
-import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
-import AddInterventionForm from "@/forms/AddInterventionForm";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import ReserveStatusStyleVars from "@/components/ReserveStatusStyleVars";
 import StatusPill from "@/components/StatusPill";
@@ -30,13 +22,12 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
 import { format } from "@/lib/i18n/format";
 import { getAppSettings } from "@/lib/appSettings";
-import { normalizeSectionOrder, buildHubSlots, type ProjectSectionKey, type ProjectSectionRouteSegment } from "@/lib/projectSections";
+import { normalizeSectionOrder, buildHubSlots, type ProjectSectionRouteSegment } from "@/lib/projectSections";
 import { getHiddenSections } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { blockClientFromApp } from "@/lib/portal";
 import type { ReactNode } from "react";
-import { computeMaterialStockStats } from "@/lib/projectDashboard";
 import {
   BoltIcon,
   HashtagIcon,
@@ -47,7 +38,6 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   ClipboardDocumentListIcon,
-  CubeIcon,
   FolderIcon,
   ChartBarIcon,
   WrenchScrewdriverIcon,
@@ -121,40 +111,37 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   // haut. Ce qui sépare les deux groupes ci-dessous n'est que de la
   // dérivation synchrone, plus bas, des résultats du premier.
   //
-  // Réserves, Fichiers, Tâches et désormais Personnel (fusion de
-  // Sous-traitants + Intérimaires) ont quitté cette page pour leurs propres
-  // routes, où leur garde de section précède leur lecture — cette page ne
-  // lit plus que leurs COMPTEURS, jamais leurs listes complètes, et
-  // seulement pour la ou les sections correspondantes quand elles ne sont
-  // pas masquées. Personnel affiche deux compteurs indépendants (l'un peut
-  // être visible sans l'autre — les deux clés restent séparées, voir
-  // lib/accessContext.ts), donc chacun saute sa propre requête quand SA
-  // clé est masquée, pas seulement quand les deux le sont.
+  // Réserves, Fichiers, Tâches (désormais avec Matériel) et Personnel (fusion
+  // de Sous-traitants + Intérimaires) ont quitté cette page pour leurs propres
+  // routes, où leur garde de section précède leur lecture — Interventions les
+  // a rejointes le même jour que Matériel a rejoint Tâches (voir
+  // lib/projectSections.ts), ce qui ferme le dernier repli de section
+  // dépliante encore présent ici. Cette page ne lit plus que des COMPTEURS et
+  // des agrégats, jamais une liste complète, et seulement pour la ou les
+  // sections correspondantes quand elles ne sont pas masquées. Personnel
+  // affiche deux compteurs indépendants (l'un peut être visible sans l'autre
+  // — les deux clés restent séparées, voir lib/accessContext.ts), donc chacun
+  // saute sa propre requête quand SA clé est masquée, pas seulement quand les
+  // deux le sont.
   const [
-    taskLinkOptions,
-    taskGroupLinkOptions,
-    taskCategoryLinkOptions,
     taskProgress,
-    materials,
-    interventions,
+    materialStats,
+    materialsCount,
+    interventionsCount,
     subcontractorCount,
     interimCount,
     reservePlanCount,
     reserveTally,
     fileCount,
   ] = await Promise.all([
-    // Tâches a quitté cette page pour sa propre route (`.../tasks`, même
-    // garde-avant-lecture que Réserves/Fichiers) — cette page ne lit plus
-    // les tâches/séries/catégories en entier, seulement les deux projections
-    // étroites que le hub consomme réellement : les options du sélecteur de
-    // matériel (id + titre/nom) et l'agrégat d'avancement (voir les docs de
-    // ces trois fonctions).
-    findTaskLinkOptions(pid),
-    findTaskGroupLinkOptions(pid),
-    findTaskCategoryLinkOptions(pid),
+    // Unconditional, like materialStats just below it: neither respects
+    // hiddenSections today (this "Avancement" summary predates the section
+    // split), and this refactor doesn't change that — only where the
+    // underlying data comes from (see each function's own doc).
     computeTaskProgressByProject(pid),
-    findMaterialsByProject(pid),
-    findInterventionsByProject(pid),
+    computeStockStatsByProject(pid),
+    hiddenSections.has("materials") ? Promise.resolve(0) : countMaterialsByProject(pid),
+    hiddenSections.has("interventions") ? Promise.resolve(0) : countInterventionsByProject(pid),
     hiddenSections.has("subcontractors") ? Promise.resolve(0) : countCompaniesByProject(pid),
     hiddenSections.has("interims") ? Promise.resolve(0) : countInterimsByProject(pid),
     hiddenSections.has("reserves") ? Promise.resolve(0) : countReservePlansByProject(pid),
@@ -163,18 +150,9 @@ export default async function ProjectDetailPage({ params }: PageProps) {
       : tallyReservesByProject(pid),
     hiddenSections.has("files") ? Promise.resolve(0) : countFilesByProject(pid),
   ]);
-  // The material picker links to a standalone (ungrouped) task, a whole
-  // series, or a whole category at once — series and categories are single
-  // collapsed options, never expanded into their individual member tasks/series.
-  const materialLinkOptions: MaterialLinkOption[] = [
-    ...taskLinkOptions.map((task): MaterialLinkOption => ({ kind: "task", id: task.id, title: task.title })),
-    ...taskGroupLinkOptions.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
-    ...taskCategoryLinkOptions.map((category): MaterialLinkOption => ({ kind: "category", id: category.id, name: category.name })),
-  ];
 
   const doneCount = taskProgress.done;
   const totalCount = taskProgress.total;
-  const materialStats = computeMaterialStockStats(materials);
 
   // This project's resolved OPEN/RESOLVED label + colour, for the Réserves
   // link card below: the open count is the single most useful figure on this
@@ -321,16 +299,19 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </div>
         </div>
 
-        {/* Reorderable "dropdown" sections. Routed pages (Tâches, Personnel,
-            Fichiers, Réserves) are link cards carrying only a COUNT, to their
-            own guarded route — built from lib/projectSections.ts's
-            PROJECT_SECTION_ROUTES via buildHubSlots below, which is also
-            what collapses Personnel's two keys (subcontractors + interims)
-            into the single slot its merged page occupies. Materials and
-            Interventions have no route of their own and stay inline
-            collapsible sections, in `sectionContent`. Each slot is wrapped
-            once in the shared card chrome and rendered in the admin's
-            configured order. */}
+        {/* Reorderable "dropdown" sections. Every routed page (Tâches,
+            Personnel, Fichiers, Réserves, Interventions) is a link card
+            carrying only COUNT(s), to its own guarded route — built from
+            lib/projectSections.ts's PROJECT_SECTION_ROUTES via buildHubSlots
+            below, which is also what collapses a multi-key route's member
+            keys (Personnel's subcontractors+interims, Tâches' tasks+
+            materials) into the single slot its merged page occupies. There
+            is no `sectionContent` anymore: every ProjectSectionKey now has a
+            routed page (see PROJECT_SECTION_ROUTES's own doc on why
+            `HubSlot`'s `{ kind: "section" }` branch stays in the type even
+            though it's currently never produced). Each slot is wrapped once
+            in the shared card chrome and rendered in the admin's configured
+            order. */}
         {(() => {
         const routeContent: Record<ProjectSectionRouteSegment, ReactNode> = {
         tasks: (
@@ -341,9 +322,33 @@ export default async function ProjectDetailPage({ params }: PageProps) {
             <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
               <ClipboardDocumentListIcon className="h-5 w-5 shrink-0 text-blue-500" />
               <span className="truncate">{t.projects.detail.tasksHeading}</span>
-              {totalCount > 0 && (
+              {(totalCount > 0 || materialsCount > 0) && (
                 <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  ({doneCount}/{totalCount})
+                  {[
+                    totalCount > 0 ? `(${doneCount}/${totalCount})` : null,
+                    materialsCount > 0
+                      ? format(t.projects.detail.tasksMaterialsCount, { count: materialsCount })
+                      : null,
+                  ]
+                    .filter((segment): segment is string => segment !== null)
+                    .join(" · ")}
+                </span>
+              )}
+            </h2>
+            <ArrowRightIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          </Link>
+        ),
+        interventions: (
+          <Link
+            href={`/clients/${id}/projects/${pid}/interventions`}
+            className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6"
+          >
+            <h2 className="flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold">
+              <WrenchScrewdriverIcon className="h-5 w-5 shrink-0 text-amber-500" />
+              <span className="truncate">{t.projects.detail.interventionsHeading}</span>
+              {interventionsCount > 0 && (
+                <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  ({interventionsCount})
                 </span>
               )}
             </h2>
@@ -427,72 +432,6 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           </Link>
         ),
         };
-        // Only materials/interventions: the two keys with no routed page of
-        // their own (see PROJECT_SECTION_ROUTES's own doc) — a Partial is
-        // enough since buildHubSlots below only ever asks this map for one
-        // of these two keys.
-        const sectionContent: Partial<Record<ProjectSectionKey, ReactNode>> = {
-        materials: (
-          <CollapsibleSection
-            icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
-            title={t.projects.detail.materialsHeading}
-            badge={materials.length > 0 ? `(${materials.length})` : undefined}
-            headerExtra={
-              canEdit && (
-                <ScanDeliveryNoteModal
-                  clientId={clientId}
-                  projectId={pid}
-                  materials={materials.map((m) => ({ id: m.id, name: m.name, supplierName: m.supplierName, reference: m.reference }))}
-                />
-              )
-            }
-          >
-          {materials.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {materials.map((material) => (
-                <ProjectMaterialRow key={material.id} material={material} clientId={clientId} projectId={pid} canEdit={canEdit} linkOptions={materialLinkOptions} />
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.noMaterials}
-            </div>
-          )}
-
-          {canEdit && (
-            <div className="border-t border-gray-300 dark:border-gray-700">
-              <AddMaterialForm clientId={clientId} projectId={pid} linkOptions={materialLinkOptions} />
-            </div>
-          )}
-          </CollapsibleSection>
-        ),
-        interventions: (
-          <CollapsibleSection
-            icon={<WrenchScrewdriverIcon className="h-5 w-5 text-amber-500" />}
-            title={t.projects.detail.interventionsHeading}
-            badge={interventions.length > 0 ? `(${interventions.length})` : undefined}
-            headerExtra={canEdit && <AddInterventionForm clientId={clientId} projectId={pid} />}
-          >
-          {interventions.length ? (
-            <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-              {interventions.map((intervention) => (
-                <ProjectInterventionRow
-                  key={intervention.id}
-                  intervention={intervention}
-                  clientId={clientId}
-                  projectId={pid}
-                  canEdit={canEdit}
-                />
-              ))}
-            </ul>
-          ) : (
-            <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
-              {t.projects.detail.noInterventions}
-            </div>
-          )}
-          </CollapsibleSection>
-        ),
-        };
         const hubSlots = buildHubSlots(sectionOrder);
         return hubSlots.map((slot) => (
           <div
@@ -500,7 +439,12 @@ export default async function ProjectDetailPage({ params }: PageProps) {
             className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm transition-all hover:bg-[#d1d5dc] hover:shadow-lg hover:ring-2 hover:ring-blue-300 dark:hover:bg-[#374151] dark:hover:ring-blue-600"
           >
             <div className="overflow-hidden rounded-xl">
-              {slot.kind === "route" ? routeContent[slot.segment] : sectionContent[slot.key]}
+              {/* `sectionContent[slot.key]` is dead in practice today (see
+                  this block's own doc above) — kept as `null` rather than a
+                  non-null assertion on `routeContent[slot.segment]`, so a
+                  future `{ kind: "section" }` slot renders an empty card
+                  instead of a runtime crash. */}
+              {slot.kind === "route" ? routeContent[slot.segment] : null}
             </div>
           </div>
         ));

@@ -306,6 +306,7 @@ const fr = {
             notes: "Notes",
             tasksHeading: "Tâches",
             noTasks: "Aucune tâche pour ce projet.",
+            tasksMaterialsCount: "{count} matériau(x)",
             materialsHeading: "Matériel",
             noMaterials: "Aucun matériel pour ce projet.",
             interventionsHeading: "Interventions",

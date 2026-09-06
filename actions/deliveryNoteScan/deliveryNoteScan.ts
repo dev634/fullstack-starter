@@ -21,6 +21,7 @@ import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
 import { uploadProjectFile } from "@/lib/cloudinary";
 import { revalidateFiles } from "@/lib/revalidateFiles";
+import { revalidateMaterials } from "@/lib/revalidateMaterials";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -370,6 +371,14 @@ export async function applyDeliveryNoteScan(
     // (lib/revalidateFiles.ts) rather than a second hard-coded revalidatePath,
     // so "what invalidating Files means" stays defined in one place.
     revalidateFiles(project.clientId, projectId);
+    // applyScanItems above always writes at least one ProjectMaterial (a new
+    // one, or an increment of an existing one's stock) — this second writer
+    // of that model (the first is actions/projectMaterials/projectMaterials.ts)
+    // needs the exact same two paths invalidated (lib/revalidateMaterials.ts,
+    // same reasoning as revalidateFiles just above): the hub's Tâches link
+    // card carries the materials count now, and the dedicated `.../tasks`
+    // page is where Matériel actually renders.
+    revalidateMaterials(project.clientId, projectId);
     return { ...prevState, type: "success", message: t.materials.scan.messages.applied };
   } catch (error) {
     // readAndValidateDeliveryNoteImage (above) throws lib/deliveryNoteScan.ts's
