@@ -55,8 +55,18 @@ export function normalizeSectionOrder(
  * fusing `subcontractors` + `interims` into one page without touching either
  * key: see lib/accessContext.ts's own doc on why the two stay separate).
  *
- * Not every key has an entry: `materials` and `interventions` render inline
- * as collapsible sections on the hub page itself, never as their own route.
+ * `tasks` depends on TWO keys since Matériel joined it: the dedicated
+ * `.../tasks` page now also owns the material list, the add-material form and
+ * the delivery-note scan modal, the same "fuse into one page, keep both keys"
+ * move `workforce` made first — a caller whose function hides only one of
+ * `tasks`/`materials` still gets the other half of the page. `interventions`
+ * got its own single-key route the same day, for the same reason `tasks` and
+ * `reserves` did before it: a hub that reads full rows just to render an
+ * inline dropdown doesn't scale, and there was no reason left for it to be
+ * the one remaining full-row read on the hub once materials left it too.
+ *
+ * Every key now has an entry — there is no key left that renders inline as a
+ * collapsible section on the hub page itself.
  *
  * Two consumers read this table instead of re-deriving it:
  *   - tests/project-section-authz-coverage.test.ts discovers which page(s)
@@ -67,10 +77,11 @@ export function normalizeSectionOrder(
  *     used to render its own card.
  */
 export const PROJECT_SECTION_ROUTES = {
-  tasks: ["tasks"],
+  tasks: ["tasks", "materials"],
   files: ["files"],
   reserves: ["reserves"],
   workforce: ["subcontractors", "interims"],
+  interventions: ["interventions"],
 } as const satisfies Record<string, readonly ProjectSectionKey[]>;
 
 export type ProjectSectionRouteSegment = keyof typeof PROJECT_SECTION_ROUTES;
@@ -86,11 +97,17 @@ export type HubSlot =
  * (`PROJECT_SECTION_ROUTES`) becomes exactly ONE slot, no matter how many
  * keys it depends on, positioned at the earliest index any of its member
  * keys held in `order` — dragging either "Sous-traitants" or "Intérimaires"
- * above "Matériel" in the admin's section-order tab moves the merged
- * Personnel card there, whichever of the two moved, and if one of the two is
- * hidden for the caller (already dropped from `order` before this runs) the
- * slot simply takes the other's position. A key with no routed page
- * (materials, interventions) passes through as its own slot, unchanged.
+ * above "Tâches" in the admin's section-order tab moves the merged Personnel
+ * card there, whichever of the two moved, and if one of the two is hidden for
+ * the caller (already dropped from `order` before this runs) the slot simply
+ * takes the other's position. Same story for "Matériel" riding along with
+ * "Tâches": moving either one moves the single Tâches card.
+ *
+ * `HubSlot`'s `{ kind: "section" }` branch (a key with no routed page) is
+ * currently never produced — every `ProjectSectionKey` now has an entry in
+ * `PROJECT_SECTION_ROUTES` — but stays part of the type and this function's
+ * logic for the day a new section key ships inline, without its own route,
+ * before it earns one.
  *
  * This is what makes the merged card's position a decision the table
  * encodes, not an accident of which key the hub's render loop happens to

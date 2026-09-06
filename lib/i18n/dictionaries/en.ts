@@ -304,6 +304,7 @@ const en: Dictionary = {
             notes: "Notes",
             tasksHeading: "Tasks",
             noTasks: "No tasks for this project.",
+            tasksMaterialsCount: "{count} material(s)",
             materialsHeading: "Materials",
             noMaterials: "No materials for this project.",
             interventionsHeading: "Interventions",

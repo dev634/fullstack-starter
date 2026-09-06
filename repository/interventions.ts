@@ -45,6 +45,23 @@ export async function findByProject(projectId: number) {
     }
 }
 
+/**
+ * Total intervention count for a project — a lightweight COUNT for the
+ * project hub's Interventions link card, same reasoning as
+ * repository/projectFiles.ts::countByProject.
+ */
+export async function countByProject(projectId: number): Promise<number> {
+    try {
+        return await prisma.intervention.count({ where: { projectId } });
+    } catch (error) {
+        console.log("Repository countByProject (intervention) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error counting interventions.",
+        };
+    }
+}
+
 /** The intervention's real project id, or null if it doesn't exist — see repository/tasks.ts::findProjectId. */
 export async function findProjectId(id: number): Promise<number | null> {
     try {

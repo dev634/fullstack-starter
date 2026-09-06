@@ -72,33 +72,6 @@ export async function findByProject(projectId: number) {
     }
 }
 
-export type TaskLinkOption = { id: number; title: string };
-
-/**
- * Just id + title of every STANDALONE (ungrouped) task in a project, in the
- * same order as findByProject — for the material-link picker
- * (forms/AddMaterialForm.tsx's MaterialLinkOption) on the project hub, which
- * never reads anything else off a task. Avoids serializing the whole
- * ProjectTask row (quantityTarget/quantityDone/dueDate/assignee…) to the
- * client just to populate a `<select>`, same reasoning as
- * repository/jobFunctions.ts::findAllOptions().
- */
-export async function findLinkOptions(projectId: number): Promise<TaskLinkOption[]> {
-    try {
-        return await prisma.projectTask.findMany({
-            where: { projectId, groupId: null },
-            select: { id: true, title: true },
-            orderBy: [{ done: "asc" }, { createdAt: "asc" }],
-        });
-    } catch (error) {
-        console.log("Repository findLinkOptions (task) error:", error);
-        throw {
-            type: "repositoryError",
-            message: "Database Error fetching task link options.",
-        };
-    }
-}
-
 export type TaskProgressTally = { done: number; total: number; percent: number };
 
 /**

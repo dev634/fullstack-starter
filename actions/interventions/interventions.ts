@@ -51,6 +51,7 @@ export async function addIntervention(
       technician: parsed.data.technician,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/interventions`);
     return {
       ...prevState,
       type: "success",
@@ -106,6 +107,7 @@ export async function editIntervention(
       status: parsed.data.status,
     });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
+    revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/interventions`);
     return {
       ...prevState,
       type: "success",
@@ -155,6 +157,7 @@ export async function changeInterventionStatus(
     if (scopeCheck.error) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const intervention = await updateStatus(id, parsedStatus.data);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/interventions`);
     return { type: "success" as const, message: t.interventions.messages.updated, data: intervention };
   } catch (error) {
     return {
@@ -184,6 +187,7 @@ export async function deleteIntervention(id: number, clientId: number, projectId
     if (scopeCheck.error) return { type: "error" as const, message: t.interventions.messages.invalidId };
     const intervention = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
+    revalidatePath(`/clients/${clientId}/projects/${projectId}/interventions`);
     return { type: "success" as const, message: t.interventions.messages.deleted, data: intervention };
   } catch (error) {
     return {
