@@ -993,6 +993,9 @@ const fr = {
         backToProject: "Retour au projet",
         notFound: "Ce projet n'existe pas...",
         tasksTitle: "Avancement des tâches",
+        // Badge shown on the collapsed section header — same "percent (done/total)"
+        // grammar as groupProgressLabel below, just without the leading "{name} :".
+        tasksBadge: "{percent} % ({done}/{total})",
         generateReport: "Générer rapport PDF",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",

@@ -309,7 +309,14 @@ seulement à son changement. Ignorer ça produit une feature qui compile, passe
 les tests, et ne marche pas.
 
 Le composant accepte soit `open` **et** `onOpenChange` (mode contrôlé), soit
-aucun des deux — le type l'impose.
+aucun des deux, avec en option `defaultOpen` pour choisir l'état initial du
+mode non contrôlé (par défaut fermé) — le type interdit `defaultOpen` en même
+temps que `open`/`onOpenChange` (erreur de compilation, pas juste une
+convention en commentaire). Chaque appelant garde son propre défaut : le
+tableau de bord d'un projet passe `defaultOpen` sur ses cinq sections
+(ouvertes à l'arrivée, chacune avec son `badge` — l'info utile visible sans
+ouvrir), les sections Contacts/Projets de la page client et Matériel avant
+elles restent fermées par défaut, comme avant.
 
 ## Formulaires (modales)
 

@@ -971,6 +971,9 @@ const en: Dictionary = {
         backToProject: "Back to project",
         notFound: "This project doesn't exist...",
         tasksTitle: "Task progress",
+        // Badge shown on the collapsed section header — same "percent (done/total)"
+        // grammar as groupProgressLabel below, just without the leading "{name}:".
+        tasksBadge: "{percent}% ({done}/{total})",
         generateReport: "Generate PDF report",
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
