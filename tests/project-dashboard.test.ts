@@ -4,6 +4,7 @@ import {
   computeTaskBarStats,
   computeMaterialStockStats,
   computeTrackedMaterials,
+  computeRingArc,
 } from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
@@ -156,6 +157,35 @@ describe("computeTaskBarStats", () => {
       total: 10,
       percent: 0,
     });
+  });
+});
+
+describe("computeRingArc", () => {
+  it("draws no arc at 0%", () => {
+    expect(computeRingArc(0, 10).doneLength).toBe(0);
+  });
+
+  it("draws the full circle at 100%", () => {
+    const { doneLength, circumference } = computeRingArc(100, 10);
+    expect(doneLength).toBe(circumference);
+  });
+
+  it("draws half the circumference at 50%", () => {
+    const { doneLength, circumference } = computeRingArc(50, 10);
+    expect(doneLength).toBeCloseTo(circumference / 2);
+  });
+
+  it("scales the circumference with the radius", () => {
+    expect(computeRingArc(100, 21).circumference).toBeCloseTo(2 * Math.PI * 21);
+  });
+
+  it("clamps a percent below 0 to a 0-length arc, never a negative dash", () => {
+    expect(computeRingArc(-15, 10).doneLength).toBe(0);
+  });
+
+  it("clamps a percent above 100 to the full circle, never an overshoot", () => {
+    const { doneLength, circumference } = computeRingArc(140, 10);
+    expect(doneLength).toBe(circumference);
   });
 });
 
