@@ -39,6 +39,14 @@ const eslintConfig = defineConfig([
   },
   // Override default ignores of eslint-config-next.
   globalIgnores([
+    // Les copies de travail isolees des agents vivent sous .claude/worktrees/,
+    // a l'interieur du projet. Sans cette ligne, `eslint .` analyse le depot
+    // ENTIER de chaque agent en cours : leurs fichiers remontent avec des
+    // chemins qui n'existent pas ici, et les exemptions relatives (`tests/**`)
+    // ne s'y appliquent pas, donc du bruit qui peut masquer une vraie erreur.
+    // git ignore deja .claude/, donc la CI n'a jamais vu ce probleme -- il
+    // n'existe qu'en local, et seulement pendant qu'un agent travaille.
+    ".claude/**",
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
