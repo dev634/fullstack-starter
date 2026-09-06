@@ -997,6 +997,9 @@ const fr = {
         // grammar as groupProgressLabel below, just without the leading "{name} :".
         tasksBadge: "{percent} % ({done}/{total})",
         generateReport: "Générer rapport PDF",
+        // The whole-dashboard PDF (every visible section combined) — distinct
+        // from generateReport above, which downloads a single section.
+        generateFullReport: "Générer le rapport complet (PDF)",
         tasksOverall: "Ensemble du projet",
         tasksNone: "Aucune tâche pour le moment.",
         categoriesTitle: "Avancement par catégorie / groupe",
@@ -1016,6 +1019,20 @@ const fr = {
         companiesNone: "Aucune tâche, série ou catégorie assignée à une entreprise sous-traitante pour le moment.",
         reservesTitle: "Avancement des réserves",
         reservesNone: "Aucune réserve pour le moment.",
+        // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —
+        // deliberately its own namespace rather than reusing
+        // reserves.report.* (generatedOn/total/page there mean the exact same
+        // thing, but importing a réserves-owned key from a Tasks/Interims/…
+        // report would read as this file depending on that domain).
+        report: {
+            globalTitle: "Rapport complet du tableau de bord",
+            generatedOn: "Édité le",
+            total: "Total",
+            done: "Terminées",
+            percent: "Avancement",
+            percentValue: "{value} %",
+            page: "Page {current} / {total}",
+        },
     },
 };
 

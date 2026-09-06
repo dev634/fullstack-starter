@@ -1,6 +1,22 @@
-import PDFDocument from "pdfkit";
 import { buildDeliveryUrl } from "@/lib/cloudinaryDelivery";
 import { contrastTextColor, mixTowardBlack } from "@/lib/color";
+import { format } from "@/lib/i18n/format";
+import {
+  PAGE_W,
+  MARGIN,
+  CONTENT_W,
+  BOTTOM,
+  REPORT_COLORS as COLORS,
+  createReportDocument,
+  ensureSpace as ensureSpaceOnPage,
+  renderBrandHeader,
+  renderSummaryTiles,
+  renderSectionHeading,
+  stampFooters,
+  type ReportDocument,
+  type MetaRow,
+  type TileSpec,
+} from "@/lib/pdfReport";
 import {
   groupPlansForReport,
   summarizeReserves,
@@ -11,21 +27,13 @@ import {
   type ReportReserve,
 } from "@/lib/reservesReportData";
 
-// A4 geometry (pt) + a single margin used for the text column and the
-// header/footer stamps.
-const PAGE_W = 595.28;
-const PAGE_H = 841.89;
-const MARGIN = 48;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-const BOTTOM = PAGE_H - MARGIN;
-
-const COLORS = {
-  text: "#111827",
-  muted: "#6b7280",
-  line: "#d1d5db",
-  accent: "#2563eb",
-  white: "#ffffff",
-} as const;
+// A4 geometry, the shared colour palette, page-buffering and the brand
+// header/tiles/section-heading/footer mechanics below all now live in
+// lib/pdfReport.ts — this was the first PDF report this app shipped, so it
+// carried all of that inline before a second report needed the same pieces.
+// Nothing in this file's OWN drawing (the cover's meta rows, the per-plan
+// heading, the annotated plan image, the réserve cards) moved: only the
+// mechanics common to any report did.
 
 // The OPEN/RESOLVED pin, badge and tile colours are NOT in the constant
 // above: they are per-project configurable (Project.reserveOpenColor /
@@ -198,22 +206,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
   const generatedAt = input.generatedAt ?? new Date();
   const fetchImage = input.fetchImage ?? fetchRemoteImage;
 
-  const doc = new PDFDocument({
-    size: "A4",
-    margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
-    bufferPages: true,
-    autoFirstPage: false,
-    info: { Title: `${labels.title} — ${project.name}`, Author: companyName },
-  });
-  doc.registerFont("body", "Helvetica");
-  doc.registerFont("bold", "Helvetica-Bold");
-
-  const chunks: Buffer[] = [];
-  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  const done = new Promise<Buffer>((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-  });
+  const { doc, done } = createReportDocument({ title: `${labels.title} — ${project.name}`, author: companyName });
 
   const dateText = new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(generatedAt);
   const summary = summarizeReserves(plans);
@@ -229,9 +222,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
   );
 
   // Start a new page when `needed` points won't fit under the current cursor.
-  const ensureSpace = (needed: number) => {
-    if (doc.y + needed > BOTTOM) doc.addPage();
-  };
+  const ensureSpace = (needed: number) => ensureSpaceOnPage(doc, needed);
 
   renderCover(doc, { project, companyName, labels, statusColors, dateText, summary });
 
@@ -259,7 +250,10 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
     }
   }
 
-  stampFooters(doc, { project, labels });
+  stampFooters(doc, {
+    leftText: project.name,
+    pageLabel: (current, total) => format(labels.page, { current, total }),
+  });
   doc.end();
   return done;
 }
@@ -267,7 +261,7 @@ export async function buildReservesReport(input: ReservesReportInput): Promise<B
 type Summary = { total: number; open: number; resolved: number };
 
 function renderCover(
-  doc: PDFKit.PDFDocument,
+  doc: ReportDocument,
   args: {
     project: ReservesReportInput["project"];
     companyName: string;
@@ -280,29 +274,22 @@ function renderCover(
   const { project, companyName, labels, statusColors, dateText, summary } = args;
   doc.addPage();
 
-  doc.fillColor(COLORS.accent).font("bold").fontSize(11);
-  doc.text(labels.title.toUpperCase(), MARGIN, 132, { characterSpacing: 2, width: CONTENT_W });
-
-  doc.fillColor(COLORS.text).font("bold").fontSize(30);
-  doc.text(project.name, MARGIN, 168, { width: CONTENT_W });
-
-  doc.fillColor(COLORS.muted).font("body").fontSize(13);
-  doc.text(companyName, MARGIN, doc.y + 6, { width: CONTENT_W });
-
   // Meta rows — only those the project actually has.
-  const rows: [string, string][] = [];
-  if (project.businessNumber) rows.push([labels.businessNumber, project.businessNumber]);
-  if (project.address) rows.push([labels.address, project.address]);
-  rows.push([labels.generatedOn, dateText]);
+  const metaRows: MetaRow[] = [];
+  if (project.businessNumber) metaRows.push([labels.businessNumber, project.businessNumber]);
+  if (project.address) metaRows.push([labels.address, project.address]);
+  metaRows.push([labels.generatedOn, dateText]);
 
-  let y = doc.y + 28;
-  for (const [label, value] of rows) {
-    doc.font("bold").fontSize(9).fillColor(COLORS.muted);
-    doc.text(label.toUpperCase(), MARGIN, y, { width: 140, characterSpacing: 0.5, lineBreak: false });
-    doc.font("body").fontSize(11).fillColor(COLORS.text);
-    doc.text(value, MARGIN + 150, y - 2, { width: CONTENT_W - 150 });
-    y = Math.max(doc.y, y + 16) + 6;
-  }
+  // kickerY: 132 reproduces this cover's pre-extraction fixed position
+  // exactly (see lib/pdfReport.ts::renderBrandHeader's own doc for why
+  // headingY doesn't need its own override).
+  const y = renderBrandHeader(doc, {
+    kicker: labels.title,
+    heading: project.name,
+    subheading: companyName,
+    metaRows,
+    kickerY: 132,
+  });
 
   // Summary tiles: total / open / resolved. The open/resolved tiles' NUMBER
   // is drawn with mixTowardBlack(...), never the raw configured hex: this is
@@ -314,49 +301,25 @@ function renderCover(
   // statusResolved too (see ReportLabels's own doc) — never fed to
   // mixTowardBlack, it's always drawn in COLORS.muted, same as `total`'s own
   // label.
-  const tiles: [string, number, string][] = [
-    [labels.total, summary.total, COLORS.text],
-    [labels.statusOpen, summary.open, mixTowardBlack(statusColors.open)],
-    [labels.statusResolved, summary.resolved, mixTowardBlack(statusColors.resolved)],
+  const tiles: TileSpec[] = [
+    { label: labels.total, value: String(summary.total), color: COLORS.text },
+    { label: labels.statusOpen, value: String(summary.open), color: mixTowardBlack(statusColors.open) },
+    { label: labels.statusResolved, value: String(summary.resolved), color: mixTowardBlack(statusColors.resolved) },
   ];
-  const gap = 12;
-  const tileW = (CONTENT_W - gap * 2) / 3;
-  const tileY = y + 24;
-  tiles.forEach(([label, value, color], i) => {
-    const x = MARGIN + i * (tileW + gap);
-    doc.roundedRect(x, tileY, tileW, 74, 8).lineWidth(1).strokeColor(COLORS.line).stroke();
-    doc.font("bold").fontSize(26).fillColor(color);
-    doc.text(String(value), x, tileY + 16, { width: tileW, align: "center", lineBreak: false });
-    doc.font("body").fontSize(9.5).fillColor(COLORS.muted);
-    doc.text(label, x, tileY + 50, { width: tileW, align: "center", lineBreak: false });
-  });
+  renderSummaryTiles(doc, tiles, y + 24);
 }
 
 function renderPlanHeading(
-  doc: PDFKit.PDFDocument,
+  doc: ReportDocument,
   args: { folderName: string | null; planName: string; labels: ReportLabels }
 ) {
   const { folderName, planName, labels } = args;
-  doc.font("bold").fontSize(9).fillColor(COLORS.accent);
-  doc.text((folderName ?? labels.rootGroup).toUpperCase(), MARGIN, MARGIN, {
-    characterSpacing: 1,
-    width: CONTENT_W,
-    lineBreak: false,
-  });
-  doc.font("bold").fontSize(19).fillColor(COLORS.text);
-  doc.text(planName, MARGIN, doc.y + 4, { width: CONTENT_W });
-  doc
-    .moveTo(MARGIN, doc.y + 8)
-    .lineTo(PAGE_W - MARGIN, doc.y + 8)
-    .lineWidth(1)
-    .strokeColor(COLORS.line)
-    .stroke();
-  doc.y += 20;
+  renderSectionHeading(doc, { kicker: folderName ?? labels.rootGroup, heading: planName });
 }
 
 /** Draw the plan page with a numbered pin per réserve, matching the UI's colors. */
 function renderPlanImage(
-  doc: PDFKit.PDFDocument,
+  doc: ReportDocument,
   args: { plan: ReportPlan; labels: ReportLabels; statusColors: StatusColors; images: Map<string, Buffer> }
 ) {
   const { plan, labels, statusColors, images } = args;
@@ -412,7 +375,7 @@ function renderPlanImage(
 const CARD_PHOTO = 78;
 
 function renderReserveCard(
-  doc: PDFKit.PDFDocument,
+  doc: ReportDocument,
   args: {
     reserve: ReportReserve;
     labels: ReportLabels;
@@ -480,36 +443,4 @@ function renderReserveCard(
     .strokeColor(COLORS.line)
     .stroke();
   doc.y = bottom;
-}
-
-/**
- * Stamp "project — page n/N" on every page except the cover.
- *
- * The vertical margins are zeroed first: pdfkit auto-paginates when text is
- * written below the bottom margin, so stamping a footer on an already
- * laid-out page would otherwise append a blank page per stamp.
- */
-function stampFooters(
-  doc: PDFKit.PDFDocument,
-  args: { project: ReservesReportInput["project"]; labels: ReportLabels }
-) {
-  const { project, labels } = args;
-  const range = doc.bufferedPageRange();
-  for (let i = 1; i < range.count; i++) {
-    doc.switchToPage(range.start + i);
-    doc.page.margins.top = 0;
-    doc.page.margins.bottom = 0;
-
-    doc.font("body").fontSize(8).fillColor(COLORS.muted);
-    doc.text(project.name, MARGIN, PAGE_H - 32, {
-      width: CONTENT_W / 2,
-      lineBreak: false,
-    });
-    doc.text(
-      labels.page.replace("{current}", String(i + 1)).replace("{total}", String(range.count)),
-      PAGE_W / 2,
-      PAGE_H - 32,
-      { width: CONTENT_W / 2, align: "right", lineBreak: false }
-    );
-  }
 }

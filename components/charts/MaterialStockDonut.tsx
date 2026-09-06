@@ -1,7 +1,7 @@
 'use client'
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useTranslation } from "@/components/LocaleProvider";
-import { STOCK_HEX, STOCK_DOT_CLASSES, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
+import { STOCK_HEX, STOCK_DOT_CLASSES, STOCK_STATUS_ORDER, countByStockStatus, type MaterialStockStatus } from "@/lib/materialStock";
 
 type MaterialStockDonutProps = {
   materials: { id: number; name: string; status: MaterialStockStatus }[];
@@ -10,8 +10,7 @@ type MaterialStockDonutProps = {
 export default function MaterialStockDonut({ materials }: MaterialStockDonutProps) {
   const { t } = useTranslation();
   const total = materials.length;
-  const counts = { green: 0, orange: 0, red: 0 };
-  for (const m of materials) counts[m.status] += 1;
+  const counts = countByStockStatus(materials);
 
   // One slice per material (not per status) so same-status materials still
   // show up as visually separate wedges, with a gap between every slice.
