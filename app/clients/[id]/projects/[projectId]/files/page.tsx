@@ -42,7 +42,7 @@ export default async function ProjectFilesPage({ params, searchParams }: PagePro
         <Title title={t.projects.detail.filesHeading} />
         <p className={access.reason === "error" ? "text-red-500" : undefined}>
           {access.reason === "forbidden"
-            ? t.errors.forbidden
+            ? t.errors.forbiddenSection
             : access.reason === "error"
               ? access.message
               : t.projects.detail.notFound}

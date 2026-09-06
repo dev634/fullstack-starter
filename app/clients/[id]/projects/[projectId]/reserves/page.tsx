@@ -53,7 +53,7 @@ export default async function ProjectReservesPage({ params, searchParams }: Page
         <Title title={t.reserves.heading} />
         <p className={access.reason === "error" ? "text-red-500" : undefined}>
           {access.reason === "forbidden"
-            ? t.errors.forbidden
+            ? t.errors.forbiddenSection
             : access.reason === "error"
               ? access.message
               : t.projects.detail.notFound}

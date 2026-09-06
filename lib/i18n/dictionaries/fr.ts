@@ -43,7 +43,13 @@ const fr = {
         invalidCharacters: "Ne peut pas contenir de caractères de contrôle.",
         validationError: "Erreur de validation. Vérifie les informations saisies et réessaie.",
         unauthorized: "Non autorisé. Merci de te connecter.",
+        // Un refus par RÔLE. Les deux suivants viennent de la FONCTION, un axe
+        // orthogonal : un ADMIN et un VIEWER portant la même fonction voient le
+        // même refus. Les confondre envoie l'utilisateur changer la mauvaise
+        // chose — ce message-ci a longtemps servi les trois axes.
         forbidden: "Accès refusé. Ton rôle ne permet pas cette action.",
+        forbiddenArea: "Accès refusé. Cette rubrique n'est pas accessible avec ta fonction.",
+        forbiddenSection: "Accès refusé. Cette section n'est pas accessible avec ta fonction.",
         invalidId: "Identifiant invalide.",
         serverError: "Erreur serveur. Réessaie plus tard.",
     },

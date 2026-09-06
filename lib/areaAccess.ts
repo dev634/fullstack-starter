@@ -61,7 +61,7 @@ export async function requireAreaAccess(
   if (await canAccessArea(area)) return { error: null };
 
   const t = getDictionary(await getLocale());
-  return { error: { type: "error" as const, message: t.errors.forbidden } };
+  return { error: { type: "error" as const, message: t.errors.forbiddenArea } };
 }
 
 /**
