@@ -4,11 +4,14 @@ import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 
 // Controlled mode: pass `open` together with `onOpenChange` when a parent
 // needs to force the section open — e.g. reveal it after creating something
-// inside. Omit both to keep the section fully self-contained (uncontrolled).
-// The union prevents passing one without the other.
+// inside. Omit both to keep the section fully self-contained (uncontrolled),
+// optionally with `defaultOpen` to pick its initial state. `defaultOpen` only
+// makes sense when nothing else already owns `open`: in controlled mode the
+// initial state comes from the parent, so the union rules out passing it
+// alongside `open`/`onOpenChange` — a compile error, not a convention.
 type ControlMode =
-  | { open: boolean; onOpenChange: (open: boolean) => void }
-  | { open?: never; onOpenChange?: never };
+  | { open: boolean; onOpenChange: (open: boolean) => void; defaultOpen?: never }
+  | { open?: never; onOpenChange?: never; defaultOpen?: boolean };
 
 type CollapsibleSectionProps = ControlMode & {
   icon: ReactNode;
@@ -27,9 +30,10 @@ export default function CollapsibleSection({
   headerExtra,
   open: openProp,
   onOpenChange,
+  defaultOpen = false,
   children,
 }: CollapsibleSectionProps) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const isControlled = openProp !== undefined;
   const open = isControlled ? openProp : uncontrolledOpen;
 

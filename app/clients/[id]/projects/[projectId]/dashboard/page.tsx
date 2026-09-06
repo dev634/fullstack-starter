@@ -158,6 +158,37 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   // pills below can never show a different colour/label than either of them.
   const reserveStatusStyle = resolveReserveStatusStyle(project, t.reserves.status);
 
+  // Badges for each section's collapsed header — the single figure a
+  // conducteur de travaux wants without opening it. Undefined (no badge)
+  // when there is nothing to summarize yet, matching every other section's
+  // own "…None" empty state.
+  const taskBadge =
+    taskProgress.total > 0
+      ? format(t.projectDashboard.tasksBadge, {
+          percent: Math.round(taskProgress.percent),
+          done: taskProgress.done,
+          total: taskProgress.total,
+        })
+      : undefined;
+  // How many assignees actually have something on this chantier — not a
+  // progress figure (there is no single "percent done" across people), so a
+  // plain count, same "(n)" shorthand the client page's own Contacts/Projects
+  // sections already use for their badges.
+  const interimBadge = interimProgress.length > 0 ? `(${interimProgress.length})` : undefined;
+  const companyBadge = companyProgress.length > 0 ? `(${companyProgress.length})` : undefined;
+  // Open count, in the same words as the pill just below it once expanded
+  // (t.reserves.countWithLabel) — the vocabulary must not shift between the
+  // closed and open state. Shown as soon as there's at least one réserve at
+  // all (including "0 <label>"), because "nothing open" is itself the piece
+  // of information a conducteur wants without opening the section.
+  const reservesBadge =
+    reserveTally.total > 0
+      ? format(t.reserves.countWithLabel, { count: reserveTally.open, label: reserveStatusStyle.open.label })
+      : undefined;
+  // Materials actually tracked against a required quantity (computeTrackedMaterials'
+  // own filter) — the same population the donut/list below render.
+  const materialsBadge = namedMaterials.length > 0 ? `(${namedMaterials.length})` : undefined;
+
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
       {/* Rendered unconditionally, like the hub page's own instance: harmless
@@ -182,14 +213,13 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         {showTasks && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
-              <span className="flex items-center gap-2">
-                <ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />
-                <h2 className="text-lg font-semibold">{t.projectDashboard.tasksTitle}</h2>
-              </span>
-              <PrintReportButton />
-            </div>
-
+            <CollapsibleSection
+              defaultOpen
+              icon={<ClipboardDocumentListIcon className="h-5 w-5 text-blue-500" />}
+              title={t.projectDashboard.tasksTitle}
+              badge={taskBadge}
+              headerExtra={<PrintReportButton />}
+            >
             <div className="flex flex-col gap-6 px-4 py-6 sm:px-6">
               {taskProgress.total > 0 ? (
                 <div className="flex flex-col items-center gap-1">
@@ -219,6 +249,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 </div>
               )}
             </div>
+            </CollapsibleSection>
           </div>
         </div>
         )}
@@ -236,12 +267,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         {showInterimProgress && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
-              <span className="flex items-center gap-2">
-                <UsersIcon className="h-5 w-5 text-teal-500" />
-                <h2 className="text-lg font-semibold">{t.projectDashboard.interimsTitle}</h2>
-              </span>
-            </div>
+            <CollapsibleSection
+              defaultOpen
+              icon={<UsersIcon className="h-5 w-5 text-teal-500" />}
+              title={t.projectDashboard.interimsTitle}
+              badge={interimBadge}
+            >
             <div className="px-4 py-6 sm:px-6">
               {interimProgress.length > 0 ? (
                 <SeriesProgressBars items={interimProgress} />
@@ -249,6 +280,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.interimsNone}</p>
               )}
             </div>
+            </CollapsibleSection>
           </div>
         </div>
         )}
@@ -258,12 +290,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         {showCompanyProgress && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
-              <span className="flex items-center gap-2">
-                <BuildingOfficeIcon className="h-5 w-5 text-amber-500" />
-                <h2 className="text-lg font-semibold">{t.projectDashboard.companiesTitle}</h2>
-              </span>
-            </div>
+            <CollapsibleSection
+              defaultOpen
+              icon={<BuildingOfficeIcon className="h-5 w-5 text-amber-500" />}
+              title={t.projectDashboard.companiesTitle}
+              badge={companyBadge}
+            >
             <div className="px-4 py-6 sm:px-6">
               {companyProgress.length > 0 ? (
                 <SeriesProgressBars items={companyProgress} />
@@ -271,6 +303,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.companiesNone}</p>
               )}
             </div>
+            </CollapsibleSection>
           </div>
         </div>
         )}
@@ -287,12 +320,12 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         {showReserves && (
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
-            <div className="flex items-center justify-between gap-2 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
-              <span className="flex items-center gap-2">
-                <MapPinIcon className="h-5 w-5 text-rose-500" />
-                <h2 className="text-lg font-semibold">{t.projectDashboard.reservesTitle}</h2>
-              </span>
-            </div>
+            <CollapsibleSection
+              defaultOpen
+              icon={<MapPinIcon className="h-5 w-5 text-rose-500" />}
+              title={t.projectDashboard.reservesTitle}
+              badge={reservesBadge}
+            >
             <div className="flex flex-col items-center gap-3 px-4 py-6 sm:px-6">
               {reserveTally.total > 0 ? (
                 <div className="flex flex-wrap items-center justify-center gap-3">
@@ -310,6 +343,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.reservesNone}</p>
               )}
             </div>
+            </CollapsibleSection>
           </div>
         </div>
         )}
@@ -319,8 +353,10 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
           <div className="overflow-hidden rounded-xl">
             <CollapsibleSection
+              defaultOpen
               icon={<CubeIcon className="h-5 w-5 text-purple-500" />}
               title={t.projectDashboard.materialsTitle}
+              badge={materialsBadge}
             >
             <div className="flex flex-col items-center gap-1 px-4 py-6 sm:px-6">
               {namedMaterials.length > 0 ? (
