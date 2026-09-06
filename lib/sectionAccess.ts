@@ -47,5 +47,5 @@ export async function requireSectionAccess(
   if (await canAccessSection(section)) return { error: null };
 
   const t = getDictionary(await getLocale());
-  return { error: { type: "error" as const, message: t.errors.forbidden } };
+  return { error: { type: "error" as const, message: t.errors.forbiddenSection } };
 }

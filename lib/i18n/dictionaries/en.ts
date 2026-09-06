@@ -46,6 +46,8 @@ const en: Dictionary = {
         validationError: "Validation error. Please check your input and try again.",
         unauthorized: "Unauthorized. Please sign in.",
         forbidden: "Forbidden. Your role does not allow this action.",
+        forbiddenArea: "Forbidden. This area is not available with your job function.",
+        forbiddenSection: "Forbidden. This section is not available with your job function.",
         invalidId: "Invalid ID.",
         serverError: "Server error. Please try again later.",
     },
