@@ -933,7 +933,7 @@ const fr = {
             capabilities: {
                 "content.edit": {
                     label: "Créer / modifier le contenu",
-                    description: "Clients, projets, tâches, matériel, réserves…",
+                    description: "Entreprises, projets, tâches, matériel, réserves…",
                 },
                 "content.trash": {
                     label: "Corbeille",
