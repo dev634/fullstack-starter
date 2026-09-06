@@ -8,6 +8,20 @@ export function roundPercent(done: number, total: number): number {
 }
 
 /**
+ * SVG arc length for the "done" stroke of a small progress ring (a full
+ * "remaining" circle underneath, with a "done" arc drawn over it — see
+ * components/charts/SeriesProgressRings.tsx). `percent` is clamped to
+ * [0, 100]: the ring is never the only place that carries the value (the
+ * dashboard always writes the percent as text next to it), so a malformed
+ * input here can only ever mis-draw the arc, never mislead on its own.
+ */
+export function computeRingArc(percent: number, radius: number): { doneLength: number; circumference: number } {
+  const circumference = 2 * Math.PI * radius;
+  const clampedPercent = Math.min(100, Math.max(0, percent));
+  return { doneLength: (clampedPercent / 100) * circumference, circumference };
+}
+
+/**
  * Per-task bar stats — a quantity-tracked task reports its actual count
  * (e.g. 32/50) instead of being flattened to a plain 0/1, so both the
  * dashboard's per-task bar and the overall weighted percent (below) reflect

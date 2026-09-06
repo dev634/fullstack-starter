@@ -975,6 +975,7 @@ const en: Dictionary = {
         tasksOverall: "Whole project",
         tasksNone: "No tasks yet.",
         categoriesTitle: "Progress by category / group",
+        groupProgressLabel: "{name}: {percent}% ({done}/{total})",
         detailedTitle: "Detailed progress, task by task",
         materialsTitle: "Material stock",
         materialsNone: "No material linked to a task yet.",
