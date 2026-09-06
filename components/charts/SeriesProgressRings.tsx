@@ -46,7 +46,7 @@ const STROKE_WIDTH = 8; // "un anneau fin"
  */
 export default function SeriesProgressRings({ items, t }: SeriesProgressRingsProps) {
   return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5">
+    <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
       {items.map((item) => (
         <ProgressRing key={item.id} item={item} t={t} />
       ))}
@@ -69,7 +69,7 @@ function ProgressRing({ item, t }: { item: SeriesProgressRingsItem; t: Dictionar
   });
 
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1 text-center">
+    <div className="flex w-[5.5rem] min-w-0 flex-col items-center gap-1 text-center sm:w-24">
       <div className="relative aspect-square w-full max-w-20">
         <svg
           viewBox={`0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}`}
