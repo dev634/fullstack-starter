@@ -7,11 +7,13 @@ import {
   buildCompaniesReport,
   buildMaterialsReport,
   buildGlobalDashboardReport,
+  buildMaterialCategoryGroups,
   type DashboardReportChrome,
   type TasksReportLabels,
   type AssigneeReportLabels,
   type MaterialsReportLabels,
 } from "@/lib/dashboardReport";
+import { UNCATEGORIZED_MATERIAL_GROUP_ID } from "@/lib/projectDashboard";
 import { pageCount } from "./helpers/pdf";
 
 describe("dashboardReportFileName", () => {
@@ -62,6 +64,7 @@ const materialsLabels: MaterialsReportLabels = {
   listTitle: "Détail par matériau",
   none: "Aucun matériel lié à une tâche pour le moment.",
   stockStatus: { green: "Stock suffisant", orange: "Stock partiel", red: "Rupture de stock" },
+  rowStats: "{percent} % ({done}/{total})",
 };
 
 /** The exact `scn` fill-colour operator pdfkit emits for a #RRGGBB hex — see
@@ -180,6 +183,9 @@ describe("buildMaterialsReport", () => {
         { id: 2, name: "Onduleurs", quantity: 5, requiredQuantity: 10, status: "orange" },
         { id: 3, name: "Câbles", quantity: 100, requiredQuantity: 100, status: "green" },
       ],
+      // The résumé global tiles above read `materials` (unchanged), not
+      // `groups` — an empty `groups` here still leaves them intact.
+      groups: [],
       labels: materialsLabels,
     });
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
@@ -187,6 +193,61 @@ describe("buildMaterialsReport", () => {
     expect(content).toContain(fillColorOperator("#ef4444")); // red
     expect(content).toContain(fillColorOperator("#f59e0b")); // orange
     expect(content).toContain(fillColorOperator("#22c55e")); // green
+  });
+
+  it("still renders a valid PDF with categories grouped, non classé last", async () => {
+    const pdf = await buildMaterialsReport({
+      project,
+      companyName,
+      locale,
+      generatedAt,
+      chrome,
+      materials: [
+        { id: 1, name: "Câbles", quantity: 100, requiredQuantity: 100, status: "green" },
+        { id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, status: "red" },
+      ],
+      groups: [
+        { id: 1, name: "Électrique", done: 1, total: 1, percent: 100, materials: [{ id: 1, name: "Câbles", quantity: 100, requiredQuantity: 100, status: "green" }] },
+        { id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: "Non classé", done: 0, total: 1, percent: 0, materials: [{ id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, status: "red" }] },
+      ],
+      labels: materialsLabels,
+    });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    // Grouping by category draws on the same single content page as the flat
+    // list did before — cover + one materials page, no extra page per group.
+    expect(pageCount(pdf)).toBe(2);
+  });
+});
+
+describe("buildMaterialCategoryGroups", () => {
+  it("partitions materials by category, in the order categories are given, non classé last", () => {
+    const categories = [
+      { id: 1, name: "Électrique" },
+      { id: 2, name: "Plomberie" },
+    ];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 },
+      { id: 2, name: "Tuyau", quantity: 0, requiredQuantity: 5, materialCategoryId: 2 },
+      { id: 3, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null },
+    ];
+    const groups = buildMaterialCategoryGroups(materials, categories, "Non classé");
+    expect(groups.map((g) => g.name)).toEqual(["Électrique", "Plomberie", "Non classé"]);
+    expect(groups.map((g) => g.materials.map((m) => m.name))).toEqual([["Câble"], ["Tuyau"], ["Vis"]]);
+  });
+
+  it("substitutes the localized label for the synthetic uncategorized bucket only", () => {
+    const materials = [{ id: 1, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null }];
+    const groups = buildMaterialCategoryGroups(materials, [], "Non classé");
+    expect(groups).toEqual([
+      { id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: "Non classé", done: 0, total: 1, percent: 0, materials: [expect.objectContaining({ id: 1, name: "Vis" })] },
+    ]);
+  });
+
+  it("omits the uncategorized bucket when every material is filed", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [{ id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }];
+    const groups = buildMaterialCategoryGroups(materials, categories, "Non classé");
+    expect(groups.map((g) => g.id)).toEqual([1]);
   });
 });
 
@@ -207,6 +268,7 @@ describe("buildGlobalDashboardReport", () => {
         },
         materials: {
           materials: [{ id: 1, name: "Panneaux", quantity: 0, requiredQuantity: 24, status: "red" }],
+          groups: [],
           labels: materialsLabels,
         },
       },

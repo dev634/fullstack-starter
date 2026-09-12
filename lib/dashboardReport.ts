@@ -19,7 +19,14 @@ import {
 import { format } from "@/lib/i18n/format";
 import { mixTowardBlack } from "@/lib/color";
 import { STOCK_HEX, countByStockStatus, type MaterialStockStatus } from "@/lib/materialStock";
-import type { TaskProgressStats, TrackedMaterial } from "@/lib/projectDashboard";
+import {
+  computeTrackedMaterials,
+  computeMaterialCategoryProgress,
+  groupMaterialsByCategory,
+  UNCATEGORIZED_MATERIAL_GROUP_ID,
+  type TaskProgressStats,
+  type TrackedMaterial,
+} from "@/lib/projectDashboard";
 import type { AssigneeProgress } from "@/repository/tasks";
 import type { ReserveTally } from "@/repository/reserves";
 
@@ -262,15 +269,77 @@ export type MaterialsReportLabels = {
   none: string;
   /** t.materials.stockStatus — same three words the on-screen dot/legend use. */
   stockStatus: Record<MaterialStockStatus, string>;
+  /** "{percent} % ({done}/{total})" — t.projectDashboard.tasksBadge, the same
+   * template every other progress row in this file already reuses (see
+   * renderProgressRows's own doc): one category's own done/total/percent. */
+  rowStats: string;
+};
+
+/** One category's materials, ready to render: `materials` are ALREADY
+ * computeTrackedMaterials(...)'d (worst-stock-first) for that category alone
+ * — see buildMaterialCategoryGroups below, the one place this is built. */
+export type MaterialCategoryReportGroup = {
+  id: number | string;
+  name: string;
+  done: number;
+  total: number;
+  percent: number;
+  materials: readonly TrackedMaterial[];
 };
 
 export type MaterialsReportInput = ReportContext & {
-  /** Already computeTrackedMaterials(...)'d — worst-stock-first, one row per
-   * material that has a required quantity, exactly what the dashboard's own
-   * donut + list render (untracked materials are never shown there either). */
+  /** Already computeTrackedMaterials(...)'d across the WHOLE project —
+   * worst-stock-first, one row per material that has a required quantity.
+   * Kept only for the section's own global summary tiles (red/orange/green
+   * counts project-wide): the "résumé global" this feature keeps unchanged,
+   * never re-listed on its own now that `groups` exists below. */
   materials: readonly TrackedMaterial[];
+  /** Per-category breakdown, "non classé" last — see
+   * buildMaterialCategoryGroups. Each group's own `materials` are the ones
+   * listed under it. */
+  groups: readonly MaterialCategoryReportGroup[];
   labels: MaterialsReportLabels;
 };
+
+/** A material shaped just enough to be partitioned by category — the same
+ * shape repository/projectMaterials.ts::findByProject's rows already have
+ * (materialCategoryId is a real column there), structurally compatible with
+ * no mapping needed at the call site. */
+type MaterialForCategoryGrouping = {
+  id: number;
+  name: string;
+  quantity: number;
+  requiredQuantity: number | null;
+  materialCategoryId: number | null;
+};
+
+/**
+ * Bridges lib/projectDashboard.ts's groupMaterialsByCategory (the single
+ * partition both the dashboard's rings and this PDF share, so they can never
+ * disagree about which material belongs to which bucket) with the actual
+ * TrackedMaterial rows this PDF lists under each category. Reuses
+ * computeMaterialCategoryProgress for the done/total/percent math (never
+ * re-derives it) and only adds what that pure, locale-less function can't:
+ * `uncategorizedLabel`, the one localized string
+ * (t.materials.category.uncategorized) the synthetic bucket needs to be
+ * directly renderable.
+ */
+export function buildMaterialCategoryGroups(
+  materials: readonly MaterialForCategoryGrouping[],
+  categories: readonly { id: number; name: string }[],
+  uncategorizedLabel: string
+): MaterialCategoryReportGroup[] {
+  const progress = computeMaterialCategoryProgress(materials, categories);
+  const groups = groupMaterialsByCategory(materials, categories);
+  return progress.map((entry, i) => ({
+    id: entry.id,
+    name: entry.id === UNCATEGORIZED_MATERIAL_GROUP_ID ? uncategorizedLabel : entry.name,
+    done: entry.done,
+    total: entry.total,
+    percent: entry.percent,
+    materials: computeTrackedMaterials(groups[i].materials),
+  }));
+}
 
 const MATERIAL_DOT_RADIUS = 4;
 const MATERIAL_QUANTITY_W = 90;
@@ -312,7 +381,7 @@ function renderMaterialRow(doc: ReportDocument, material: TrackedMaterial, statu
 }
 
 function renderMaterialsSection(doc: ReportDocument, input: MaterialsReportInput): void {
-  const { project, materials, labels } = input;
+  const { project, materials, groups, labels } = input;
 
   doc.addPage();
   renderSectionHeading(doc, { kicker: project.name, heading: labels.title });
@@ -322,6 +391,8 @@ function renderMaterialsSection(doc: ReportDocument, input: MaterialsReportInput
     return;
   }
 
+  // Résumé global — unchanged: project-wide counts across every tracked
+  // material, regardless of category.
   const counts = countByStockStatus(materials);
   const tiles: TileSpec[] = [
     { label: labels.stockStatus.red, value: String(counts.red), color: STOCK_HEX.red },
@@ -330,9 +401,19 @@ function renderMaterialsSection(doc: ReportDocument, input: MaterialsReportInput
   ];
   doc.y = renderSummaryTiles(doc, tiles, doc.y + 12) + 20;
 
+  // One sub-section per category ("non classé" last, see
+  // buildMaterialCategoryGroups): the category's own name + progress line
+  // (the same "{name} … {statsLabel}" drawer every other report in this file
+  // uses for a row), immediately followed by its own materials.
   renderListHeading(doc, labels.listTitle);
-  for (const material of materials) {
-    renderMaterialRow(doc, material, labels.stockStatus[material.status]);
+  for (const group of groups) {
+    renderProgressRow(doc, {
+      name: group.name,
+      statsLabel: format(labels.rowStats, { percent: Math.round(group.percent), done: group.done, total: group.total }),
+    });
+    for (const material of group.materials) {
+      renderMaterialRow(doc, material, labels.stockStatus[material.status]);
+    }
   }
 }
 

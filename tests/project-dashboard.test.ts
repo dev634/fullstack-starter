@@ -5,6 +5,8 @@ import {
   computeMaterialStockStats,
   computeTrackedMaterials,
   computeRingArc,
+  computeMaterialCategoryProgress,
+  UNCATEGORIZED_MATERIAL_GROUP_ID,
 } from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
@@ -239,6 +241,82 @@ describe("computeTrackedMaterials", () => {
       ["Empty", "red"],
       ["Partial", "orange"],
       ["Full", "green"],
+    ]);
+  });
+});
+
+describe("computeMaterialCategoryProgress", () => {
+  it("returns an empty array with no categories and no materials", () => {
+    expect(computeMaterialCategoryProgress([], [])).toEqual([]);
+  });
+
+  it("gives every category an entry, in the order given, even an empty one", () => {
+    const categories = [
+      { id: 1, name: "Électrique" },
+      { id: 2, name: "Plomberie" },
+    ];
+    const result = computeMaterialCategoryProgress([], categories);
+    expect(result).toEqual([
+      { id: 1, name: "Électrique", done: 0, total: 0, percent: 0, untracked: 0 },
+      { id: 2, name: "Plomberie", done: 0, total: 0, percent: 0, untracked: 0 },
+    ]);
+  });
+
+  it("computes done as the green count among tracked materials — MaterialStockDonut's own definition, per category", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }, // green
+      { id: 2, name: "Disjoncteur", quantity: 0, requiredQuantity: 5, materialCategoryId: 1 }, // red
+    ];
+    const result = computeMaterialCategoryProgress(materials, categories);
+    expect(result).toEqual([{ id: 1, name: "Électrique", done: 1, total: 2, percent: 50, untracked: 0 }]);
+  });
+
+  // Degenerate line: a material with no required quantity at all — must be
+  // counted separately, never summed into percent (a stock quantity and "not
+  // tracked" don't share a unit).
+  it("counts a material without a required quantity as untracked, never folded into percent", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 },
+      { id: 2, name: "Gaine", quantity: 50, requiredQuantity: null, materialCategoryId: 1 },
+    ];
+    const result = computeMaterialCategoryProgress(materials, categories);
+    expect(result).toEqual([{ id: 1, name: "Électrique", done: 1, total: 1, percent: 100, untracked: 1 }]);
+  });
+
+  it("appends a synthetic uncategorized bucket last, only when a material actually has no category", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 },
+      { id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null },
+    ];
+    const result = computeMaterialCategoryProgress(materials, categories);
+    expect(result.map((r) => r.id)).toEqual([1, UNCATEGORIZED_MATERIAL_GROUP_ID]);
+    expect(result[1]).toEqual({
+      id: UNCATEGORIZED_MATERIAL_GROUP_ID,
+      name: UNCATEGORIZED_MATERIAL_GROUP_ID,
+      done: 0,
+      total: 1,
+      percent: 0,
+      untracked: 0,
+    });
+  });
+
+  // Degenerate line: a fully-filed project — the "Non classé" bucket must
+  // never appear just because it's a possible state.
+  it("omits the uncategorized bucket entirely when every material is filed", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [{ id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }];
+    const result = computeMaterialCategoryProgress(materials, categories);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it("still appends the uncategorized bucket even with no real category at all", () => {
+    const materials = [{ id: 1, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null }];
+    const result = computeMaterialCategoryProgress(materials, []);
+    expect(result).toEqual([
+      { id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: UNCATEGORIZED_MATERIAL_GROUP_ID, done: 0, total: 1, percent: 0, untracked: 0 },
     ]);
   });
 });

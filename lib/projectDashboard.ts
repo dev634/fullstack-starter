@@ -1,4 +1,4 @@
-import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
+import { materialStockStatus, countByStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null; categoryId?: number | null };
 
@@ -162,4 +162,97 @@ export function computeTrackedMaterials(materials: NamedMaterialLike[]): Tracked
       status: materialStockStatus(m.quantity, m.requiredQuantity),
     }))
     .sort((a, b) => STOCK_STATUS_ORDER[a.status] - STOCK_STATUS_ORDER[b.status]);
+}
+
+// ---------------------------------------------------------------------------
+// Material categories — filing (WHAT a material is), entirely independent of
+// the task/série/catégorie link above (WHY it's here, what drives the stock
+// requirement). See ProjectMaterialCategory's own schema comment
+// (schemas/materialCategory.ts) for the full distinction.
+// ---------------------------------------------------------------------------
+
+type MaterialCategoryLike = { id: number; name: string };
+type CategorizableMaterialLike = NamedMaterialLike & { materialCategoryId: number | null };
+
+/** Stable id for the synthetic "no category" bucket both functions below may
+ * append — never a real ProjectMaterialCategory id (those are positive
+ * integers), so it can never collide with one. */
+export const UNCATEGORIZED_MATERIAL_GROUP_ID = "uncategorized";
+
+/**
+ * Partitions materials by their project-scoped material category, in the
+ * order `categories` is given, with the synthetic "uncategorized" bucket
+ * last — appended only when at least one material actually has no category,
+ * so a fully-filed project never shows an empty "Non classé" row. Every real
+ * category gets an entry even with zero materials (an empty category is
+ * still a category the owner created).
+ *
+ * Exported (not just used by computeMaterialCategoryProgress below) so
+ * lib/dashboardReport.ts's buildMaterialCategoryGroups partitions materials
+ * the exact same way for the PDF's per-category listing — the ring/percent
+ * view and the PDF listing must never disagree about which material belongs
+ * to which bucket.
+ */
+export function groupMaterialsByCategory<M extends CategorizableMaterialLike>(
+  materials: readonly M[],
+  categories: readonly MaterialCategoryLike[]
+): { id: number | string; name: string; materials: M[] }[] {
+  const groups = categories.map((category) => ({
+    id: category.id as number | string,
+    name: category.name,
+    materials: materials.filter((m) => m.materialCategoryId === category.id),
+  }));
+  const uncategorized = materials.filter((m) => m.materialCategoryId == null);
+  if (uncategorized.length > 0) {
+    groups.push({ id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: UNCATEGORIZED_MATERIAL_GROUP_ID, materials: uncategorized });
+  }
+  return groups;
+}
+
+export type MaterialCategoryProgress = {
+  id: number | string;
+  name: string;
+  done: number;
+  total: number;
+  percent: number;
+  untracked: number;
+};
+
+/**
+ * Per-category progress for the dashboard's "Avancement par catégorie de
+ * matériel" rings (components/charts/SeriesProgressRings.tsx — its item type
+ * is exactly `{ id, name, done, total, percent }`, so this return shape is
+ * directly consumable as-is, `untracked` simply ignored by that component).
+ *
+ * "Progress" here is MaterialStockDonut's own definition, applied per
+ * category instead of project-wide: the share of TRACKED materials
+ * (requiredQuantity set) whose stock is green. `done` is the green count,
+ * `total` the tracked count, `untracked` the rest (no requiredQuantity at
+ * all) — counted so nothing silently disappears, but never folded into
+ * percent, because a stock quantity and a "not tracked" material don't share
+ * a unit and can't be summed (docs/CONVENTIONS.md).
+ *
+ * The synthetic "uncategorized" entry's `name` is the sentinel id itself
+ * (UNCATEGORIZED_MATERIAL_GROUP_ID), not a display string: this function has
+ * no i18n context on purpose (kept pure and testable without a locale) — a
+ * caller that renders this list (the dashboard page, or
+ * lib/dashboardReport.ts's buildMaterialCategoryGroups) is the one that
+ * swaps in t.materials.category.uncategorized wherever it sees that id.
+ */
+export function computeMaterialCategoryProgress(
+  materials: readonly CategorizableMaterialLike[],
+  categories: readonly MaterialCategoryLike[]
+): MaterialCategoryProgress[] {
+  return groupMaterialsByCategory(materials, categories).map((group) => {
+    const tracked = computeTrackedMaterials(group.materials);
+    const done = countByStockStatus(tracked).green;
+    return {
+      id: group.id,
+      name: group.name,
+      done,
+      total: tracked.length,
+      percent: roundPercent(done, tracked.length),
+      untracked: group.materials.length - tracked.length,
+    };
+  });
 }
