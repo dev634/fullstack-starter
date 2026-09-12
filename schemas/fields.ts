@@ -35,14 +35,25 @@ export const MAX_URL_LENGTH = 2048; // common browser/URL-bar length ceiling
 export const MAX_PHONE_LENGTH = 60; // one formatted international number with an extension, or two numbers separated by " / " — see the measured examples above
 
 /**
- * A managed job function id coming from a <select> (or CSV import): a positive
- * integer, or null when "none" ("") is chosen. Optional so the field may be
- * absent from the payload entirely. Shared by the contact, user, interim,
- * and subcontractor schemas.
+ * A positive integer id coming from a <select> (or CSV import), or null when
+ * "none" ("") is explicitly chosen. Optional so the field may be absent from
+ * the payload entirely. The generic shape behind optionalJobFunctionId below —
+ * extracted rather than re-written a second time for
+ * ProjectMaterial.materialCategoryId (schemas/projectMaterial.ts), which is
+ * the exact same contract: a clearable FK picked from a project-scoped
+ * <select>.
  */
-export const optionalJobFunctionId = z
+export const optionalPositiveIntId = z
     .preprocess(
         (v) => (v === "" || v === null || v === undefined ? null : v),
         z.coerce.number().int().positive().nullable()
     )
     .optional();
+
+/**
+ * A managed job function id coming from a <select> (or CSV import): a positive
+ * integer, or null when "none" ("") is chosen. Optional so the field may be
+ * absent from the payload entirely. Shared by the contact, user, interim,
+ * and subcontractor schemas.
+ */
+export const optionalJobFunctionId = optionalPositiveIntId;

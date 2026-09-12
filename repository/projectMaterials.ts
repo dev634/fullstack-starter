@@ -12,6 +12,12 @@ type MaterialData = {
     taskGroupId?: number | null;
     taskCategoryId?: number | null;
     requiredQuantity?: number | null;
+    // WHAT the material is (filing) — independent of the task/série/catégorie
+    // link above, which says WHY it's here. See ProjectMaterialCategory's own
+    // schema comment for the full distinction. Never touched by
+    // createOrAccumulate's "existing line" branch below, same as the other
+    // fields there: accumulating only ever moves the quantity.
+    materialCategoryId?: number | null;
 };
 
 /**
@@ -66,6 +72,7 @@ export async function createOrAccumulate(
                     taskGroupId: data.taskGroupId ?? null,
                     taskCategoryId: data.taskCategoryId ?? null,
                     requiredQuantity: data.requiredQuantity ?? null,
+                    materialCategoryId: data.materialCategoryId ?? null,
                 },
             });
             return { material, accumulated: false };
@@ -90,6 +97,7 @@ export async function create(data: MaterialData) {
                 taskGroupId: data.taskGroupId ?? null,
                 taskCategoryId: data.taskCategoryId ?? null,
                 requiredQuantity: data.requiredQuantity ?? null,
+                materialCategoryId: data.materialCategoryId ?? null,
             },
         });
     } catch (error) {
@@ -104,7 +112,11 @@ export async function create(data: MaterialData) {
 /**
  * Materials for a project, most recently added first — includes the linked
  * task, task-series, or task-category name (if any) so the UI can show what
- * the stock indicator refers to.
+ * the stock indicator refers to, AND the material category (filing — see
+ * ProjectMaterialCategory's own schema comment) the dedicated `.../tasks`
+ * page groups this list by. Two different "category" joins on the same row,
+ * on purpose: they answer two different questions and neither can stand in
+ * for the other.
  */
 export async function findByProject(projectId: number) {
     try {
@@ -114,6 +126,7 @@ export async function findByProject(projectId: number) {
                 task: { select: { id: true, title: true } },
                 taskGroup: { select: { id: true, name: true } },
                 taskCategory: { select: { id: true, name: true } },
+                materialCategory: { select: { id: true, name: true } },
             },
             orderBy: { createdAt: "desc" },
         });
@@ -212,13 +225,16 @@ type MaterialUpdateData = {
     taskGroupId?: number | null;
     taskCategoryId?: number | null;
     requiredQuantity?: number | null;
+    materialCategoryId?: number | null;
 };
 
 /**
  * Edits a material's own fields, including its link (task/series/category):
  * the three FK columns are mutually exclusive by construction of the picker,
  * and an unset pick clears them all (SetNull-style) — so a scanned material,
- * which starts unlinked, can be attached to a task after the fact.
+ * which starts unlinked, can be attached to a task after the fact. Same
+ * clearable convention for materialCategoryId, independently: an unset pick
+ * there sends the material back to "non classé" without touching the link.
  */
 export async function update(id: number, data: MaterialUpdateData) {
     try {
@@ -234,6 +250,7 @@ export async function update(id: number, data: MaterialUpdateData) {
                 taskGroupId: data.taskGroupId ?? null,
                 taskCategoryId: data.taskCategoryId ?? null,
                 requiredQuantity: data.requiredQuantity ?? null,
+                materialCategoryId: data.materialCategoryId ?? null,
             },
         });
     } catch (error) {

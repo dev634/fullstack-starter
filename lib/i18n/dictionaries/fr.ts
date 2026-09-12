@@ -474,10 +474,37 @@ const fr = {
         linkedTask: "Pour : {title}",
         requiredQuantityLabel: "Quantité requise",
         requiredQuantityPlaceholder: "Requis",
+        // Le sélecteur de catégorie de matériel (QUOI, le rangement) — distinct
+        // et indépendant du sélecteur "Tâche liée" ci-dessus (POURQUOI, ce qui
+        // pilote le stock). Porter les deux à la fois est le cas normal.
+        categoryPickerLabel: "Catégorie de matériel",
+        categoryPickerNone: "Non classé",
         stockStatus: {
             green: "Stock suffisant",
             orange: "Stock partiel",
             red: "Rupture de stock",
+        },
+        category: {
+            toggle: "Nouvelle catégorie",
+            nameLabel: "Nom de la catégorie",
+            namePlaceholder: "Ex: Électrique",
+            create: "Créer",
+            uncategorized: "Non classé",
+            edit: "Renommer",
+            editTitle: "Renommer la catégorie",
+            deleteCategory: "Supprimer la catégorie",
+            deleteCategoryTitle: "Supprimer cette catégorie",
+            deleteCategoryText: "Supprimer la catégorie « {name} » ? Le matériel qu'elle contient ne sera pas supprimé, il repassera en « Non classé ».",
+            deleteCategoryTextWithCount: "Supprimer la catégorie « {name} » ? {count} matériel(s) qu'elle contient repasseront en « Non classé ». Rien n'est supprimé.",
+            deleteAriaLabel: "Supprimer la catégorie {name}",
+            editAriaLabel: "Renommer la catégorie {name}",
+            deleting: "Suppression…",
+            messages: {
+                added: "Catégorie créée.",
+                updated: "Catégorie renommée.",
+                deleted: "Catégorie supprimée.",
+                deletedWithUnfiled: "Catégorie supprimée. {count} matériel(s) repassé(s) en « Non classé ».",
+            },
         },
         scan: {
             toggle: "Scanner un bulletin",
