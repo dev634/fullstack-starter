@@ -121,7 +121,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 | Exigence | Où | État |
 |---|---|---|
 | Pas de champ sensible vers le client | `select` explicite ; `findAllOptions` pour les dropdowns (ne sérialise pas la posture d'accès). ⚠️ **Cette ligne était ✅ à tort avant PR #196** : `repository/projects.ts::findById` faisait `include: { client: true }` et deux pages passaient le résultat tel quel à un composant client — toute la ligne entreprise (e-mail, téléphone, adresse) partait dans la charge RSC, donc dans le HTML, sur des pages gardées par la rubrique `projects` et non `clients`. Resserrer le **type de la prop** ne protège rien (TypeScript est structurel) : cette ligne se re-vérifie sur les `include`/`select` des repositories, jamais sur les types des composants | ✅ |
-| `Cache-Control: no-store` sur les PDF | `…/reserves/report/route.ts` et `/api/assets/[kind]/[id]` | ✅ |
+| `Cache-Control: no-store` sur les PDF | `…/reserves/report/route.ts`, les cinq `…/dashboard/report/**/route.ts` (PR #225) et `/api/assets/[kind]/[id]` — sept routes, recomptées par grep le 2026-09-12 | ✅ |
 | Aucun secret journalisé, messages d’erreur génériques | `getErrorMessage` ; les erreurs de SDK tiers ne sont plus relayées (garde `isAppError` au site d’appel) | ✅ |
 | Rétention / purge des données personnelles (RGPD) | aucune politique implémentée | ⬜ |
 
