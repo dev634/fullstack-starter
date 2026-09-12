@@ -218,11 +218,11 @@ Chaque entreprise possède des **projets**. Un projet comporte :
 > sont réunis dans une seule page **Personnel**. Restent exacts : l'ordre des
 > sections reste configurable (il ordonne les cartes), et la visibilité par
 > fonction se règle toujours sur les **sept** clés listées ici. Les captures de
-> cette section montrent l'ancienne organisation. Enfin, le bouton « Générer
-> rapport PDF » imprime la page telle qu'elle est affichée : les sections du
-> tableau de bord étant repliées au chargement, le rapport ne contient que
-> leurs en-têtes tant qu'on ne les a pas ouvertes (défaut connu, voir
-> `docs/CONVENTIONS.md`).
+> cette section montrent l'ancienne organisation. Enfin, les rapports PDF du
+> tableau de bord sont **générés côté serveur** depuis la PR #225 — un bouton
+> « Générer rapport PDF » par section, plus « Générer le rapport complet
+> (PDF) » — et ne dépendent plus de ce qui est déplié à l'écran ; « rapport
+> imprimable » ci-dessous décrit l'ancien bouton, qui n'existe plus.
 
 La page d'un projet est organisée en **sections dépliables**, dont l'ordre est configurable par un Super administrateur (Administration → Ordre des sections) :
 
