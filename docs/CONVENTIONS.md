@@ -340,22 +340,33 @@ chose qu'on voie d'elle, et une section repliée qui n'affiche rien se rouvre
 systématiquement — on n'a alors ajouté qu'un clic.
 
 ⚠️ Et c'est pourquoi un rapport PDF ne peut pas s'obtenir par `window.print()` :
-une section fermée n'est pas montée, donc absente du DOM imprimé. Un rapport
-se génère **côté serveur**, sur le modèle de `lib/reservesReport.ts` et de sa
-route gardée — indépendant de ce qui est déplié dans le navigateur.
+une section fermée n'est pas montée, donc absente du DOM imprimé. Le bouton
+qui le faisait a vécu du 2026-07-18 à la PR #225 — le rapport n'a **jamais**
+contenu autre chose que des en-têtes, sans que personne le remarque : un
+défaut de **sortie** ne se voit pas à l'écran, il faut ouvrir l'artefact
+produit.
 
-⚠️ **Ce défaut est encore là au moment où ces lignes sont écrites**, et il a
-empiré : `components/PrintReportButton.tsx` appelle toujours `window.print()`,
-et il vit dans l'en-tête de la première des **cinq** `CollapsibleSection` du
-tableau de bord projet, toutes non contrôlées donc toutes fermées au
-chargement depuis la PR #222. Le rapport imprimé, aujourd'hui, c'est le titre
-du projet et cinq en-têtes avec leurs badges — rien d'autre n'est monté.
-Avant #221 il n'y avait qu'une section repliable, elle aussi fermée, et c'est
-le **même commit** (2026-07-18) qui a ajouté le bouton et rendu cette section
-repliable : le rapport ne l'a donc jamais contenue, sans que personne le
-remarque — un défaut de **sortie** ne se voit pas à l'écran, il faut ouvrir
-l'artefact produit. Refaire ce rapport côté serveur est une tâche à part
-entière, pas une retouche.
+## Rapports PDF
+
+Tous générés **côté serveur** avec `pdfkit`, indépendamment de ce qui est
+déplié dans le navigateur : `lib/reservesReport.ts` (le premier), puis
+`lib/dashboardReport.ts` (quatre rapports de section + le rapport complet,
+PR #225). Les mécaniques communes (A4, polices, en-tête de marque, tuiles,
+pagination) sont dans `lib/pdfReport.ts` — un nouveau rapport les consomme,
+il ne les re-dérive pas. Six routes `…/report/route.ts`, dans l'ordre des
+gardes de lecture ci-dessus (le rapport complet saute la ligne *section* et
+ne dessine que celles que l'appelant peut voir), toutes en
+`Cache-Control: no-store`.
+
+`pdfkit` lit ses métriques de police (`.afm`) dans son propre paquet à
+l'exécution : il est gardé **hors du bundle** (`serverExternalPackages`,
+`next.config.ts`) et doit donc exister dans `node_modules` de l'image — c'est-
+à-dire figurer dans `dependencies`. Il était en `devDependencies` (ajouté pour
+`scripts/build-docs-pdf.mjs`) quand l'app s'est mise à l'importer : le
+rapport de réserves a répondu 500 en prod pendant six semaines, tout au vert,
+parce que `npm prune --omit=dev` (Dockerfile) l'ôtait de l'image.
+`tests/runtime-dependencies.test.ts` refuse désormais cette forme pour tout
+paquet importé par le code embarqué.
 
 ## Formulaires (modales)
 

@@ -20,6 +20,15 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Runner: minimal production image ----
+#
+# Everything this stage copies runs AFTER the builder's `npm prune --omit=dev`,
+# so every package the shipped code imports must sit in package.json
+# `dependencies` — a package that only lives in `devDependencies` is simply
+# absent here, and the first `require()` of it throws at request time, not at
+# build time. That is how the PDF reports 500ed in production for six weeks
+# while every check stayed green: pdfkit was a devDependency (added for the
+# docs generator) that the application code then started importing.
+# tests/runtime-dependencies.test.ts now refuses that shape.
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -39,8 +48,8 @@ COPY --from=builder /app/app/generated ./app/generated
 # The one-shot guarded-asset re-typing script (see its own header) — plain JS
 # ESM, run via `docker exec ... node scripts/retype-existing-guarded-assets.mjs`
 # (see deploy/README.md). Only this one file, not the rest of scripts/: the
-# others are host-side shell tooling or pull in devDependencies (pdfkit)
-# that `npm prune --omit=dev` above already removed.
+# others are host-side tooling (shell, or the docs generator) that has no
+# business in the image.
 COPY --from=builder /app/scripts/retype-existing-guarded-assets.mjs ./scripts/retype-existing-guarded-assets.mjs
 
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
