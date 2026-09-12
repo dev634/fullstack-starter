@@ -31,7 +31,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework/version to make fingerprinting harder.
   poweredByHeader: false,
-  // pdfkit (réserves PDF export) reads its built-in font metrics from .afm
+  // pdfkit (the PDF reports) reads its built-in font metrics from .afm
   // files inside its own package at runtime. Bundling it breaks those reads,
   // so keep it external and let Node require it from node_modules.
   serverExternalPackages: ["pdfkit"],
