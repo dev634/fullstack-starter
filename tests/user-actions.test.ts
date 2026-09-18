@@ -14,6 +14,11 @@ vi.mock("@/repository/users", () => ({
   // unresolved value here reads the same as "no job function", i.e.
   // unrestricted, which is what every actor in this file's fixtures is.
   findAccessScopeByEmail: vi.fn(),
+  // deleteUser now checks this BEFORE remove() — see the "owns equipment or
+  // an open loan" tests below. Every other deleteUser test needs a zeroed
+  // default (set in beforeEach) or it would hit the catch block instead of
+  // reaching remove() at all.
+  countOwnershipBlockers: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -22,7 +27,7 @@ vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed"
 
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
-import { create, updateProfile, remove, findById, countSuperadmins } from "@/repository/users";
+import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers } from "@/repository/users";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
@@ -31,6 +36,7 @@ const updateProfileMock = vi.mocked(updateProfile);
 const removeMock = vi.mocked(remove);
 const findByIdMock = vi.mocked(findById);
 const countSuperMock = vi.mocked(countSuperadmins);
+const countOwnershipBlockersMock = vi.mocked(countOwnershipBlockers);
 const initial = { type: null, message: "" } as const;
 
 function actor(role: string, email = `${role.toLowerCase()}@x.com`) {
@@ -43,7 +49,11 @@ function form(fields: Record<string, string>): FormData {
 }
 
 describe("user management actions", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Zeroed by default — see the dedicated tests below for the non-zero cases.
+    countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 0, openLoanCount: 0 });
+  });
 
   it("addUser refuses a non-ADMIN", async () => {
     actor("EDITOR");
@@ -164,5 +174,44 @@ describe("user management actions", () => {
     const res = await deleteUser(7);
     expect((res as { type: string }).type).toBe("success");
     expect(removeMock).toHaveBeenCalledWith(7);
+  });
+
+  // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are both
+  // onDelete: Restrict (migration 20260918120000) — without this check,
+  // deleting either case would fail at the database with a generic 23503.
+  describe("deleteUser: equipment/loan ownership blockers", () => {
+    it("refuses deleting a user who still owns equipment", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "v@x.com", role: "VIEWER" } as never);
+      countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 2, openLoanCount: 0 });
+
+      const res = await deleteUser(7);
+
+      expect((res as { type: string }).type).toBe("error");
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses deleting a user who currently holds an OPEN loan as a borrower", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "v@x.com", role: "VIEWER" } as never);
+      countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 0, openLoanCount: 1 });
+
+      const res = await deleteUser(7);
+
+      expect((res as { type: string }).type).toBe("error");
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    it("deletes a user whose only loans are CLOSED — remove() purges those in the same transaction", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "v@x.com", role: "VIEWER" } as never);
+      countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 0, openLoanCount: 0 });
+      removeMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await deleteUser(7);
+
+      expect((res as { type: string }).type).toBe("success");
+      expect(removeMock).toHaveBeenCalledWith(7);
+    });
   });
 });

@@ -6,7 +6,13 @@ import {
   fromCloudinaryType,
   fromCloudinaryResourceType,
 } from "./cloudinaryDelivery";
-import { detectRasterImageMediaType, looksLikeDangerousMarkup, looksLikePdf } from "@/lib/fileSignature";
+import {
+  detectRasterImageMediaType,
+  looksLikeDangerousMarkup,
+  looksLikePdf,
+  type RasterImageMediaType,
+} from "@/lib/fileSignature";
+import { stripArchivedPhotoMetadata, type DeliveryNoteMediaType } from "@/lib/deliveryNoteScan";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -563,4 +569,109 @@ export async function uploadReservePhoto(
 export async function destroyReservePhoto(photo: GuardedAssetRef | null | undefined): Promise<void> {
   if (!photo) return;
   await destroyGuardedAsset(photo.publicId, photo.deliveryType, photo.resourceType);
+}
+
+export const MAX_EQUIPMENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/**
+ * stripArchivedPhotoMetadata (lib/deliveryNoteScan.ts) only knows how to
+ * re-encode the 4 raster types ITS OWN module accepts (DeliveryNoteMediaType)
+ * — anything else silently falls through its `.gif()` default, a mis-encode
+ * bug, not a rejection (see that function's header comment). So, unlike
+ * uploadClientPhoto/uploadReservePhoto's full 8-format allowlist, the
+ * equipment photo path narrows to these same 4 formats: HEIC/AVIF/BMP/TIFF
+ * are refused here specifically because there is no safe way to strip their
+ * metadata through this shared function. Flagged in the delivery report for
+ * arbitration — CONVENTIONS.md warns against silently narrowing HEIC/AVIF
+ * support (the default photo format on an iPhone), but this is a NEW upload
+ * path rather than a narrowing of one that already accepted them.
+ */
+function isStrippableEquipmentPhoto(mediaType: RasterImageMediaType): mediaType is DeliveryNoteMediaType {
+  return (
+    mediaType === "image/jpeg" ||
+    mediaType === "image/png" ||
+    mediaType === "image/webp" ||
+    mediaType === "image/gif"
+  );
+}
+
+/**
+ * Upload a piece of equipment's photo to Cloudinary and return its secure
+ * URL + public id — same shape and size ceiling as uploadLogo, but the
+ * buffer is re-encoded through stripArchivedPhotoMetadata BEFORE it ever
+ * reaches Cloudinary: this asset is served from a PUBLIC URL (like
+ * Client.photoUrl, Equipment has no guarded delivery — it's a thumbnail of a
+ * tool, not a project asset), and a phone photo routinely carries GPS
+ * coordinates in its EXIF. stripArchivedPhotoMetadata applies the EXIF
+ * orientation to the pixels BEFORE stripping the tag that describes it, so
+ * the archived copy doesn't come out sideways (see that function's header).
+ */
+export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; publicId: string }> {
+  if (file.size > MAX_EQUIPMENT_PHOTO_BYTES) {
+    throw {
+      type: "error",
+      message: "The photo must be 5 MB or smaller.",
+      i18n: "uploadTooLarge",
+      i18nParams: { max: MAX_EQUIPMENT_PHOTO_BYTES / (1024 * 1024) },
+    };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const mediaType = detectRasterImageMediaType(buffer);
+  if (!mediaType || !isStrippableEquipmentPhoto(mediaType)) {
+    throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+  }
+
+  let stripped: Buffer;
+  try {
+    stripped = await stripArchivedPhotoMetadata(buffer, mediaType);
+  } catch {
+    // stripArchivedPhotoMetadata throws its own ScanError shape
+    // ({type, code}, no i18n field) on a sharp decode failure — re-thrown
+    // here in this module's own upload-error shape so getErrorMessage
+    // translates it the same way as every other cloudinary.ts validation
+    // failure instead of falling back to the generic server error.
+    throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+  }
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        { folder: "equipment", resource_type: "image" },
+        (error, result) => {
+          if (error || !result) {
+            reject({
+              type: "error",
+              message: "Failed to upload the photo. Please try again.",
+              i18n: "uploadFailed",
+            });
+            return;
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      )
+      .end(stripped);
+  });
+}
+
+/**
+ * Best-effort deletion of an equipment photo. Never throws so it can't break
+ * the surrounding mutation if the asset is already gone — but unlike
+ * destroyClientPhoto/destroyLogo, it reads `destroy`'s own returned report
+ * (`{ result: "ok" | "not found" | ... }`) and logs when it's neither: an
+ * operation that doesn't throw hasn't necessarily done anything (Cloudinary
+ * `destroy` silently no-ops on a `type`/`resource_type` mismatch instead of
+ * erroring — see GuardedAssetRef's doc above), so silence alone isn't proof
+ * of deletion.
+ */
+export async function destroyEquipmentPhoto(publicId: string | null | undefined): Promise<void> {
+  if (!publicId) return;
+  try {
+    const response: { result?: string } = await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+    if (response.result !== "ok" && response.result !== "not found") {
+      console.error(`Cloudinary destroy for equipment photo "${publicId}" did not confirm deletion: "${response.result}"`);
+    }
+  } catch (error) {
+    console.error("Cloudinary destroy failed:", error);
+  }
 }
