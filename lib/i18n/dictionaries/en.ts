@@ -495,6 +495,11 @@ const en: Dictionary = {
             deleteAriaLabel: "Delete category {name}",
             editAriaLabel: "Rename category {name}",
             deleting: "Deleting…",
+            // Scoped to ONE category — distinct from
+            // t.projects.detail.noMaterials, which talks about the whole
+            // project and would mislead here since other categories may
+            // well contain materials.
+            empty: "No materials in this category.",
             messages: {
                 added: "Category created.",
                 updated: "Category renamed.",
@@ -1011,6 +1016,9 @@ const en: Dictionary = {
         groupProgressLabel: "{name}: {percent}% ({done}/{total})",
         detailedTitle: "Detailed progress, task by task",
         materialsTitle: "Material stock",
+        // Distinct from categoriesTitle above: these are material categories
+        // (WHAT, the filing), not task categories/groups.
+        materialCategoriesTitle: "Progress by material category",
         materialsNone: "No material linked to a task yet.",
         legend: {
             done: "Done",

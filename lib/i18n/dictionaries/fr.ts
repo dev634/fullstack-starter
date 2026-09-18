@@ -499,6 +499,11 @@ const fr = {
             deleteAriaLabel: "Supprimer la catégorie {name}",
             editAriaLabel: "Renommer la catégorie {name}",
             deleting: "Suppression…",
+            // Scopé à UNE catégorie vide — distinct de
+            // t.projects.detail.noMaterials, qui parle de tout le projet et
+            // induirait en erreur ici puisque d'autres catégories peuvent
+            // très bien contenir du matériel.
+            empty: "Aucun matériel dans cette catégorie.",
             messages: {
                 added: "Catégorie créée.",
                 updated: "Catégorie renommée.",
@@ -1033,6 +1038,9 @@ const fr = {
         groupProgressLabel: "{name} : {percent} % ({done}/{total})",
         detailedTitle: "Avancement détaillé, tâche par tâche",
         materialsTitle: "Stock matériel",
+        // Distinct de categoriesTitle ci-dessus : ce sont des catégories de
+        // matériel (QUOI, le rangement), pas des catégories/groupes de tâches.
+        materialCategoriesTitle: "Avancement par catégorie de matériel",
         materialsNone: "Aucun matériel lié à une tâche pour le moment.",
         legend: {
             done: "Terminées",

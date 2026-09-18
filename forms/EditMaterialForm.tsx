@@ -6,7 +6,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import MaterialLinkOptions from "@/components/MaterialLinkOptions";
 import { format } from "@/lib/i18n/format";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
-import type { MaterialLinkOption } from "@/forms/AddMaterialForm";
+import type { MaterialLinkOption, MaterialCategoryOption } from "@/forms/AddMaterialForm";
 
 const initialState: ProjectMaterialActionState = {
   type: null,
@@ -24,6 +24,9 @@ export type EditableMaterial = {
   // Current link encoded as the picker value ("task:5" / "group:3" /
   // "category:2"), or "" when the material isn't linked to anything.
   link: string;
+  // Filing (WHAT the material is) — independent of `link` above (WHY it's
+  // here). Null means "non classé".
+  materialCategoryId: number | null;
 };
 
 export default function EditMaterialForm({
@@ -31,11 +34,13 @@ export default function EditMaterialForm({
   clientId,
   projectId,
   linkOptions,
+  categories,
 }: {
   material: EditableMaterial;
   clientId: number;
   projectId: number;
   linkOptions: MaterialLinkOption[];
+  categories: MaterialCategoryOption[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -141,6 +146,30 @@ export default function EditMaterialForm({
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
               />
             </div>
+
+            {/* Filing (WHAT the material is) — independent of the "Tâche
+                liée" picker below (WHY it's here); never controlled state,
+                unlike `link`, since nothing else on this form reacts to it. */}
+            {categories.length > 0 && (
+              <div className="mb-3">
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {t.materials.categoryPickerLabel}
+                </label>
+                <select
+                  name="materialCategoryId"
+                  defaultValue={material.materialCategoryId ?? ""}
+                  aria-label={t.materials.categoryPickerLabel}
+                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">{t.materials.categoryPickerNone}</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {linkOptions.length > 0 && (
               <div className="mb-3">

@@ -4,10 +4,12 @@ import { findByProject as findTaskCategoriesByProject } from "@/repository/taskC
 import { findCompanyOptionsByProject } from "@/repository/subcontractors";
 import { findOptionsByProject as findInterimOptionsByProject } from "@/repository/interims";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
+import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";
 import { blockClientFromApp } from "@/lib/portal";
+import { groupMaterialsByCategory, computeMaterialCategoryProgress } from "@/lib/projectDashboard";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import Title from "@/components/Title";
@@ -16,8 +18,10 @@ import ProjectTaskRow from "@/components/ProjectTaskRow";
 import ProjectTaskGroupRow from "@/components/ProjectTaskGroupRow";
 import ProjectTaskCategorySection from "@/components/ProjectTaskCategorySection";
 import ProjectMaterialRow from "@/components/ProjectMaterialRow";
+import ProjectMaterialCategorySection from "@/components/ProjectMaterialCategorySection";
 import ScanDeliveryNoteModal from "@/components/ScanDeliveryNoteModal";
-import AddMaterialForm, { type MaterialLinkOption } from "@/forms/AddMaterialForm";
+import AddMaterialForm, { type MaterialLinkOption, type MaterialCategoryOption } from "@/forms/AddMaterialForm";
+import AddMaterialCategoryForm from "@/forms/AddMaterialCategoryForm";
 import Link from "next/link";
 import { ArrowLeftIcon, ClipboardDocumentListIcon, CubeIcon } from "@heroicons/react/24/outline";
 
@@ -79,26 +83,30 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   const session = await auth();
   const canEdit = await can(session?.user?.role, "content.edit");
 
-  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, materials] = await Promise.all([
-    // Loaded unconditionally, whether or not `tasks` itself is visible: the
-    // materials picker below (materialLinkOptions) links a material to a
-    // task/série/catégorie and needs their titles regardless of whether the
-    // Tâches half of this page renders for this caller — same tradeoff the
-    // project hub made for materialLinkOptions before this page absorbed
-    // Matériel (docs/CONVENTIONS.md's access-axes table: FUNCTION → sections
-    // decides which SECTIONS exist, not which task titles a materials picker
-    // may mention).
-    findTasksByProject(pid),
-    findTaskGroupsByProject(pid),
-    findTaskCategoriesByProject(pid),
-    // Narrow {id, name} projections — this page's assignee picker never
-    // reads a company's personnel or an intérimaire's job function/agency
-    // (see each function's own doc). Only fetched when the Tâches half
-    // actually renders — nothing on the Matériel half uses them.
-    canEdit && showTasks ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
-    canEdit && showTasks ? findInterimOptionsByProject(pid) : Promise.resolve([]),
-    showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
-  ]);
+  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, materials, materialCategories] =
+    await Promise.all([
+      // Loaded unconditionally, whether or not `tasks` itself is visible: the
+      // materials picker below (materialLinkOptions) links a material to a
+      // task/série/catégorie and needs their titles regardless of whether the
+      // Tâches half of this page renders for this caller — same tradeoff the
+      // project hub made for materialLinkOptions before this page absorbed
+      // Matériel (docs/CONVENTIONS.md's access-axes table: FUNCTION → sections
+      // decides which SECTIONS exist, not which task titles a materials picker
+      // may mention).
+      findTasksByProject(pid),
+      findTaskGroupsByProject(pid),
+      findTaskCategoriesByProject(pid),
+      // Narrow {id, name} projections — this page's assignee picker never
+      // reads a company's personnel or an intérimaire's job function/agency
+      // (see each function's own doc). Only fetched when the Tâches half
+      // actually renders — nothing on the Matériel half uses them.
+      canEdit && showTasks ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
+      canEdit && showTasks ? findInterimOptionsByProject(pid) : Promise.resolve([]),
+      showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
+      // Filing (WHAT a material is) — only fetched when the Matériel half
+      // renders, same rule as `materials` just above.
+      showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
+    ]);
 
   // The material picker links to a standalone (ungrouped) task, a whole
   // series, or a whole category at once — series and categories are single
@@ -113,6 +121,27 @@ export default async function ProjectTasksPage({ params }: PageProps) {
     ...taskGroups.map((group): MaterialLinkOption => ({ kind: "group", id: group.id, name: group.name })),
     ...taskCategories.map((category): MaterialLinkOption => ({ kind: "category", id: category.id, name: category.name })),
   ];
+
+  // Filing (WHAT a material is) — narrowed to {id, name} before reaching the
+  // client components below, same rule as materialLinkOptions above. Entirely
+  // independent of materialLinkOptions (WHY it's here).
+  const materialCategoryOptions: MaterialCategoryOption[] = materialCategories.map((category) => ({
+    id: category.id,
+    name: category.name,
+  }));
+
+  // Materials partitioned by filing category, "Non classé" last — the exact
+  // same partition the dashboard's rings and the PDF report share
+  // (lib/projectDashboard.ts's own doc on groupMaterialsByCategory), so this
+  // page's grouping can never disagree with either. Skipped entirely (flat
+  // list unchanged below) when the project has no material category yet:
+  // groupMaterialsByCategory would otherwise return a single synthetic
+  // "Non classé" bucket holding every material, which isn't a filing view —
+  // it's the whole list under a label nobody asked for.
+  const materialGroups =
+    materialCategoryOptions.length > 0 ? groupMaterialsByCategory(materials, materialCategories) : [];
+  const materialGroupProgress =
+    materialCategoryOptions.length > 0 ? computeMaterialCategoryProgress(materials, materialCategories) : [];
 
   // Series can optionally belong to a category (a higher-level grouping of
   // several series, e.g. "Toiture" containing "Strings onduleur" +
@@ -245,15 +274,61 @@ export default async function ProjectTasksPage({ params }: PageProps) {
                 )}
               </h2>
               {canEdit && (
-                <ScanDeliveryNoteModal
-                  clientId={clientId}
-                  projectId={pid}
-                  materials={materials.map((m) => ({ id: m.id, name: m.name, supplierName: m.supplierName, reference: m.reference }))}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <AddMaterialCategoryForm clientId={clientId} projectId={pid} />
+                  <ScanDeliveryNoteModal
+                    clientId={clientId}
+                    projectId={pid}
+                    materials={materials.map((m) => ({ id: m.id, name: m.name, supplierName: m.supplierName, reference: m.reference }))}
+                  />
+                </div>
               )}
             </div>
 
-            {materials.length ? (
+            {materialCategoryOptions.length > 0 ? (
+              materialGroups.map((group, index) => {
+                const progress = materialGroupProgress[index];
+                // `group.id` is `number | string` (groupMaterialsByCategory's
+                // own return type — the synthetic "Non classé" bucket shares
+                // it with every real ProjectMaterialCategory id): narrowed by
+                // `typeof` rather than compared against the sentinel, since
+                // TypeScript can't exclude a single literal from a bare
+                // `string` the other way around, and this keeps every branch
+                // cast-free.
+                if (typeof group.id === "number") {
+                  return (
+                    <ProjectMaterialCategorySection
+                      key={`material-category-${group.id}`}
+                      isUncategorized={false}
+                      id={group.id}
+                      name={group.name}
+                      materials={group.materials}
+                      progress={progress}
+                      categories={materialCategoryOptions}
+                      linkOptions={materialLinkOptions}
+                      clientId={clientId}
+                      projectId={pid}
+                      canEdit={canEdit}
+                    />
+                  );
+                }
+                return (
+                  <ProjectMaterialCategorySection
+                    key="material-category-uncategorized"
+                    isUncategorized
+                    id={group.id}
+                    name={t.materials.category.uncategorized}
+                    materials={group.materials}
+                    progress={progress}
+                    categories={materialCategoryOptions}
+                    linkOptions={materialLinkOptions}
+                    clientId={clientId}
+                    projectId={pid}
+                    canEdit={canEdit}
+                  />
+                );
+              })
+            ) : materials.length ? (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {materials.map((material) => (
                   <ProjectMaterialRow
@@ -263,6 +338,7 @@ export default async function ProjectTasksPage({ params }: PageProps) {
                     projectId={pid}
                     canEdit={canEdit}
                     linkOptions={materialLinkOptions}
+                    categories={materialCategoryOptions}
                   />
                 ))}
               </ul>
@@ -274,7 +350,12 @@ export default async function ProjectTasksPage({ params }: PageProps) {
 
             {canEdit && (
               <div className="border-t border-gray-300 dark:border-gray-700">
-                <AddMaterialForm clientId={clientId} projectId={pid} linkOptions={materialLinkOptions} />
+                <AddMaterialForm
+                  clientId={clientId}
+                  projectId={pid}
+                  linkOptions={materialLinkOptions}
+                  categories={materialCategoryOptions}
+                />
               </div>
             )}
           </div>
