@@ -705,6 +705,11 @@ model User {
   // projectScope is ASSIGNED; mirrors the Contact↔Project link the client
   // portal already scopes with.
   assignedProjects Project[]          @relation("UserProjects")
+  // Personal loans module ("Prêts"): the tools this user owns, and the loans
+  // where this user is the borrower. What this user LENT is not a relation of
+  // its own — it is reached through equipment.loans (the lender is the owner).
+  equipment        Equipment[]
+  borrowedLoans    EquipmentLoan[]
 
   @@index([jobFunctionId])
 }
@@ -719,6 +724,122 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Personal equipment loans ("Prêts")
+//
+// Each internal user (SUPERADMIN/ADMIN/EDITOR/VIEWER — never CLIENT, which is
+// the portal) keeps a personal catalogue of tools and lends them to another
+// user of the organisation. Nothing here is attached to a project: a drill is
+// lent to a person, not to a chantier. Who may see what (both directions for
+// the two parties, everything for an admin) is decided in the application.
+// ---------------------------------------------------------------------------
+
+// A tool in a user's personal catalogue. The owner is the lender of every
+// loan on it — there is deliberately no lenderId on EquipmentLoan, it would
+// duplicate ownerId and could drift from it.
+//
+// onDelete: Restrict on owner — deleting a user who still owns equipment
+// fails at the database. Cascade would silently destroy the loans, including
+// an OPEN one held by someone else (the only record of who physically has the
+// tool); SetNull would leave ownerless rows nobody can manage or lend. So the
+// equipment has to be deleted (or reassigned, once that exists) before the
+// user is — actions/users/users.ts::deleteUser must say so explicitly instead
+// of surfacing the 23503 as a generic server error.
+//
+// Enforced by the database, not only by Zod — migration 20260918120000:
+//   name:      non-blank, no control character, at most MAX_NAME_LENGTH
+//              (200, schemas/fields.ts) — same shape as the réserve labels on
+//              Project, it is a one-line label rendered in lists.
+//   reference: NULL or the same shape capped at MAX_REFERENCE_LENGTH (200).
+//              The empty string is rejected so "no reference" has exactly
+//              ONE representation: NULL (the repository maps "" to null).
+//   photoUrl / photoPublicId: both NULL or both set. The public id is what
+//              Cloudinary's destroy() needs; Client.photoUrl has no such
+//              column and re-derives it from the URL by regex, the coupling
+//              the guarded-delivery block above calls out — not repeated here.
+//              The photo is a PUBLIC Cloudinary URL, like Client.photoUrl,
+//              by decision: it is a thumbnail of a tool, not a project asset.
+model Equipment {
+  id            Int             @id @default(autoincrement())
+  owner         User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  ownerId       Int
+  name          String
+  reference     String?
+  photoUrl      String?
+  photoPublicId String?
+  createdAt     DateTime        @default(now())
+  loans         EquipmentLoan[]
+
+  // Backs "my catalogue" and "what I lent" (loans joined through their
+  // equipment WHERE ownerId = me), plus the Restrict scan on user deletion.
+  // Postgres does not auto-index FK columns.
+  @@index([ownerId])
+}
+
+// One loan of one tool to one user. Open while returnedAt IS NULL.
+//
+// All three dates are DAYS, stored the way every other user-entered day is
+// in this schema (Project.startDate/endDate, ProjectTask.dueDate): a
+// TIMESTAMP(3) at 00:00 UTC built from an <input type="date"> value, never
+// `new Date()` — an instant mixed with a midnight would make a same-day
+// return before 02:00 Paris compare BELOW its lentAt and trip the CHECK.
+// Not @db.Date: the schema has no such column, the readers (toLocaleDateString)
+// would be a fork, and a date column would silently truncate a stray instant
+// in UTC instead of failing — the conversion belongs in the application.
+//
+// onDelete: Cascade on equipment — a loan is the equipment's history and
+// means nothing without it (no denormalised name to fall back on). The
+// database cannot tell an open loan from a closed one through a FK, so
+// "an equipment with an open loan cannot be deleted" is the application's:
+// delete with `where: { id, ownerId, loans: { none: { returnedAt: null } } }`
+// (deleteMany, count === 1) so the check and the delete are one statement.
+// onDelete: Restrict on borrower — same reasoning as Equipment.owner: a loan
+// row is the only trace of who holds the tool, and a FK cannot restrict only
+// the open ones; a refused deletion is recoverable by a human (mark the tool
+// returned, then delete), a lost custody record is not.
+//
+// Enforced by the database, not only by Zod — migration 20260918120000:
+//   EquipmentLoan_equipmentId_open_key — a PARTIAL UNIQUE INDEX on
+//              (equipmentId) WHERE returnedAt IS NULL: one open loan per
+//              tool at a time. Prisma cannot express a partial index, so it
+//              exists only in the migration SQL and in this comment; do not
+//              conclude from a silent @@unique-less model that two open loans
+//              are allowed. It surfaces as P2002 on that index name when a
+//              second open loan is attempted, and `prisma migrate diff`
+//              reports it as drift — expected, not a defect.
+//   dueAt >= lentAt and returnedAt >= lentAt when not NULL (CHECK). Same-day
+//              is allowed (>=): a tool lent and returned the same day.
+//   note:      NULL or non-blank prose of at most MAX_NOTE_LENGTH (5000).
+//              No control-character clause, unlike name: a note is a
+//              textarea and legitimately contains newlines.
+//
+// Left to the application (crosses tables, which a CHECK cannot):
+//   - borrowerId <> equipment.ownerId (one does not lend to oneself);
+//   - the borrower's User.role is not CLIENT;
+//   - only the equipment's owner (or an admin) creates a loan on it.
+model EquipmentLoan {
+  id          Int       @id @default(autoincrement())
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  equipmentId Int
+  borrower    User      @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
+  borrowerId  Int
+  lentAt      DateTime
+  // Expected return day. NULL = open-ended, no reminder to compute.
+  dueAt       DateTime?
+  // NULL while the tool is out; set once, when it comes back.
+  returnedAt  DateTime?
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  // equipmentId backs the per-tool history and the Cascade scan — the partial
+  // unique index above only covers the OPEN loan, a closed history needs a
+  // full index. borrowerId backs "what was lent to me" and the Restrict scan.
+  // No index on returnedAt: "all open loans" is served by the partial index
+  // itself (its predicate is the query's WHERE clause).
+  @@index([equipmentId])
+  @@index([borrowerId])
 }
 
 // Singleton row (always id=1) holding app-wide branding/theme, configurable
