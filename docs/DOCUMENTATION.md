@@ -223,6 +223,11 @@ Chaque entreprise possède des **projets**. Un projet comporte :
 > « Générer rapport PDF » par section, plus « Générer le rapport complet
 > (PDF) » — et ne dépendent plus de ce qui est déplié à l'écran ; « rapport
 > imprimable » ci-dessous décrit l'ancien bouton, qui n'existe plus.
+> Depuis la PR #228, le matériel se range en **catégories de matériel**
+> (bouton « Nouvelle catégorie » dans la page Tâches, sections repliables avec
+> progression, anneaux « Avancement par catégorie de matériel » au tableau de
+> bord, rapport PDF groupé) — indépendantes du lien tâche/série/catégorie de
+> tâche décrit sous « Matériel lié », que rien ci-dessous ne mentionne encore.
 
 La page d'un projet est organisée en **sections dépliables**, dont l'ordre est configurable par un Super administrateur (Administration → Ordre des sections) :
 

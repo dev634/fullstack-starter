@@ -200,6 +200,19 @@ Quand un mock remplace tout un module (`vi.mock("@/repository/x")`), il doit
 exporter **toutes** les fonctions que le code appelle, y compris celles
 appelées indirectement.
 
+**`OWNED_BY_SECTION` (`tests/authz-coverage.test.ts`) est une liste écrite à
+la main.** Les deux tests qui exigent `requireSectionAccess` puis
+`requireAreaAccess("projects")` sur les actions d'un projet ne voient que les
+fichiers qu'elle nomme : un nouveau fichier sous `actions/` dont les lignes se
+lisent par un `projectId` n'est vérifié par **personne** tant qu'il n'y est
+pas. `actions/materialCategories` (PR #228) y a manqué pendant toute
+l'implémentation, ses trois actions sans aucune preuve de garde, jusqu'à ce
+que reviewer et security-auditor le remontent chacun de leur côté. Tant que la
+liste n'est pas dérivée de `prisma/schema.prisma` (modèles à `projectId` →
+repositories qui les écrivent → actions qui les importent), **une feature qui
+crée un fichier d'actions de projet l'ajoute à cette liste et le prouve par
+sonde** (garde retirée → rouge).
+
 ## Validation — primitives partagées, à réutiliser
 
 Ne pas réinventer un plafond ni une détection : ces deux modules existent, et
@@ -210,6 +223,14 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   usage**, pas un nombre par champ. Avant, aucun `z.string().min(1)` de l'app
   n'avait de borne haute : une série de tâches amplifiait une requête de 200 Ko
   en ~40 Mo écrits en base.
+- **Miroir des `CHECK` sur un libellé** : `CONTROL_CHAR` (`schemas/fields.ts`)
+  est la seule regex qui reproduit le `!~ '[[:cntrl:]]'` des migrations
+  (`Project.reserve*Label`, `ProjectMaterialCategory.name`) — C1 compris,
+  parce que Postgres sous UTF-8 les refuse et que la classe JS `\x7f` s'y
+  arrêtait (PR #228, sondé sur la base). Un nouveau `CHECK` de ce type se
+  pose avec `.trim().min(1).max(MAX_NAME_LENGTH).refine(CONTROL_CHAR)` en
+  face, copié de `schemas/materialCategory.ts` ; les trois clauses doivent
+  être là, et le test paramétré (`\t`, ``, ` `) avec.
 - **Vrai type d'un fichier** : `lib/fileSignature.ts`
   (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`, `looksLikePdf`) —
   magic bytes, extrait du scan de bulletin plutôt que dupliqué. ⚠️ Ce point
