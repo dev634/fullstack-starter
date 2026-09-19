@@ -21,9 +21,8 @@ import { mixTowardBlack } from "@/lib/color";
 import { STOCK_HEX, countByStockStatus, type MaterialStockStatus } from "@/lib/materialStock";
 import {
   computeTrackedMaterials,
-  computeMaterialCategoryProgress,
-  groupMaterialsByCategory,
-  UNCATEGORIZED_MATERIAL_GROUP_ID,
+  computeMaterialCategoryGroups,
+  type CategorizableMaterialLike,
   type TaskProgressStats,
   type TrackedMaterial,
 } from "@/lib/projectDashboard";
@@ -277,9 +276,12 @@ export type MaterialsReportLabels = {
 
 /** One category's materials, ready to render: `materials` are ALREADY
  * computeTrackedMaterials(...)'d (worst-stock-first) for that category alone
- * — see buildMaterialCategoryGroups below, the one place this is built. */
+ * — see buildMaterialCategoryGroups below, the one place this is built. No
+ * `id`: nothing in this file ever keys or branches on one (unlike the
+ * dashboard's rings, which need one for React's `key`) — dropped along with
+ * lib/projectDashboard.ts's old synthetic sentinel id, rather than carried
+ * here unread. */
 export type MaterialCategoryReportGroup = {
-  id: number | string;
   name: string;
   done: number;
   total: number;
@@ -301,43 +303,32 @@ export type MaterialsReportInput = ReportContext & {
   labels: MaterialsReportLabels;
 };
 
-/** A material shaped just enough to be partitioned by category — the same
- * shape repository/projectMaterials.ts::findByProject's rows already have
- * (materialCategoryId is a real column there), structurally compatible with
- * no mapping needed at the call site. */
-type MaterialForCategoryGrouping = {
-  id: number;
-  name: string;
-  quantity: number;
-  requiredQuantity: number | null;
-  materialCategoryId: number | null;
-};
-
 /**
- * Bridges lib/projectDashboard.ts's groupMaterialsByCategory (the single
- * partition both the dashboard's rings and this PDF share, so they can never
- * disagree about which material belongs to which bucket) with the actual
- * TrackedMaterial rows this PDF lists under each category. Reuses
- * computeMaterialCategoryProgress for the done/total/percent math (never
- * re-derives it) and only adds what that pure, locale-less function can't:
- * `uncategorizedLabel`, the one localized string
- * (t.materials.category.uncategorized) the synthetic bucket needs to be
- * directly renderable.
+ * Bridges lib/projectDashboard.ts's computeMaterialCategoryGroups (the
+ * single partition + stock-progress math both the dashboard's rings and this
+ * PDF share, so they can never disagree about which material belongs to
+ * which bucket, or about its done/total/percent) with the actual
+ * TrackedMaterial rows this PDF lists under each category. Only adds what
+ * that pure, locale-less function can't: `uncategorizedLabel`, the one
+ * localized string (t.materials.category.uncategorized) the "uncategorized"
+ * branch needs to be directly renderable.
+ *
+ * `materials`' shape is CategorizableMaterialLike (lib/projectDashboard.ts) —
+ * the same shape repository/projectMaterials.ts::findByProject's rows
+ * already have (materialCategoryId is a real column there), structurally
+ * compatible with no mapping needed at the call site.
  */
 export function buildMaterialCategoryGroups(
-  materials: readonly MaterialForCategoryGrouping[],
+  materials: readonly CategorizableMaterialLike[],
   categories: readonly { id: number; name: string }[],
   uncategorizedLabel: string
 ): MaterialCategoryReportGroup[] {
-  const progress = computeMaterialCategoryProgress(materials, categories);
-  const groups = groupMaterialsByCategory(materials, categories);
-  return progress.map((entry, i) => ({
-    id: entry.id,
-    name: entry.id === UNCATEGORIZED_MATERIAL_GROUP_ID ? uncategorizedLabel : entry.name,
-    done: entry.done,
-    total: entry.total,
-    percent: entry.percent,
-    materials: computeTrackedMaterials(groups[i].materials),
+  return computeMaterialCategoryGroups(materials, categories).map((group) => ({
+    name: group.kind === "category" ? group.name : uncategorizedLabel,
+    done: group.done,
+    total: group.total,
+    percent: group.percent,
+    materials: computeTrackedMaterials(group.materials),
   }));
 }
 

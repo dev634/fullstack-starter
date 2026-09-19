@@ -59,12 +59,15 @@ const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "
  * Action files whose mutations belong to a project (every row they touch is
  * reached via a projectId). Declared once and shared by the two tests below
  * — "behind its section" and "behind the projects area" — precisely so a
- * 12th file added to one list can't silently miss the other. That drift is
+ * 13th file added to one list can't silently miss the other. That drift is
  * exactly what happened before this list existed here: these files checked
  * requireSectionAccess but not requireAreaAccess("projects"), so a job
  * function whose `projects` rubrique was hidden still kept full write and
  * delete access to every one of them (lot C1 of the adversarial pass on the
- * EDITOR profile — see docs/SECURITE-CHECKLIST.md, V8).
+ * EDITOR profile — see docs/SECURITE-CHECKLIST.md, V8). 12 files now: the
+ * feature "catégories de matériel" (actions/materialCategories) is owned by
+ * the same `materials` section as actions/projectMaterials, so it belongs on
+ * the same list, not a separate one.
  */
 const OWNED_BY_SECTION = [
   "actions/tasks/tasks.ts",
@@ -72,6 +75,7 @@ const OWNED_BY_SECTION = [
   "actions/taskCategories/taskCategories.ts",
   "actions/taskAssignee/taskAssignee.ts",
   "actions/projectMaterials/projectMaterials.ts",
+  "actions/materialCategories/materialCategories.ts",
   "actions/deliveryNoteScan/deliveryNoteScan.ts",
   "actions/interventions/interventions.ts",
   "actions/subcontractors/subcontractors.ts",

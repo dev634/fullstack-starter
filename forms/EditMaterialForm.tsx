@@ -161,7 +161,7 @@ export default function EditMaterialForm({
                   aria-label={t.materials.categoryPickerLabel}
                   className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
                 >
-                  <option value="">{t.materials.categoryPickerNone}</option>
+                  <option value="">{t.materials.category.uncategorized}</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}

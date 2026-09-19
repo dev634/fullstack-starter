@@ -13,8 +13,7 @@ import {
   computeTaskProgress,
   computeTaskBarStats,
   computeTrackedMaterials,
-  computeMaterialCategoryProgress,
-  UNCATEGORIZED_MATERIAL_GROUP_ID,
+  computeMaterialCategoryGroups,
   roundPercent,
 } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
@@ -167,18 +166,23 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   // Per material-category progress rings — the exact same partition and
   // done/total/percent math the `.../tasks` page's category sections and the
   // PDF report share (lib/projectDashboard.ts's own doc on
-  // computeMaterialCategoryProgress), so this dashboard never disagrees with
+  // computeMaterialCategoryGroups), so this dashboard never disagrees with
   // either about a category's stock. Skipped entirely when the project has
-  // no material category yet: computeMaterialCategoryProgress would
-  // otherwise return a single "Non classé" ring standing for the whole
-  // donut above it, which isn't a category breakdown. The synthetic
-  // bucket's sentinel name is swapped for its localized label here — the
-  // one thing the pure, locale-less lib function can't do on its own.
+  // no material category yet: computeMaterialCategoryGroups would otherwise
+  // return a single "Non classé" ring standing for the whole donut above it,
+  // which isn't a category breakdown. SeriesProgressRings needs a flat
+  // `{ id, name, done, total, percent }` per ring — computeMaterialCategoryGroups
+  // stays pure and locale-less, so the stable "uncategorized" id and the
+  // localized label for that bucket are built here, at the call site, not in
+  // the lib function.
   const materialCategoryProgress =
     materialCategories.length > 0
-      ? computeMaterialCategoryProgress(materials, materialCategories).map((entry) => ({
-          ...entry,
-          name: entry.id === UNCATEGORIZED_MATERIAL_GROUP_ID ? t.materials.category.uncategorized : entry.name,
+      ? computeMaterialCategoryGroups(materials, materialCategories).map((group) => ({
+          id: group.kind === "category" ? group.id : "uncategorized",
+          name: group.kind === "category" ? group.name : t.materials.category.uncategorized,
+          done: group.done,
+          total: group.total,
+          percent: group.percent,
         }))
       : [];
 

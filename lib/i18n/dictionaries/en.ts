@@ -474,7 +474,6 @@ const en: Dictionary = {
         // independent from the "Linked task" picker above (WHY, what drives
         // stock). Carrying both at once is the normal case.
         categoryPickerLabel: "Material category",
-        categoryPickerNone: "Uncategorized",
         stockStatus: {
             green: "Stock is sufficient",
             orange: "Stock is partial",
@@ -486,7 +485,6 @@ const en: Dictionary = {
             namePlaceholder: "E.g. Electrical",
             create: "Create",
             uncategorized: "Uncategorized",
-            edit: "Rename",
             editTitle: "Rename category",
             deleteCategory: "Delete category",
             deleteCategoryTitle: "Delete this category",

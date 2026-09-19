@@ -478,7 +478,6 @@ const fr = {
         // et indépendant du sélecteur "Tâche liée" ci-dessus (POURQUOI, ce qui
         // pilote le stock). Porter les deux à la fois est le cas normal.
         categoryPickerLabel: "Catégorie de matériel",
-        categoryPickerNone: "Non classé",
         stockStatus: {
             green: "Stock suffisant",
             orange: "Stock partiel",
@@ -490,7 +489,6 @@ const fr = {
             namePlaceholder: "Ex: Électrique",
             create: "Créer",
             uncategorized: "Non classé",
-            edit: "Renommer",
             editTitle: "Renommer la catégorie",
             deleteCategory: "Supprimer la catégorie",
             deleteCategoryTitle: "Supprimer cette catégorie",

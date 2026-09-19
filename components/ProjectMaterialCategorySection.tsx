@@ -19,12 +19,16 @@ const initialRenameState: MaterialCategoryActionState = {
 
 type CategoryProgress = { done: number; total: number; percent: number; untracked: number };
 
-// Discriminated on `isUncategorized` so the synthetic "Non classé" bucket
-// (lib/projectDashboard.ts's UNCATEGORIZED_MATERIAL_GROUP_ID, a string) and a
-// real ProjectMaterialCategory (a positive integer id) can't be confused —
-// renaming/deleting only ever needs a real id, and TS narrows `id` to
-// `number` wherever `isUncategorized` is checked `false`, no cast required.
-type CategoryIdentity = { isUncategorized: true; id: string } | { isUncategorized: false; id: number };
+// Discriminated on `isUncategorized` so the "Non classé" bucket (which owns
+// no ProjectMaterialCategory row at all — lib/projectDashboard.ts's
+// MaterialCategoryGroup "uncategorized" branch carries no id) and a real
+// category (a positive integer id) can't be confused — renaming/deleting
+// only ever needs a real id, and TS narrows `id` to `number` wherever
+// `isUncategorized` is checked `false`, no cast required. The uncategorized
+// branch carries no `id` field at all: it was a dead string (the sentinel's
+// own value, never read here — rename/delete only ever run in the other
+// branch) before this type stopped manufacturing one.
+type CategoryIdentity = { isUncategorized: true } | { isUncategorized: false; id: number };
 
 type ProjectMaterialCategorySectionProps = CategoryIdentity & {
   name: string;
@@ -40,7 +44,7 @@ type ProjectMaterialCategorySectionProps = CategoryIdentity & {
 /**
  * Mirror of components/ProjectTaskCategorySection.tsx for material filing
  * (WHAT a material is) instead of task grouping — a repliable section with
- * a count badge, the category's stock progress (computeMaterialCategoryProgress,
+ * a count badge, the category's stock progress (computeMaterialCategoryGroups,
  * lib/projectDashboard.ts — the exact same definition MaterialStockDonut's
  * center uses, just scoped to this category), rename and delete.
  *

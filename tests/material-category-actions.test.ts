@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
+// @/lib/sectionAccess and @/lib/areaAccess are deliberately left UNMOCKED:
+// both are thin wrappers over the mocked getAccessContext below, and running
+// the real requireSectionAccess/requireAreaAccess is what lets the
+// hiddenSections/hiddenAreas gating tests further down exercise the actual
+// gate instead of a blanket vi.fn() that always succeeds.
 vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn(),
 }));
@@ -23,12 +27,13 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { addMaterialCategory, editMaterialCategory, deleteMaterialCategory } from "@/actions/materialCategories/materialCategories";
 import { requireRole } from "@/lib/authz";
-import { canReachProject } from "@/lib/accessContext";
+import { getAccessContext, canReachProject, type AccessContext } from "@/lib/accessContext";
 import { create, rename, remove, findProjectId as findCategoryProjectId } from "@/repository/materialCategories";
 import { format } from "@/lib/i18n/format";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
+const getAccessContextMock = vi.mocked(getAccessContext);
 const canReachProjectMock = vi.mocked(canReachProject);
 const createMock = vi.mocked(create);
 const renameMock = vi.mocked(rename);
@@ -60,12 +65,73 @@ describe("addMaterialCategory", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  // schemas/materialCategory.ts::materialCategoryName mirrors the database
+  // CHECK of migration 20260906120000 (btrim(name) > 0): a whitespace-only
+  // name trims down to "" and fails the same way an empty one does.
+  it("rejects a whitespace-only name with a zod error", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "   " }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.name).toBeTruthy();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Same CHECK, its `!~ '[[:cntrl:]]'` clause: a smuggled control character
+  // (here a tab) must fail validation, not reach the repository.
+  it("rejects a name containing a control character with a zod error", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Élec\ttrique" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.name).toBeTruthy();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
   it("creates the category when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     createMock.mockResolvedValue({ id: 1, name: "Électrique" } as never);
     const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "2", name: "Électrique" }));
     expect(createMock).toHaveBeenCalledWith({ projectId: 2, name: "Électrique" });
     expect(res.type).toBe("success");
+  });
+
+  // requireAreaAccess("projects") gate (authz-coverage.test.ts,
+  // OWNED_BY_SECTION) — a function whose hiddenAreas hides the whole
+  // `projects` rubrique must not reach this action, same as every other
+  // section-owned mutation.
+  it("refuses when the caller's function hides the projects area", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    getAccessContextMock.mockResolvedValueOnce({
+      email: "test@example.com",
+      role: "ADMIN",
+      hiddenSections: new Set(),
+      hiddenAreas: new Set(["projects"]),
+      projectIds: null,
+    });
+    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Électrique" }));
+    expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // requireSectionAccess("materials") gate — a function whose hiddenSections
+  // hides the materials section must not reach this action either. The
+  // action reads getAccessContext TWICE before this point (once for the
+  // projects area check just above, once here for the section check), so the
+  // override is queued twice — a single mockResolvedValueOnce would only
+  // cover the area check and let the stale default (empty hiddenSections)
+  // answer the section check, masking the very gate under test.
+  it("refuses when the caller's function hides the materials section", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const ctx: AccessContext = {
+      email: "test@example.com",
+      role: "ADMIN",
+      hiddenSections: new Set(["materials"]),
+      hiddenAreas: new Set(),
+      projectIds: null,
+    };
+    getAccessContextMock.mockResolvedValueOnce(ctx).mockResolvedValueOnce(ctx);
+    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Électrique" }));
+    expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
   });
 });
 

@@ -57,3 +57,10 @@ export const optionalPositiveIntId = z
  * and subcontractor schemas.
  */
 export const optionalJobFunctionId = optionalPositiveIntId;
+
+/**
+ * Matches every database CHECK's `!~ '[[:cntrl:]]'` clause: rejects a
+ * smuggled newline/tab in a one-line label rendered into HTML and drawn into
+ * a PDF report on a single line (originally schemas/reserve.ts, now shared).
+ */
+export const CONTROL_CHAR = /[\x00-\x1f\x7f]/;

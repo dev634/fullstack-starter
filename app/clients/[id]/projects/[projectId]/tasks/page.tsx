@@ -9,7 +9,7 @@ import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";
 import { blockClientFromApp } from "@/lib/portal";
-import { groupMaterialsByCategory, computeMaterialCategoryProgress } from "@/lib/projectDashboard";
+import { computeMaterialCategoryGroups } from "@/lib/projectDashboard";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import Title from "@/components/Title";
@@ -130,18 +130,17 @@ export default async function ProjectTasksPage({ params }: PageProps) {
     name: category.name,
   }));
 
-  // Materials partitioned by filing category, "Non classé" last — the exact
-  // same partition the dashboard's rings and the PDF report share
-  // (lib/projectDashboard.ts's own doc on groupMaterialsByCategory), so this
-  // page's grouping can never disagree with either. Skipped entirely (flat
-  // list unchanged below) when the project has no material category yet:
-  // groupMaterialsByCategory would otherwise return a single synthetic
-  // "Non classé" bucket holding every material, which isn't a filing view —
-  // it's the whole list under a label nobody asked for.
+  // Materials partitioned by filing category, WITH their own stock progress,
+  // "Non classé" last — the exact same partition the dashboard's rings and
+  // the PDF report share (lib/projectDashboard.ts's own doc on
+  // computeMaterialCategoryGroups), so this page's grouping can never
+  // disagree with either. Skipped entirely (flat list unchanged below) when
+  // the project has no material category yet: computeMaterialCategoryGroups
+  // would otherwise return a single "Non classé" bucket holding every
+  // material, which isn't a filing view — it's the whole list under a label
+  // nobody asked for.
   const materialGroups =
-    materialCategoryOptions.length > 0 ? groupMaterialsByCategory(materials, materialCategories) : [];
-  const materialGroupProgress =
-    materialCategoryOptions.length > 0 ? computeMaterialCategoryProgress(materials, materialCategories) : [];
+    materialCategoryOptions.length > 0 ? computeMaterialCategoryGroups(materials, materialCategories) : [];
 
   // Series can optionally belong to a category (a higher-level grouping of
   // several series, e.g. "Toiture" containing "Strings onduleur" +
@@ -286,16 +285,14 @@ export default async function ProjectTasksPage({ params }: PageProps) {
             </div>
 
             {materialCategoryOptions.length > 0 ? (
-              materialGroups.map((group, index) => {
-                const progress = materialGroupProgress[index];
-                // `group.id` is `number | string` (groupMaterialsByCategory's
-                // own return type — the synthetic "Non classé" bucket shares
-                // it with every real ProjectMaterialCategory id): narrowed by
-                // `typeof` rather than compared against the sentinel, since
-                // TypeScript can't exclude a single literal from a bare
-                // `string` the other way around, and this keeps every branch
-                // cast-free.
-                if (typeof group.id === "number") {
+              materialGroups.map((group) => {
+                // `group.kind` (lib/projectDashboard.ts's MaterialCategoryGroup)
+                // narrows `id`/`name` to the "category" branch — no by-index
+                // zip against a separately-computed progress array anymore,
+                // computeMaterialCategoryGroups returns done/total/percent/
+                // untracked already attached to each group.
+                const progress = { done: group.done, total: group.total, percent: group.percent, untracked: group.untracked };
+                if (group.kind === "category") {
                   return (
                     <ProjectMaterialCategorySection
                       key={`material-category-${group.id}`}
@@ -316,7 +313,6 @@ export default async function ProjectTasksPage({ params }: PageProps) {
                   <ProjectMaterialCategorySection
                     key="material-category-uncategorized"
                     isUncategorized
-                    id={group.id}
                     name={t.materials.category.uncategorized}
                     materials={group.materials}
                     progress={progress}

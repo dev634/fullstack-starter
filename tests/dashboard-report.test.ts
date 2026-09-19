@@ -13,7 +13,6 @@ import {
   type AssigneeReportLabels,
   type MaterialsReportLabels,
 } from "@/lib/dashboardReport";
-import { UNCATEGORIZED_MATERIAL_GROUP_ID } from "@/lib/projectDashboard";
 import { pageCount } from "./helpers/pdf";
 
 describe("dashboardReportFileName", () => {
@@ -207,8 +206,8 @@ describe("buildMaterialsReport", () => {
         { id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, status: "red" },
       ],
       groups: [
-        { id: 1, name: "Électrique", done: 1, total: 1, percent: 100, materials: [{ id: 1, name: "Câbles", quantity: 100, requiredQuantity: 100, status: "green" }] },
-        { id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: "Non classé", done: 0, total: 1, percent: 0, materials: [{ id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, status: "red" }] },
+        { name: "Électrique", done: 1, total: 1, percent: 100, materials: [{ id: 1, name: "Câbles", quantity: 100, requiredQuantity: 100, status: "green" }] },
+        { name: "Non classé", done: 0, total: 1, percent: 0, materials: [{ id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, status: "red" }] },
       ],
       labels: materialsLabels,
     });
@@ -235,19 +234,29 @@ describe("buildMaterialCategoryGroups", () => {
     expect(groups.map((g) => g.materials.map((m) => m.name))).toEqual([["Câble"], ["Tuyau"], ["Vis"]]);
   });
 
-  it("substitutes the localized label for the synthetic uncategorized bucket only", () => {
+  it("substitutes the localized label for the uncategorized bucket only", () => {
     const materials = [{ id: 1, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null }];
     const groups = buildMaterialCategoryGroups(materials, [], "Non classé");
     expect(groups).toEqual([
-      { id: UNCATEGORIZED_MATERIAL_GROUP_ID, name: "Non classé", done: 0, total: 1, percent: 0, materials: [expect.objectContaining({ id: 1, name: "Vis" })] },
+      { name: "Non classé", done: 0, total: 1, percent: 0, materials: [expect.objectContaining({ id: 1, name: "Vis" })] },
     ]);
+  });
+
+  // Point 6, ported to this bridge: an unknown materialCategoryId must still
+  // surface under "Non classé", never dropped from the PDF listing.
+  it("falls back an unknown materialCategoryId to the uncategorized bucket instead of dropping the material", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [{ id: 1, name: "Vis fantôme", quantity: 0, requiredQuantity: 10, materialCategoryId: 999 }];
+    const groups = buildMaterialCategoryGroups(materials, categories, "Non classé");
+    expect(groups.map((g) => g.name)).toEqual(["Électrique", "Non classé"]);
+    expect(groups[1].materials.map((m) => m.name)).toEqual(["Vis fantôme"]);
   });
 
   it("omits the uncategorized bucket when every material is filed", () => {
     const categories = [{ id: 1, name: "Électrique" }];
     const materials = [{ id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }];
     const groups = buildMaterialCategoryGroups(materials, categories, "Non classé");
-    expect(groups.map((g) => g.id)).toEqual([1]);
+    expect(groups.map((g) => g.name)).toEqual(["Électrique"]);
   });
 });
 
