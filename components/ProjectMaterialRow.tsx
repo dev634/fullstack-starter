@@ -6,13 +6,22 @@ import { format } from "@/lib/i18n/format";
 import { materialStockStatus, STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import { useRowAction } from "@/lib/useRowAction";
 import EditMaterialForm from "@/forms/EditMaterialForm";
-import type { MaterialLinkOption } from "@/forms/AddMaterialForm";
+import type { MaterialLinkOption, MaterialCategoryOption } from "@/forms/AddMaterialForm";
 import type { ProjectMaterial } from "@/app/generated/prisma/client";
 
-type MaterialWithTask = ProjectMaterial & {
+// Exported: also the shape ProjectMaterialCategorySection and the `.../tasks`
+// page need for the very same rows, grouped instead of flat — a single
+// source rather than a second hand-rolled copy of this join shape.
+export type MaterialWithTask = ProjectMaterial & {
   task: { id: number; title: string } | null;
   taskGroup: { id: number; name: string } | null;
   taskCategory: { id: number; name: string } | null;
+  // No `materialCategory` join here on purpose: the category a material is
+  // filed under is read as `materialCategoryId` (the picker's value); its
+  // NAME is looked up in the categories list the page already holds, never
+  // re-joined per row — and this row is a client component, so a joined name
+  // would be serialised for nothing (it was, until the delta audit found the
+  // join had no reader).
 };
 
 type ProjectMaterialRowProps = {
@@ -21,9 +30,10 @@ type ProjectMaterialRowProps = {
   projectId: number;
   canEdit: boolean;
   linkOptions: MaterialLinkOption[];
+  categories: MaterialCategoryOption[];
 };
 
-export default function ProjectMaterialRow({ material, clientId, projectId, canEdit, linkOptions }: ProjectMaterialRowProps) {
+export default function ProjectMaterialRow({ material, clientId, projectId, canEdit, linkOptions, categories }: ProjectMaterialRowProps) {
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
 
@@ -84,10 +94,12 @@ export default function ProjectMaterialRow({ material, clientId, projectId, canE
             reference: material.reference,
             requiredQuantity: material.requiredQuantity,
             link: currentLink,
+            materialCategoryId: material.materialCategoryId,
           }}
           clientId={clientId}
           projectId={projectId}
           linkOptions={linkOptions}
+          categories={categories}
         />
       )}
       {canEdit && (

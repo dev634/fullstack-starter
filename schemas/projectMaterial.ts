@@ -32,7 +32,7 @@ import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 // materiau cree par scan impossible a re-enregistrer a la main, sur un champ
 // que l`utilisateur n`a meme pas touche — meme signature que le plafond de
 // telephone a 30 qui bloquait des fiches existantes en production.
-import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiveIntId } from "@/schemas/fields";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -98,6 +98,12 @@ export const createMaterialSchema = z
         // stock against it.
         link: linkTarget,
         requiredQuantity: optionalPositiveNumber,
+        // WHAT this material is (filing), entirely independent of `link`
+        // above (WHY it's here) — see ProjectMaterialCategory's own schema
+        // comment for the full distinction. NOT part of the mutually
+        // exclusive task/group/category picker: carrying both is the normal
+        // case, so this is its own field rather than a fourth `link` kind.
+        materialCategoryId: optionalPositiveIntId,
     })
     .transform((data) => {
         const { link, ...rest } = data;
@@ -135,6 +141,10 @@ export const updateMaterialSchema = z
         reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
         link: linkTarget,
         requiredQuantity: optionalPositiveNumber,
+        // See createMaterialSchema's own comment: independent of `link`, and
+        // clearable back to "non classé" the same way a job function picker
+        // clears back to "none".
+        materialCategoryId: optionalPositiveIntId,
     })
     .transform((data) => {
         const { link, ...rest } = data;

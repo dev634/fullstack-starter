@@ -1,4 +1,4 @@
-import { materialStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
+import { materialStockStatus, countByStockStatus, STOCK_STATUS_ORDER, type MaterialStockStatus } from "@/lib/materialStock";
 
 type TaskLike = { done: boolean; quantityTarget?: number | null; quantityDone?: number | null; categoryId?: number | null };
 
@@ -162,4 +162,107 @@ export function computeTrackedMaterials(materials: NamedMaterialLike[]): Tracked
       status: materialStockStatus(m.quantity, m.requiredQuantity),
     }))
     .sort((a, b) => STOCK_STATUS_ORDER[a.status] - STOCK_STATUS_ORDER[b.status]);
+}
+
+// ---------------------------------------------------------------------------
+// Material categories — filing (WHAT a material is), entirely independent of
+// the task/série/catégorie link above (WHY it's here, what drives the stock
+// requirement). See ProjectMaterialCategory's own schema comment
+// (schemas/materialCategory.ts) for the full distinction.
+// ---------------------------------------------------------------------------
+
+type MaterialCategoryLike = { id: number; name: string };
+export type CategorizableMaterialLike = NamedMaterialLike & { materialCategoryId: number | null };
+
+/**
+ * A material category group, discriminated on `kind` rather than carrying a
+ * synthetic sentinel id/name for the "no category" bucket (that sentinel —
+ * `UNCATEGORIZED_MATERIAL_GROUP_ID`, compared with `typeof group.id ===
+ * "number"` at every call site — is gone): the "category" branch is a real
+ * `ProjectMaterialCategory` row (positive integer id, real name), the
+ * "uncategorized" branch carries neither, because it isn't one. A caller
+ * that needs an id/label for this bucket (a chart item's `key`, a PDF row's
+ * heading) builds it locally — this type only describes what's actually
+ * true of the data.
+ */
+export type MaterialCategoryGroup<M> =
+  | { kind: "category"; id: number; name: string; materials: M[] }
+  | { kind: "uncategorized"; materials: M[] };
+
+/**
+ * Partitions materials by their project-scoped material category, in the
+ * order `categories` is given, with the "uncategorized" bucket last —
+ * appended only when at least one material actually has no category, so a
+ * fully-filed project never shows an empty "Non classé" row. Every real
+ * category gets an entry even with zero materials (an empty category is
+ * still a category the owner created).
+ *
+ * A material whose `materialCategoryId` doesn't match ANY of the categories
+ * given — not just `null` — falls into the same "uncategorized" bucket
+ * rather than silently vanishing from every view. That gap was real: a
+ * category id pointing nowhere this call knows about (deleted since this
+ * project's row was fetched, or a caller handed a narrower `categories` list
+ * than the materials it's grouping) used to disappear from both the ring/
+ * percent view and the PDF listing, without ever landing in "Non classé"
+ * either — "non classé" must have exactly one meaning ("not filed anywhere
+ * that exists"), not a silent third state nobody can see.
+ *
+ * Exported (not just used by computeMaterialCategoryGroups below) so a
+ * caller that only needs the raw partition — without the stock math — can
+ * reuse the exact same rule rather than re-deriving it.
+ */
+export function groupMaterialsByCategory<M extends CategorizableMaterialLike>(
+  materials: readonly M[],
+  categories: readonly MaterialCategoryLike[]
+): MaterialCategoryGroup<M>[] {
+  const known = new Set(categories.map((c) => c.id));
+  const groups: MaterialCategoryGroup<M>[] = categories.map((category) => ({
+    kind: "category",
+    id: category.id,
+    name: category.name,
+    materials: materials.filter((m) => m.materialCategoryId === category.id),
+  }));
+  const uncategorized = materials.filter((m) => m.materialCategoryId == null || !known.has(m.materialCategoryId));
+  if (uncategorized.length > 0) {
+    groups.push({ kind: "uncategorized", materials: uncategorized });
+  }
+  return groups;
+}
+
+/**
+ * Per-category progress for the dashboard's "Avancement par catégorie de
+ * matériel" rings and the `.../tasks` page's own category sections — the
+ * group AND its stock progress in one pass, so no caller zips a groups array
+ * against a separately-computed progress array by index (they used to be two
+ * functions, computeMaterialCategoryProgress + groupMaterialsByCategory,
+ * called side by side and matched up by array position).
+ *
+ * "Progress" here is MaterialStockDonut's own definition, applied per
+ * category instead of project-wide: the share of TRACKED materials
+ * (requiredQuantity set) whose stock is green. `done` is the green count,
+ * `total` the tracked count, `untracked` the rest (no requiredQuantity at
+ * all) — counted so nothing silently disappears, but never folded into
+ * percent, because a stock quantity and a "not tracked" material don't share
+ * a unit and can't be summed (docs/CONVENTIONS.md).
+ *
+ * Stays pure and locale-less on purpose: a caller that renders this list (the
+ * dashboard page's rings, or lib/dashboardReport.ts's buildMaterialCategoryGroups)
+ * is the one that turns the "uncategorized" branch into a display id/label
+ * (t.materials.category.uncategorized) — this function has no i18n context.
+ */
+export function computeMaterialCategoryGroups<M extends CategorizableMaterialLike>(
+  materials: readonly M[],
+  categories: readonly MaterialCategoryLike[]
+): (MaterialCategoryGroup<M> & { done: number; total: number; percent: number; untracked: number })[] {
+  return groupMaterialsByCategory(materials, categories).map((group) => {
+    const tracked = computeTrackedMaterials(group.materials);
+    const done = countByStockStatus(tracked).green;
+    return {
+      ...group,
+      done,
+      total: tracked.length,
+      percent: roundPercent(done, tracked.length),
+      untracked: group.materials.length - tracked.length,
+    };
+  });
 }

@@ -4,11 +4,12 @@ import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
+import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
 import { computeTrackedMaterials } from "@/lib/projectDashboard";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
-import { buildMaterialsReport } from "@/lib/dashboardReport";
+import { buildMaterialsReport, buildMaterialCategoryGroups } from "@/lib/dashboardReport";
 import { dashboardReportFileName } from "@/lib/dashboardReportData";
 
 export const runtime = "nodejs";
@@ -21,7 +22,10 @@ export const runtime = "nodejs";
  * from — and keeps only the ones with a linked task requirement
  * (computeTrackedMaterials), exactly like the dashboard does: this report
  * lists, it doesn't summarize, so an aggregate count alone wouldn't carry
- * enough to reproduce the on-screen list.
+ * enough to reproduce the on-screen list. Also loads the project's material
+ * categories (repository/materialCategories.ts::findByProject) to group that
+ * list the same way the dashboard's own per-category rings do
+ * (lib/dashboardReport.ts::buildMaterialCategoryGroups) — "non classé" last.
  */
 export async function GET(
   _request: Request,
@@ -60,8 +64,12 @@ export async function GET(
       return new Response("Not Found", { status: 404 });
     }
 
-    const materials = await findMaterialsByProject(pid);
+    const [materials, materialCategories] = await Promise.all([
+      findMaterialsByProject(pid),
+      findMaterialCategoriesByProject(pid),
+    ]);
     const tracked = computeTrackedMaterials(materials);
+    const groups = buildMaterialCategoryGroups(materials, materialCategories, t.materials.category.uncategorized);
     const generatedAt = new Date();
 
     const pdf = await buildMaterialsReport({
@@ -80,11 +88,13 @@ export async function GET(
         address: t.projects.detail.address,
       },
       materials: tracked,
+      groups,
       labels: {
         title: t.projectDashboard.materialsTitle,
         listTitle: t.projectDashboard.materialsListTitle,
         none: t.projectDashboard.materialsNone,
         stockStatus: t.materials.stockStatus,
+        rowStats: t.projectDashboard.tasksBadge,
       },
     });
 

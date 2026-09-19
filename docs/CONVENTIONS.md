@@ -141,11 +141,14 @@ Bypass : les fonctions masquent pour tous sauf **SUPERADMIN** sur `hiddenAreas`
 lectures** (passe adverse EDITOR, lot C1, #1). Ce n'était pas le cas : les
 lectures (page projet, tableau de bord, rapport PDF, `/api/assets`,
 `getClient`/`getProject`) avaient été fermées derrière `canAccessArea("projects")`,
-mais une trentaine — en réalité **41** — de mutations dans `actions/tasks`,
+mais une trentaine — en réalité **41** à l'époque, **45 dans 12 fichiers** au
+2026-09-19 (`actions/materialCategories` compris ; recompte par `functionsIn`,
+voir `docs/SECURITE-CHECKLIST.md` V8) — de mutations dans `actions/tasks`,
 `actions/taskGroups`, `actions/taskCategories`, `actions/taskAssignee`,
-`actions/projectMaterials`, `actions/projectFiles`, `actions/reserves`,
-`actions/interventions`, `actions/interims`, `actions/subcontractors` et
-`actions/deliveryNoteScan` n'avaient que `requireSectionAccess`, jamais
+`actions/projectMaterials`, `actions/materialCategories`, `actions/projectFiles`,
+`actions/reserves`, `actions/interventions`, `actions/interims`,
+`actions/subcontractors` et `actions/deliveryNoteScan` n'avaient que
+`requireSectionAccess`, jamais
 `requireAreaAccess("projects")`. Conséquence : un EDITOR dont la fonction
 masque `projects` ne pouvait plus rien *voir* du chantier, mais gardait
 l'écriture et la suppression complètes dessus — `addTask`/`deleteTask`/

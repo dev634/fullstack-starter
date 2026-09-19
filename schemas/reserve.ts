@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NOTE_LENGTH, MAX_NAME_LENGTH } from "@/schemas/fields";
+import { MAX_NOTE_LENGTH, MAX_NAME_LENGTH, CONTROL_CHAR } from "@/schemas/fields";
 import { hexColor } from "@/schemas/appSettings";
 
 export const reserveStatusSchema = z.enum(["OPEN", "RESOLVED"]);
@@ -69,10 +69,10 @@ export type UpdateReserveInput = z.infer<typeof updateReserveSchema>;
 // a form that never sends one of these fields at all would otherwise fail
 // validation instead of resolving to "not configured".
 
-// Matches the database CHECK's `!~ '[[:cntrl:]]'`: this is a one-line pill
-// label, rendered into HTML and drawn into the PDF report on a single line —
-// a smuggled newline/tab would break both renderers, not just the CHECK.
-const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+// CONTROL_CHAR (schemas/fields.ts) matches the database CHECK's
+// `!~ '[[:cntrl:]]'`: this is a one-line pill label, rendered into HTML and
+// drawn into the PDF report on a single line — a smuggled newline/tab would
+// break both renderers, not just the CHECK.
 
 const nullableStatusLabel = z
     .preprocess(

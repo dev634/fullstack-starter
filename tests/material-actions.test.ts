@@ -28,6 +28,11 @@ vi.mock("@/repository/projectMaterials", () => ({
 vi.mock("@/repository/tasks", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("@/repository/taskGroups", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("@/repository/taskCategories", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
+// materialCategoryId (WHAT the material is, filing) gets the exact same
+// cross-check as the task/group/category link above (WHY it's here) —
+// resolves to project 2 by default, matching every test below's
+// `projectId: "2"`, see materialCategoryInProject's own comment.
+vi.mock("@/repository/materialCategories", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -39,6 +44,7 @@ import { createOrAccumulate, update, remove, findProjectId as findMaterialProjec
 import { findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
 import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
+import { findProjectId as findMaterialCategoryProjectId } from "@/repository/materialCategories";
 import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -51,6 +57,7 @@ const findMaterialProjectIdMock = vi.mocked(findMaterialProjectId);
 const findTaskProjectIdMock = vi.mocked(findTaskProjectId);
 const findTaskGroupProjectIdMock = vi.mocked(findTaskGroupProjectId);
 const findTaskCategoryProjectIdMock = vi.mocked(findTaskCategoryProjectId);
+const findMaterialCategoryProjectIdMock = vi.mocked(findMaterialCategoryProjectId);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -351,6 +358,62 @@ describe("material actions", () => {
       expect(findTaskProjectIdMock).not.toHaveBeenCalled();
       expect(findTaskGroupProjectIdMock).not.toHaveBeenCalled();
       expect(findTaskCategoryProjectIdMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // materialCategoryId (WHAT the material is, filing) gets the exact same
+  // cross-check as the task/série/catégorie link above (WHY it's here) — see
+  // actions/projectMaterials/projectMaterials.ts's materialCategoryInProject.
+  describe("cross-checks materialCategoryId against the material's own project", () => {
+    it("addMaterial rejects a material category belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findMaterialCategoryProjectIdMock.mockResolvedValueOnce(99); // category's real project is 2
+      const res = await addMaterial(
+        initial,
+        formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "10", materialCategoryId: "4" })
+      );
+      expect(res.type).toBe("error");
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it("addMaterial passes materialCategoryId through when it belongs to the material's project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      await addMaterial(
+        initial,
+        formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "10", materialCategoryId: "4" })
+      );
+      expect(findMaterialCategoryProjectIdMock).toHaveBeenCalledWith(4);
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ materialCategoryId: 4 }));
+    });
+
+    it("addMaterial does not look up a category at all when materialCategoryId is absent", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      await addMaterial(initial, formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1" }));
+      expect(findMaterialCategoryProjectIdMock).not.toHaveBeenCalled();
+    });
+
+    it("addMaterial does not look up a category at all when materialCategoryId is cleared to empty", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      await addMaterial(
+        initial,
+        formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1", materialCategoryId: "" })
+      );
+      expect(findMaterialCategoryProjectIdMock).not.toHaveBeenCalled();
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ materialCategoryId: null }));
+    });
+
+    it("editMaterial rejects re-filing under a material category belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findMaterialCategoryProjectIdMock.mockResolvedValueOnce(99);
+      const res = await editMaterial(
+        initial,
+        formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", materialCategoryId: "4" })
+      );
+      expect(res.type).toBe("error");
+      expect(updateMock).not.toHaveBeenCalled();
     });
   });
 

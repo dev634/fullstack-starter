@@ -14,6 +14,13 @@ export type MaterialLinkOption =
   | { kind: "group"; id: number; name: string }
   | { kind: "category"; id: number; name: string };
 
+// A project's material category (filing — WHAT a material is), for the
+// "Catégorie de matériel" picker below — entirely independent of
+// MaterialLinkOption above (WHY the material is here). Shared by
+// EditMaterialForm, ProjectMaterialRow and ProjectMaterialCategorySection,
+// same convention as MaterialLinkOption itself.
+export type MaterialCategoryOption = { id: number; name: string };
+
 const initialState: ProjectMaterialActionState = {
   type: null,
   message: "",
@@ -23,10 +30,12 @@ export default function AddMaterialForm({
   clientId,
   projectId,
   linkOptions,
+  categories,
 }: {
   clientId: number;
   projectId: number;
   linkOptions: MaterialLinkOption[];
+  categories: MaterialCategoryOption[];
 }) {
   const { t } = useTranslation();
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
@@ -100,6 +109,27 @@ export default function AddMaterialForm({
         aria-label={t.materials.referenceLabel}
         className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 sm:w-auto sm:min-w-[120px] sm:flex-1"
       />
+      {/* Filing (WHAT the material is) — independent of, and never shown
+          mixed with, the "Tâche liée" picker below (WHY it's here). Hidden
+          entirely when the project has no material category yet, same rule
+          as the link picker just below. */}
+      {categories.length > 0 && (
+        <div className="w-full sm:w-40">
+          <select
+            name="materialCategoryId"
+            defaultValue=""
+            aria-label={t.materials.categoryPickerLabel}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+          >
+            <option value="">{t.materials.category.uncategorized}</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {/* Optional link to a task or a whole task series: when set, the stock
           indicator compares quantity in stock against requiredQuantity.
           Hidden entirely when the project has nothing yet to link to. */}

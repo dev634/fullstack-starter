@@ -475,10 +475,40 @@ const fr = {
         linkedTask: "Pour : {title}",
         requiredQuantityLabel: "Quantité requise",
         requiredQuantityPlaceholder: "Requis",
+        // Le sélecteur de catégorie de matériel (QUOI, le rangement) — distinct
+        // et indépendant du sélecteur "Tâche liée" ci-dessus (POURQUOI, ce qui
+        // pilote le stock). Porter les deux à la fois est le cas normal.
+        categoryPickerLabel: "Catégorie de matériel",
         stockStatus: {
             green: "Stock suffisant",
             orange: "Stock partiel",
             red: "Rupture de stock",
+        },
+        category: {
+            toggle: "Nouvelle catégorie",
+            nameLabel: "Nom de la catégorie",
+            namePlaceholder: "Ex: Électrique",
+            create: "Créer",
+            uncategorized: "Non classé",
+            editTitle: "Renommer la catégorie",
+            deleteCategory: "Supprimer la catégorie",
+            deleteCategoryTitle: "Supprimer cette catégorie",
+            deleteCategoryText: "Supprimer la catégorie « {name} » ? Le matériel qu'elle contient ne sera pas supprimé, il repassera en « Non classé ».",
+            deleteCategoryTextWithCount: "Supprimer la catégorie « {name} » ? {count} matériel(s) qu'elle contient repasseront en « Non classé ». Rien n'est supprimé.",
+            deleteAriaLabel: "Supprimer la catégorie {name}",
+            editAriaLabel: "Renommer la catégorie {name}",
+            deleting: "Suppression…",
+            // Scopé à UNE catégorie vide — distinct de
+            // t.projects.detail.noMaterials, qui parle de tout le projet et
+            // induirait en erreur ici puisque d'autres catégories peuvent
+            // très bien contenir du matériel.
+            empty: "Aucun matériel dans cette catégorie.",
+            messages: {
+                added: "Catégorie créée.",
+                updated: "Catégorie renommée.",
+                deleted: "Catégorie supprimée.",
+                deletedWithUnfiled: "Catégorie supprimée. {count} matériel(s) repassé(s) en « Non classé ».",
+            },
         },
         scan: {
             toggle: "Scanner un bulletin",
@@ -1077,6 +1107,9 @@ const fr = {
         groupProgressLabel: "{name} : {percent} % ({done}/{total})",
         detailedTitle: "Avancement détaillé, tâche par tâche",
         materialsTitle: "Stock matériel",
+        // Distinct de categoriesTitle ci-dessus : ce sont des catégories de
+        // matériel (QUOI, le rangement), pas des catégories/groupes de tâches.
+        materialCategoriesTitle: "Avancement par catégorie de matériel",
         materialsNone: "Aucun matériel lié à une tâche pour le moment.",
         legend: {
             done: "Terminées",

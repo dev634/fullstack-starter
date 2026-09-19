@@ -471,10 +471,40 @@ const en: Dictionary = {
         linkedTask: "For: {title}",
         requiredQuantityLabel: "Required quantity",
         requiredQuantityPlaceholder: "Required",
+        // The material category picker (WHAT, the filing) — distinct and
+        // independent from the "Linked task" picker above (WHY, what drives
+        // stock). Carrying both at once is the normal case.
+        categoryPickerLabel: "Material category",
         stockStatus: {
             green: "Stock is sufficient",
             orange: "Stock is partial",
             red: "Out of stock",
+        },
+        category: {
+            toggle: "New category",
+            nameLabel: "Category name",
+            namePlaceholder: "E.g. Electrical",
+            create: "Create",
+            uncategorized: "Uncategorized",
+            editTitle: "Rename category",
+            deleteCategory: "Delete category",
+            deleteCategoryTitle: "Delete this category",
+            deleteCategoryText: "Delete the category \"{name}\"? Its materials will not be deleted, they will go back to \"Uncategorized\".",
+            deleteCategoryTextWithCount: "Delete the category \"{name}\"? {count} material(s) it contains will go back to \"Uncategorized\". Nothing is deleted.",
+            deleteAriaLabel: "Delete category {name}",
+            editAriaLabel: "Rename category {name}",
+            deleting: "Deleting…",
+            // Scoped to ONE category — distinct from
+            // t.projects.detail.noMaterials, which talks about the whole
+            // project and would mislead here since other categories may
+            // well contain materials.
+            empty: "No materials in this category.",
+            messages: {
+                added: "Category created.",
+                updated: "Category renamed.",
+                deleted: "Category deleted.",
+                deletedWithUnfiled: "Category deleted. {count} material(s) moved back to \"Uncategorized\".",
+            },
         },
         scan: {
             toggle: "Scan a delivery note",
@@ -1055,6 +1085,9 @@ const en: Dictionary = {
         groupProgressLabel: "{name}: {percent}% ({done}/{total})",
         detailedTitle: "Detailed progress, task by task",
         materialsTitle: "Material stock",
+        // Distinct from categoriesTitle above: these are material categories
+        // (WHAT, the filing), not task categories/groups.
+        materialCategoriesTitle: "Progress by material category",
         materialsNone: "No material linked to a task yet.",
         legend: {
             done: "Done",
