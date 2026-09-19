@@ -7,8 +7,15 @@ import { findByProject, computeProgressByInterim, computeProgressByCompany } fro
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
+import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
 import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
-import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials, roundPercent } from "@/lib/projectDashboard";
+import {
+  computeTaskProgress,
+  computeTaskBarStats,
+  computeTrackedMaterials,
+  computeMaterialCategoryGroups,
+  roundPercent,
+} from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import Title from "@/components/Title";
@@ -100,12 +107,15 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   const showInterimProgress = showTasks && !hiddenSections.has("interims");
   const showCompanyProgress = showTasks && !hiddenSections.has("subcontractors");
   const showReserves = !hiddenSections.has("reserves");
-  const [tasks, taskGroups, taskCategories, materials, interimProgress, companyProgress, reserveTally] =
+  const [tasks, taskGroups, taskCategories, materials, materialCategories, interimProgress, companyProgress, reserveTally] =
     await Promise.all([
       showTasks ? findByProject(pid) : Promise.resolve([]),
       showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
       showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
       showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
+      // Filing (WHAT a material is) — only fetched when Matériel renders,
+      // same rule as `materials` just above.
+      showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
       // Both computed entirely in SQL (GROUP BY), never by loading every
       // task/série/catégorie row into JS — see repository/tasks.ts's own doc
       // for the weighting rule and its equivalence proof against
@@ -152,6 +162,29 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   ];
 
   const namedMaterials = computeTrackedMaterials(materials);
+
+  // Per material-category progress rings — the exact same partition and
+  // done/total/percent math the `.../tasks` page's category sections and the
+  // PDF report share (lib/projectDashboard.ts's own doc on
+  // computeMaterialCategoryGroups), so this dashboard never disagrees with
+  // either about a category's stock. Skipped entirely when the project has
+  // no material category yet: computeMaterialCategoryGroups would otherwise
+  // return a single "Non classé" ring standing for the whole donut above it,
+  // which isn't a category breakdown. SeriesProgressRings needs a flat
+  // `{ id, name, done, total, percent }` per ring — computeMaterialCategoryGroups
+  // stays pure and locale-less, so the stable "uncategorized" id and the
+  // localized label for that bucket are built here, at the call site, not in
+  // the lib function.
+  const materialCategoryProgress =
+    materialCategories.length > 0
+      ? computeMaterialCategoryGroups(materials, materialCategories).map((group) => ({
+          id: group.kind === "category" ? group.id : "uncategorized",
+          name: group.kind === "category" ? group.name : t.materials.category.uncategorized,
+          done: group.done,
+          total: group.total,
+          percent: group.percent,
+        }))
+      : [];
 
   // This project's resolved OPEN/RESOLVED réserve label + colour — same
   // source the hub page and the dedicated réserves page already use, so the
@@ -396,6 +429,15 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.materialsNone}</p>
               )}
             </div>
+
+            {materialCategoryProgress.length > 0 && (
+              <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">
+                <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t.projectDashboard.materialCategoriesTitle}
+                </h3>
+                <SeriesProgressRings items={materialCategoryProgress} t={t} />
+              </div>
+            )}
 
             {namedMaterials.length > 0 && (
               <div className="border-t border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6 print:border-gray-300 dark:print:border-gray-300">

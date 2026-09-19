@@ -5,6 +5,7 @@ import {
   computeMaterialStockStats,
   computeTrackedMaterials,
   computeRingArc,
+  computeMaterialCategoryGroups,
 } from "@/lib/projectDashboard";
 
 describe("computeTaskProgress", () => {
@@ -239,6 +240,103 @@ describe("computeTrackedMaterials", () => {
       ["Empty", "red"],
       ["Partial", "orange"],
       ["Full", "green"],
+    ]);
+  });
+});
+
+describe("computeMaterialCategoryGroups", () => {
+  it("returns an empty array with no categories and no materials", () => {
+    expect(computeMaterialCategoryGroups([], [])).toEqual([]);
+  });
+
+  it("gives every category an entry, in the order given, even an empty one", () => {
+    const categories = [
+      { id: 1, name: "Électrique" },
+      { id: 2, name: "Plomberie" },
+    ];
+    const result = computeMaterialCategoryGroups([], categories);
+    expect(result).toEqual([
+      { kind: "category", id: 1, name: "Électrique", materials: [], done: 0, total: 0, percent: 0, untracked: 0 },
+      { kind: "category", id: 2, name: "Plomberie", materials: [], done: 0, total: 0, percent: 0, untracked: 0 },
+    ]);
+  });
+
+  it("computes done as the green count among tracked materials — MaterialStockDonut's own definition, per category", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }, // green
+      { id: 2, name: "Disjoncteur", quantity: 0, requiredQuantity: 5, materialCategoryId: 1 }, // red
+    ];
+    const result = computeMaterialCategoryGroups(materials, categories);
+    expect(result).toEqual([
+      { kind: "category", id: 1, name: "Électrique", materials, done: 1, total: 2, percent: 50, untracked: 0 },
+    ]);
+  });
+
+  // Degenerate line: a material with no required quantity at all — must be
+  // counted separately, never summed into percent (a stock quantity and "not
+  // tracked" don't share a unit).
+  it("counts a material without a required quantity as untracked, never folded into percent", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 },
+      { id: 2, name: "Gaine", quantity: 50, requiredQuantity: null, materialCategoryId: 1 },
+    ];
+    const result = computeMaterialCategoryGroups(materials, categories);
+    expect(result).toEqual([
+      { kind: "category", id: 1, name: "Électrique", materials, done: 1, total: 1, percent: 100, untracked: 1 },
+    ]);
+  });
+
+  it("appends an uncategorized bucket last, only when a material actually has no category", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [
+      { id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 },
+      { id: 2, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null },
+    ];
+    const result = computeMaterialCategoryGroups(materials, categories);
+    expect(result.map((r) => r.kind)).toEqual(["category", "uncategorized"]);
+    expect(result[1]).toEqual({
+      kind: "uncategorized",
+      materials: [materials[1]],
+      done: 0,
+      total: 1,
+      percent: 0,
+      untracked: 0,
+    });
+  });
+
+  // Point 6: a materialCategoryId that doesn't match ANY of the categories
+  // given (not just null) must fall into the same uncategorized bucket
+  // instead of silently disappearing from both the group's own materials and
+  // the count — "non classé" must have exactly one meaning.
+  it("falls back an unknown materialCategoryId to the uncategorized bucket instead of dropping the material", () => {
+    const categories = [
+      { id: 1, name: "Électrique" },
+      { id: 2, name: "Plomberie" },
+    ];
+    const materials = [{ id: 1, name: "Vis fantôme", quantity: 0, requiredQuantity: 10, materialCategoryId: 999 }];
+    const result = computeMaterialCategoryGroups(materials, categories);
+    const uncategorized = result.find((g) => g.kind === "uncategorized");
+    expect(uncategorized).toBeDefined();
+    expect(uncategorized!.materials).toEqual(materials);
+    expect(uncategorized).toMatchObject({ total: 1, untracked: 0 });
+  });
+
+  // Degenerate line: a fully-filed project — the "Non classé" bucket must
+  // never appear just because it's a possible state.
+  it("omits the uncategorized bucket entirely when every material is filed", () => {
+    const categories = [{ id: 1, name: "Électrique" }];
+    const materials = [{ id: 1, name: "Câble", quantity: 10, requiredQuantity: 10, materialCategoryId: 1 }];
+    const result = computeMaterialCategoryGroups(materials, categories);
+    expect(result.map((r) => r.kind)).toEqual(["category"]);
+  });
+
+  it("still appends the uncategorized bucket even with no real category at all", () => {
+    const materials = [{ id: 1, name: "Vis", quantity: 0, requiredQuantity: 100, materialCategoryId: null }];
+    const result = computeMaterialCategoryGroups(materials, []);
+    expect(result).toEqual([
+      { kind: "uncategorized", materials, done: 0, total: 1, percent: 0, untracked: 0 },
     ]);
   });
 });

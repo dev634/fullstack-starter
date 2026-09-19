@@ -35,14 +35,40 @@ export const MAX_URL_LENGTH = 2048; // common browser/URL-bar length ceiling
 export const MAX_PHONE_LENGTH = 60; // one formatted international number with an extension, or two numbers separated by " / " — see the measured examples above
 
 /**
- * A managed job function id coming from a <select> (or CSV import): a positive
- * integer, or null when "none" ("") is chosen. Optional so the field may be
- * absent from the payload entirely. Shared by the contact, user, interim,
- * and subcontractor schemas.
+ * A positive integer id coming from a <select> (or CSV import), or null when
+ * "none" ("") is explicitly chosen. Optional so the field may be absent from
+ * the payload entirely. The generic shape behind optionalJobFunctionId below —
+ * extracted rather than re-written a second time for
+ * ProjectMaterial.materialCategoryId (schemas/projectMaterial.ts), which is
+ * the exact same contract: a clearable FK picked from a project-scoped
+ * <select>.
  */
-export const optionalJobFunctionId = z
+export const optionalPositiveIntId = z
     .preprocess(
         (v) => (v === "" || v === null || v === undefined ? null : v),
         z.coerce.number().int().positive().nullable()
     )
     .optional();
+
+/**
+ * A managed job function id coming from a <select> (or CSV import): a positive
+ * integer, or null when "none" ("") is chosen. Optional so the field may be
+ * absent from the payload entirely. Shared by the contact, user, interim,
+ * and subcontractor schemas.
+ */
+export const optionalJobFunctionId = optionalPositiveIntId;
+
+/**
+ * Matches every database CHECK's `!~ '[[:cntrl:]]'` clause: rejects a
+ * smuggled newline/tab in a one-line label rendered into HTML and drawn into
+ * a PDF report on a single line (originally schemas/reserve.ts, now shared).
+ *
+ * Wider than ASCII on purpose. Postgres's `[[:cntrl:]]` under a UTF-8 ctype
+ * also rejects the C1 range (U+0080–U+009F — what a `€` pasted from a
+ * mis-decoded Windows-1252 document becomes); a Zod that stopped at \x7f let
+ * those through to the CHECK, turning a field error into a generic "server
+ * error" (proven on the local base, 2026-09-19). U+2028/U+2029 are added for
+ * the other half of the promise: pdfkit's line breaker (UAX #14) treats them
+ * as mandatory breaks, so a "one-line" label would still wrap.
+ */
+export const CONTROL_CHAR = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/;

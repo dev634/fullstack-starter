@@ -74,8 +74,19 @@ describe("updateReserveStatusStyleSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a label carrying a control character (a newline smuggled into a one-line pill)", () => {
-    const result = updateReserveStatusStyleSchema.safeParse({ ...valid, openLabel: "Line one\nLine two" });
+  // Same set the database CHECK (`!~ '[[:cntrl:]]'`, UTF-8 ctype) refuses:
+  // ASCII controls AND the C1 range — a `€` pasted from a mis-decoded
+  // Windows-1252 document is U+0080. Before schemas/fields.ts's CONTROL_CHAR
+  // covered C1, such a label passed Zod and died on the CHECK as a generic
+  // "server error". U+2028 is pdfkit's mandatory line break: also refused, so
+  // the "one-line pill" promise holds on paper too.
+  it.each([
+    ["a newline", "Line one\nLine two"],
+    ["a C1 control (U+0085, NEL)", "Line one\u0085Line two"],
+    ["a mis-decoded euro sign (U+0080)", "Prix \u0080"],
+    ["a Unicode line separator (U+2028)", "Line one\u2028Line two"],
+  ])("rejects a label carrying %s smuggled into a one-line pill", (_label, openLabel) => {
+    const result = updateReserveStatusStyleSchema.safeParse({ ...valid, openLabel });
     expect(result.success).toBe(false);
   });
 

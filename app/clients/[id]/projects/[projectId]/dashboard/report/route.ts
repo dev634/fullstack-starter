@@ -7,13 +7,19 @@ import { findByProject as findTasksByProject, computeProgressByInterim, computeP
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
+import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
 import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
 import { computeTaskProgress, computeTaskBarStats, computeTrackedMaterials, roundPercent } from "@/lib/projectDashboard";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
-import { buildGlobalDashboardReport, type TaskProgressRow, type GlobalReportSections } from "@/lib/dashboardReport";
+import {
+  buildGlobalDashboardReport,
+  buildMaterialCategoryGroups,
+  type TaskProgressRow,
+  type GlobalReportSections,
+} from "@/lib/dashboardReport";
 import { dashboardReportFileName } from "@/lib/dashboardReportData";
 
 export const runtime = "nodejs";
@@ -71,15 +77,17 @@ export async function GET(
     const showReserves = await canAccessSection("reserves");
     const showMaterials = await canAccessSection("materials");
 
-    const [tasks, taskGroups, taskCategories, interimRows, companyRows, reserveTally, materials] = await Promise.all([
-      showTasks ? findTasksByProject(pid) : Promise.resolve([]),
-      showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
-      showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
-      showInterims ? computeProgressByInterim(pid) : Promise.resolve([]),
-      showCompanies ? computeProgressByCompany(pid) : Promise.resolve([]),
-      showReserves ? tallyReservesByProject(pid) : Promise.resolve({ total: 0, open: 0, resolved: 0 }),
-      showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
-    ]);
+    const [tasks, taskGroups, taskCategories, interimRows, companyRows, reserveTally, materials, materialCategories] =
+      await Promise.all([
+        showTasks ? findTasksByProject(pid) : Promise.resolve([]),
+        showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
+        showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
+        showInterims ? computeProgressByInterim(pid) : Promise.resolve([]),
+        showCompanies ? computeProgressByCompany(pid) : Promise.resolve([]),
+        showReserves ? tallyReservesByProject(pid) : Promise.resolve({ total: 0, open: 0, resolved: 0 }),
+        showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
+        showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
+      ]);
 
     const chrome = {
       generatedOn: t.projectDashboard.report.generatedOn,
@@ -168,11 +176,13 @@ export async function GET(
     if (showMaterials) {
       sections.materials = {
         materials: computeTrackedMaterials(materials),
+        groups: buildMaterialCategoryGroups(materials, materialCategories, t.materials.category.uncategorized),
         labels: {
           title: t.projectDashboard.materialsTitle,
           listTitle: t.projectDashboard.materialsListTitle,
           none: t.projectDashboard.materialsNone,
           stockStatus: t.materials.stockStatus,
+          rowStats: t.projectDashboard.tasksBadge,
         },
       };
     }

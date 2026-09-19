@@ -9,6 +9,7 @@ import { createOrAccumulate, update, remove, findProjectId as findMaterialProjec
 import { findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
 import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
+import { findProjectId as findMaterialCategoryProjectId } from "@/repository/materialCategories";
 import { revalidateMaterials } from "@/lib/revalidateMaterials";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -35,6 +36,21 @@ async function linkTargetInProject(
   if (data.taskGroupId !== undefined) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
   if (data.taskCategoryId !== undefined) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
   return true;
+}
+
+/**
+ * Confirms a parsed materialCategoryId — WHAT the material is (filing),
+ * entirely independent of the task/série/catégorie link linkTargetInProject
+ * checks above (WHY it's here) — resolves, in the database, to the same
+ * project the material belongs to. Same class of gap, same fix: the
+ * <select> only ever lists the current project's own categories, but that's
+ * a client-side filter nothing server-side checked before. null/undefined
+ * (not provided, or explicitly cleared to "non classé") need no lookup at
+ * all — there's nothing to cross-check.
+ */
+async function materialCategoryInProject(materialCategoryId: number | null | undefined, projectId: number): Promise<boolean> {
+  if (materialCategoryId == null) return true;
+  return (await findMaterialCategoryProjectId(materialCategoryId)) === projectId;
 }
 
 export async function addMaterial(
@@ -67,6 +83,9 @@ export async function addMaterial(
   if (!(await linkTargetInProject(parsed.data, parsed.data.projectId))) {
     return { ...prevState, type: "error", message: t.errors.invalidId };
   }
+  if (!(await materialCategoryInProject(parsed.data.materialCategoryId, parsed.data.projectId))) {
+    return { ...prevState, type: "error", message: t.errors.invalidId };
+  }
 
   try {
     const { material, accumulated } = await createOrAccumulate({
@@ -80,6 +99,7 @@ export async function addMaterial(
       taskGroupId: parsed.data.taskGroupId,
       taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
+      materialCategoryId: parsed.data.materialCategoryId,
     });
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
@@ -138,6 +158,9 @@ export async function editMaterial(
     if (!(await linkTargetInProject(parsed.data, realProjectId))) {
       return { ...prevState, type: "error", message: t.errors.invalidId };
     }
+    if (!(await materialCategoryInProject(parsed.data.materialCategoryId, realProjectId))) {
+      return { ...prevState, type: "error", message: t.errors.invalidId };
+    }
 
     const material = await update(parsed.data.id, {
       name: parsed.data.name,
@@ -149,6 +172,7 @@ export async function editMaterial(
       taskGroupId: parsed.data.taskGroupId,
       taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
+      materialCategoryId: parsed.data.materialCategoryId,
     });
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
