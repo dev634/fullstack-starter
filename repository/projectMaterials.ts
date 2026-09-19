@@ -126,7 +126,6 @@ export async function findByProject(projectId: number) {
                 task: { select: { id: true, title: true } },
                 taskGroup: { select: { id: true, name: true } },
                 taskCategory: { select: { id: true, name: true } },
-                materialCategory: { select: { id: true, name: true } },
             },
             orderBy: { createdAt: "desc" },
         });

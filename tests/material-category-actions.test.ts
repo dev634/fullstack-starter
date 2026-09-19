@@ -78,9 +78,17 @@ describe("addMaterialCategory", () => {
 
   // Same CHECK, its `!~ '[[:cntrl:]]'` clause: a smuggled control character
   // (here a tab) must fail validation, not reach the repository.
-  it("rejects a name containing a control character with a zod error", async () => {
+  // The exact set the migration's CHECK refuses (`!~ '[[:cntrl:]]'` under a
+  // UTF-8 ctype): ASCII controls and the C1 range. A C1 character that Zod
+  // let through reached the CHECK and came back as a generic "server error"
+  // instead of a field error — the divergence this case locks shut.
+  it.each([
+    ["a tab", "Élec\ttrique"],
+    ["a C1 control (U+0085)", "Élec\u0085trique"],
+    ["a Unicode line separator (U+2028)", "Élec\u2028trique"],
+  ])("rejects a name containing %s with a zod error", async (_label, name) => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Élec\ttrique" }));
+    const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name }));
     expect(res.type).toBe("zodError");
     expect(res.fieldsForm?.name).toBeTruthy();
     expect(createMock).not.toHaveBeenCalled();
@@ -109,6 +117,7 @@ describe("addMaterialCategory", () => {
     });
     const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Électrique" }));
     expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.errors.forbiddenArea);
     expect(createMock).not.toHaveBeenCalled();
   });
 
@@ -131,6 +140,7 @@ describe("addMaterialCategory", () => {
     getAccessContextMock.mockResolvedValueOnce(ctx).mockResolvedValueOnce(ctx);
     const res = await addMaterialCategory(initial, formOf({ clientId: "1", projectId: "1", name: "Électrique" }));
     expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.errors.forbiddenSection);
     expect(createMock).not.toHaveBeenCalled();
   });
 });

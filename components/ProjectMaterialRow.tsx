@@ -16,7 +16,12 @@ export type MaterialWithTask = ProjectMaterial & {
   task: { id: number; title: string } | null;
   taskGroup: { id: number; name: string } | null;
   taskCategory: { id: number; name: string } | null;
-  materialCategory: { id: number; name: string } | null;
+  // No `materialCategory` join here on purpose: the category a material is
+  // filed under is read as `materialCategoryId` (the picker's value); its
+  // NAME is looked up in the categories list the page already holds, never
+  // re-joined per row — and this row is a client component, so a joined name
+  // would be serialised for nothing (it was, until the delta audit found the
+  // join had no reader).
 };
 
 type ProjectMaterialRowProps = {

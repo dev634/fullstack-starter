@@ -62,5 +62,13 @@ export const optionalJobFunctionId = optionalPositiveIntId;
  * Matches every database CHECK's `!~ '[[:cntrl:]]'` clause: rejects a
  * smuggled newline/tab in a one-line label rendered into HTML and drawn into
  * a PDF report on a single line (originally schemas/reserve.ts, now shared).
+ *
+ * Wider than ASCII on purpose. Postgres's `[[:cntrl:]]` under a UTF-8 ctype
+ * also rejects the C1 range (U+0080–U+009F — what a `€` pasted from a
+ * mis-decoded Windows-1252 document becomes); a Zod that stopped at \x7f let
+ * those through to the CHECK, turning a field error into a generic "server
+ * error" (proven on the local base, 2026-09-19). U+2028/U+2029 are added for
+ * the other half of the promise: pdfkit's line breaker (UAX #14) treats them
+ * as mandatory breaks, so a "one-line" label would still wrap.
  */
-export const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+export const CONTROL_CHAR = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/;
