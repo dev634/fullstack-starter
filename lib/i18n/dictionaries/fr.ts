@@ -826,6 +826,10 @@ const fr = {
         lendToggle: "Prêter un équipement",
         equipmentLabel: "Équipement",
         borrowerLabel: "Emprunteur",
+        // `User.name` peut être null (compte créé sans nom) — repli utilisé
+        // partout où un nom d'utilisateur est affiché dans ce module
+        // (l'e-mail n'est pas projeté par findBorrowerOptions/findHistory).
+        unknownUser: "Utilisateur inconnu",
         lentAtLabel: "Date de prêt",
         dueAtLabel: "Retour prévu",
         noteLabel: "Note",

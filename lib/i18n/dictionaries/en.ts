@@ -804,6 +804,10 @@ const en: Dictionary = {
         lendToggle: "Lend equipment",
         equipmentLabel: "Equipment",
         borrowerLabel: "Borrower",
+        // `User.name` can be null (an account created without one) — the
+        // fallback used everywhere a user name is shown in this module (the
+        // email isn't projected by findBorrowerOptions/findHistory).
+        unknownUser: "Unknown user",
         lentAtLabel: "Loan date",
         dueAtLabel: "Expected return",
         noteLabel: "Note",
