@@ -1,5 +1,9 @@
 import { findCompaniesByProject } from "@/repository/subcontractors";
 import { findByProject as findInterimsByProject } from "@/repository/interims";
+import {
+  findByProject as findWorkersByProject,
+  findAttachableUsers,
+} from "@/repository/projectWorkers";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
@@ -10,10 +14,12 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import Title from "@/components/Title";
 import ProjectSubcontractorCompanyRow from "@/components/ProjectSubcontractorCompanyRow";
 import ProjectInterimRow from "@/components/ProjectInterimRow";
+import ProjectWorkerRow from "@/components/ProjectWorkerRow";
 import AddSubcontractorCompanyForm from "@/forms/AddSubcontractorCompanyForm";
 import AddInterimForm from "@/forms/AddInterimForm";
+import AttachWorkerForm from "@/forms/AttachWorkerForm";
 import Link from "next/link";
-import { ArrowLeftIcon, BuildingOfficeIcon, UsersIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, BuildingOfficeIcon, UsersIcon, UserGroupIcon } from "@heroicons/react/24/outline";
 
 type PageProps = {
   params: Promise<{
@@ -78,14 +84,20 @@ export default async function ProjectWorkforcePage({ params }: PageProps) {
   const session = await auth();
   const canEdit = await can(session?.user?.role, "content.edit");
 
-  const [subcontractorCompanies, interims, jobFunctions] = await Promise.all([
+  const [subcontractorCompanies, interims, workers, jobFunctions, attachableUsers] = await Promise.all([
     showSubcontractors ? findCompaniesByProject(pid) : Promise.resolve([]),
     showInterims ? findInterimsByProject(pid) : Promise.resolve([]),
+    // Travailleurs share the "interims" section key — there is no dedicated
+    // "workers" key (see actions/projectWorkers/projectWorkers.ts's own doc).
+    showInterims ? findWorkersByProject(pid) : Promise.resolve([]),
     // Managed job functions offered in the intérimaire add form's dropdown,
     // and the subcontractor personnel add form's dropdown nested in each
     // company row — only fetched when at least one of those forms can
     // actually render.
     canEdit && (showSubcontractors || showInterims) ? findJobFunctions() : Promise.resolve([]),
+    // Non-CLIENT users not yet attached — only needed to populate the attach
+    // form's own dropdown, so only fetched when that form can actually render.
+    canEdit && showInterims ? findAttachableUsers(pid) : Promise.resolve([]),
   ]);
 
   return (
@@ -167,6 +179,43 @@ export default async function ProjectWorkforcePage({ params }: PageProps) {
               ) : (
                 <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
                   {t.projects.detail.noInterims}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Travailleurs — internal employees (User) attached to this project,
+            fetched only under the same "interims" section key Intérimaires
+            uses above: there is no dedicated "workers" key, and the mutations
+            below (attachWorker/detachWorker) are themselves gated on
+            requireSectionAccess("interims") — the page must show exactly
+            what those actions allow. */}
+        {showInterims && (
+          <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm">
+            <div className="overflow-hidden rounded-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-300 dark:border-gray-700 px-4 py-4 sm:px-6">
+                <h2 className="flex min-w-[8rem] flex-1 items-center gap-2 text-lg font-semibold">
+                  <UserGroupIcon className="h-5 w-5 shrink-0 text-indigo-500" />
+                  <span className="truncate">{t.projects.detail.workersHeading}</span>
+                  {workers.length > 0 && (
+                    <span className="shrink-0 text-sm font-normal text-gray-500 dark:text-gray-400">
+                      ({workers.length})
+                    </span>
+                  )}
+                </h2>
+                {canEdit && <AttachWorkerForm clientId={clientId} projectId={pid} users={attachableUsers} />}
+              </div>
+
+              {workers.length ? (
+                <ul className="divide-y divide-gray-300 dark:divide-gray-700">
+                  {workers.map((worker) => (
+                    <ProjectWorkerRow key={worker.id} worker={worker} clientId={clientId} projectId={pid} canEdit={canEdit} />
+                  ))}
+                </ul>
+              ) : (
+                <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400 sm:px-6">
+                  {t.projects.detail.noWorkers}
                 </div>
               )}
             </div>

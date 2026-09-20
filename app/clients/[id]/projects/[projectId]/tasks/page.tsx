@@ -3,6 +3,7 @@ import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroup
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findCompanyOptionsByProject } from "@/repository/subcontractors";
 import { findOptionsByProject as findInterimOptionsByProject } from "@/repository/interims";
+import { findOptionsByProject as findWorkerOptionsByProject } from "@/repository/projectWorkers";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
 import { auth } from "@/lib/auth";
@@ -83,7 +84,7 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   const session = await auth();
   const canEdit = await can(session?.user?.role, "content.edit");
 
-  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, materials, materialCategories] =
+  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, workerOptions, materials, materialCategories] =
     await Promise.all([
       // Loaded unconditionally, whether or not `tasks` itself is visible: the
       // materials picker below (materialLinkOptions) links a material to a
@@ -102,6 +103,7 @@ export default async function ProjectTasksPage({ params }: PageProps) {
       // actually renders — nothing on the Matériel half uses them.
       canEdit && showTasks ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
       canEdit && showTasks ? findInterimOptionsByProject(pid) : Promise.resolve([]),
+      canEdit && showTasks ? findWorkerOptionsByProject(pid) : Promise.resolve([]),
       showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
       // Filing (WHAT a material is) — only fetched when the Matériel half
       // renders, same rule as `materials` just above.
@@ -177,9 +179,9 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   const doneCount = tasks.filter((task) => task.done).length + taskGroups.reduce((sum, g) => sum + g.doneCount, 0);
   const totalCount = tasks.length + taskGroups.reduce((sum, g) => sum + g.totalCount, 0);
 
-  // Options for the task/series/category assignee picker: either a
-  // subcontractor company or an intérimaire (mutually exclusive).
-  const assigneeOptions = { companies: companyOptions, interims: interimOptions };
+  // Options for the task/series/category assignee picker: a subcontractor
+  // company, an intérimaire, or an internal travailleur (mutually exclusive).
+  const assigneeOptions = { companies: companyOptions, interims: interimOptions, workers: workerOptions };
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">

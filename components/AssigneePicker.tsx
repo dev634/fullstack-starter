@@ -14,18 +14,22 @@ type AssigneePickerProps = {
   projectId: number;
   companies: AssigneeOption[];
   interims: AssigneeOption[];
+  workers: AssigneeOption[];
   assignedCompanyId: number | null;
   assignedInterimId: number | null;
+  assignedWorkerId: number | null;
 };
 
 /**
  * One self-contained dropdown to assign a task / series / category to EITHER
- * a subcontractor company OR an intérimaire — the two kinds sit in separate
- * <optgroup>s and the selection is encoded as "company:<id>" / "interim:<id>"
- * / "" (see schemas/taskAssignee.ts). Owns its own in-flight + error state
- * and refreshes on success, so the three call sites (task row, series row,
- * category section) don't each re-implement the handler. Renders nothing if
- * the project has no companies and no intérimaires yet.
+ * a subcontractor company, an intérimaire, OR an internal travailleur — the
+ * three kinds sit in separate <optgroup>s and the selection is encoded as
+ * "company:<id>" / "interim:<id>" / "worker:<id>" / "" (see
+ * schemas/taskAssignee.ts). Owns its own in-flight + error state and
+ * refreshes on success, so the call sites (task row, series row, category
+ * section) don't each re-implement the handler. Renders nothing only when
+ * ALL THREE lists are empty — a project with, say, travailleurs but no
+ * companies/intérimaires must still get the picker.
  */
 export default function AssigneePicker({
   targetKind,
@@ -34,17 +38,25 @@ export default function AssigneePicker({
   projectId,
   companies,
   interims,
+  workers,
   assignedCompanyId,
   assignedInterimId,
+  assignedWorkerId,
 }: AssigneePickerProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (companies.length === 0 && interims.length === 0) return null;
+  if (companies.length === 0 && interims.length === 0 && workers.length === 0) return null;
 
-  const value = assignedCompanyId ? `company:${assignedCompanyId}` : assignedInterimId ? `interim:${assignedInterimId}` : "";
+  const value = assignedCompanyId
+    ? `company:${assignedCompanyId}`
+    : assignedInterimId
+      ? `interim:${assignedInterimId}`
+      : assignedWorkerId
+        ? `worker:${assignedWorkerId}`
+        : "";
 
   async function handleChange(next: string) {
     setPending(true);
@@ -82,6 +94,15 @@ export default function AssigneePicker({
             {interims.map((i) => (
               <option key={`interim-${i.id}`} value={`interim:${i.id}`}>
                 {i.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {workers.length > 0 && (
+          <optgroup label={t.assignees.workers}>
+            {workers.map((w) => (
+              <option key={`worker-${w.id}`} value={`worker:${w.id}`}>
+                {w.name}
               </option>
             ))}
           </optgroup>
