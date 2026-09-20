@@ -32,7 +32,18 @@ vi.mock("cloudinary", () => ({
   },
 }));
 
+// uploadEquipmentPhoto (below) routes its buffer through
+// stripArchivedPhotoMetadata (lib/imageMetadata.ts) before ever calling
+// Cloudinary — mocked here so these tests don't need a genuinely
+// sharp-decodable image (every other fixture in this file is just a magic-
+// number prefix) and can assert the new path actually calls it, rather than
+// re-deriving its own metadata-stripping logic.
+vi.mock("@/lib/imageMetadata", () => ({
+  stripArchivedPhotoMetadata: vi.fn(async (buffer: Buffer) => buffer),
+}));
+
 import { v2 as cloudinarySdk } from "cloudinary";
+import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import {
   publicIdFromUrl,
   optimizedClientPhoto,
@@ -41,9 +52,14 @@ import {
   uploadLogo,
   uploadReservePhoto,
   uploadReservePlan,
+  uploadEquipmentPhoto,
+  destroyEquipmentPhoto,
+  MAX_EQUIPMENT_PHOTO_BYTES,
 } from "@/lib/cloudinary";
 
 const uploadStreamMock = vi.mocked(cloudinarySdk.uploader.upload_stream);
+const destroyMock = vi.mocked(cloudinarySdk.uploader.destroy);
+const stripArchivedPhotoMetadataMock = vi.mocked(stripArchivedPhotoMetadata);
 
 // Real magic-number prefixes — enough bytes for detectRasterImageMediaType
 // (lib/fileSignature.ts) to recognize the format, no need for a fully valid,
@@ -116,6 +132,8 @@ describe("uploadProjectFile — guarded upload response validation", () => {
 // whose label is obviously wrong.
 beforeEach(() => {
   uploadStreamMock.mockClear();
+  destroyMock.mockClear();
+  stripArchivedPhotoMetadataMock.mockClear();
 });
 
 describe("uploadClientPhoto — content-based image validation", () => {
@@ -237,5 +255,92 @@ describe("uploadProjectFile — content-based checks alongside the label-only de
       message: "This file type isn't allowed.",
     });
     expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("uploadEquipmentPhoto — content-based validation, routed through stripArchivedPhotoMetadata", () => {
+  it("accepts a real PNG, strips its metadata, and uploads the stripped buffer", async () => {
+    const file = new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+    const result = await uploadEquipmentPhoto(file);
+    expect(result.publicId).toBe("projects/1/devis");
+    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledTimes(1);
+    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(Buffer), "image/png");
+    expect(uploadStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an SVG payload renamed to .png and declared image/png before ever stripping metadata or calling Cloudinary", async () => {
+    const file = new File([FAKE_SVG_AS_PNG_BYTES], "photo.png", { type: "image/png" });
+    await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({
+      message: "Accepted formats: JPEG, PNG, WebP, GIF.",
+      i18n: "equipmentPhotoUnsupportedFormat",
+    });
+    expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  // Decision B (delivery report): delegating HEIC/AVIF/BMP/TIFF to
+  // Cloudinary (an incoming `transformation: [{format: "jpg"}]` upload) was
+  // considered and REJECTED after a live proof against the real Cloudinary
+  // account — every combination tried left a fabricated AVIF's EXIF
+  // orientation and GPS/Make metadata untouched or the format unconverted
+  // (see lib/cloudinary.ts::isStrippableEquipmentPhoto's doc for the full
+  // account). So, unlike uploadClientPhoto/uploadReservePhoto (which accept
+  // HEIC — passe 3b, point 0), this path still narrows to the 4 formats
+  // stripArchivedPhotoMetadata itself accepts. HEIC/AVIF/BMP/TIFF fall
+  // through that function's `.gif()` default (a mis-encode bug, not a
+  // rejection) if ever passed to it — so this path must refuse them BEFORE
+  // calling it, not rely on it to refuse them. The refusal message now
+  // names the accepted formats instead of the generic "must be an image
+  // file" the other refusal-only reasons below still use.
+  it("rejects a real HEIC photo — unlike uploadClientPhoto, since stripArchivedPhotoMetadata cannot safely re-encode it", async () => {
+    const file = new File([REAL_HEIC_BYTES], "photo.heic", { type: "image/heic" });
+    await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({
+      message: "Accepted formats: JPEG, PNG, WebP, GIF.",
+      i18n: "equipmentPhotoUnsupportedFormat",
+    });
+    expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a file over the 5 MB ceiling before reading its content", async () => {
+    const big = new Uint8Array(MAX_EQUIPMENT_PHOTO_BYTES + 1);
+    const file = new File([big], "photo.png", { type: "image/png" });
+    await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({ i18n: "uploadTooLarge" });
+    expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+  });
+
+  it("translates a stripArchivedPhotoMetadata failure (corrupted image) into this module's own upload-error shape", async () => {
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "corruptedImage" });
+    const file = new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+    await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({
+      message: "The photo must be an image file.",
+      i18n: "uploadNotImage",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("destroyEquipmentPhoto — reads Cloudinary's own destroy report", () => {
+  it("does nothing when there is no publicId", async () => {
+    await destroyEquipmentPhoto(null);
+    expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  it("logs when destroy's report is neither ok nor not found — a no-op that doesn't throw isn't proof of deletion", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "processing" } as never);
+    await destroyEquipmentPhoto("equipment/abc");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("processing"));
+    errorSpy.mockRestore();
+  });
+
+  it("does not log on a clean 'ok' or 'not found' report", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "ok" } as never);
+    await destroyEquipmentPhoto("equipment/abc");
+    destroyMock.mockResolvedValueOnce({ result: "not found" } as never);
+    await destroyEquipmentPhoto("equipment/def");
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

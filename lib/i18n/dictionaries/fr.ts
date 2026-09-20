@@ -56,6 +56,7 @@ const fr = {
     nav: {
         clients: "Entreprises",
         projects: "Projets",
+        loans: "Prêts",
         functions: "Fonctions",
         users: "Utilisateurs",
         admin: "Administration",
@@ -129,7 +130,7 @@ const fr = {
     },
     photoUpload: {
         mustBeImage: "Le fichier doit être une image.",
-        maxSize: "L'image doit faire 5 Mo maximum.",
+        maxSize: "L'image doit faire {max} Mo maximum.",
         addPhoto: "Ajouter une photo",
         changePhoto: "Changer la photo",
         remove: "Retirer",
@@ -818,6 +819,74 @@ const fr = {
             resetToDefaultAria: "Revenir à la valeur par défaut — {field} ({section})",
         },
     },
+    equipment: {
+        addToggle: "Ajouter un équipement",
+        nameLabel: "Nom",
+        namePlaceholder: "Nom de l'équipement…",
+        referenceLabel: "Référence",
+        referencePlaceholder: "Référence",
+        ownerLabel: "Propriétaire",
+        editEquipment: "Modifier {name}",
+        editTitle: "Modifier l'équipement",
+        deleteEquipment: "Supprimer {name}",
+        deleteTitle: "Supprimer cet équipement",
+        deleteText: "Supprimer « {name} » ? Cette action est irréversible.",
+        empty: "Aucun équipement.",
+        lendAction: "Prêter",
+        currentlyLentTo: "Prêté à {name}",
+        available: "Disponible",
+        messages: {
+            added: "Équipement ajouté.",
+            updated: "Équipement mis à jour.",
+            deleted: "Équipement supprimé.",
+            invalidId: "Identifiant d'équipement invalide.",
+            cannotDeleteLent: "Impossible de supprimer un équipement actuellement prêté.",
+            unsupportedPhotoFormat: "Formats acceptés : JPEG, PNG, WebP, GIF.",
+        },
+    },
+    loans: {
+        title: "Prêts",
+        subtitle: "Le matériel personnel de chacun, et qui l'a en ce moment.",
+        tabs: {
+            mine: "Mon matériel",
+            borrowed: "Emprunté",
+            ongoing: "En cours",
+            returned: "Rendus",
+        },
+        lendToggle: "Prêter un équipement",
+        equipmentLabel: "Équipement",
+        borrowerLabel: "Emprunteur",
+        // `User.name` peut être null (compte créé sans nom) — repli utilisé
+        // partout où un nom d'utilisateur est affiché dans ce module
+        // (l'e-mail n'est pas projeté par findBorrowerOptions/findHistory).
+        unknownUser: "Utilisateur inconnu",
+        lentAtLabel: "Date de prêt",
+        dueAtLabel: "Retour prévu",
+        noteLabel: "Note",
+        notePlaceholder: "Note…",
+        returnAction: "Marquer comme rendu",
+        returnedAtLabel: "Date de retour",
+        editTitle: "Modifier le prêt",
+        deleteLoan: "Supprimer ce prêt",
+        deleteTitle: "Supprimer ce prêt",
+        deleteText: "Supprimer ce prêt ? Cette action est irréversible.",
+        empty: "Aucun prêt.",
+        // Affiché quand une liste admin (findAll/findHistory({all:true})) a
+        // atteint sa borne (app/loans/page.tsx) — la liste montrée n'est
+        // alors plus forcément complète.
+        listTruncated: "Affichage limité aux {take} résultats les plus récents.",
+        messages: {
+            lent: "Équipement prêté.",
+            returned: "Prêt marqué comme rendu.",
+            updated: "Prêt mis à jour.",
+            deleted: "Prêt supprimé.",
+            invalidId: "Identifiant de prêt invalide.",
+            alreadyLent: "Cet équipement est déjà prêté.",
+            selfLoan: "Impossible de se prêter son propre équipement.",
+            dueBeforeLent: "La date d'échéance ne peut pas précéder la date de prêt.",
+            returnedBeforeLent: "La date de retour ne peut pas précéder la date de prêt.",
+        },
+    },
     jobFunctions: {
         title: "Fonctions",
         subtitle: "Gérez la liste des fonctions (manœuvre, électricien, chef de chantier…) proposées dans l'application.",
@@ -905,6 +974,11 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
+            // Equipment.ownerId et EquipmentLoan.borrowerId (prêts OUVERTS)
+            // sont en onDelete: Restrict (migration 20260918120000) — les
+            // prêts fermés, eux, sont purgés automatiquement à la suppression.
+            cannotDeleteHasEquipmentOrLoans:
+                "Impossible : cet utilisateur possède {equipment} équipement(s) et a {loans} prêt(s) en cours. Réattribuez ou rendez-les avant de le supprimer.",
         },
     },
     appSettings: {

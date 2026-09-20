@@ -5,6 +5,7 @@ import { ProjectFields, type ProjectFormValues } from "@/forms/ProjectFields";
 import { Toast } from "@/components/Toast";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "@/components/LocaleProvider";
+import { toDateInputValue } from "@/lib/datetimeLocal";
 import type { ProjectActionState } from "@/types/project";
 import type { Project } from "@/app/generated/prisma/client";
 
@@ -38,11 +39,6 @@ type UpdateProjectFormProject = Pick<
 const initialState: ProjectActionState = {
   type: null,
   message: "",
-}
-
-function toDateInputValue(date: Date | null): string {
-  if (!date) return "";
-  return new Date(date).toISOString().slice(0, 10);
 }
 
 export default function UpdateProjectForm({ project }: { project: UpdateProjectFormProject }) {

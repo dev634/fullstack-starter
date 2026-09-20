@@ -18,6 +18,7 @@ export const APP_AREA_KEYS = [
   "clients.contacts",
   "clients.projects",
   "projects",
+  "loans",
   "admin",
   "admin.users",
   "admin.functions",
@@ -43,6 +44,7 @@ export const APP_AREA_CHILDREN: Record<AppAreaKey, readonly AppAreaKey[]> = {
   "clients.contacts": [],
   "clients.projects": [],
   projects: [],
+  loans: [],
   admin: ["admin.users", "admin.functions", "admin.settings"],
   "admin.users": [],
   "admin.functions": [],
@@ -50,7 +52,7 @@ export const APP_AREA_CHILDREN: Record<AppAreaKey, readonly AppAreaKey[]> = {
 };
 
 /** The top-level rubriques, in the app's canonical/landing order. */
-export const TOP_LEVEL_APP_AREAS: readonly AppAreaKey[] = ["dashboard", "clients", "projects", "admin"];
+export const TOP_LEVEL_APP_AREAS: readonly AppAreaKey[] = ["dashboard", "clients", "projects", "loans", "admin"];
 
 /**
  * Fixed landing href for each top-level rubrique that has exactly one — every
@@ -64,6 +66,7 @@ export const AREA_HREFS: Partial<Record<AppAreaKey, string>> = {
   dashboard: "/",
   clients: "/clients",
   projects: "/projects",
+  loans: "/loans",
 };
 
 /**

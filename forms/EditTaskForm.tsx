@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
+import { toDateInputValue } from "@/lib/datetimeLocal";
 import type { TaskActionState } from "@/types/task";
 
 const initialState: TaskActionState = {
@@ -39,7 +40,7 @@ export default function EditTaskForm({
     if (state.type === "success") setOpen(false);
   }
 
-  const dueDateValue = task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : "";
+  const dueDateValue = toDateInputValue(task.dueDate);
 
   return (
     <>

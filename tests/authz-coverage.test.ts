@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import ts from "typescript";
 import { readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, relative, resolve, dirname, sep } from "node:path";
 import { sourceFilesIn, functionsIn, guardedNames } from "./helpers/astScan";
+import { AREA_HREFS } from "@/lib/appAreas";
 
 /**
  * Structural guarantee: every exported server action is behind an
@@ -83,6 +84,101 @@ const OWNED_BY_SECTION = [
   "actions/projectFiles/projectFiles.ts",
   "actions/reserves/reserves.ts",
 ];
+
+/**
+ * "Resolved by import" helpers for requireAreaOrRedirect (lib/areaAccess.ts),
+ * used by the page-level test below. Same technique as
+ * tests/project-section-authz-coverage.test.ts's resolveProjectSectionAccess
+ * check (a second, narrower occurrence — not extracted per this repo's
+ * two-occurrence DRY threshold, flagged as a shared-helper candidate the day
+ * a third caller needs it): matching the bare identifier
+ * "requireAreaOrRedirect" would also count a locally redeclared function of
+ * the same name that never imports the real guard.
+ */
+const ROOT = process.cwd();
+const AREA_ACCESS_LIB_FILE = resolve(ROOT, "lib", "areaAccess.ts").toLowerCase();
+const AREA_GUARD_EXPORT_NAME = "requireAreaOrRedirect";
+
+/** Whether import specifier `spec`, written in file `fromRelFile`, resolves to lib/areaAccess.ts. */
+function resolvesToAreaAccessLib(spec: string, fromRelFile: string): boolean {
+  let base: string | undefined;
+  if (spec.startsWith("@/")) base = resolve(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) base = resolve(dirname(fromRelFile), spec);
+  if (!base) return false; // a bare package specifier is never this local module
+  const candidates = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")];
+  return candidates.some((c) => c.toLowerCase() === AREA_ACCESS_LIB_FILE);
+}
+
+/** Local names bound to lib/areaAccess.ts's requireAreaOrRedirect export, aliased or not. */
+function collectAreaGuardNames(source: ts.SourceFile, relFile: string): Set<string> {
+  const names = new Set<string>();
+  for (const stmt of source.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    if (!resolvesToAreaAccessLib(stmt.moduleSpecifier.text, relFile)) continue;
+    const bindings = stmt.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const el of bindings.elements) {
+      if ((el.propertyName ?? el.name).text === AREA_GUARD_EXPORT_NAME) names.add(el.name.text);
+    }
+  }
+  return names;
+}
+
+type PageFn = { name: string; exported: boolean; body: ts.Node };
+
+/** Top-level named page functions in `source`, keeping the body node (unlike functionsIn above, which only keeps bare call names — not enough to tell an import-resolved call from a same-named local declaration). */
+function pageFunctionsIn(source: ts.SourceFile): PageFn[] {
+  const fns: PageFn[] = [];
+  ts.forEachChild(source, (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      fns.push({ name: node.name.text, exported, body: node.body });
+      return;
+    }
+    if (ts.isVariableStatement(node)) {
+      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      for (const decl of node.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
+        if (!ts.isArrowFunction(decl.initializer) && !ts.isFunctionExpression(decl.initializer)) continue;
+        fns.push({ name: decl.name.text, exported, body: decl.initializer.body });
+      }
+    }
+  });
+  return fns;
+}
+
+/** Whether a call expression anywhere inside `node` calls one of `guardNames`. */
+function bodyCallsAnyOf(node: ts.Node, guardNames: ReadonlySet<string>): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Like bodyCallsAnyOf, but the call's first argument must be the string literal `expectedArg`. */
+function bodyCallsAnyOfWithFirstArg(node: ts.Node, guardNames: ReadonlySet<string>, expectedArg: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
+      const first = n.arguments[0];
+      if (first && ts.isStringLiteral(first) && first.text === expectedArg) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
 
 type Action = { key: string; file: string; name: string; guarded: boolean };
 
@@ -259,6 +355,8 @@ describe("authorization coverage across server actions", () => {
       "actions/clients/clients.ts": "clients",
       "actions/projects/projects.ts": "projects",
       "actions/contacts/contacts.ts": "clients.contacts",
+      "actions/equipment/equipment.ts": "loans",
+      "actions/equipmentLoans/equipmentLoans.ts": "loans",
     };
     // Passe 3b, point 1: getClient/getProjectsForClient/getProject used to be
     // exempted here as "reads are exempt — only mutations must check the
@@ -471,5 +569,78 @@ describe("authorization coverage across server actions", () => {
           `next to the existing capability/role check.`
         : undefined
     ).toEqual([]);
+  });
+
+  it("gates every rubrique's landing page behind requireAreaOrRedirect, imported from @/lib/areaAccess", () => {
+    // Discovers its targets from AREA_HREFS (lib/appAreas.ts) — the single
+    // source of truth for a rubrique's landing route — rather than a
+    // hand-maintained list, so a rubrique added there is covered here for
+    // free. Same reasoning as tests/route-guard-area-coverage.test.ts, one
+    // layer down: that test proves the PROXY redirects an anonymous/CLIENT
+    // visitor away from the route; this one proves the PAGE itself also
+    // bounces a signed-in caller whose job function hides the rubrique —
+    // the gap this closes for `loans` (point 3 of the review).
+    //
+    // Two rubriques of AREA_HREFS/TOP_LEVEL_APP_AREAS are out of scope here,
+    // each checked instead of assumed:
+    //  - "admin" has no entry in AREA_HREFS at all — its landing href
+    //    depends on which RBAC tab a role/function can open
+    //    (lib/adminAccess.ts::getAdminAccess), not a fixed route, so the
+    //    generic href -> page.tsx mapping below doesn't apply to it. Its own
+    //    mutations are covered by the "Administration mutations" test above.
+    //  - "dashboard" (href "/") IS in AREA_HREFS, but is checked by the
+    //    dedicated test right below instead of folded into this loop: "/" is
+    //    the one href that isn't `app${href}/page.tsx` (that would build
+    //    "app/page.tsx" wrongly as "app//page.tsx" via naive concatenation).
+    //    Verified directly: app/page.tsx (HomePage) already calls
+    //    requireAreaOrRedirect("dashboard") — same mechanism as the other
+    //    three, just asserted outside the generic path-building rule.
+    const ungated: string[] = [];
+    for (const [area, href] of Object.entries(AREA_HREFS)) {
+      if (area === "dashboard") continue;
+      const file = `app${href}/page.tsx`;
+      const rel = file; // already repo-relative
+      const source = ts.createSourceFile(
+        rel,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const guardNames = collectAreaGuardNames(source, rel);
+      const fns = pageFunctionsIn(source).filter((f) => f.exported);
+      expect(fns.length, `${file} has no exported page component — did it move?`).toBeGreaterThan(0);
+      // The call must name THIS rubrique: requireAreaOrRedirect("projects")
+      // pasted into app/loans/page.tsx would still be "a call to the guard"
+      // while gating the wrong area (delta audit, Low).
+      const resolved = fns.some((f) => bodyCallsAnyOfWithFirstArg(f.body, guardNames, area));
+      if (!resolved) ungated.push(`${file} (rubrique "${area}")`);
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These rubrique landing pages never resolve access through requireAreaOrRedirect:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nCall requireAreaOrRedirect("<area>") imported from @/lib/areaAccess — a locally ` +
+          `redeclared function of the same name does not count.`
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("gates the dashboard page (\"/\") behind requireAreaOrRedirect too, checked explicitly (see the comment above)", () => {
+    const file = "app/page.tsx";
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(join(process.cwd(), file), "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const guardNames = collectAreaGuardNames(source, file);
+    const pageFn = pageFunctionsIn(source).find((f) => f.exported && f.name === "HomePage");
+    expect(pageFn, `${file} has no exported HomePage — did it get renamed?`).toBeDefined();
+    expect(
+      bodyCallsAnyOf(pageFn!.body, guardNames),
+      `${file} never resolves access through requireAreaOrRedirect("dashboard"), imported from @/lib/areaAccess.`
+    ).toBe(true);
   });
 });

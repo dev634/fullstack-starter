@@ -54,6 +54,7 @@ const en: Dictionary = {
     nav: {
         clients: "Companies",
         projects: "Projects",
+        loans: "Loans",
         functions: "Functions",
         users: "Users",
         admin: "Admin",
@@ -127,7 +128,7 @@ const en: Dictionary = {
     },
     photoUpload: {
         mustBeImage: "The file must be an image.",
-        maxSize: "The image must be 5 MB or smaller.",
+        maxSize: "The image must be {max} MB or smaller.",
         addPhoto: "Add a photo",
         changePhoto: "Change photo",
         remove: "Remove",
@@ -796,6 +797,74 @@ const en: Dictionary = {
             resetToDefaultAria: "Reset to default — {field} ({section})",
         },
     },
+    equipment: {
+        addToggle: "Add equipment",
+        nameLabel: "Name",
+        namePlaceholder: "Equipment name…",
+        referenceLabel: "Reference",
+        referencePlaceholder: "Reference",
+        ownerLabel: "Owner",
+        editEquipment: "Edit {name}",
+        editTitle: "Edit equipment",
+        deleteEquipment: "Delete {name}",
+        deleteTitle: "Delete this equipment",
+        deleteText: "Delete “{name}”? This action is irreversible.",
+        empty: "No equipment.",
+        lendAction: "Lend",
+        currentlyLentTo: "Lent to {name}",
+        available: "Available",
+        messages: {
+            added: "Equipment added.",
+            updated: "Equipment updated.",
+            deleted: "Equipment deleted.",
+            invalidId: "Invalid equipment id.",
+            cannotDeleteLent: "Can't delete equipment that is currently lent out.",
+            unsupportedPhotoFormat: "Accepted formats: JPEG, PNG, WebP, GIF.",
+        },
+    },
+    loans: {
+        title: "Loans",
+        subtitle: "Everyone's personal equipment, and who currently has it.",
+        tabs: {
+            mine: "My equipment",
+            borrowed: "Borrowed",
+            ongoing: "Ongoing",
+            returned: "Returned",
+        },
+        lendToggle: "Lend equipment",
+        equipmentLabel: "Equipment",
+        borrowerLabel: "Borrower",
+        // `User.name` can be null (an account created without one) — the
+        // fallback used everywhere a user name is shown in this module (the
+        // email isn't projected by findBorrowerOptions/findHistory).
+        unknownUser: "Unknown user",
+        lentAtLabel: "Loan date",
+        dueAtLabel: "Expected return",
+        noteLabel: "Note",
+        notePlaceholder: "Note…",
+        returnAction: "Mark as returned",
+        returnedAtLabel: "Return date",
+        editTitle: "Edit loan",
+        deleteLoan: "Delete this loan",
+        deleteTitle: "Delete this loan",
+        deleteText: "Delete this loan? This action is irreversible.",
+        empty: "No loans.",
+        // Shown when an admin list (findAll/findHistory({all:true})) has hit
+        // its ceiling (app/loans/page.tsx) — the list shown may no longer be
+        // complete.
+        listTruncated: "Showing only the {take} most recent results.",
+        messages: {
+            lent: "Equipment lent.",
+            returned: "Loan marked as returned.",
+            updated: "Loan updated.",
+            deleted: "Loan deleted.",
+            invalidId: "Invalid loan id.",
+            alreadyLent: "This equipment is already lent out.",
+            selfLoan: "Can't lend equipment to its own owner.",
+            dueBeforeLent: "The due date can't be before the loan date.",
+            returnedBeforeLent: "The return date can't be before the loan date.",
+        },
+    },
     jobFunctions: {
         title: "Functions",
         subtitle: "Manage the list of job functions (labourer, electrician, site foreman…) offered across the app.",
@@ -883,6 +952,11 @@ const en: Dictionary = {
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
+            // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are
+            // onDelete: Restrict (migration 20260918120000) — closed loans
+            // are purged automatically when the user is deleted.
+            cannotDeleteHasEquipmentOrLoans:
+                "Not allowed: this user owns {equipment} piece(s) of equipment and has {loans} loan(s) in progress. Reassign or return them before deleting.",
         },
     },
     appSettings: {

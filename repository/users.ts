@@ -72,6 +72,73 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
     }
 }
 
+/**
+ * A user's numeric id by email, WITHOUT the password hash or any other
+ * column — unlike findByEmail (used only by the credentials provider's own
+ * check), this is read by every mutation that needs to resolve "which row IS
+ * the current caller" (lib/currentUser.ts's getCurrentUserId, consumed by
+ * the equipment-loans module for ownership/borrower identity) and must never
+ * pull a hash into a server action's memory for no reason.
+ */
+export async function findIdByEmail(email: string): Promise<number | null> {
+    try {
+        const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+        return user?.id ?? null;
+    } catch (error) {
+        console.log("Repository findIdByEmail error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching user id." };
+    }
+}
+
+/**
+ * Candidate borrowers for the Prêts module: every internal user except the
+ * caller (excludeUserId) and CLIENT portal logins, which never take part in
+ * equipment loans. Projected to {id, name} for a <select> — never the full
+ * row, which carries a password hash and access-posture fields no picker
+ * needs (docs/CONVENTIONS.md's "a list that only feeds a <select> projects
+ * to {id, label}").
+ */
+export async function findBorrowerOptions(
+    excludeUserId: number
+): Promise<{ id: number; name: string | null }[]> {
+    try {
+        return await prisma.user.findMany({
+            where: { role: { not: "CLIENT" }, id: { not: excludeUserId } },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+        });
+    } catch (error) {
+        console.log("Repository findBorrowerOptions error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching borrower options." };
+    }
+}
+
+/** How many pieces of equipment a user owns, and how many OPEN loans they
+ * currently hold as a borrower. */
+export type OwnershipBlockers = { equipmentCount: number; openLoanCount: number };
+
+/**
+ * Equipment.ownerId and EquipmentLoan.borrowerId are both `onDelete:
+ * Restrict` (migration 20260918120000) — deleting a user who still owns
+ * equipment, or still holds an OPEN loan, would otherwise fail at the
+ * database with a generic 23503. deleteUser (actions/users/users.ts) calls
+ * this FIRST so it can refuse with an explicit message instead of surfacing
+ * that as a server error. CLOSED loans are not a blocker — they are purged
+ * in the same transaction as the delete itself, see remove() below.
+ */
+export async function countOwnershipBlockers(userId: number): Promise<OwnershipBlockers> {
+    try {
+        const [equipmentCount, openLoanCount] = await Promise.all([
+            prisma.equipment.count({ where: { ownerId: userId } }),
+            prisma.equipmentLoan.count({ where: { borrowerId: userId, returnedAt: null } }),
+        ]);
+        return { equipmentCount, openLoanCount };
+    } catch (error) {
+        console.log("Repository countOwnershipBlockers error:", error);
+        throw { type: "repositoryError", message: "Database Error counting equipment/loan ownership." };
+    }
+}
+
 export async function findById(id: number) {
     try {
         return await prisma.user.findUnique({
@@ -160,9 +227,21 @@ export async function updateProfile(
     }
 }
 
+/**
+ * Delete a user, purging their CLOSED loans (as a borrower) in the SAME
+ * transaction first — deliberate decision: the loan history of someone who
+ * has left is dropped along with their account rather than kept orphaned.
+ * Callers must check countOwnershipBlockers() first and refuse explicitly
+ * when it's non-zero: owned equipment and OPEN borrowed loans are `onDelete:
+ * Restrict`, so leaving either in place would abort this transaction with a
+ * generic 23503 instead of the explicit message deleteUser gives.
+ */
 export async function remove(id: number) {
     try {
-        return await prisma.user.delete({ where: { id } });
+        return await prisma.$transaction(async (tx) => {
+            await tx.equipmentLoan.deleteMany({ where: { borrowerId: id, returnedAt: { not: null } } });
+            return await tx.user.delete({ where: { id } });
+        });
     } catch (error) {
         console.log("Repository remove (user) error:", error);
         throw { type: "repositoryError", message: "Database Error deleting user." };

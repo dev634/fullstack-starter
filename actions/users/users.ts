@@ -7,11 +7,20 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createUserSchema, updateUserSchema } from "@/schemas/user";
-import { create, updateProfile, remove, findById, countSuperadmins, setUserProjects } from "@/repository/users";
+import {
+  create,
+  updateProfile,
+  remove,
+  findById,
+  countSuperadmins,
+  setUserProjects,
+  countOwnershipBlockers,
+} from "@/repository/users";
 import { updatePassword } from "@/repository/users";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 
@@ -146,6 +155,22 @@ export async function deleteUser(id: number) {
     }
     if (target.role === "SUPERADMIN" && (await countSuperadmins()) <= 1) {
       return { type: "error" as const, message: t.users.messages.lastSuperadmin };
+    }
+
+    // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are both
+    // `onDelete: Restrict` (migration 20260918120000) — without this check,
+    // deleting a user in either situation would fail at the database with a
+    // generic 23503 instead of this explicit message. CLOSED loans are not a
+    // blocker: remove() purges them in the same transaction as the delete.
+    const blockers = await countOwnershipBlockers(id);
+    if (blockers.equipmentCount > 0 || blockers.openLoanCount > 0) {
+      return {
+        type: "error" as const,
+        message: format(t.users.messages.cannotDeleteHasEquipmentOrLoans, {
+          equipment: blockers.equipmentCount,
+          loans: blockers.openLoanCount,
+        }),
+      };
     }
 
     const user = await remove(id);
