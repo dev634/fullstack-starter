@@ -57,6 +57,7 @@ function appAreaLabels(t: Dictionary): Record<AppAreaKey, string> {
     "clients.contacts": t.contacts.heading,
     "clients.projects": t.clients.detail.projectsHeading,
     projects: t.nav.projects,
+    loans: t.nav.loans,
     admin: t.nav.admin,
     "admin.users": t.nav.users,
     "admin.functions": t.nav.functions,

@@ -45,6 +45,7 @@ export default async function RootLayout({
   // for CLIENT/anonymous sessions, which never see these links anyway.
   const canSeeClients = !isClient && !!session && (await canAccessArea("clients"));
   const canSeeProjects = !isClient && !!session && (await canAccessArea("projects"));
+  const canSeeLoans = !isClient && !!session && (await canAccessArea("loans"));
   const locale = await getLocale();
   const t = getDictionary(locale);
   const settings = await getAppSettings();
@@ -107,6 +108,7 @@ export default async function RootLayout({
                   : [
                       ...(canSeeClients ? [{ href: "/clients", display: t.nav.clients }] : []),
                       ...(canSeeProjects ? [{ href: "/projects", display: t.nav.projects }] : []),
+                      ...(canSeeLoans ? [{ href: "/loans", display: t.nav.loans }] : []),
                       // Administration groups the Fonctions / Utilisateurs /
                       // Theme / Section order / Rôles & accès tabs behind one
                       // link; shown when the role can open at least one, and

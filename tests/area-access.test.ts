@@ -102,13 +102,18 @@ describe("firstAccessibleAreaHref — canonical landing order", () => {
     expect(await firstAccessibleAreaHref(true, "/admin/settings/fonctions")).toBe("/projects");
   });
 
-  it("falls back to the given admin href once every other rubrique is hidden", async () => {
+  it("skips dashboard, clients and projects, lands on loans", async () => {
     getAccessContextMock.mockResolvedValue(ctxWithHidden(["dashboard", "clients", "projects"]));
+    expect(await firstAccessibleAreaHref(true, "/admin/settings/fonctions")).toBe("/loans");
+  });
+
+  it("falls back to the given admin href once every other rubrique is hidden", async () => {
+    getAccessContextMock.mockResolvedValue(ctxWithHidden(["dashboard", "clients", "projects", "loans"]));
     expect(await firstAccessibleAreaHref(true, "/admin/settings/fonctions")).toBe("/admin/settings/fonctions");
   });
 
   it("falls back to /acces-refuse when admin is also inaccessible (total lockout)", async () => {
-    getAccessContextMock.mockResolvedValue(ctxWithHidden(["dashboard", "clients", "projects"]));
+    getAccessContextMock.mockResolvedValue(ctxWithHidden(["dashboard", "clients", "projects", "loans"]));
     expect(await firstAccessibleAreaHref(false, null)).toBe("/acces-refuse");
   });
 });

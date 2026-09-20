@@ -21,3 +21,20 @@ export function datetimeLocalToIso(local: string): string {
     const date = new Date(local);
     return isNaN(date.getTime()) ? "" : date.toISOString();
 }
+
+/**
+ * Date (or an already-serialized date string) -> the `type="date"` input's
+ * own "YYYY-MM-DD" value, or "" when unset. Extracted once a third form
+ * needed the identical conversion (forms/EditLoanForm.tsx,
+ * forms/EditTaskForm.tsx, forms/UpdateProjectForm.tsx). Uses UTC
+ * (`toISOString`), not toDatetimeLocal's local-time reasoning above, on
+ * purpose: these are date-ONLY columns stored as UTC midnights built from a
+ * `type="date"` value (Project.startDate/endDate, ProjectTask.dueDate,
+ * EquipmentLoan.lentAt/dueAt/returnedAt — see repository/equipmentLoans.ts's
+ * doc), never instants that need the viewer's own zone; extracting via a
+ * local-time formatter would shift a negative-offset timezone back a day.
+ */
+export function toDateInputValue(date: Date | string | null): string {
+    if (!date) return "";
+    return new Date(date).toISOString().slice(0, 10);
+}
