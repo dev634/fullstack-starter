@@ -156,6 +156,26 @@ describe("addEquipment", () => {
     expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("equipment/orphan");
   });
 
+  // The orphan cleanup is best-effort: lib/cloudinary.ts's destroy never
+  // throws today, but that is a contract of ANOTHER module. If it ever did,
+  // the user must still get the ORIGINAL failure (the database one), not a
+  // second error masking it (delta audit, Low).
+  it("still reports the original error when the orphan cleanup itself rejects", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockResolvedValue({ url: "https://x/photo.png", publicId: "equipment/orphan" });
+    createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
+    destroyEquipmentPhotoMock.mockRejectedValueOnce(new Error("cloudinary down"));
+
+    const fd = form({ name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await addEquipment(initial, fd);
+
+    expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.errors.serverError);
+    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("equipment/orphan");
+  });
+
   it("does NOT call destroy when there was no photo to begin with", async () => {
     actor("EDITOR");
     findIdByEmailMock.mockResolvedValue(3);

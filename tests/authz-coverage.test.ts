@@ -162,6 +162,24 @@ function bodyCallsAnyOf(node: ts.Node, guardNames: ReadonlySet<string>): boolean
   return found;
 }
 
+/** Like bodyCallsAnyOf, but the call's first argument must be the string literal `expectedArg`. */
+function bodyCallsAnyOfWithFirstArg(node: ts.Node, guardNames: ReadonlySet<string>, expectedArg: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
+      const first = n.arguments[0];
+      if (first && ts.isStringLiteral(first) && first.text === expectedArg) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
 type Action = { key: string; file: string; name: string; guarded: boolean };
 
 function collectActions(): Action[] {
@@ -591,7 +609,10 @@ describe("authorization coverage across server actions", () => {
       const guardNames = collectAreaGuardNames(source, rel);
       const fns = pageFunctionsIn(source).filter((f) => f.exported);
       expect(fns.length, `${file} has no exported page component — did it move?`).toBeGreaterThan(0);
-      const resolved = fns.some((f) => bodyCallsAnyOf(f.body, guardNames));
+      // The call must name THIS rubrique: requireAreaOrRedirect("projects")
+      // pasted into app/loans/page.tsx would still be "a call to the guard"
+      // while gating the wrong area (delta audit, Low).
+      const resolved = fns.some((f) => bodyCallsAnyOfWithFirstArg(f.body, guardNames, area));
       if (!resolved) ungated.push(`${file} (rubrique "${area}")`);
     }
 

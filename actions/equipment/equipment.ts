@@ -28,6 +28,20 @@ async function extractEquipmentPhoto(
   return undefined;
 }
 
+/**
+ * Best-effort removal of a photo whose database row never got written. A
+ * cleanup that itself fails must never mask the ORIGINAL error the caller is
+ * about to report, so it is swallowed here (logged with the publicId, so the
+ * orphan can still be found on Cloudinary).
+ */
+async function cleanUpOrphanPhoto(publicId: string): Promise<void> {
+  try {
+    await destroyEquipmentPhoto(publicId);
+  } catch (error) {
+    console.error(`Equipment photo orphan cleanup failed for "${publicId}":`, error);
+  }
+}
+
 export async function addEquipment(
   prevState: EquipmentActionState,
   formData: FormData
@@ -69,8 +83,11 @@ export async function addEquipment(
     return { ...prevState, type: "success", message: t.equipment.messages.added, data: equipment };
   } catch (error) {
     // Best-effort: never let a DB failure leave an uploaded photo dangling
-    // with nothing pointing to it.
-    if (photo) await destroyEquipmentPhoto(photo.publicId);
+    // with nothing pointing to it. Guarded so that a cleanup that itself
+    // fails can never mask the ORIGINAL error the user must hear about —
+    // lib/cloudinary.ts's destroy swallows its own errors today, but that
+    // is that module's contract, not this one's (proven by test).
+    if (photo) await cleanUpOrphanPhoto(photo.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
@@ -142,8 +159,8 @@ export async function editEquipment(
     return { ...prevState, type: "success", message: t.equipment.messages.updated, data: equipment };
   } catch (error) {
     // Best-effort: never let a DB failure leave a freshly uploaded photo
-    // dangling with nothing pointing to it.
-    if (uploadedPhoto) await destroyEquipmentPhoto(uploadedPhoto.publicId);
+    // dangling with nothing pointing to it (same guard as addEquipment).
+    if (uploadedPhoto) await cleanUpOrphanPhoto(uploadedPhoto.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }

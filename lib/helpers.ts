@@ -84,7 +84,10 @@ export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary
                     : undefined;
             return params ? format(t.errors[code], params) : t.errors[code];
         }
-        if (typeof code === "string" && code in OTHER_I18N_RESOLVERS) {
+        // Object.hasOwn, not `in`: `in` walks the prototype chain, so a code
+        // of "toString" or "constructor" would resolve to Object.prototype's
+        // members instead of a dictionary string (delta audit, Low).
+        if (typeof code === "string" && Object.hasOwn(OTHER_I18N_RESOLVERS, code)) {
             return OTHER_I18N_RESOLVERS[code](t);
         }
     }

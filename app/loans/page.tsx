@@ -75,15 +75,24 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const equipmentList =
     activeTab === "mine" ? (isAdmin ? await findAll({ take: LOANS_ADMIN_LIST_TAKE }) : await findOwned(userId)) : [];
   const borrowerOptions = activeTab === "mine" && canEdit ? await findBorrowerOptions(userId) : [];
+  // The admin read is bounded (take), so the tab's own predicate goes INTO
+  // the query: "returned" reads closed loans, the other two read open ones.
+  // Bounding first and filtering after would keep the 500 most recent loans
+  // of any status and lose the oldest OPEN ones — the overdue ones.
+  const loanStatus = activeTab === "returned" ? "returned" : "open";
+  // Fetch one row past the bound: a list of exactly `take` rows can't tell
+  // "there were more" from "there were exactly that many". The extra row is
+  // sliced off below, never rendered.
   const loanList =
     activeTab === "mine"
       ? []
       : isAdmin
-        ? await findHistory({ all: true, take: LOANS_ADMIN_LIST_TAKE })
+        ? await findHistory({ all: true, status: loanStatus, take: LOANS_ADMIN_LIST_TAKE + 1 })
         : await findHistory({ ownerId: userId, borrowerId: userId });
 
   const equipmentListTruncated = activeTab === "mine" && isAdmin && equipmentList.length === LOANS_ADMIN_LIST_TAKE;
-  const loanListTruncated = activeTab !== "mine" && isAdmin && loanList.length === LOANS_ADMIN_LIST_TAKE;
+  const loanListTruncated = activeTab !== "mine" && isAdmin && loanList.length > LOANS_ADMIN_LIST_TAKE;
+  if (loanListTruncated) loanList.length = LOANS_ADMIN_LIST_TAKE;
 
   // Only equipment nobody currently has may be lent out — feeds both the
   // header "Prêter un équipement" toggle and every row's own "Prêter" button

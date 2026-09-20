@@ -147,7 +147,21 @@ export async function remove(id: number) {
     }
 }
 
-export type EquipmentLoanHistoryFilter = { ownerId?: number; borrowerId?: number; all?: boolean; take?: number };
+export type EquipmentLoanHistoryFilter = {
+    ownerId?: number;
+    borrowerId?: number;
+    all?: boolean;
+    take?: number;
+    /**
+     * Which side of the open/closed line to read. Lives in the query — not
+     * in a JS filter after the fact — because `take` bounds the ROWS RETURNED,
+     * and bounding 500 loans by lentAt and then keeping the open ones would
+     * silently drop the oldest open loans (the most overdue, the very ones an
+     * admin looks for) past the 500 most recent of ALL loans (delta audit,
+     * Medium). Omitted = both.
+     */
+    status?: "open" | "returned";
+};
 
 /**
  * Loan history, most recent first. `all` (admin) returns every loan;
@@ -163,12 +177,15 @@ export async function findHistory(filter: EquipmentLoanHistoryFilter) {
     try {
         const ownerFilter = filter.ownerId !== undefined ? { equipment: { ownerId: filter.ownerId } } : null;
         const borrowerFilter = filter.borrowerId !== undefined ? { borrowerId: filter.borrowerId } : null;
-        const where = filter.all
+        const scope = filter.all
             ? {}
             : ownerFilter && borrowerFilter
               ? { OR: [ownerFilter, borrowerFilter] }
               : (ownerFilter ?? borrowerFilter);
-        if (!where) return [];
+        if (!scope) return [];
+        const statusFilter =
+            filter.status === "open" ? { returnedAt: null } : filter.status === "returned" ? { returnedAt: { not: null } } : {};
+        const where = { ...scope, ...statusFilter };
 
         return await prisma.equipmentLoan.findMany({
             where,
