@@ -36,7 +36,8 @@ Le champ `version` est le commit court dont l'image a été construite.
 ## Spécificités à connaître
 
 - **Modèle d'accès à trois axes orthogonaux** (rôle / fonction / projets) — ne
-  jamais les croiser en matrice. Détail et ordre des gardes dans
-  `docs/CONVENTIONS.md`.
+  jamais les croiser en matrice — plus un axe de **propriété** pour les
+  rubriques personnelles (Prêts : la ligne est à moi, ou je suis ADMIN+).
+  Détail et ordre des gardes dans `docs/CONVENTIONS.md`.
 - Les migrations sont écrites à la main puis appliquées par moi en local ; la
   prod les rejoue seule au déploiement.
