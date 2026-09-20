@@ -9,6 +9,7 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { createUserSchema, updateUserSchema } from "@/schemas/user";
 import { create, updateProfile, remove, findById, countSuperadmins, setUserProjects } from "@/repository/users";
 import { updatePassword } from "@/repository/users";
+import { hasAnyAttachment } from "@/repository/projectWorkers";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -108,6 +109,23 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       (parsed.data.jobFunctionId ?? null) !== target.jobFunctionId
     ) {
       return { ...prevState, type: "error", message: t.users.messages.cannotEditOwnFunction };
+    }
+
+    // Personne ne modifie la contrainte qui le contraint, appliqué ici dans
+    // l'autre sens : un compte déjà RATTACHÉ à un projet comme travailleur
+    // (ProjectWorker) ne peut pas devenir un login client — un login portail
+    // n'est jamais un salarié (migration 20260920100000_project_workers,
+    // "WHAT THIS MIGRATION DELIBERATELY DOES NOT ENFORCE" §1). Refusé plutôt
+    // que détaché en silence : cette action modifie le rôle d'un compte, pas
+    // la composition d'un chantier — un admin qui change juste le nom d'un
+    // utilisateur ne doit jamais avoir pour effet de bord de le retirer de
+    // tous ses chantiers.
+    if (
+      target.role !== "CLIENT" &&
+      parsed.data.role === "CLIENT" &&
+      (await hasAnyAttachment(target.id))
+    ) {
+      return { ...prevState, type: "error", message: t.users.messages.cannotSetClientWhileAttached };
     }
 
     const user = await updateProfile(target.id, {

@@ -20,6 +20,7 @@ vi.mock("@/repository/taskCategories", () => ({ setAssignee: vi.fn(), findProjec
 // keep passing without each having to stub it individually.
 vi.mock("@/repository/subcontractors", () => ({ findCompanyProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("@/repository/interims", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
+vi.mock("@/repository/projectWorkers", () => ({ findProjectId: vi.fn().mockResolvedValue(2) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -32,6 +33,7 @@ import { setAssignee as setGroupAssigneeRepo } from "@/repository/taskGroups";
 import { setAssignee as setCategoryAssigneeRepo } from "@/repository/taskCategories";
 import { findCompanyProjectId } from "@/repository/subcontractors";
 import { findProjectId as findInterimProjectId } from "@/repository/interims";
+import { findProjectId as findWorkerProjectId } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -42,17 +44,21 @@ const groupRepoMock = vi.mocked(setGroupAssigneeRepo);
 const categoryRepoMock = vi.mocked(setCategoryAssigneeRepo);
 const findCompanyProjectIdMock = vi.mocked(findCompanyProjectId);
 const findInterimProjectIdMock = vi.mocked(findInterimProjectId);
+const findWorkerProjectIdMock = vi.mocked(findWorkerProjectId);
 
 describe("parseAssignee", () => {
   it("maps company:<id> to assignedCompanyId only", () => {
-    expect(parseAssignee("company:5")).toEqual({ assignedCompanyId: 5, assignedInterimId: null });
+    expect(parseAssignee("company:5")).toEqual({ assignedCompanyId: 5, assignedInterimId: null, assignedWorkerId: null });
   });
   it("maps interim:<id> to assignedInterimId only", () => {
-    expect(parseAssignee("interim:8")).toEqual({ assignedCompanyId: null, assignedInterimId: 8 });
+    expect(parseAssignee("interim:8")).toEqual({ assignedCompanyId: null, assignedInterimId: 8, assignedWorkerId: null });
+  });
+  it("maps worker:<id> to assignedWorkerId only", () => {
+    expect(parseAssignee("worker:3")).toEqual({ assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: 3 });
   });
   it("treats empty / unknown / invalid as unassigned", () => {
     for (const v of ["", "none", "company:0", "company:-1", "company:abc", undefined, null]) {
-      expect(parseAssignee(v as string)).toEqual({ assignedCompanyId: null, assignedInterimId: null });
+      expect(parseAssignee(v as string)).toEqual({ assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null });
     }
   });
 });
@@ -79,7 +85,7 @@ describe("setAssignee action", () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     taskRepoMock.mockResolvedValue({ id: 1 } as never);
     const res = await setAssignee("task", 7, "company:2", 1, 3);
-    expect(taskRepoMock).toHaveBeenCalledWith(7, { assignedCompanyId: 2, assignedInterimId: null });
+    expect(taskRepoMock).toHaveBeenCalledWith(7, { assignedCompanyId: 2, assignedInterimId: null, assignedWorkerId: null });
     expect(res.type).toBe("success");
   });
 
@@ -87,22 +93,30 @@ describe("setAssignee action", () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     groupRepoMock.mockResolvedValue({ id: 1 } as never);
     await setAssignee("group", 4, "interim:9", 1, 3);
-    expect(groupRepoMock).toHaveBeenCalledWith(4, { assignedCompanyId: null, assignedInterimId: 9 });
+    expect(groupRepoMock).toHaveBeenCalledWith(4, { assignedCompanyId: null, assignedInterimId: 9, assignedWorkerId: null });
   });
 
   it("routes a category assignment (cleared) to the category repository", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     categoryRepoMock.mockResolvedValue({ id: 1 } as never);
     await setAssignee("category", 6, "", 1, 3);
-    expect(categoryRepoMock).toHaveBeenCalledWith(6, { assignedCompanyId: null, assignedInterimId: null });
+    expect(categoryRepoMock).toHaveBeenCalledWith(6, { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null });
+  });
+
+  it("routes a worker assignment to the task repository", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    taskRepoMock.mockResolvedValue({ id: 1 } as never);
+    const res = await setAssignee("task", 7, "worker:11", 1, 3);
+    expect(taskRepoMock).toHaveBeenCalledWith(7, { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: 11 });
+    expect(res.type).toBe("success");
   });
 
   // Passe 3a, point 3: the picker only ever lists this project's own
-  // subcontractor companies / intérimaires — but nothing server-side checked
-  // that before, so a submitted id from another project silently assigned a
-  // task to a company/intérimaire that never appears anywhere in this
-  // project's UI.
-  describe("cross-checks the assigned company/intérimaire against the target's project", () => {
+  // subcontractor companies / intérimaires / travailleurs — but nothing
+  // server-side checked that before, so a submitted id from another project
+  // silently assigned a task to an assignee that never appears anywhere in
+  // this project's UI.
+  describe("cross-checks the assigned company/intérimaire/travailleur against the target's project", () => {
     it("rejects a company belonging to another project", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
       findCompanyProjectIdMock.mockResolvedValueOnce(99); // task's real project is 2
@@ -127,12 +141,29 @@ describe("setAssignee action", () => {
       expect(groupRepoMock).not.toHaveBeenCalled();
     });
 
-    it("does not look up a company/intérimaire at all when the assignment is cleared", async () => {
+    it("rejects a travailleur (worker attachment) belonging to another project", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findWorkerProjectIdMock.mockResolvedValueOnce(99); // task's real project is 2
+      const res = await setAssignee("task", 7, "worker:11", 1, 3);
+      expect(res.type).toBe("error");
+      expect(taskRepoMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects a worker attachment id that doesn't exist at all", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      findWorkerProjectIdMock.mockResolvedValueOnce(null);
+      const res = await setAssignee("task", 7, "worker:11", 1, 3);
+      expect(res.type).toBe("error");
+      expect(taskRepoMock).not.toHaveBeenCalled();
+    });
+
+    it("does not look up a company/intérimaire/travailleur at all when the assignment is cleared", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
       categoryRepoMock.mockResolvedValue({ id: 1 } as never);
       await setAssignee("category", 6, "", 1, 3);
       expect(findCompanyProjectIdMock).not.toHaveBeenCalled();
       expect(findInterimProjectIdMock).not.toHaveBeenCalled();
+      expect(findWorkerProjectIdMock).not.toHaveBeenCalled();
     });
   });
 

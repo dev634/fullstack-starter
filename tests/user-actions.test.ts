@@ -19,10 +19,16 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
+// Read by updateUser's CLIENT lever (an account already attached as a worker
+// to a project must not become a CLIENT portal login). Defaults to "not
+// attached" so every pre-existing test in this file, which never touches
+// this lever, keeps passing unchanged.
+vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
 import { create, updateProfile, remove, findById, countSuperadmins } from "@/repository/users";
+import { hasAnyAttachment } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
@@ -31,6 +37,7 @@ const updateProfileMock = vi.mocked(updateProfile);
 const removeMock = vi.mocked(remove);
 const findByIdMock = vi.mocked(findById);
 const countSuperMock = vi.mocked(countSuperadmins);
+const hasAnyAttachmentMock = vi.mocked(hasAnyAttachment);
 const initial = { type: null, message: "" } as const;
 
 function actor(role: string, email = `${role.toLowerCase()}@x.com`) {
@@ -137,6 +144,59 @@ describe("user management actions", () => {
 
       expect(res.type).toBe("success");
       expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 9 }));
+    });
+  });
+
+  // "Personne ne modifie la contrainte qui le contraint", appliqué dans
+  // l'autre sens: a User already attached to a project as a worker
+  // (ProjectWorker) must not become a CLIENT portal login (migration
+  // 20260920100000_project_workers, "WHAT THIS MIGRATION DELIBERATELY DOES
+  // NOT ENFORCE" §1). Refused, not silently detached.
+  describe("CLIENT lever: switching an attached worker's role to CLIENT", () => {
+    it("refuses to switch an attached user's role to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      hasAnyAttachmentMock.mockResolvedValue(true);
+
+      const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.users.messages.cannotSetClientWhileAttached);
+      expect(updateProfileMock).not.toHaveBeenCalled();
+    });
+
+    it("allows switching an UNattached user's role to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      hasAnyAttachmentMock.mockResolvedValue(false);
+      updateProfileMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
+
+      expect(res.type).toBe("success");
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ role: "CLIENT" }));
+    });
+
+    it("does not check attachments when the role isn't changing to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      updateProfileMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await updateUser(initial, form({ id: "7", role: "VIEWER" }));
+
+      expect(res.type).toBe("success");
+      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
+    });
+
+    it("does not re-check an account that is already CLIENT", async () => {
+      actor("SUPERADMIN", "boss@x.com");
+      findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
+      updateProfileMock.mockResolvedValue({ id: 8 } as never);
+
+      const res = await updateUser(initial, form({ id: "8", role: "CLIENT" }));
+
+      expect(res.type).toBe("success");
+      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
     });
   });
 

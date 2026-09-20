@@ -64,10 +64,13 @@ const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "
  * requireSectionAccess but not requireAreaAccess("projects"), so a job
  * function whose `projects` rubrique was hidden still kept full write and
  * delete access to every one of them (lot C1 of the adversarial pass on the
- * EDITOR profile — see docs/SECURITE-CHECKLIST.md, V8). 12 files now: the
+ * EDITOR profile — see docs/SECURITE-CHECKLIST.md, V8). 13 files now: the
  * feature "catégories de matériel" (actions/materialCategories) is owned by
  * the same `materials` section as actions/projectMaterials, so it belongs on
- * the same list, not a separate one.
+ * the same list, not a separate one — and "travailleurs"
+ * (actions/projectWorkers) is owned by the same `interims` section as
+ * actions/interims (there is no dedicated "workers" project-section key; see
+ * that file's own doc), for the same reason.
  */
 const OWNED_BY_SECTION = [
   "actions/tasks/tasks.ts",
@@ -80,6 +83,7 @@ const OWNED_BY_SECTION = [
   "actions/interventions/interventions.ts",
   "actions/subcontractors/subcontractors.ts",
   "actions/interims/interims.ts",
+  "actions/projectWorkers/projectWorkers.ts",
   "actions/projectFiles/projectFiles.ts",
   "actions/reserves/reserves.ts",
 ];

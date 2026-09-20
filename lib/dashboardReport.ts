@@ -30,9 +30,10 @@ import type { AssigneeProgress } from "@/repository/tasks";
 import type { ReserveTally } from "@/repository/reserves";
 
 /**
- * PDF reports for the project dashboard's five sections (Tâches, Par
- * intérimaire, Par entreprise sous-traitante, Réserves, Matériel), plus a
- * combined report. Réserves has NO builder of its own here on purpose: its
+ * PDF reports for the project dashboard's six sections (Tâches, Par
+ * intérimaire, Par entreprise sous-traitante, Par travailleur, Réserves,
+ * Matériel), plus a combined report. Réserves has NO builder of its own here
+ * on purpose: its
  * dedicated route (app/clients/[id]/projects/[projectId]/reserves/report)
  * already renders the richer plans/pins/photos report, and the section's own
  * download button links straight to it — see `renderReservesTallySection`'s
@@ -242,19 +243,25 @@ async function buildAssigneeProgressReport(input: AssigneeReportInput): Promise<
   return done;
 }
 
-/** "Avancement par intérimaire" — same body as buildCompaniesReport below,
- * shared via renderAssigneeSection/buildAssigneeProgressReport: unlike
- * repository/tasks.ts's computeProgressByInterim/computeProgressByCompany
- * (kept as a literal SQL duplicate because the column/table names can't be
- * parameterized), nothing here depends on which assignee kind `rows` came
- * from — sharing the renderer is not a premature abstraction, it's the same
- * layout drawing the same shape of data. */
+/** "Avancement par intérimaire" — same body as buildCompaniesReport/
+ * buildWorkersReport below, shared via
+ * renderAssigneeSection/buildAssigneeProgressReport: unlike
+ * repository/tasks.ts's computeProgressByInterim/computeProgressByCompany/
+ * computeProgressByWorker (kept as a literal SQL duplicate because the
+ * column/table names can't be parameterized), nothing here depends on which
+ * assignee kind `rows` came from — sharing the renderer is not a premature
+ * abstraction, it's the same layout drawing the same shape of data. */
 export function buildInterimsReport(input: AssigneeReportInput): Promise<Buffer> {
   return buildAssigneeProgressReport(input);
 }
 
 /** "Avancement par entreprise sous-traitante" — see buildInterimsReport's doc. */
 export function buildCompaniesReport(input: AssigneeReportInput): Promise<Buffer> {
+  return buildAssigneeProgressReport(input);
+}
+
+/** "Avancement par travailleur" (internal employees attached via ProjectWorker) — see buildInterimsReport's doc. */
+export function buildWorkersReport(input: AssigneeReportInput): Promise<Buffer> {
   return buildAssigneeProgressReport(input);
 }
 
@@ -473,6 +480,7 @@ export type GlobalReportSections = {
   tasks?: Omit<TasksReportInput, keyof ReportContext>;
   interims?: Omit<AssigneeReportInput, keyof ReportContext>;
   companies?: Omit<AssigneeReportInput, keyof ReportContext>;
+  workers?: Omit<AssigneeReportInput, keyof ReportContext>;
   reserves?: ReservesTallySection;
   materials?: Omit<MaterialsReportInput, keyof ReportContext>;
 };
@@ -486,7 +494,9 @@ export type GlobalReportInput = ReportContext & {
    * app/.../dashboard/page.tsx's own showTasks/showInterims/… booleans), this
    * function only ever draws what it's handed. Rendered in the SAME order as
    * the dashboard page: Tâches, Par intérimaire, Par entreprise
-   * sous-traitante, Réserves, Matériel.
+   * sous-traitante, Par travailleur, Réserves, Matériel — `workers` is the
+   * newest of the three assignee breakdowns, placed last among them so
+   * adding it doesn't reflow the position of the two that already exist.
    */
   sections: GlobalReportSections;
 };
@@ -506,6 +516,9 @@ export async function buildGlobalDashboardReport(input: GlobalReportInput): Prom
   }
   if (sections.companies) {
     renderAssigneeSection(doc, { project, companyName, locale, chrome, generatedAt, ...sections.companies });
+  }
+  if (sections.workers) {
+    renderAssigneeSection(doc, { project, companyName, locale, chrome, generatedAt, ...sections.workers });
   }
   if (sections.reserves) {
     renderReservesTallySection(doc, project, sections.reserves);

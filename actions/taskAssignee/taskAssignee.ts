@@ -9,17 +9,19 @@ import { setAssignee as setGroupAssigneeRepo, findProjectId as findGroupProjectI
 import { setAssignee as setCategoryAssigneeRepo, findProjectId as findCategoryProjectId } from "@/repository/taskCategories";
 import { findCompanyProjectId } from "@/repository/subcontractors";
 import { findProjectId as findInterimProjectId } from "@/repository/interims";
+import { findProjectId as findWorkerProjectId } from "@/repository/projectWorkers";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
 /**
- * Assigns (or clears) the subcontractor company / intérimaire handling a
- * task, series or category. `assignee` is the picker's one-field encoding
- * ("company:<id>", "interim:<id>", or "" to clear); the two kinds are
- * mutually exclusive by construction. Bare-dropdown call (not a form), so
- * client/project ids are passed explicitly to revalidate the right page —
- * same pattern as setTaskCategory.
+ * Assigns (or clears) the subcontractor company / intérimaire / internal
+ * worker handling a task, series or category. `assignee` is the picker's
+ * one-field encoding ("company:<id>", "interim:<id>", "worker:<id>", or ""
+ * to clear); the three kinds are mutually exclusive by construction (also
+ * enforced in the database — see schemas/taskAssignee.ts). Bare-dropdown
+ * call (not a form), so client/project ids are passed explicitly to
+ * revalidate the right page — same pattern as setTaskCategory.
  */
 export async function setAssignee(
   targetKind: AssigneeTargetKind,
@@ -62,15 +64,23 @@ export async function setAssignee(
     const parsed = parseAssignee(assignee);
 
     // The picker only ever lists this project's own subcontractor companies
-    // / intérimaires — but nothing server-side checked that before, so a
-    // submitted id from another project silently assigned a task to a
-    // company/intérimaire that never appears anywhere in this project's UI.
+    // / intérimaires / travailleurs — but nothing server-side checked that
+    // before, so a submitted id from another project silently assigned a
+    // task to an assignee that never appears anywhere in this project's UI.
     if (parsed.assignedCompanyId != null) {
       if ((await findCompanyProjectId(parsed.assignedCompanyId)) !== realProjectId) {
         return { type: "error" as const, message: t.errors.invalidId };
       }
     } else if (parsed.assignedInterimId != null) {
       if ((await findInterimProjectId(parsed.assignedInterimId)) !== realProjectId) {
+        return { type: "error" as const, message: t.errors.invalidId };
+      }
+    } else if (parsed.assignedWorkerId != null) {
+      // A worker attachment (ProjectWorker) resolved from THIS id must
+      // belong to the target's own project — the exact mirror of
+      // findInterimProjectId above — or it must read exactly like an id
+      // that doesn't exist.
+      if ((await findWorkerProjectId(parsed.assignedWorkerId)) !== realProjectId) {
         return { type: "error" as const, message: t.errors.invalidId };
       }
     }

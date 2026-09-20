@@ -3,7 +3,12 @@ import { canAccessSection } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
-import { findByProject as findTasksByProject, computeProgressByInterim, computeProgressByCompany } from "@/repository/tasks";
+import {
+  findByProject as findTasksByProject,
+  computeProgressByInterim,
+  computeProgressByCompany,
+  computeProgressByWorker,
+} from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
@@ -74,16 +79,22 @@ export async function GET(
     const showTasks = await canAccessSection("tasks");
     const showInterims = showTasks && (await canAccessSection("interims"));
     const showCompanies = showTasks && (await canAccessSection("subcontractors"));
+    // Same identity-guard reasoning as showInterims/showCompanies above: a
+    // travailleur's own name is personnel data, gated by "interims" on the
+    // fused workforce page (there is no dedicated "workers" section key —
+    // see actions/projectWorkers/projectWorkers.ts's own doc).
+    const showWorkers = showTasks && (await canAccessSection("interims"));
     const showReserves = await canAccessSection("reserves");
     const showMaterials = await canAccessSection("materials");
 
-    const [tasks, taskGroups, taskCategories, interimRows, companyRows, reserveTally, materials, materialCategories] =
+    const [tasks, taskGroups, taskCategories, interimRows, companyRows, workerRows, reserveTally, materials, materialCategories] =
       await Promise.all([
         showTasks ? findTasksByProject(pid) : Promise.resolve([]),
         showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
         showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
         showInterims ? computeProgressByInterim(pid) : Promise.resolve([]),
         showCompanies ? computeProgressByCompany(pid) : Promise.resolve([]),
+        showWorkers ? computeProgressByWorker(pid) : Promise.resolve([]),
         showReserves ? tallyReservesByProject(pid) : Promise.resolve({ total: 0, open: 0, resolved: 0 }),
         showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
         showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
@@ -101,9 +112,10 @@ export async function GET(
     };
 
     // Built in the SAME order the dashboard page renders its sections:
-    // Tâches, Par intérimaire, Par entreprise sous-traitante, Réserves,
-    // Matériel — buildGlobalDashboardReport draws whichever of these keys are
-    // present, in that fixed order, never the order they're assigned here.
+    // Tâches, Par intérimaire, Par entreprise sous-traitante, Par
+    // travailleur, Réserves, Matériel — buildGlobalDashboardReport draws
+    // whichever of these keys are present, in that fixed order, never the
+    // order they're assigned here.
     const sections: GlobalReportSections = {};
 
     if (showTasks) {
@@ -149,6 +161,17 @@ export async function GET(
         labels: {
           title: t.projectDashboard.companiesTitle,
           none: t.projectDashboard.companiesNone,
+          rowStats: t.projectDashboard.tasksBadge,
+        },
+      };
+    }
+
+    if (showWorkers) {
+      sections.workers = {
+        rows: workerRows,
+        labels: {
+          title: t.projectDashboard.workersTitle,
+          none: t.projectDashboard.workersNone,
           rowStats: t.projectDashboard.tasksBadge,
         },
       };

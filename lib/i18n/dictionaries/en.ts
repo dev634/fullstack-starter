@@ -315,6 +315,8 @@ const en: Dictionary = {
             noSubcontractors: "No subcontractors for this project.",
             interimsHeading: "Temp workers",
             noInterims: "No temp workers for this project.",
+            workersHeading: "Employees",
+            noWorkers: "No employees attached to this project.",
             workforceHeading: "Workforce",
             workforceDescription: "Subcontractor companies and temp workers assigned to this project.",
             workforceSubcontractorsCount: "{count} subcontractor(s)",
@@ -620,11 +622,26 @@ const en: Dictionary = {
             invalidId: "Invalid temp worker ID.",
         },
     },
+    workers: {
+        addToggle: "Attach an employee",
+        selectLabel: "Employee",
+        selectPlaceholder: "Choose an employee…",
+        noAttachableUsers: "No employee available to attach.",
+        detachWorker: "Detach {name}",
+        messages: {
+            added: "Employee attached.",
+            removed: "Employee detached.",
+            invalidId: "Invalid employee ID.",
+            alreadyAttached: "This employee is already attached to this project.",
+            clientNotAllowed: "A client account cannot be attached as an employee.",
+        },
+    },
     assignees: {
         label: "Assigned to",
         none: "Unassigned",
         companies: "Subcontractors",
         interims: "Temp workers",
+        workers: "Employees",
         messages: {
             updated: "Assignment updated.",
         },
@@ -883,6 +900,7 @@ const en: Dictionary = {
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
+            cannotSetClientWhileAttached: "This account is attached as an employee to at least one project. Detach it before switching it to client.",
         },
     },
     appSettings: {
@@ -1029,6 +1047,8 @@ const en: Dictionary = {
         interimsNone: "No task, series or category assigned to a temp worker yet.",
         companiesTitle: "Progress by subcontractor company",
         companiesNone: "No task, series or category assigned to a subcontractor company yet.",
+        workersTitle: "Progress by employee",
+        workersNone: "No task, series or category assigned to an employee yet.",
         reservesTitle: "Snag progress",
         reservesNone: "No snags yet.",
         // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —

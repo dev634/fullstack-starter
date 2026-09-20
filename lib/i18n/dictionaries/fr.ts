@@ -317,6 +317,8 @@ const fr = {
             noSubcontractors: "Aucun sous-traitant pour ce projet.",
             interimsHeading: "Intérimaires",
             noInterims: "Aucun intérimaire pour ce projet.",
+            workersHeading: "Travailleurs",
+            noWorkers: "Aucun travailleur rattaché à ce projet.",
             workforceHeading: "Personnel",
             workforceDescription: "Entreprises sous-traitantes et intérimaires affectés à ce chantier.",
             workforceSubcontractorsCount: "{count} sous-traitant(s)",
@@ -624,11 +626,26 @@ const fr = {
             invalidId: "Identifiant d'intérimaire invalide.",
         },
     },
+    workers: {
+        addToggle: "Rattacher un travailleur",
+        selectLabel: "Salarié",
+        selectPlaceholder: "Choisir un salarié…",
+        noAttachableUsers: "Aucun salarié disponible à rattacher.",
+        detachWorker: "Détacher {name}",
+        messages: {
+            added: "Travailleur rattaché.",
+            removed: "Travailleur détaché.",
+            invalidId: "Identifiant de travailleur invalide.",
+            alreadyAttached: "Ce salarié est déjà rattaché à ce projet.",
+            clientNotAllowed: "Un compte client ne peut pas être rattaché comme travailleur.",
+        },
+    },
     assignees: {
         label: "Assigné à",
         none: "Non assigné",
         companies: "Sous-traitants",
         interims: "Intérimaires",
+        workers: "Travailleurs",
         messages: {
             updated: "Affectation mise à jour.",
         },
@@ -905,6 +922,7 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
+            cannotSetClientWhileAttached: "Ce compte est rattaché comme travailleur à au moins un projet. Détachez-le avant de le passer en client.",
         },
     },
     appSettings: {
@@ -1054,6 +1072,8 @@ const fr = {
         interimsNone: "Aucune tâche, série ou catégorie assignée à un intérimaire pour le moment.",
         companiesTitle: "Avancement par entreprise sous-traitante",
         companiesNone: "Aucune tâche, série ou catégorie assignée à une entreprise sous-traitante pour le moment.",
+        workersTitle: "Avancement par travailleur",
+        workersNone: "Aucune tâche, série ou catégorie assignée à un travailleur pour le moment.",
         reservesTitle: "Avancement des réserves",
         reservesNone: "Aucune réserve pour le moment.",
         // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —

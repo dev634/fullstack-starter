@@ -422,6 +422,128 @@ export async function computeProgressByCompany(projectId: number): Promise<Assig
 }
 
 /**
+ * Same computation as computeProgressByInterim, mirror-imaged onto
+ * ProjectWorker/assignedWorkerId — see that function's own doc for the full
+ * reasoning (three sources summed, empty série/catégorie still shown as a
+ * 0/0 row). One extra JOIN compared to the interim/company variants: the
+ * assignee id on a task/série/catégorie is the ProjectWorker (attachment)
+ * row, never `User.id` directly (see ProjectWorker's own schema doc), so the
+ * final aggregation joins through it to reach the employee's own name.
+ * `COALESCE(u.name, u.email)` mirrors repository/projectWorkers.ts's own
+ * `displayName` fallback — User.name is nullable. Kept as a literal
+ * duplicate for the same reason computeProgressByCompany is: the column/
+ * table names are SQL identifiers, not `$queryRaw`-parameterizable values.
+ */
+export async function computeProgressByWorker(projectId: number): Promise<AssigneeProgress[]> {
+    try {
+        const rows = await prisma.$queryRaw<{ id: number; name: string; done: bigint; total: bigint }[]>`
+            WITH task_level AS (
+                SELECT
+                    "assignedWorkerId" AS assignee_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "groupId" IS NULL AND "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "assignedWorkerId" IS NOT NULL
+                GROUP BY "assignedWorkerId"
+            ),
+            group_level AS (
+                SELECT
+                    g."assignedWorkerId" AS assignee_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."assignedWorkerId" IS NOT NULL
+                GROUP BY g.id, g."assignedWorkerId"
+            ),
+            category_children AS (
+                SELECT "categoryId" AS category_id,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN LEAST("quantityTarget", GREATEST(0, COALESCE("quantityDone", 0)))
+                            WHEN "done" THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS done,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN "quantityTarget" IS NOT NULL AND "quantityTarget" > 0
+                                THEN "quantityTarget"
+                            ELSE 1
+                        END
+                    ), 0) AS total
+                FROM "ProjectTask"
+                WHERE "projectId" = ${projectId} AND "groupId" IS NULL AND "categoryId" IS NOT NULL
+                GROUP BY "categoryId"
+
+                UNION ALL
+
+                SELECT g."categoryId" AS category_id,
+                    COALESCE(COUNT(t.id) FILTER (WHERE t."done"), 0) AS done,
+                    COALESCE(COUNT(t.id), 0) AS total
+                FROM "ProjectTaskGroup" g
+                LEFT JOIN "ProjectTask" t ON t."groupId" = g.id
+                WHERE g."projectId" = ${projectId} AND g."categoryId" IS NOT NULL
+                GROUP BY g.id, g."categoryId"
+            ),
+            category_level AS (
+                SELECT
+                    c."assignedWorkerId" AS assignee_id,
+                    COALESCE(SUM(cc.done), 0) AS done,
+                    COALESCE(SUM(cc.total), 0) AS total
+                FROM "ProjectTaskCategory" c
+                LEFT JOIN category_children cc ON cc.category_id = c.id
+                WHERE c."projectId" = ${projectId} AND c."assignedWorkerId" IS NOT NULL
+                GROUP BY c.id, c."assignedWorkerId"
+            ),
+            combined AS (
+                SELECT assignee_id, done, total FROM task_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM group_level
+                UNION ALL
+                SELECT assignee_id, done, total FROM category_level
+            )
+            SELECT
+                w.id AS id,
+                COALESCE(u.name, u.email) AS name,
+                COALESCE(SUM(combined.done), 0) AS done,
+                COALESCE(SUM(combined.total), 0) AS total
+            FROM combined
+            JOIN "ProjectWorker" w ON w.id = combined.assignee_id
+            JOIN "User" u ON u.id = w."userId"
+            WHERE w."projectId" = ${projectId}
+            GROUP BY w.id, u.name, u.email
+            ORDER BY name ASC
+        `;
+        return rows.map((row) => {
+            const done = Number(row.done);
+            const total = Number(row.total);
+            return { id: row.id, name: row.name, done, total, percent: roundPercent(done, total) };
+        });
+    } catch (error) {
+        console.log("Repository computeProgressByWorker (task) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error computing task progress by worker.",
+        };
+    }
+}
+
+/**
  * The task's real project id, or null if it doesn't exist — resolved from
  * the row itself so callers can check project-scope access against the
  * task's actual project rather than trusting a caller-supplied one.
@@ -529,12 +651,19 @@ export async function setCategory(id: number, categoryId: number | null) {
     }
 }
 
-/** Sets a task's assignee (subcontractor company OR intérimaire — the caller passes at most one non-null). */
-export async function setAssignee(id: number, data: { assignedCompanyId: number | null; assignedInterimId: number | null }) {
+/** Sets a task's assignee (subcontractor company OR intérimaire OR internal worker — the caller passes at most one non-null; also enforced by the database CHECK, migration 20260920100000_project_workers). */
+export async function setAssignee(
+    id: number,
+    data: { assignedCompanyId: number | null; assignedInterimId: number | null; assignedWorkerId: number | null }
+) {
     try {
         return await prisma.projectTask.update({
             where: { id },
-            data: { assignedCompanyId: data.assignedCompanyId, assignedInterimId: data.assignedInterimId },
+            data: {
+                assignedCompanyId: data.assignedCompanyId,
+                assignedInterimId: data.assignedInterimId,
+                assignedWorkerId: data.assignedWorkerId,
+            },
         });
     } catch (error) {
         console.log("Repository setAssignee (task) error:", error);
