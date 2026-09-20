@@ -25,14 +25,18 @@ export type LoanHistoryItem = {
 
 type LoanRowProps = {
   loan: LoanHistoryItem;
-  /** Whether the current viewer may return/edit/delete THIS loan — the
-   * equipment's owner or an admin, same authority the server actions check
-   * (actions/equipmentLoans/equipmentLoans.ts). A borrower who isn't also the
-   * owner (or an admin) only ever sees this row read-only. */
+  /** Whether the current viewer may edit/delete THIS loan — the equipment's
+   * owner or an admin only, same authority editLoan/deleteLoan check
+   * (actions/equipmentLoans/equipmentLoans.ts). */
   canManage: boolean;
+  /** Whether the current viewer may mark THIS loan returned — canManage's
+   * authority PLUS the borrower themselves (decision A: returnLoan alone
+   * also accepts `actor.userId === loan.borrowerId`). A viewer who is
+   * neither sees this row fully read-only. */
+  canReturn: boolean;
 };
 
-export default function LoanRow({ loan, canManage }: LoanRowProps) {
+export default function LoanRow({ loan, canManage, canReturn }: LoanRowProps) {
   const { t, locale } = useTranslation();
   const { confirming, setConfirming, pending, error, handleDelete } = useDeleteConfirm(() => deleteLoan(loan.id));
   const tag = localeTag(locale);
@@ -47,27 +51,33 @@ export default function LoanRow({ loan, canManage }: LoanRowProps) {
           {t.equipment.ownerLabel} : {loan.equipment.owner.name ?? t.loans.unknownUser} · {t.loans.borrowerLabel} :{" "}
           {loan.borrower.name ?? t.loans.unknownUser}
         </span>
+        {/* These columns are UTC midnights built from a plain `type="date"` value (repository/equipmentLoans.ts's doc) — formatting in the viewer's local zone would shift a negative-offset timezone back a day. */}
         <span className="block text-xs text-gray-500 dark:text-gray-400">
-          {t.loans.lentAtLabel} : {new Date(loan.lentAt).toLocaleDateString(tag)}
-          {loan.dueAt && ` · ${t.loans.dueAtLabel} : ${new Date(loan.dueAt).toLocaleDateString(tag)}`}
-          {loan.returnedAt && ` · ${t.loans.returnedAtLabel} : ${new Date(loan.returnedAt).toLocaleDateString(tag)}`}
+          {t.loans.lentAtLabel} : {new Date(loan.lentAt).toLocaleDateString(tag, { timeZone: "UTC" })}
+          {loan.dueAt && ` · ${t.loans.dueAtLabel} : ${new Date(loan.dueAt).toLocaleDateString(tag, { timeZone: "UTC" })}`}
+          {loan.returnedAt &&
+            ` · ${t.loans.returnedAtLabel} : ${new Date(loan.returnedAt).toLocaleDateString(tag, { timeZone: "UTC" })}`}
         </span>
         {loan.note && <span className="block truncate text-xs italic text-gray-400 dark:text-gray-500">{loan.note}</span>}
       </div>
 
-      {canManage && (
+      {(canManage || canReturn) && (
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-          {!loan.returnedAt && <ReturnLoanForm loanId={loan.id} />}
-          <EditLoanForm loan={{ id: loan.id, dueAt: loan.dueAt, note: loan.note }} />
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            disabled={pending}
-            aria-label={t.loans.deleteLoan}
-            className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
-          >
-            <TrashIcon className="h-4 w-4" />
-          </button>
+          {canReturn && !loan.returnedAt && <ReturnLoanForm loanId={loan.id} />}
+          {canManage && (
+            <>
+              <EditLoanForm loan={{ id: loan.id, dueAt: loan.dueAt, note: loan.note }} />
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                disabled={pending}
+                aria-label={t.loans.deleteLoan}
+                className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
       )}
 

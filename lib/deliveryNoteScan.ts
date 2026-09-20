@@ -6,8 +6,23 @@ import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materi
 import {
     detectRasterImageMediaType,
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
-    type RasterImageMediaType,
 } from "@/lib/fileSignature";
+import {
+    isDeliveryNoteMediaType,
+    stripArchivedPhotoMetadata,
+    SHARP_MAX_INPUT_PIXELS,
+    type DeliveryNoteMediaType,
+} from "@/lib/imageMetadata";
+
+// stripArchivedPhotoMetadata (used below, in the apply step's own doc) and
+// its DeliveryNoteMediaType/isDeliveryNoteMediaType/SHARP_MAX_INPUT_PIXELS
+// now live in lib/imageMetadata.ts — lib/cloudinary.ts::uploadEquipmentPhoto
+// needed the identical re-encode-and-strip step for an unrelated upload
+// path, so a shared, generic module is the right home for both rather than
+// equipment importing from a module named after delivery notes. Re-exported
+// here so every existing import of `DeliveryNoteMediaType`/
+// `stripArchivedPhotoMetadata` FROM this module keeps working unchanged.
+export { stripArchivedPhotoMetadata, type DeliveryNoteMediaType };
 
 // 10 MB — well under either provider's image limit. Must stay <=
 // `bodySizeLimit` in next.config.ts (currently 25 MB, driven by
@@ -96,31 +111,6 @@ export type ScannedDeliveryNote = {
     // logging itself.
     bytesSent: number;
 };
-
-// Deliberately NARROWER than lib/fileSignature.ts's own RasterImageMediaType
-// (passe 3b, point 0 widened that one to also recognize HEIC/AVIF/BMP/TIFF,
-// closing a regression in lib/cloudinary.ts's photo uploads). This module
-// does NOT get that widening for free: stripArchivedPhotoMetadata below
-// re-encodes with a format-specific sharp branch for exactly these four
-// media types (anything else silently falls through to its `.gif()`
-// default — a real mis-encode bug, not a rejection), and reduceImageForModel
-// assumes sharp can decode whatever readAndValidateDeliveryNoteImage let
-// through. Neither of those was ever true for HEIC/AVIF/BMP/TIFF, and this
-// module never accepted them even before passe 3a — narrowing back down here
-// (see isDeliveryNoteMediaType below) keeps that scope unchanged rather than
-// silently inheriting a wider one from the shared sniffer.
-export type DeliveryNoteMediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-
-const DELIVERY_NOTE_MEDIA_TYPES: ReadonlySet<RasterImageMediaType> = new Set<RasterImageMediaType>([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-]);
-
-function isDeliveryNoteMediaType(value: RasterImageMediaType): value is DeliveryNoteMediaType {
-  return DELIVERY_NOTE_MEDIA_TYPES.has(value);
-}
 
 // The task instructions the model must follow. Kept in `system` (Anthropic)
 // / a `role: "system"` message (OpenAI) rather than mixed into the user
@@ -229,7 +219,8 @@ const MODEL_MAX_LONG_EDGE = 1568;
 // original photo. Do not lower it — OCR accuracy degrades below 85.
 const MODEL_JPEG_QUALITY = 85;
 
-// Shared by reduceImageForModel and stripArchivedPhotoMetadata below: sharp's
+// SHARP_MAX_INPUT_PIXELS (imported above, from lib/imageMetadata.ts) is
+// shared by reduceImageForModel below and stripArchivedPhotoMetadata: sharp's
 // own default input-pixel limit is ~268 megapixels, high enough that a
 // small, well-formed file can still decode into hundreds of megabytes of raw
 // pixel data (measured: a 748 KB PNG decoded to ~349 MB RSS) — MAX_BYTES only
@@ -240,22 +231,13 @@ const MODEL_JPEG_QUALITY = 85;
 // (stripArchivedPhotoMetadata). 40 million pixels is generous headroom over
 // any real phone photo (a 12 MP camera is 4032x3024 ~= 12.2 Mpx) while
 // keeping the worst case bounded.
-const SHARP_MAX_INPUT_PIXELS = 40_000_000;
-
-// The archive keeps its original resolution (unlike MODEL_JPEG_QUALITY
-// above, used only for the bounded copy sent to the model), so quality 95 is
-// visually indistinguishable from the source. Re-encoding at all is
-// inherent to stripping a JPEG's metadata with sharp — there is no "delete
-// just the EXIF segment, leave the rest of the file untouched" primitive
-// here — so this is the quality that re-encoding step uses.
-const ARCHIVE_JPEG_QUALITY = 95;
 
 /**
  * Re-encodes the validated buffer for the model call ONLY — never for the
  * archived copy. The archived file (uploadProjectFile, in
  * actions/deliveryNoteScan/deliveryNoteScan.ts) never touches this function
- * or its output: it goes through stripArchivedPhotoMetadata below instead,
- * which keeps full resolution rather than bounding it to
+ * or its output: it goes through stripArchivedPhotoMetadata instead
+ * (lib/imageMetadata.ts), which keeps full resolution rather than bounding it to
  * MODEL_MAX_LONG_EDGE. The two steps also run as separate requests with
  * their own copy of the bytes (scan here, apply's own re-upload there), so
  * there is no buffer shared between them to accidentally cross-contaminate.
@@ -310,66 +292,10 @@ async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
     }
 }
 
-/**
- * Strips privacy-sensitive metadata (EXIF — GPS coordinates, capture
- * timestamp, device model; also ICC profile, XMP) from the delivery-note
- * photo archived on the project, per an explicit product decision: crossed
- * with the "who scanned this" log (see logScanEvent,
- * actions/deliveryNoteScan/deliveryNoteScan.ts), GPS + timestamp is a
- * presence trail of employees on a job site — personal data, for close to
- * zero evidentiary value on a supporting document.
- *
- * Unlike reduceImageForModel above (bounded, re-encoded, only ever sent to
- * the vision provider), this produces the archived copy itself — the
- * document that has evidentiary value — so it is NEVER resized: full
- * resolution in, full resolution out. It also never changes format: a JPEG
- * stays a JPEG, a PNG stays a PNG, a WEBP stays a WEBP, a GIF stays a GIF.
- *
- * Two things happen, in order:
- *  1. `.rotate()` with no argument auto-orients using the EXIF orientation
- *     tag, baking it into the pixels themselves, BEFORE metadata is dropped
- *     in step 2 — the same trap as reduceImageForModel above: stripping the
- *     tag without applying it first would archive every portrait photo
- *     lying on its side.
- *  2. Re-encoded in its own original format. JPEG is re-encoded at
- *     ARCHIVE_JPEG_QUALITY (95) — visually indistinguishable from the
- *     source; re-encoding itself is inherent to stripping a JPEG's
- *     metadata with sharp, there is no lower-impact primitive available.
- *     PNG, WEBP and GIF are re-encoded with sharp's own defaults for that
- *     format. Metadata is dropped as a side effect of NOT calling
- *     `.withMetadata()` on the pipeline in any branch — do not add it.
- *
- * `limitInputPixels` reuses SHARP_MAX_INPUT_PIXELS, for the same reason as
- * reduceImageForModel: MAX_BYTES only bounds the compressed upload, not the
- * decoded pixel count a crafted/pathological image can expand to.
- *
- * Throws this module's own `corruptedImage` code (never a native error) if
- * sharp can't process the buffer, so the caller
- * (actions/deliveryNoteScan/deliveryNoteScan.ts) can fail the whole request
- * before any database write happens, rather than silently falling back to
- * archiving the un-cleaned original — a fallback here would quietly undo
- * the product decision this exists to apply.
- */
-export async function stripArchivedPhotoMetadata(
-    buffer: Buffer,
-    mediaType: DeliveryNoteMediaType
-): Promise<Buffer> {
-    try {
-        const pipeline = sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true }).rotate();
-        if (mediaType === "image/jpeg") {
-            return await pipeline.jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
-        }
-        if (mediaType === "image/png") {
-            return await pipeline.png().toBuffer();
-        }
-        if (mediaType === "image/webp") {
-            return await pipeline.webp().toBuffer();
-        }
-        return await pipeline.gif().toBuffer();
-    } catch {
-        throw scanError("corruptedImage");
-    }
-}
+// stripArchivedPhotoMetadata now lives in lib/imageMetadata.ts (imported
+// above, re-exported below) — same function, same doc, moved once
+// lib/cloudinary.ts::uploadEquipmentPhoto needed the identical
+// re-encode-and-strip step for an unrelated upload path.
 
 async function extractWithAnthropic(base64: string, mediaType: DeliveryNoteMediaType): Promise<unknown> {
     if (!process.env.ANTHROPIC_API_KEY) {

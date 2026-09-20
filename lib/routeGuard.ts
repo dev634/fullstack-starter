@@ -12,6 +12,7 @@ const PROTECTED_PATHS = [
   /^\/$/,
   /^\/clients(\/.*)?$/,
   /^\/projects(\/.*)?$/,
+  /^\/loans(\/.*)?$/,
   /^\/admin(\/.*)?$/,
   /^\/portail(\/.*)?$/,
   // Catches every future /api/** route handler by default (see PUBLIC_PATHS

@@ -1,12 +1,10 @@
 "use server";
-import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
 import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createEquipmentSchema, updateEquipmentSchema } from "@/schemas/equipment";
-import { getCurrentUserId } from "@/lib/currentUser";
+import { getCurrentUserId, getLoansActor } from "@/lib/currentUser";
 import { create, update, findById, removeIfNotLent } from "@/repository/equipment";
 import { uploadEquipmentPhoto, destroyEquipmentPhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
@@ -50,11 +48,15 @@ export async function addEquipment(
     };
   }
 
+  // Declared outside the try so the catch below can still reach it: if the
+  // upload below succeeds but `create` fails afterwards, the Cloudinary
+  // asset would otherwise be orphaned — uploaded, but referenced by no row.
+  let photo: { url: string; publicId: string } | undefined;
   try {
     const ownerId = await getCurrentUserId();
     if (!ownerId) return { ...prevState, type: "error", message: t.errors.unauthorized };
 
-    const photo = await extractEquipmentPhoto(formData);
+    photo = await extractEquipmentPhoto(formData);
     const equipment = await create({
       ownerId,
       name: parsed.data.name,
@@ -66,6 +68,9 @@ export async function addEquipment(
     revalidatePath("/loans");
     return { ...prevState, type: "success", message: t.equipment.messages.added, data: equipment };
   } catch (error) {
+    // Best-effort: never let a DB failure leave an uploaded photo dangling
+    // with nothing pointing to it.
+    if (photo) await destroyEquipmentPhoto(photo.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
@@ -90,11 +95,14 @@ export async function editEquipment(
     };
   }
 
+  // Declared outside the try so the catch below can still reach it: if the
+  // upload below succeeds but `update` fails afterwards, the newly uploaded
+  // Cloudinary asset would otherwise be orphaned.
+  let uploadedPhoto: { url: string; publicId: string } | undefined;
   try {
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const existing = await findById(parsed.data.id);
     // Hors périmètre (n'existe pas OU appartient à quelqu'un d'autre, pour un
@@ -104,7 +112,7 @@ export async function editEquipment(
       return { ...prevState, type: "error", message: t.equipment.messages.invalidId };
     }
 
-    const uploadedPhoto = await extractEquipmentPhoto(formData);
+    uploadedPhoto = await extractEquipmentPhoto(formData);
     const removePhoto = formData.get("removePhoto") === "true";
     let photoUrl: string | null | undefined;
     let photoPublicId: string | null | undefined;
@@ -133,6 +141,9 @@ export async function editEquipment(
     revalidatePath("/loans");
     return { ...prevState, type: "success", message: t.equipment.messages.updated, data: equipment };
   } catch (error) {
+    // Best-effort: never let a DB failure leave a freshly uploaded photo
+    // dangling with nothing pointing to it.
+    if (uploadedPhoto) await destroyEquipmentPhoto(uploadedPhoto.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
@@ -149,10 +160,9 @@ export async function deleteEquipment(id: number) {
       return { type: "error" as const, message: t.equipment.messages.invalidId };
     }
 
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { type: "error" as const, message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { type: "error" as const, message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const existing = await findById(id);
     if (!existing || (!isAdmin && existing.ownerId !== userId)) {

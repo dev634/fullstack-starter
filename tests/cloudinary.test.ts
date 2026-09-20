@@ -33,17 +33,17 @@ vi.mock("cloudinary", () => ({
 }));
 
 // uploadEquipmentPhoto (below) routes its buffer through
-// stripArchivedPhotoMetadata (lib/deliveryNoteScan.ts) before ever calling
+// stripArchivedPhotoMetadata (lib/imageMetadata.ts) before ever calling
 // Cloudinary — mocked here so these tests don't need a genuinely
 // sharp-decodable image (every other fixture in this file is just a magic-
 // number prefix) and can assert the new path actually calls it, rather than
 // re-deriving its own metadata-stripping logic.
-vi.mock("@/lib/deliveryNoteScan", () => ({
+vi.mock("@/lib/imageMetadata", () => ({
   stripArchivedPhotoMetadata: vi.fn(async (buffer: Buffer) => buffer),
 }));
 
 import { v2 as cloudinarySdk } from "cloudinary";
-import { stripArchivedPhotoMetadata } from "@/lib/deliveryNoteScan";
+import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import {
   publicIdFromUrl,
   optimizedClientPhoto,
@@ -271,22 +271,32 @@ describe("uploadEquipmentPhoto — content-based validation, routed through stri
   it("rejects an SVG payload renamed to .png and declared image/png before ever stripping metadata or calling Cloudinary", async () => {
     const file = new File([FAKE_SVG_AS_PNG_BYTES], "photo.png", { type: "image/png" });
     await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({
-      message: "The photo must be an image file.",
+      message: "Accepted formats: JPEG, PNG, WebP, GIF.",
+      i18n: "equipmentPhotoUnsupportedFormat",
     });
     expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
     expect(uploadStreamMock).not.toHaveBeenCalled();
   });
 
-  // Decision flagged in the delivery report: unlike uploadClientPhoto/
-  // uploadReservePhoto (which accept HEIC — passe 3b, point 0), this path
-  // narrows to the 4 formats stripArchivedPhotoMetadata itself accepts.
-  // HEIC/AVIF/BMP/TIFF fall through that function's `.gif()` default (a
-  // mis-encode bug, not a rejection) if ever passed to it — so this path
-  // must refuse them BEFORE calling it, not rely on it to refuse them.
+  // Decision B (delivery report): delegating HEIC/AVIF/BMP/TIFF to
+  // Cloudinary (an incoming `transformation: [{format: "jpg"}]` upload) was
+  // considered and REJECTED after a live proof against the real Cloudinary
+  // account — every combination tried left a fabricated AVIF's EXIF
+  // orientation and GPS/Make metadata untouched or the format unconverted
+  // (see lib/cloudinary.ts::isStrippableEquipmentPhoto's doc for the full
+  // account). So, unlike uploadClientPhoto/uploadReservePhoto (which accept
+  // HEIC — passe 3b, point 0), this path still narrows to the 4 formats
+  // stripArchivedPhotoMetadata itself accepts. HEIC/AVIF/BMP/TIFF fall
+  // through that function's `.gif()` default (a mis-encode bug, not a
+  // rejection) if ever passed to it — so this path must refuse them BEFORE
+  // calling it, not rely on it to refuse them. The refusal message now
+  // names the accepted formats instead of the generic "must be an image
+  // file" the other refusal-only reasons below still use.
   it("rejects a real HEIC photo — unlike uploadClientPhoto, since stripArchivedPhotoMetadata cannot safely re-encode it", async () => {
     const file = new File([REAL_HEIC_BYTES], "photo.heic", { type: "image/heic" });
     await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({
-      message: "The photo must be an image file.",
+      message: "Accepted formats: JPEG, PNG, WebP, GIF.",
+      i18n: "equipmentPhotoUnsupportedFormat",
     });
     expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
     expect(uploadStreamMock).not.toHaveBeenCalled();

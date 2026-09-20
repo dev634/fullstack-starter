@@ -1,13 +1,13 @@
 import { findOwned, findAll } from "@/repository/equipment";
 import { findHistory } from "@/repository/equipmentLoans";
 import { findBorrowerOptions } from "@/repository/users";
-import { getCurrentUserId } from "@/lib/currentUser";
+import { getLoansActor } from "@/lib/currentUser";
 import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
 import { can } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
 import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { LOANS_TABS, parseLoansTabParam, type LoansTab } from "@/lib/loansTabParam";
+import { format } from "@/lib/i18n/format";
 import Title from "@/components/Title";
 import EquipmentRow from "@/components/EquipmentRow";
 import LoanRow, { type LoanHistoryItem } from "@/components/LoanRow";
@@ -27,6 +27,14 @@ const TAB_ICONS: Record<LoansTab, typeof CubeIcon> = {
   returned: CheckCircleIcon,
 };
 
+// Only the unbounded admin reads (findAll with no owner filter,
+// findHistory({all: true}) with no owner/borrower filter) need a ceiling —
+// findOwned/findHistory({ownerId, borrowerId}) are already naturally bounded
+// by one person's own equipment/loans. 500 is generous for a personal-tools
+// module; the page says so (t.loans.listTruncated) if it's ever actually hit
+// instead of silently showing a partial list.
+const LOANS_ADMIN_LIST_TAKE = 500;
+
 export default async function LoansPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await blockClientFromApp();
 
@@ -37,33 +45,45 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
 
   const t = getDictionary(await getLocale());
   const session = await auth();
+  const canEdit = await can(session?.user?.role, "content.edit");
   // Same source as the actions this page's buttons call (docs/CONVENTIONS.md:
   // a page must decide visibility the same way its mutations decide
-  // authorization, never re-derive it).
-  const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-  const canEdit = await can(session?.user?.role, "content.edit");
-  const userId = await getCurrentUserId();
+  // authorization, never re-derive it) — lib/currentUser.ts::getLoansActor.
+  const actor = await getLoansActor();
 
-  if (!userId) {
+  if (!actor) {
     return (
       <main className="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-8 text-center">
         <Title title={t.loans.title} />
         <p className="text-red-500">{t.errors.unauthorized}</p>
         <Link href="/login" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-          {t.common.retry}
+          {t.auth.signIn}
         </Link>
       </main>
     );
   }
+  const { userId, isAdmin } = actor;
 
   const { tab: tabParam } = await searchParams;
   const activeTab = parseLoansTabParam(tabParam);
 
-  const [equipmentList, loanList, borrowerOptions] = await Promise.all([
-    isAdmin ? findAll() : findOwned(userId),
-    isAdmin ? findHistory({ all: true }) : findHistory({ ownerId: userId, borrowerId: userId }),
-    findBorrowerOptions(userId),
-  ]);
+  // Loaded by tab, not all at once: "mine" needs the equipment catalogue (+
+  // the borrower directory, but only for someone who can actually lend —
+  // a VIEWER never receives it, not even unused); the three history tabs
+  // need only findHistory. Neither the equipment list nor the borrower
+  // directory is fetched at all outside "mine".
+  const equipmentList =
+    activeTab === "mine" ? (isAdmin ? await findAll({ take: LOANS_ADMIN_LIST_TAKE }) : await findOwned(userId)) : [];
+  const borrowerOptions = activeTab === "mine" && canEdit ? await findBorrowerOptions(userId) : [];
+  const loanList =
+    activeTab === "mine"
+      ? []
+      : isAdmin
+        ? await findHistory({ all: true, take: LOANS_ADMIN_LIST_TAKE })
+        : await findHistory({ ownerId: userId, borrowerId: userId });
+
+  const equipmentListTruncated = activeTab === "mine" && isAdmin && equipmentList.length === LOANS_ADMIN_LIST_TAKE;
+  const loanListTruncated = activeTab !== "mine" && isAdmin && loanList.length === LOANS_ADMIN_LIST_TAKE;
 
   // Only equipment nobody currently has may be lent out — feeds both the
   // header "Prêter un équipement" toggle and every row's own "Prêter" button
@@ -83,6 +103,13 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
     return isAdmin || loan.equipment.owner.id === userId;
   }
 
+  // Decision A: the borrower may also mark THEIR OWN loan returned, on top
+  // of canManageLoan's owner/admin authority — same shape returnLoan checks
+  // (actions/equipmentLoans/equipmentLoans.ts).
+  function canReturnLoan(loan: LoanHistoryItem): boolean {
+    return canManageLoan(loan) || loan.borrower.id === userId;
+  }
+
   function tabHref(tab: LoansTab): string {
     return tab === "mine" ? "/loans" : `/loans?tab=${tab}`;
   }
@@ -95,7 +122,10 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
           <p className="text-sm text-gray-500 dark:text-gray-400">{t.loans.subtitle}</p>
         </div>
 
-        <nav className="grid grid-cols-4 gap-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] p-1 dark:bg-[#1f2937]" aria-label={t.loans.title}>
+        <nav
+          className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] p-1 dark:bg-[#1f2937]"
+          aria-label={t.loans.title}
+        >
           {LOANS_TABS.map((tabKey) => (
             <Link
               key={tabKey}
@@ -133,6 +163,12 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             )}
           </div>
 
+          {(equipmentListTruncated || loanListTruncated) && (
+            <p className="border-b border-gray-300 px-4 py-2 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400 sm:px-6">
+              {format(t.loans.listTruncated, { take: LOANS_ADMIN_LIST_TAKE })}
+            </p>
+          )}
+
           {activeTab === "mine" &&
             (equipmentList.length > 0 ? (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
@@ -157,7 +193,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             (borrowedLoans.length > 0 ? (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {borrowedLoans.map((l) => (
-                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} />
+                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} canReturn={canEdit && canReturnLoan(l)} />
                 ))}
               </ul>
             ) : (
@@ -168,7 +204,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             (ongoingLoans.length > 0 ? (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {ongoingLoans.map((l) => (
-                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} />
+                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} canReturn={canEdit && canReturnLoan(l)} />
                 ))}
               </ul>
             ) : (
@@ -179,7 +215,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             (returnedLoans.length > 0 ? (
               <ul className="divide-y divide-gray-300 dark:divide-gray-700">
                 {returnedLoans.map((l) => (
-                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} />
+                  <LoanRow key={l.id} loan={l} canManage={canEdit && canManageLoan(l)} canReturn={canEdit && canReturnLoan(l)} />
                 ))}
               </ul>
             ) : (

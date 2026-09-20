@@ -39,6 +39,22 @@ function isUploadErrorCode(code: unknown): code is UploadErrorCode {
     return typeof code === "string" && (UPLOAD_ERROR_CODES as readonly string[]).includes(code);
 }
 
+/**
+ * i18n codes thrown by a repository/lib layer OUTSIDE the upload-validation
+ * family above, each resolved from its own place in the dictionary rather
+ * than `t.errors` — repository/equipmentLoans.ts::create throws this one for
+ * the "already lent" unique-constraint conflict, whose user-facing message
+ * already lives under `t.loans.messages`, not `t.errors`.
+ */
+const OTHER_I18N_RESOLVERS: Record<string, (t: Dictionary) => string> = {
+    alreadyLent: (t) => t.loans.messages.alreadyLent,
+    // lib/cloudinary.ts::uploadEquipmentPhoto refuses HEIC/AVIF/BMP/TIFF
+    // (decision B, rejected after a live proof — see that function's doc)
+    // with a message naming the accepted formats, not the generic
+    // "must be an image file" the upload codes above use.
+    equipmentPhotoUnsupportedFormat: (t) => t.equipment.messages.unsupportedPhotoFormat,
+};
+
 export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary): string {
     // Repository functions throw `{ type: "repositoryError", message: "..." }`
     // on an unexpected DB failure — an internal, English-only diagnostic
@@ -67,6 +83,9 @@ export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary
                     ? (error as { i18nParams?: Record<string, string | number> }).i18nParams
                     : undefined;
             return params ? format(t.errors[code], params) : t.errors[code];
+        }
+        if (typeof code === "string" && code in OTHER_I18N_RESOLVERS) {
+            return OTHER_I18N_RESOLVERS[code](t);
         }
     }
     return error && typeof error === "object" && "message" in error

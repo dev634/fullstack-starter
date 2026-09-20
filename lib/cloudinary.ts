@@ -12,7 +12,7 @@ import {
   looksLikePdf,
   type RasterImageMediaType,
 } from "@/lib/fileSignature";
-import { stripArchivedPhotoMetadata, type DeliveryNoteMediaType } from "@/lib/deliveryNoteScan";
+import { stripArchivedPhotoMetadata, type DeliveryNoteMediaType } from "@/lib/imageMetadata";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -571,20 +571,55 @@ export async function destroyReservePhoto(photo: GuardedAssetRef | null | undefi
   await destroyGuardedAsset(photo.publicId, photo.deliveryType, photo.resourceType);
 }
 
-export const MAX_EQUIPMENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
+// Reuses MAX_RESERVE_PHOTO_BYTES rather than a second, independently
+// calibrated number for the same "photo attached to something" use case
+// (point 9, review of the "Prêts" feature) — kept as its own name at
+// equipment's own call sites below for readability, but never a value that
+// can drift from réserve photo's: tests/next-config-upload-limit.test.ts
+// asserts the two stay equal.
+export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
 
 /**
- * stripArchivedPhotoMetadata (lib/deliveryNoteScan.ts) only knows how to
- * re-encode the 4 raster types ITS OWN module accepts (DeliveryNoteMediaType)
- * — anything else silently falls through its `.gif()` default, a mis-encode
- * bug, not a rejection (see that function's header comment). So, unlike
- * uploadClientPhoto/uploadReservePhoto's full 8-format allowlist, the
- * equipment photo path narrows to these same 4 formats: HEIC/AVIF/BMP/TIFF
- * are refused here specifically because there is no safe way to strip their
- * metadata through this shared function. Flagged in the delivery report for
- * arbitration — CONVENTIONS.md warns against silently narrowing HEIC/AVIF
- * support (the default photo format on an iPhone), but this is a NEW upload
- * path rather than a narrowing of one that already accepted them.
+ * stripArchivedPhotoMetadata (lib/imageMetadata.ts — shared with
+ * lib/deliveryNoteScan.ts, its first caller) only knows how to re-encode the
+ * 4 raster types it accepts (DeliveryNoteMediaType) — anything else silently
+ * falls through its `.gif()` default, a mis-encode bug, not a rejection (see
+ * that function's header comment). So, unlike uploadClientPhoto/
+ * uploadReservePhoto's full 8-format allowlist, the equipment photo path
+ * narrows to these same 4 formats.
+ *
+ * Decision B (delivery report) considered delegating HEIC/AVIF/BMP/TIFF to
+ * Cloudinary instead — an incoming `transformation: [{ format: "jpg" }]`
+ * upload, rather than the top-level `format` parameter the SDK's own types
+ * document as a plain rename/convert. Still REJECTED, but the first live
+ * proof's conclusion ("Cloudinary never rotates") was wrong, and worth
+ * recording precisely so the next attempt doesn't repeat it:
+ *
+ *  - That first probe fabricated an AVIF with an EXIF orientation tag (sharp
+ *    has no HEIC encoder to fabricate a HEIC one) and found no combination
+ *    of options rotated it. That result doesn't generalize: per the HEIF
+ *    spec, an AVIF/HEIC decoder is supposed to IGNORE a legacy EXIF
+ *    Orientation tag and read rotation from the container's own `irot`/
+ *    `imir` transformative properties instead — an iPhone's actual HEIC
+ *    photos carry a real `irot` box, which sharp's fabricated file never
+ *    had. The probe was testing a shape no real iPhone HEIC has.
+ *  - Re-tested on a JPEG (orientation 6 + GPS/Make — JPEG DOES use EXIF
+ *    Orientation, so this is the format the first probe should have used):
+ *    `transformation: [{ format: "jpg", angle: "exif" }]` correctly rotated
+ *    the pixels (200×300) and stripped GPS/Make entirely. Without
+ *    `angle: "exif"`, neither rotation nor stripping happened — that
+ *    explicit flag, not the bare transformation, was the missing piece.
+ *  - HEIC itself is still UNPROVEN: forcing `angle: "exif"` on a real HEIC
+ *    that already carries a correct `irot` box risks rotating it TWICE (once
+ *    by the decoder honoring `irot`, once more by the explicit EXIF-based
+ *    flag) — a real iPhone-produced HEIC file is needed to check for that
+ *    before shipping the delegation for HEIC specifically. AVIF's/BMP's/
+ *    TIFF's own EXIF-vs-container-metadata behavior is equally unverified.
+ *
+ * So: HEIC/AVIF/BMP/TIFF stay refused here until each is proven live on a
+ * REAL file of its own format, not fabricated — the
+ * `EXIF orientation → sideways photo` bug this whole app already paid for
+ * once (docs/CONVENTIONS.md) is worse than a narrower accepted-format list.
  */
 function isStrippableEquipmentPhoto(mediaType: RasterImageMediaType): mediaType is DeliveryNoteMediaType {
   return (
@@ -605,12 +640,15 @@ function isStrippableEquipmentPhoto(mediaType: RasterImageMediaType): mediaType 
  * coordinates in its EXIF. stripArchivedPhotoMetadata applies the EXIF
  * orientation to the pixels BEFORE stripping the tag that describes it, so
  * the archived copy doesn't come out sideways (see that function's header).
+ * A refused format gets a message that names what IS accepted
+ * (isStrippableEquipmentPhoto's doc — decision B) rather than the generic
+ * "must be an image file" the other 4 refusal-only reasons below still use.
  */
 export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; publicId: string }> {
   if (file.size > MAX_EQUIPMENT_PHOTO_BYTES) {
     throw {
       type: "error",
-      message: "The photo must be 5 MB or smaller.",
+      message: "The photo must be 10 MB or smaller.",
       i18n: "uploadTooLarge",
       i18nParams: { max: MAX_EQUIPMENT_PHOTO_BYTES / (1024 * 1024) },
     };
@@ -619,7 +657,11 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; p
   const buffer = Buffer.from(await file.arrayBuffer());
   const mediaType = detectRasterImageMediaType(buffer);
   if (!mediaType || !isStrippableEquipmentPhoto(mediaType)) {
-    throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+    throw {
+      type: "error",
+      message: "Accepted formats: JPEG, PNG, WebP, GIF.",
+      i18n: "equipmentPhotoUnsupportedFormat",
+    };
   }
 
   let stripped: Buffer;

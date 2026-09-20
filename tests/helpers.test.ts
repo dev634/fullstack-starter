@@ -79,4 +79,34 @@ describe("getErrorMessage", () => {
       expect(getErrorMessage(error, "fallback")).toBe("The photo must be an image file.");
     });
   });
+
+  // Point 4 (revue "Prêts"): repository/equipmentLoans.ts::create throws this
+  // i18n code for the "already lent" unique-constraint conflict — resolved
+  // from t.loans.messages, not t.errors like the upload codes above, since
+  // that's where this message already lived.
+  describe("'already lent' error (repository/equipmentLoans.ts's stable i18n code)", () => {
+    const fr = getDictionary("fr");
+
+    it("translates it from t.loans.messages, given the dictionary", () => {
+      const error = { type: "error", message: "This equipment is already lent out.", i18n: "alreadyLent" };
+      expect(getErrorMessage(error, "fallback", fr)).toBe(fr.loans.messages.alreadyLent);
+    });
+
+    it("falls back to the raw English message when no dictionary is given", () => {
+      const error = { type: "error", message: "This equipment is already lent out.", i18n: "alreadyLent" };
+      expect(getErrorMessage(error, "fallback")).toBe("This equipment is already lent out.");
+    });
+  });
+
+  // Point 8 (revue "Prêts"): lib/cloudinary.ts::uploadEquipmentPhoto refuses
+  // HEIC/AVIF/BMP/TIFF with this code — resolved from t.equipment.messages,
+  // like alreadyLent above, not t.errors.
+  describe("equipment photo unsupported-format error (lib/cloudinary.ts's stable i18n code)", () => {
+    const fr = getDictionary("fr");
+
+    it("translates it from t.equipment.messages, given the dictionary", () => {
+      const error = { type: "error", message: "Accepted formats: JPEG, PNG, WebP, GIF.", i18n: "equipmentPhotoUnsupportedFormat" };
+      expect(getErrorMessage(error, "fallback", fr)).toBe(fr.equipment.messages.unsupportedPhotoFormat);
+    });
+  });
 });

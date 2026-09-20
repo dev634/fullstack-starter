@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
+import { toDateInputValue } from "@/lib/datetimeLocal";
 import type { EquipmentLoanActionState } from "@/types/equipment";
 
 const initialState: EquipmentLoanActionState = {
@@ -17,12 +18,6 @@ export type EditableLoan = {
   note: string | null;
 };
 
-/** Date -> the `type="date"` input's own "YYYY-MM-DD" value, or "" when unset —
- * same conversion as forms/EditTaskForm.tsx's dueDateValue. */
-function toDateValue(date: Date | null): string {
-  return date ? new Date(date).toISOString().slice(0, 10) : "";
-}
-
 export default function EditLoanForm({ loan }: { loan: EditableLoan }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -30,11 +25,20 @@ export default function EditLoanForm({ loan }: { loan: EditableLoan }) {
     editLoan,
     initialState
   );
+  // Controlled fields: React 19 resets NON-controlled fields of a <form
+  // action> as soon as the action's state changes, zodError included — a
+  // zodError used to wipe the user's edit back to the original loan values.
+  const [dueAt, setDueAt] = useState(toDateInputValue(loan.dueAt));
+  const [note, setNote] = useState(loan.note ?? "");
 
   const [lastHandledState, setLastHandledState] = useState(state);
   if (state !== lastHandledState) {
     setLastHandledState(state);
-    if (state.type === "success") setOpen(false);
+    if (state.type === "success") {
+      setOpen(false);
+      setDueAt(toDateInputValue(loan.dueAt));
+      setNote(loan.note ?? "");
+    }
   }
 
   return (
@@ -59,7 +63,8 @@ export default function EditLoanForm({ loan }: { loan: EditableLoan }) {
               id={`loan-edit-dueAt-${loan.id}`}
               type="date"
               name="dueAt"
-              defaultValue={toDateValue(loan.dueAt)}
+              value={dueAt}
+              onChange={(e) => setDueAt(e.target.value)}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             />
             {state.type === "zodError" && state.fieldsForm?.dueAt && (
@@ -74,7 +79,8 @@ export default function EditLoanForm({ loan }: { loan: EditableLoan }) {
               id={`loan-edit-note-${loan.id}`}
               name="note"
               rows={3}
-              defaultValue={loan.note ?? ""}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
               placeholder={t.loans.notePlaceholder}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
             />

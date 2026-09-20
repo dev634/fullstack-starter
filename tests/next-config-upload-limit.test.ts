@@ -25,6 +25,15 @@ describe("next.config bodySizeLimit vs. this app's own upload ceilings", () => {
     expect(typeof bodySizeLimit).toBe("number");
   });
 
+  // Point 9 (revue "Prêts"): MAX_EQUIPMENT_PHOTO_BYTES stopped being its own
+  // independently calibrated number and now reuses MAX_RESERVE_PHOTO_BYTES
+  // (same "photo attached to something" use case, already calibrated) — this
+  // asserts that sharing stays true, honestly, rather than the two silently
+  // drifting apart again behind two names.
+  it("shares its ceiling with réserve photo — not a second, independently calibrated number", () => {
+    expect(MAX_EQUIPMENT_PHOTO_BYTES).toBe(MAX_RESERVE_PHOTO_BYTES);
+  });
+
   it.each([
     ["client photo", MAX_CLIENT_PHOTO_BYTES],
     ["logo", MAX_LOGO_BYTES],

@@ -1,6 +1,6 @@
 'use client'
 import { lendEquipment } from "@/actions/equipmentLoans/equipmentLoans";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useState } from "react";
 import { ArrowsRightLeftIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
@@ -47,18 +47,26 @@ export default function LendEquipmentForm({
     lendEquipment,
     initialState
   );
-  const formRef = useRef<HTMLFormElement>(null);
+  // Controlled fields: React 19 resets NON-controlled fields of a <form
+  // action> as soon as the action's state changes, zodError included — a
+  // zodError used to wipe every field (including the two <select>s) back to
+  // their defaultValue.
   const [lentAt, setLentAt] = useState(todayDateValue);
-
-  useEffect(() => {
-    if (state.type === "success") formRef.current?.reset();
-  }, [state]);
+  const initialEquipmentId = defaultEquipmentId ?? equipmentOptions[0]?.id ?? "";
+  const [equipmentId, setEquipmentId] = useState(String(initialEquipmentId));
+  const [borrowerId, setBorrowerId] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [note, setNote] = useState("");
 
   const [lastHandledState, setLastHandledState] = useState(state);
   if (state !== lastHandledState) {
     setLastHandledState(state);
     if (state.type === "success") {
       setLentAt(todayDateValue());
+      setEquipmentId(String(initialEquipmentId));
+      setBorrowerId("");
+      setDueAt("");
+      setNote("");
       setOpen(false);
     }
   }
@@ -77,7 +85,7 @@ export default function LendEquipmentForm({
       </button>
 
       <ModalShell open={open} onClose={() => setOpen(false)} title={t.loans.lendToggle}>
-        <form ref={formRef} action={formAction} className="flex flex-col gap-3">
+        <form action={formAction} className="flex flex-col gap-3">
           <div>
             <label htmlFor="loan-equipment" className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
               {t.loans.equipmentLabel}
@@ -85,7 +93,8 @@ export default function LendEquipmentForm({
             <select
               id="loan-equipment"
               name="equipmentId"
-              defaultValue={defaultEquipmentId ?? equipmentOptions[0].id}
+              value={equipmentId}
+              onChange={(e) => setEquipmentId(e.target.value)}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             >
               {equipmentOptions.map((eq) => (
@@ -105,7 +114,8 @@ export default function LendEquipmentForm({
             <select
               id="loan-borrower"
               name="borrowerId"
-              defaultValue=""
+              value={borrowerId}
+              onChange={(e) => setBorrowerId(e.target.value)}
               required
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             >
@@ -147,6 +157,8 @@ export default function LendEquipmentForm({
                 id="loan-dueAt"
                 type="date"
                 name="dueAt"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
               />
               {state.type === "zodError" && state.fieldsForm?.dueAt && (
@@ -162,6 +174,8 @@ export default function LendEquipmentForm({
               id="loan-note"
               name="note"
               rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
               placeholder={t.loans.notePlaceholder}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
             />

@@ -139,6 +139,33 @@ describe("addEquipment", () => {
       expect.objectContaining({ photoUrl: "https://x/photo.png", photoPublicId: "equipment/abc" })
     );
   });
+
+  // Point 12 (revue "Prêts"): a DB failure AFTER a successful upload must not
+  // leave the Cloudinary asset orphaned — uploaded, but referenced by no row.
+  it("destroys the just-uploaded photo when create rejects afterwards", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockResolvedValue({ url: "https://x/photo.png", publicId: "equipment/orphan" });
+    createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
+
+    const fd = form({ name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await addEquipment(initial, fd);
+
+    expect(res.type).toBe("error");
+    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("equipment/orphan");
+  });
+
+  it("does NOT call destroy when there was no photo to begin with", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
+
+    const res = await addEquipment(initial, form({ name: "Perceuse" }));
+
+    expect(res.type).toBe("error");
+    expect(destroyEquipmentPhotoMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("editEquipment", () => {
@@ -208,6 +235,36 @@ describe("editEquipment", () => {
 
     expect(res.type).toBe("success");
     expect(updateMock).toHaveBeenCalledWith(5, expect.objectContaining({ photoUrl: undefined, photoPublicId: undefined }));
+    expect(destroyEquipmentPhotoMock).not.toHaveBeenCalled();
+  });
+
+  // Point 12 (revue "Prêts"): a DB failure AFTER a successful upload must not
+  // leave the Cloudinary asset orphaned — uploaded, but referenced by no row.
+  it("destroys the just-uploaded photo when update rejects afterwards, not the previous one", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
+    uploadEquipmentPhotoMock.mockResolvedValue({ url: "new-url", publicId: "new-id" });
+    updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error updating equipment." });
+
+    const fd = form({ id: "5", name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await editEquipment(initial, fd);
+
+    expect(res.type).toBe("error");
+    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("new-id");
+    expect(destroyEquipmentPhotoMock).not.toHaveBeenCalledWith("old-id");
+  });
+
+  it("does NOT call destroy when update rejects and there was no new upload", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
+    updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error updating equipment." });
+
+    const res = await editEquipment(initial, form({ id: "5", name: "Perceuse" }));
+
+    expect(res.type).toBe("error");
     expect(destroyEquipmentPhotoMock).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,10 @@
 "use server";
-import { auth } from "@/lib/auth";
-import { hasMinRole } from "@/lib/authz";
 import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { lendEquipmentSchema, returnLoanSchema, editLoanSchema } from "@/schemas/equipmentLoan";
-import { getCurrentUserId } from "@/lib/currentUser";
+import { getLoansActor } from "@/lib/currentUser";
 import { findOwnerId } from "@/repository/equipment";
 import { findById as findUserById } from "@/repository/users";
 import {
@@ -16,27 +14,10 @@ import {
   update as updateLoan,
   remove as removeLoan,
 } from "@/repository/equipmentLoans";
-import { Prisma } from "@/app/generated/prisma/client";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import type { EquipmentLoanActionState } from "@/types/equipment";
-
-/**
- * `EquipmentLoan` carries exactly one unique constraint — the partial index
- * `EquipmentLoan_equipmentId_open_key` (migration 20260918120000) — so any
- * P2002 on this table can only be that "already lent" conflict. Still checks
- * `meta.target` when the driver provides it, rather than treating every
- * P2002 as this one conflict by assumption: a future second unique
- * constraint on this table must not get silently misattributed.
- */
-function isOpenLoanConflict(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
-  const target = error.meta?.target;
-  if (typeof target === "string") return target.includes("EquipmentLoan_equipmentId_open_key");
-  if (Array.isArray(target)) return target.includes("EquipmentLoan_equipmentId_open_key");
-  return true;
-}
 
 export async function lendEquipment(
   prevState: EquipmentLoanActionState,
@@ -59,10 +40,9 @@ export async function lendEquipment(
   }
 
   try {
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const ownerId = await findOwnerId(parsed.data.equipmentId);
     // Hors périmètre (n'existe pas OU appartient à quelqu'un d'autre, pour un
@@ -77,13 +57,13 @@ export async function lendEquipment(
     }
 
     // The borrower's role, resolved in the DATABASE — never read from the
-    // form — the portal (CLIENT) never takes part in this module.
+    // form — the portal (CLIENT) never takes part in this module. A CLIENT
+    // id reads as "not found" too, same message and all — anti-enumeration:
+    // a distinct "this id is a portal account" message would let a caller
+    // probe arbitrary ids to learn which ones belong to a CLIENT login.
     const borrower = await findUserById(parsed.data.borrowerId);
-    if (!borrower) {
+    if (!borrower || borrower.role === "CLIENT") {
       return { ...prevState, type: "error", message: t.loans.messages.invalidId };
-    }
-    if (borrower.role === "CLIENT") {
-      return { ...prevState, type: "error", message: t.loans.messages.borrowerIsClient };
     }
 
     const loan = await createLoan({
@@ -97,13 +77,13 @@ export async function lendEquipment(
     revalidatePath("/loans");
     return { ...prevState, type: "success", message: t.loans.messages.lent, data: loan };
   } catch (error) {
-    // "Already lent" is detected on the P2002 the partial unique index
-    // raises — NEVER on a pre-check findFirst, which two concurrent requests
-    // would both pass (repository/equipmentLoans.ts::create's doc).
-    if (isOpenLoanConflict(error)) {
-      return { ...prevState, type: "error", message: t.loans.messages.alreadyLent };
-    }
-    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
+    // "Already lent" is detected in the REPOSITORY, on the P2002 the partial
+    // unique index raises — NEVER on a pre-check findFirst, which two
+    // concurrent requests would both pass (repository/equipmentLoans.ts::create's
+    // doc). This action never inspects Prisma internals itself: the
+    // repository already turned that into a plain `{ i18n: "alreadyLent" }`
+    // error, translated below like any other app-thrown i18n code.
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
 
@@ -128,17 +108,20 @@ export async function returnLoan(
   }
 
   try {
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const loan = await findLoanById(parsed.data.id);
-    // Decision (flagged for arbitration): only the equipment's owner or an
-    // admin may record a return — same authority as lending it — not the
-    // borrower. An already-closed loan reads as "not found" too: there is
+    // Decision A: the equipment's owner, an admin, OR the borrower
+    // themselves may record a return — editLoan/deleteLoan stay owner/admin
+    // only. An already-closed loan reads as "not found" too: there is
     // nothing left to return.
-    if (!loan || loan.returnedAt !== null || (!isAdmin && loan.equipment.ownerId !== userId)) {
+    if (
+      !loan ||
+      loan.returnedAt !== null ||
+      (!isAdmin && loan.equipment.ownerId !== userId && loan.borrowerId !== userId)
+    ) {
       return { ...prevState, type: "error", message: t.loans.messages.invalidId };
     }
 
@@ -146,9 +129,23 @@ export async function returnLoan(
       return { ...prevState, type: "error", message: t.loans.messages.returnedBeforeLent };
     }
 
-    const updated = await markReturned(parsed.data.id, parsed.data.returnedAt);
+    // Idempotent-safe: the WHERE clause re-checks `returnedAt: null` at the
+    // moment of the write, not just at the read above — two concurrent
+    // "mark returned" submissions (the owner's and the borrower's, now both
+    // authorized) could otherwise both pass that earlier read and both
+    // re-mark an already-closed loan.
+    const updatedCount = await markReturned(parsed.data.id, parsed.data.returnedAt);
+    if (updatedCount === 0) {
+      return { ...prevState, type: "error", message: t.loans.messages.invalidId };
+    }
+
     revalidatePath("/loans");
-    return { ...prevState, type: "success", message: t.loans.messages.returned, data: updated };
+    return {
+      ...prevState,
+      type: "success",
+      message: t.loans.messages.returned,
+      data: { id: parsed.data.id, returnedAt: parsed.data.returnedAt },
+    };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
@@ -175,10 +172,9 @@ export async function editLoan(
   }
 
   try {
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { ...prevState, type: "error", message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const loan = await findLoanById(parsed.data.id);
     if (!loan || (!isAdmin && loan.equipment.ownerId !== userId)) {
@@ -212,10 +208,9 @@ export async function deleteLoan(id: number) {
       return { type: "error" as const, message: t.loans.messages.invalidId };
     }
 
-    const session = await auth();
-    const isAdmin = hasMinRole(session?.user?.role, "ADMIN");
-    const userId = await getCurrentUserId();
-    if (!userId) return { type: "error" as const, message: t.errors.unauthorized };
+    const actor = await getLoansActor();
+    if (!actor) return { type: "error" as const, message: t.errors.unauthorized };
+    const { userId, isAdmin } = actor;
 
     const loan = await findLoanById(id);
     if (!loan || (!isAdmin && loan.equipment.ownerId !== userId)) {

@@ -202,7 +202,13 @@ describe("user management actions", () => {
       expect(removeMock).not.toHaveBeenCalled();
     });
 
-    it("deletes a user whose only loans are CLOSED — remove() purges those in the same transaction", async () => {
+    // Point 13 (revue "Prêts"): renamed — `remove` is mocked here, so this
+    // only proves deleteUser calls it once a user's only loans are closed,
+    // not what remove() itself does with them. The purge of those closed
+    // loans, inside the same transaction as the delete, is
+    // repository/users.ts::remove's own concern, unverified by this
+    // action-level test (which never touches the real repository).
+    it("deletes a user whose only loans are CLOSED, calling remove() once the ownership check clears", async () => {
       actor("ADMIN", "me@x.com");
       findByIdMock.mockResolvedValue({ id: 7, email: "v@x.com", role: "VIEWER" } as never);
       countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 0, openLoanCount: 0 });

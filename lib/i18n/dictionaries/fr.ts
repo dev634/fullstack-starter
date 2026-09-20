@@ -130,7 +130,7 @@ const fr = {
     },
     photoUpload: {
         mustBeImage: "Le fichier doit être une image.",
-        maxSize: "L'image doit faire 5 Mo maximum.",
+        maxSize: "L'image doit faire {max} Mo maximum.",
         addPhoto: "Ajouter une photo",
         changePhoto: "Changer la photo",
         remove: "Retirer",
@@ -820,7 +820,6 @@ const fr = {
         },
     },
     equipment: {
-        title: "Mon matériel",
         addToggle: "Ajouter un équipement",
         nameLabel: "Nom",
         namePlaceholder: "Nom de l'équipement…",
@@ -842,6 +841,7 @@ const fr = {
             deleted: "Équipement supprimé.",
             invalidId: "Identifiant d'équipement invalide.",
             cannotDeleteLent: "Impossible de supprimer un équipement actuellement prêté.",
+            unsupportedPhotoFormat: "Formats acceptés : JPEG, PNG, WebP, GIF.",
         },
     },
     loans: {
@@ -871,6 +871,10 @@ const fr = {
         deleteTitle: "Supprimer ce prêt",
         deleteText: "Supprimer ce prêt ? Cette action est irréversible.",
         empty: "Aucun prêt.",
+        // Affiché quand une liste admin (findAll/findHistory({all:true})) a
+        // atteint sa borne (app/loans/page.tsx) — la liste montrée n'est
+        // alors plus forcément complète.
+        listTruncated: "Affichage limité aux {take} résultats les plus récents.",
         messages: {
             lent: "Équipement prêté.",
             returned: "Prêt marqué comme rendu.",
@@ -879,7 +883,6 @@ const fr = {
             invalidId: "Identifiant de prêt invalide.",
             alreadyLent: "Cet équipement est déjà prêté.",
             selfLoan: "Impossible de se prêter son propre équipement.",
-            borrowerIsClient: "Impossible de prêter à un compte client (portail).",
             dueBeforeLent: "La date d'échéance ne peut pas précéder la date de prêt.",
             returnedBeforeLent: "La date de retour ne peut pas précéder la date de prêt.",
         },

@@ -77,8 +77,9 @@ export default function EquipmentRow({
         {openLoan ? (
           <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300">
             {format(t.equipment.currentlyLentTo, { name: openLoan.borrower.name ?? t.loans.unknownUser })}
+            {/* UTC midnight built from a plain `type="date"` value (repository/equipmentLoans.ts's doc) — a local-zone format would shift a negative-offset timezone back a day. */}
             {openLoan.dueAt &&
-              ` · ${t.loans.dueAtLabel} : ${new Date(openLoan.dueAt).toLocaleDateString(localeTag(locale))}`}
+              ` · ${t.loans.dueAtLabel} : ${new Date(openLoan.dueAt).toLocaleDateString(localeTag(locale), { timeZone: "UTC" })}`}
           </span>
         ) : (
           <span className="inline-flex items-center rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300">

@@ -3,15 +3,32 @@
 import { useState, useRef } from "react";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "@/components/LocaleProvider";
+import { format } from "@/lib/i18n/format";
 
 type PhotoUploadProps = {
   name?: string;
   defaultUrl?: string | null;
+  /** Narrows the OS file picker's filter — a UX nicety only, never the real
+   * enforcement (the server always sniffs actual bytes, never this or the
+   * client-declared `file.type`). Defaults to every format the broadest
+   * upload paths (client photo, logo, réserve photo) accept; a narrower
+   * caller (e.g. forms/AddEquipmentForm.tsx, whose server action refuses
+   * HEIC/AVIF/BMP/TIFF — lib/cloudinary.ts::uploadEquipmentPhoto) passes its
+   * own. */
+  accept?: string;
+  /** Client-side pre-check only, in bytes — keep in sync with whichever
+   * server-side ceiling the caller's action actually enforces (this file
+   * can't import lib/cloudinary.ts's own constant: it's a server module that
+   * configures the Cloudinary SDK at import time). Defaults to 5 MB, the
+   * ceiling shared by every current caller except the equipment photo path
+   * (10 MB, lib/cloudinary.ts::MAX_EQUIPMENT_PHOTO_BYTES), which passes its
+   * own. */
+  maxBytes?: number;
 };
 
-const MAX_BYTES = 5 * 1024 * 1024; // keep in sync with the server-side limit
+const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 
-export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
+export function PhotoUpload({ name = "photo", defaultUrl, accept = "image/*", maxBytes = DEFAULT_MAX_BYTES }: PhotoUploadProps) {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<string | null>(defaultUrl ?? null);
   const [removed, setRemoved] = useState(false);
@@ -27,8 +44,8 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
       e.target.value = "";
       return;
     }
-    if (file.size > MAX_BYTES) {
-      setError(t.photoUpload.maxSize);
+    if (file.size > maxBytes) {
+      setError(format(t.photoUpload.maxSize, { max: maxBytes / (1024 * 1024) }));
       e.target.value = "";
       return;
     }
@@ -60,7 +77,7 @@ export function PhotoUpload({ name = "photo", defaultUrl }: PhotoUploadProps) {
         ref={inputRef}
         type="file"
         name={name}
-        accept="image/*"
+        accept={accept}
         onChange={handleChange}
         className="hidden"
       />

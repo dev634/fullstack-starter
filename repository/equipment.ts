@@ -21,7 +21,6 @@ const OPEN_LOAN_SELECT = {
     where: { returnedAt: null },
     select: {
         id: true,
-        borrowerId: true,
         lentAt: true,
         dueAt: true,
         borrower: { select: { id: true, name: true } },
@@ -32,16 +31,17 @@ const OPEN_LOAN_SELECT = {
  * Shared projection for the two list reads below (findOwned/findAll) — kept
  * in one place so "my catalogue" and "every catalogue" (admin) never drift
  * into showing different columns. `User` carries a password hash, so every
- * relation here is a `select`, never a bare `include`.
+ * relation here is a `select`, never a bare `include`. Resserré à ce que les
+ * appelants lisent réellement (docs/CONVENTIONS.md) — `ownerId`/`createdAt`
+ * and `loans[].borrowerId` were projected but never read: every consumer
+ * uses `owner.id`/`borrower.id` instead.
  */
 const EQUIPMENT_LIST_SELECT = {
     id: true,
     name: true,
     reference: true,
     photoUrl: true,
-    ownerId: true,
     owner: { select: { id: true, name: true } },
-    createdAt: true,
     loans: OPEN_LOAN_SELECT,
 } as const;
 
@@ -139,12 +139,18 @@ export async function findOwned(ownerId: number) {
     }
 }
 
-/** Every user's catalogue — admin view only, gated by the action layer. */
-export async function findAll() {
+/**
+ * Every user's catalogue — admin view only, gated by the action layer.
+ * Unlike findOwned (naturally bounded by one person's own equipment), this
+ * has no owner filter — `take` (app/loans/page.tsx passes a shared ceiling)
+ * keeps a single admin render from pulling the whole table.
+ */
+export async function findAll(options?: { take?: number }) {
     try {
         return await prisma.equipment.findMany({
             select: EQUIPMENT_LIST_SELECT,
             orderBy: { createdAt: "desc" },
+            ...(options?.take !== undefined ? { take: options.take } : {}),
         });
     } catch (error) {
         console.log("Repository findAll (equipment) error:", error);

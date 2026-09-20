@@ -1,6 +1,6 @@
 'use client'
 import { editEquipment } from "@/actions/equipment/equipment";
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
@@ -27,11 +27,23 @@ export default function EditEquipmentForm({ equipment }: { equipment: EditableEq
     editEquipment,
     initialState
   );
+  // Controlled fields: React 19 resets NON-controlled fields of a <form
+  // action> as soon as the action's state changes, zodError included — a
+  // zodError used to wipe the user's edit back to the original
+  // `equipment.name`/`reference`. Only `photo` stays uncontrolled (file
+  // inputs can't be controlled); ModalShell already re-seeds it on every
+  // open from `equipment.photoUrl` (see the comment below).
+  const [name, setName] = useState(equipment.name);
+  const [reference, setReference] = useState(equipment.reference ?? "");
 
   const [lastHandledState, setLastHandledState] = useState(state);
   if (state !== lastHandledState) {
     setLastHandledState(state);
-    if (state.type === "success") setOpen(false);
+    if (state.type === "success") {
+      setOpen(false);
+      setName(equipment.name);
+      setReference(equipment.reference ?? "");
+    }
   }
 
   return (
@@ -46,12 +58,31 @@ export default function EditEquipmentForm({ equipment }: { equipment: EditableEq
       </button>
 
       <ModalShell open={open} onClose={() => setOpen(false)} title={t.equipment.editTitle}>
-        <form action={formAction} className="flex flex-col gap-3">
+        <form
+          action={formAction}
+          onSubmit={(e) => {
+            // The photo <input type="file"> can't be controlled. Dispatching
+            // manually from the captured FormData skips React 19's auto-reset
+            // of uncontrolled fields on every action state change and keeps
+            // the selected file — the fields above stay correct because
+            // they're controlled.
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            startTransition(() => formAction(formData));
+          }}
+          className="flex flex-col gap-3"
+        >
           <input type="hidden" name="id" value={equipment.id} />
           {/* ModalShell demounts its children on close (components/ModalShell.tsx),
               so PhotoUpload is freshly mounted — and re-seeded from
               equipment.photoUrl — every time this modal opens. */}
-          <PhotoUpload defaultUrl={equipment.photoUrl} />
+          {/* accept/maxBytes: keep in sync with lib/cloudinary.ts::uploadEquipmentPhoto
+              (decision B refuses HEIC/AVIF/BMP/TIFF; 10 MB ceiling, point 9). */}
+          <PhotoUpload
+            defaultUrl={equipment.photoUrl}
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            maxBytes={10 * 1024 * 1024}
+          />
           <div>
             <label
               htmlFor={`equipment-name-${equipment.id}`}
@@ -63,7 +94,8 @@ export default function EditEquipmentForm({ equipment }: { equipment: EditableEq
               id={`equipment-name-${equipment.id}`}
               type="text"
               name="name"
-              defaultValue={equipment.name}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder={t.equipment.namePlaceholder}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
             />
@@ -82,7 +114,8 @@ export default function EditEquipmentForm({ equipment }: { equipment: EditableEq
               id={`equipment-reference-${equipment.id}`}
               type="text"
               name="reference"
-              defaultValue={equipment.reference ?? ""}
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
               placeholder={t.equipment.referencePlaceholder}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
             />

@@ -128,7 +128,7 @@ const en: Dictionary = {
     },
     photoUpload: {
         mustBeImage: "The file must be an image.",
-        maxSize: "The image must be 5 MB or smaller.",
+        maxSize: "The image must be {max} MB or smaller.",
         addPhoto: "Add a photo",
         changePhoto: "Change photo",
         remove: "Remove",
@@ -798,7 +798,6 @@ const en: Dictionary = {
         },
     },
     equipment: {
-        title: "My equipment",
         addToggle: "Add equipment",
         nameLabel: "Name",
         namePlaceholder: "Equipment name…",
@@ -820,6 +819,7 @@ const en: Dictionary = {
             deleted: "Equipment deleted.",
             invalidId: "Invalid equipment id.",
             cannotDeleteLent: "Can't delete equipment that is currently lent out.",
+            unsupportedPhotoFormat: "Accepted formats: JPEG, PNG, WebP, GIF.",
         },
     },
     loans: {
@@ -849,6 +849,10 @@ const en: Dictionary = {
         deleteTitle: "Delete this loan",
         deleteText: "Delete this loan? This action is irreversible.",
         empty: "No loans.",
+        // Shown when an admin list (findAll/findHistory({all:true})) has hit
+        // its ceiling (app/loans/page.tsx) — the list shown may no longer be
+        // complete.
+        listTruncated: "Showing only the {take} most recent results.",
         messages: {
             lent: "Equipment lent.",
             returned: "Loan marked as returned.",
@@ -857,7 +861,6 @@ const en: Dictionary = {
             invalidId: "Invalid loan id.",
             alreadyLent: "This equipment is already lent out.",
             selfLoan: "Can't lend equipment to its own owner.",
-            borrowerIsClient: "Can't lend to a client (portal) account.",
             dueBeforeLent: "The due date can't be before the loan date.",
             returnedBeforeLent: "The return date can't be before the loan date.",
         },

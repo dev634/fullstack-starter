@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Prisma } from "@/app/generated/prisma/client";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({
@@ -82,14 +81,6 @@ const loanRow = (overrides: Partial<{ id: number; equipmentId: number; borrowerI
   equipment: { ownerId: overrides.ownerId ?? 3 },
 });
 
-function p2002(target: string) {
-  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-    code: "P2002",
-    clientVersion: "test",
-    meta: { target },
-  });
-}
-
 describe("lendEquipment", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -139,7 +130,10 @@ describe("lendEquipment", () => {
     expect(createLoanMock).not.toHaveBeenCalled();
   });
 
-  it("refuses a borrower whose role is CLIENT — resolved in the database, not read from the form", async () => {
+  // Point 11 (revue "Prêts"): a CLIENT borrower reads as "not found", the
+  // same message as an id that doesn't exist — anti-enumeration, so a
+  // distinct message can't be used to probe which ids are portal accounts.
+  it("refuses a borrower whose role is CLIENT — resolved in the database, not read from the form — the same way as an id that doesn't exist", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findOwnerIdMock.mockResolvedValue(3);
@@ -147,7 +141,7 @@ describe("lendEquipment", () => {
 
     const res = await lendEquipment(initial, form({ equipmentId: "5", borrowerId: "7", lentAt: "2026-01-01" }));
 
-    expect(res.message).toBe(fr.loans.messages.borrowerIsClient);
+    expect(res.message).toBe(fr.loans.messages.invalidId);
     expect(createLoanMock).not.toHaveBeenCalled();
   });
 
@@ -166,15 +160,47 @@ describe("lendEquipment", () => {
     );
   });
 
-  // The invariant is enforced by the partial unique index
-  // (EquipmentLoan_equipmentId_open_key), never a pre-check findFirst — two
-  // concurrent requests would both pass that. This proves the P2002 path.
-  it("translates a P2002 on EquipmentLoan_equipmentId_open_key into 'already lent'", async () => {
+  // Point 13 (revue "Prêts"): dueAt/note are real <input>/<textarea>
+  // elements with a `name` — the browser submits them as "" when left
+  // empty, never omits the key entirely (unlike this file's other tests,
+  // which never set them at all via the `form()` helper).
+  it("maps empty dueAt/note strings (what the browser actually sends) to undefined, per the schema", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findOwnerIdMock.mockResolvedValue(3);
     findUserByIdMock.mockResolvedValue({ id: 7, email: "e@x.com", role: "EDITOR", jobFunctionId: null } as never);
-    createLoanMock.mockRejectedValue(p2002("EquipmentLoan_equipmentId_open_key"));
+    createLoanMock.mockResolvedValue({ id: 10 } as never);
+
+    const res = await lendEquipment(
+      initial,
+      form({ equipmentId: "5", borrowerId: "7", lentAt: "2026-01-01", dueAt: "", note: "" })
+    );
+
+    expect(res.type).toBe("success");
+    expect(createLoanMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dueAt: undefined, note: undefined })
+    );
+  });
+
+  // Detection of the P2002 itself (array target vs. index-name string vs. an
+  // unrelated constraint) now lives in repository/equipmentLoans.ts::create,
+  // never on a pre-check findFirst — two concurrent requests would both pass
+  // that (see the repository's own doc). This action-level test only proves
+  // the RELAY: whatever clean, structured error the repository throws, the
+  // action surfaces as the matching localized message — never a raw Prisma
+  // object. The repository's own target-shape parsing is proved live against
+  // the real database instead (not by this mocked test, which replaces the
+  // repository entirely).
+  it("surfaces the repository's 'already lent' i18n error as the localized message", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findOwnerIdMock.mockResolvedValue(3);
+    findUserByIdMock.mockResolvedValue({ id: 7, email: "e@x.com", role: "EDITOR", jobFunctionId: null } as never);
+    createLoanMock.mockRejectedValue({
+      type: "error",
+      message: "This equipment is already lent out.",
+      i18n: "alreadyLent",
+    });
 
     const res = await lendEquipment(initial, form({ equipmentId: "5", borrowerId: "7", lentAt: "2026-01-01" }));
 
@@ -182,17 +208,17 @@ describe("lendEquipment", () => {
     expect(res.message).toBe(fr.loans.messages.alreadyLent);
   });
 
-  it("does NOT swallow a P2002 on a different, unrelated constraint as 'already lent'", async () => {
+  it("surfaces any other repository failure as the generic server error, never the raw repositoryError diagnostic", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findOwnerIdMock.mockResolvedValue(3);
     findUserByIdMock.mockResolvedValue({ id: 7, email: "e@x.com", role: "EDITOR", jobFunctionId: null } as never);
-    createLoanMock.mockRejectedValue(p2002("User_email_key"));
+    createLoanMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating loan." });
 
     const res = await lendEquipment(initial, form({ equipmentId: "5", borrowerId: "7", lentAt: "2026-01-01" }));
 
     expect(res.type).toBe("error");
-    expect(res.message).not.toBe(fr.loans.messages.alreadyLent);
+    expect(res.message).toBe(fr.errors.serverError);
   });
 });
 
@@ -236,16 +262,57 @@ describe("returnLoan", () => {
     expect(markReturnedMock).not.toHaveBeenCalled();
   });
 
-  it("marks the loan returned when authorized", async () => {
+  it("marks the loan returned when authorized (owner)", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findLoanByIdMock.mockResolvedValue(loanRow() as never);
-    markReturnedMock.mockResolvedValue({ id: 10 } as never);
+    markReturnedMock.mockResolvedValue(1);
 
     const res = await returnLoan(initial, form({ id: "10", returnedAt: "2026-01-05" }));
 
     expect(res.type).toBe("success");
     expect(markReturnedMock).toHaveBeenCalledWith(10, "2026-01-05");
+  });
+
+  // Decision A: the borrower may also mark THEIR OWN loan returned, on top of
+  // the owner/admin authority above — editLoan/deleteLoan stay owner/admin
+  // only (see the dedicated tests in their own describe blocks below).
+  it("lets the borrower record their own return, without owner/admin authority", async () => {
+    actor("EDITOR", "borrower@x.com");
+    findIdByEmailMock.mockResolvedValue(7); // the loanRow() default borrowerId, owned by 3
+    findLoanByIdMock.mockResolvedValue(loanRow() as never);
+    markReturnedMock.mockResolvedValue(1);
+
+    const res = await returnLoan(initial, form({ id: "10", returnedAt: "2026-01-05" }));
+
+    expect(res.type).toBe("success");
+    expect(markReturnedMock).toHaveBeenCalledWith(10, "2026-01-05");
+  });
+
+  it("refuses a caller who is neither the owner, an admin, nor the borrower", async () => {
+    actor("EDITOR", "stranger@x.com");
+    findIdByEmailMock.mockResolvedValue(42);
+    findLoanByIdMock.mockResolvedValue(loanRow() as never); // owned by 3, borrowed by 7
+
+    const res = await returnLoan(initial, form({ id: "10", returnedAt: "2026-01-05" }));
+
+    expect(res.message).toBe(fr.loans.messages.invalidId);
+    expect(markReturnedMock).not.toHaveBeenCalled();
+  });
+
+  // repository/equipmentLoans.ts::markReturned re-checks `returnedAt: null`
+  // in the SAME statement as the write (updateMany), not just at the
+  // findLoanById read above — a concurrent submission (e.g. the owner's and
+  // the borrower's racing each other) can close the loan between the two.
+  it("treats a concurrent close (updateMany matches zero rows) as not found, not a silent double-return", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findLoanByIdMock.mockResolvedValue(loanRow() as never); // read as still open
+    markReturnedMock.mockResolvedValue(0); // but already closed by the time of the write
+
+    const res = await returnLoan(initial, form({ id: "10", returnedAt: "2026-01-05" }));
+
+    expect(res.message).toBe(fr.loans.messages.invalidId);
   });
 });
 
@@ -286,6 +353,19 @@ describe("editLoan", () => {
     expect(res.type).toBe("success");
     expect(updateLoanMock).toHaveBeenCalledWith(10, { dueAt: "2026-02-01", note: "Rendre vendredi" });
   });
+
+  // Decision A only extends returnLoan's authority to the borrower — edit
+  // stays owner/admin only, same message as a loan that doesn't exist.
+  it("refuses the borrower (not owner, not admin) the same way as a non-existent loan", async () => {
+    actor("EDITOR", "borrower@x.com");
+    findIdByEmailMock.mockResolvedValue(7); // the loanRow() default borrowerId, owned by 3
+    findLoanByIdMock.mockResolvedValue(loanRow() as never);
+
+    const res = await editLoan(initial, form({ id: "10", dueAt: "2026-02-01" }));
+
+    expect(res.message).toBe(fr.loans.messages.invalidId);
+    expect(updateLoanMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteLoan", () => {
@@ -316,5 +396,18 @@ describe("deleteLoan", () => {
 
     expect((res as { type: string }).type).toBe("success");
     expect(removeLoanMock).toHaveBeenCalledWith(10);
+  });
+
+  // Decision A only extends returnLoan's authority to the borrower — delete
+  // stays owner/admin only, same message as a loan that doesn't exist.
+  it("refuses the borrower (not owner, not admin) the same way as a non-existent loan", async () => {
+    actor("EDITOR", "borrower@x.com");
+    findIdByEmailMock.mockResolvedValue(7); // the loanRow() default borrowerId, owned by 3
+    findLoanByIdMock.mockResolvedValue(loanRow() as never);
+
+    const res = await deleteLoan(10);
+
+    expect((res as { message: string }).message).toBe(fr.loans.messages.invalidId);
+    expect(removeLoanMock).not.toHaveBeenCalled();
   });
 });
