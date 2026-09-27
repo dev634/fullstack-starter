@@ -278,20 +278,30 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   arrêtait (PR #228, sondé sur la base). Un nouveau `CHECK` de ce type se
   pose avec `.trim().min(1).max(MAX_NAME_LENGTH).refine(CONTROL_CHAR)` en
   face, copié de `schemas/materialCategory.ts` ; les trois clauses doivent
-  être là, et le test paramétré (`\t`, ``, ` `) avec.
-  ⚠️ **« La seule regex » est faux depuis PR #230** : `schemas/equipment.ts`
-  redéclare un `CONTROL_CHAR = /[\x00-\x1f\x7f]/` local — exactement la classe
-  ASCII que #228 avait remplacée — face à deux `CHECK … !~ '[[:cntrl:]]'`
-  (`Equipment_name_check`, `Equipment_reference_check`). Son commentaire dit
-  « même regex que `schemas/reserve.ts` » (faux : celui-ci importe la partagée)
-  et « pas extraite vers `fields.ts`, hors périmètre » (elle y était déjà,
-  exportée). Un nom portant un C1 (U+0085…) traverse Zod et meurt sur la
-  contrainte en « erreur serveur ». Troisième occurrence de la classe
-  (réserves #187, catégories #228, équipements #230), passée à travers deux
-  revues et un audit de delta : **à corriger** (importer `CONTROL_CHAR` de
-  `schemas/fields.ts`, sonder U+0085 contre la base) **et à instrumenter** —
-  un test structurel qui parse `schemas/**` et refuse tout littéral regex
-  contenant `\x00-\x1f` hors de `schemas/fields.ts`.
+  être là, et le test paramétré (`\t`, `U+0085`, `U+2028`) avec.
+  ✅ **Refermé et instrumenté** (vérifié à `369c495`). La divergence a été
+  payée trois fois (réserves #187, catégories #228, équipements #230 — ce
+  dernier redéclarait un `/[\x00-\x1f\x7f]/` ASCII face à deux `CHECK … !~
+  '[[:cntrl:]]'`) ; `schemas/equipment.ts` **importe** désormais la constante
+  partagée, et `tests/schema-control-char.test.ts` bannit la **forme** — tout
+  littéral regex mentionnant un point de code de contrôle est refusé hors de
+  `schemas/fields.ts`, quel que soit son nom ou son échappement — avec
+  l'exigence positive symétrique (le nom `CONTROL_CHAR` doit être lié par un
+  import de `@/schemas/fields`). Domaine découvert en parcourant `schemas/`.
+  Ne pas rouvrir ce chantier : il est fait.
+- **`CONTROL_CHAR` ne couvre pas les marques bidi, et c'est délibéré.** Deux
+  classes voisines cohabitent, à ne pas confondre :
+  `CONTROL_CHAR` (`schemas/fields.ts` — C0, DEL, C1, plus les deux séparateurs
+  de ligne U+2028/U+2029 ; écrits en points de code, jamais collés en clair)
+  **refuse** en validation, et son contenu est dicté par le `[[:cntrl:]]` des
+  `CHECK` — l'élargir aux marques bidi (U+202A–U+202E, U+2066–U+2069)
+  désaccorderait la porte du filet et obligerait à reprendre *tous* les
+  consommateurs et leurs contraintes. `CONTROL_AND_BIDI_CHARS`
+  (`lib/materialName.ts`, global) **retire** ces marques d'une chaîne scannée,
+  côté serveur, et ne miroite aucun `CHECK`. Donc : ne jamais affirmer qu'un
+  U+202E est rejeté par `CONTROL_CHAR` (il passe) ; un besoin bidi sur un
+  nouveau champ se traite par un instrument à lui, pas en élargissant la
+  classe des contrôles.
 - **Vrai type d'un fichier** : `lib/fileSignature.ts`
   (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`, `looksLikePdf`) —
   magic bytes, extrait du scan de bulletin plutôt que dupliqué. ⚠️ Ce point
@@ -539,3 +549,39 @@ d'accès). L'écran d'admin, lui, a besoin de la ligne complète (`findAll`).
 
 Ajouter un axe similaire à un nouveau modèle = **copier ce miroir**, pas
 réinventer.
+
+### Travailleurs d'un projet (`ProjectWorker`) — présence, pas accès
+
+`ProjectWorker` rattache un **compte salarié** (`User`) à un projet. Deux
+tables coexistent et ne se confondent jamais :
+
+| Table | Question | Capacité qui écrit |
+|---|---|---|
+| `Project.assignedUsers` (relation implicite `_UserProjects`) | axe d'**accès** : quels projets l'utilisateur peut *atteindre* (consulté seulement si `JobFunction.projectScope = ASSIGNED`) | `users.manage` — **verrouillée** |
+| `ProjectWorker` | axe de **présence** : qui travaille sur le chantier | `content.edit` |
+
+Réutiliser la relation d'accès pour la présence croiserait les axes que ce
+dépôt interdit de croiser, **et** donnerait une écriture de configuration
+d'accès à quiconque détient `content.edit` sur la page Personnel : rattacher
+un salarié lui ouvrirait le projet. Le raisonnement complet (y compris le
+`onDelete` des deux côtés) est en tête du modèle dans `prisma/schema.prisma`
+— ne pas le re-dériver.
+
+Invariants portés par l'**application**, pas par la FK (une FK prouve qu'une
+ligne existe, jamais de quel genre elle est). Les deux leviers sont fermés :
+ne pas en rouvrir un seul.
+
+- Un `User.role = CLIENT` n'est jamais un salarié : `attachWorker` refuse au
+  rattachement, et `updateUser` refuse de basculer vers `CLIENT` un compte
+  déjà rattaché (`hasAnyAttachment`).
+- `assignedWorkerId` (tâche / série / catégorie) pointe une ligne du **même**
+  projet — résolue en base et comparée, comme `assignedInterimId`.
+
+**Il n'existe pas de clé de section « workers ».** Les sept clés de
+`PROJECT_SECTION_ROUTES` sont inchangées : `interims` garde *à la fois* les
+intérimaires et les travailleurs (sélecteur, compteur, agrégat d'avancement,
+rapport PDF). Conséquence assumée, à ne pas « corriger » sans décision : un
+administrateur qui décoche « Intérimaires » pour une fonction masque aussi les
+salariés. Les deux écrans d'admin le disent
+(`t.jobFunctions.sections.interimsAndWorkersLabel`) ; le titre de la page
+Personnel, lui, reste « Intérimaires ».
