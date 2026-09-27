@@ -938,6 +938,18 @@ model ProjectWorker {
 // Unlike EquipmentLoan's "days", workDate is a real date column: the CHECK
 // turns the truncation that comment fears into an error, not a silent shift.
 //
+// BREAK — breakMinutes, the lunch break DEDUCTED from the day, signed with
+// the hours. NULL exactly while endAt is NULL (CHECK
+// "TimesheetEntry_break_check"): the line is born at arrival with neither,
+// and the departure cannot be recorded without stating the break — 0 included,
+// typed by someone. No DEFAULT 0: absent is not empty, a default would make
+// "not entered" read as "no break" and a signature would attest 0 minutes
+// nobody stated. Bounds: >= 0 and startAt + break < endAt (strict: a day
+// entirely made of break is not a worked day). Measured on the UTC instants,
+// so on 29 March a 22:00 -> 06:00 Paris shift is 7 real hours and caps the
+// break below 420 minutes. Hours worked = endAt - startAt - breakMinutes,
+// computed, never stored.
+//
 // VALIDATION — per LINE (validatedAt / validatedById / validatorName). The
 // weekly validation is one UPDATE over a (project, person, ISO week) set of
 // lines, in one transaction; storing it on the line keeps each line's status
@@ -949,7 +961,8 @@ model ProjectWorker {
 //
 // IMMUTABILITY — trigger "TimesheetEntry_guard" (BEFORE INSERT OR UPDATE):
 //   - no line is inserted already validated;
-//   - once SIGNED, person, project, workDate, startAt, endAt never change;
+//   - once SIGNED, person, project, workDate, startAt, endAt, breakMinutes
+//     never change;
 //   - a line is validated only if signed;
 //   - a validated line's stamp never changes, except validatedById -> NULL
 //     (the FK's own SET NULL) or clearing all three at once (un-validation;
@@ -977,6 +990,7 @@ model TimesheetEntry {
   workDate               DateTime              @db.Date
   startAt                DateTime
   endAt                  DateTime?
+  breakMinutes           Int?
   validatedAt            DateTime?
   validatedBy            User?                 @relation("TimesheetValidator", fields: [validatedById], references: [id], onDelete: SetNull)
   validatedById          Int?
@@ -1016,18 +1030,20 @@ model TimesheetEntry {
 // ~5 per person, which is one query here and ~150 signed third-party fetches
 // there; and deleting a probative document must be certain (a Cloudinary
 // destroy has already returned without error while doing nothing). Measured
-// size after server normalisation: 3.2 KB (2 colours) to 11.2 KB (16 colours)
-// on the densest trace, ~6,900 signatures a year.
+// size after server normalisation, densest realistic trace: 5.6 KB at the
+// chosen palette of 4 colours (3.2 KB at 2, 11.2 KB at 16); ~6,900
+// signatures a year.
 //
 // entryId is both the primary key and the FK: one signature per line.
 // onDelete: Restrict — deleting a signed line needs the signature deleted
 // first, and the trigger below refuses that once the line is validated.
 //
-// signedStartAt / signedEndAt — the hours DISPLAYED to the signer, sent back
-//   by the application. The trigger locks the line (FOR UPDATE) and refuses
-//   the signature unless they equal the line's current hours: a manager
-//   editing the hours at the moment the worker signs cannot make the
-//   signature attest hours the worker never saw.
+// signedStartAt / signedEndAt / signedBreakMinutes — the hours and the break
+//   DISPLAYED to the signer, sent back by the application. The trigger locks
+//   the line (FOR UPDATE) and refuses the signature unless they equal the
+//   line's current values: a manager editing the hours or the break at the
+//   moment the worker signs cannot make the signature attest what the worker
+//   never saw.
 // signerName — the person's name as shown at signing (Interim.name,
 //   SubcontractorPerson.name, or the employee's display name). A snapshot,
 //   because those names stay editable. Only CHECK: non-empty — NOT the
@@ -1039,27 +1055,28 @@ model TimesheetEntry {
 //   drawing and the snapshot, not the account.
 //
 // CHECK on image: PNG signature in the first 8 bytes, and
-// octet_length <= 98304 (96 KiB). That bound is DERIVED, not rounded: it is
-// the largest file the normalisation can emit — fit inside 600x300 px,
-// palette of at most 16 colours (4 bits/px): 300 rows x (1 + 300) bytes =
-// 90,300 raw bytes, zlib's worst case on incompressible data adds < 50, PNG
-// chunks < 400 — about 90.7 KB whatever the trace. So it rejects no legitimate
-// output of that normalisation, and bounds every row and the PDF's memory.
-// It does NOT detect a skipped normalisation (raw traces measured 5-81 KB):
-// that is the server's job. Changing the box or the palette changes this
-// number — in the same PR, with its twin constant in the application.
+// octet_length <= 53248 (52 KiB), for the normalisation "flatten on white,
+// trim, fit inside 600x300 px without enlargement, palette of 4 colours"
+// (2 bits/px). Full derivation and measurement in migration 20260927110000:
+// derived worst case 51,856 bytes for ANY content, measured worst 47,981 on
+// random 4-colour noise through sharp 0.35.4. It rejects no legitimate output
+// of that normalisation and bounds every row and the PDF's memory. It does
+// NOT detect a skipped normalisation (raw traces measured 5-49 KB pass): that
+// is the server's job. Changing the box or the palette changes this number —
+// in the same PR, with its twin constant in the application.
 //
 // IMMUTABILITY — trigger "TimesheetSignature_guard" (BEFORE INSERT OR UPDATE
 // OR DELETE): a signature is never updated (except capturedById -> NULL by
 // its own FK), is refused on a line without a departure time or whose hours
-// differ from signedStartAt/signedEndAt, and cannot be deleted while its line
-// is validated.
+// or break differ from signedStartAt/signedEndAt/signedBreakMinutes, and
+// cannot be deleted while its line is validated.
 model TimesheetSignature {
   entry         TimesheetEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
   entryId       Int            @id
   image         Bytes
   signedStartAt DateTime
   signedEndAt   DateTime
+  signedBreakMinutes Int
   signerName    String
   capturedBy    User?          @relation("TimesheetSignatureCapturer", fields: [capturedById], references: [id], onDelete: SetNull)
   capturedById  Int?
@@ -1178,6 +1195,18 @@ model User {
   password      String
   name          String?
   role          Role                 @default(ADMIN)
+  // Deactivation (migration 20260927100000). NULL = active — the true state of
+  // every account that exists, not a placeholder: no backfill, no @default.
+  // Set = the instant the account was switched off; it can no longer sign in,
+  // and its open sessions must stop working. The alternative to deletion once
+  // an account carries hours: TimesheetEntry makes the User -> ProjectWorker
+  // cascade fail (onDelete: Restrict), and the validator / capturer stamps are
+  // only SetNull. Enforced entirely in the APPLICATION — sign-in, the
+  // per-request session check (the JWT itself carries only {email, role}),
+  // reset tokens, every user list, and the escape hatch: nobody deactivates
+  // their own account or the last active SUPERADMIN. No index: every list
+  // filters it on a table of a few dozen rows.
+  deactivatedAt DateTime?
   // The user's job function, picked from the managed list (see JobFunction).
   jobFunction   JobFunction?         @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
   jobFunctionId Int?

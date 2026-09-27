@@ -72,6 +72,7 @@ CREATE TABLE "TimesheetEntry" (
     "workDate" DATE NOT NULL,
     "startAt" TIMESTAMP(3) NOT NULL,
     "endAt" TIMESTAMP(3),
+    "breakMinutes" INTEGER,
     "validatedAt" TIMESTAMP(3),
     "validatedById" INTEGER,
     "validatorName" TEXT,
@@ -85,14 +86,17 @@ CREATE TABLE "TimesheetEntry" (
 -- in a table of its own so that no query listing lines can bring the image
 -- bytes back by accident: they cost an explicit join. Stored as raw bytes
 -- (bytea), never as a data: URL in text (a third larger, and a string that
--- looks displayable). Measured after server normalisation: 3.2-11.2 KB each,
--- ~6,900 a year, 30-40 MB a year. Values over 2 KB are moved out of line by
--- TOAST automatically, so the heap of this table stays small.
+-- looks displayable). Measured after server normalisation at the chosen 4
+-- colours: at most 5.6 KB for the densest realistic trace, ~6,900 a year,
+-- under 40 MB a year. Values over 2 KB are moved out of line by TOAST
+-- automatically, so the heap of this table stays small.
+-- "signedBreakMinutes" is copied like the hours: what the signer was shown.
 CREATE TABLE "TimesheetSignature" (
     "entryId" INTEGER NOT NULL,
     "image" BYTEA NOT NULL,
     "signedStartAt" TIMESTAMP(3) NOT NULL,
     "signedEndAt" TIMESTAMP(3) NOT NULL,
+    "signedBreakMinutes" INTEGER NOT NULL,
     "signerName" TEXT NOT NULL,
     "capturedById" INTEGER,
     "signedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -274,6 +278,34 @@ ALTER TABLE "TimesheetEntry"
   ADD CONSTRAINT "TimesheetEntry_hours_check"
     CHECK ("endAt" IS NULL OR ("endAt" > "startAt" AND "endAt" <= "startAt" + interval '24 hours'));
 
+-- The lunch break, DEDUCTED from the day and signed with the hours.
+--
+-- Present exactly when the departure is: the line is born at arrival with
+-- neither, and it cannot receive its departure without the break being
+-- stated — 0 included, but typed by someone. Hence no DEFAULT 0: "absent" is
+-- not "empty" — a default would make "not entered" indistinguishable from
+-- "no break", and the signature would then attest 0 minutes nobody stated.
+-- Rejected alternative: a free nullable column refused only at signature time.
+-- It leaves a state (departure known, break unknown) in which every weekly
+-- total and every PDF must guess, and the chosen workflow never needs it —
+-- departure, break and signature are entered together.
+--
+-- Bounds: >= 0, and the break ends strictly before the departure (a day made
+-- entirely of break is not a worked day). Measured on the UTC instants, so the
+-- real length rules on DST days: 22:00 -> 06:00 Paris on 29 March 2026 is 7
+-- hours, which caps the break below 420 minutes (8 h of wall clock would have
+-- allowed 479). The upper bound 1439 follows from the 24-hour CHECK above.
+-- Hours worked = "endAt" - "startAt" - "breakMinutes": computed, never stored.
+ALTER TABLE "TimesheetEntry"
+  ADD CONSTRAINT "TimesheetEntry_break_check"
+    CHECK (
+          ("breakMinutes" IS NULL) = ("endAt" IS NULL)
+      AND ("breakMinutes" IS NULL OR (
+                "breakMinutes" >= 0
+            AND "startAt" + "breakMinutes" * interval '1 minute' < "endAt"
+          ))
+    );
+
 -- The validation stamp is whole or absent: validatedAt and validatorName
 -- together; validatedById only while validated (it may be NULL while
 -- validated — the validator's account was deleted, the name remains).
@@ -285,22 +317,42 @@ ALTER TABLE "TimesheetEntry"
       AND ("validatorName" IS NULL OR "validatorName" <> '')
     );
 
--- A PNG, and at most 96 KiB. The bound is DERIVED from the normalisation, not
--- rounded: fit inside 600x300 px, palette of <= 16 colours (4 bits/px) gives
--- 300 rows x (1 filter byte + 300) = 90,300 raw bytes; zlib's worst case on
--- incompressible data adds < 50 bytes; PNG chunks (signature, IHDR, PLTE,
--- tRNS, IDAT headers, IEND) < 400 — about 90.7 KB for ANY trace. So no
--- legitimate output of that normalisation can hit it; it bounds every row and
--- the weekly PDF's memory (~150 signatures). It does NOT prove the
--- normalisation ran (raw canvas traces measured 5-81 KB pass it): that is the
--- server's job. Change the box or the palette, change this number — same PR,
--- same constant on the application side.
+-- A PNG, and at most 52 KiB (53,248 bytes), for the normalisation "flatten on
+-- white, trim, fit inside 600x300 px without enlargement, palette of 4
+-- colours" — 2 bits per pixel. Derived for ANY content, then measured:
+--   raw scanlines   600 px x 2 bits = 150 bytes + 1 filter byte = 151,
+--                   x 300 rows = 45,300 bytes;
+--   deflate         incompressible data does NOT fall back to stored blocks
+--                   with sharp's zlib-ng: at level 1 it emits fixed-Huffman
+--                   codes, up to 9 bits per byte (45,300 x 9/8 = 50,963).
+--                   zlib's conservative deflateBound covers that case:
+--                   45,300 + 5,663 + 708 + 5 = 51,676, + 6 (zlib wrapper)
+--                   = 51,682;
+--   PNG framing     signature 8 + IHDR 25 + PLTE 24 + pHYs 21 + IEND 12
+--                   + 12 per IDAT chunk (sharp splits at 8,192: 7 chunks, 84)
+--                   = 174;
+--   derived bound   51,856 bytes.
+--   MEASURED        47,981 bytes: sharp 0.35.4 (libvips 8.18.6, zlib-ng
+--                   2.3.3), 600x300 of random pixels drawn from exactly 4
+--                   colours, png({palette, colours: 4, dither: 0}), every
+--                   compressionLevel 0-9, adaptive filtering on and off, 4
+--                   seeds; IHDR bit depth 2; worst at level 1 (+5.9% over the
+--                   raw scanlines — the expansion a stored-block estimate
+--                   misses). Realistic densest trace: 5.6 KB.
+-- 53,248 = the derived bound + 1,392 bytes, room for one ancillary chunk
+-- (sRGB 13, gAMA 16, tRNS 16) an encoder option could add. It rejects no
+-- legitimate output of that normalisation and bounds every row and the weekly
+-- PDF's memory (~150 signatures, < 8 MB). It does NOT prove the normalisation
+-- ran (raw canvas traces measured 5-49 KB pass it): that is the server's job.
+-- Change the box or the palette, change this number — same PR, same constant
+-- on the application side. (The 16-colour figure first written here, 98,304
+-- over a "~90.7 KB" estimate, assumed stored blocks; sharp measured 95,580.)
 -- No [[:cntrl:]] clause anywhere in this migration: nothing to wire into
 -- tests-integration/control-char-check-parity.
 ALTER TABLE "TimesheetSignature"
   ADD CONSTRAINT "TimesheetSignature_image_check"
     CHECK (
-          octet_length("image") <= 98304
+          octet_length("image") <= 53248
       AND substring("image" from 1 for 8) = '\x89504e470d0a1a0a'::bytea
     );
 
@@ -365,8 +417,9 @@ BEGIN
     OR NEW."workDate"               IS DISTINCT FROM OLD."workDate"
     OR NEW."startAt"                IS DISTINCT FROM OLD."startAt"
     OR NEW."endAt"                  IS DISTINCT FROM OLD."endAt"
+    OR NEW."breakMinutes"           IS DISTINCT FROM OLD."breakMinutes"
   ) THEN
-    RAISE EXCEPTION 'TimesheetEntry %: signed, its person, day and hours can no longer change', OLD."id"
+    RAISE EXCEPTION 'TimesheetEntry %: signed, its person, day, hours and break can no longer change', OLD."id"
       USING ERRCODE = 'check_violation', CONSTRAINT = 'TimesheetEntry_guard';
   END IF;
 
@@ -408,19 +461,23 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     -- Lock the line: a concurrent edit of its hours waits for us, or we wait
     -- for it and then compare against what it committed.
-    SELECT e."startAt", e."endAt" INTO line
+    SELECT e."startAt", e."endAt", e."breakMinutes" INTO line
       FROM "TimesheetEntry" e WHERE e."id" = NEW."entryId" FOR UPDATE;
     IF NOT FOUND THEN
       RETURN NEW; -- the foreign key reports the missing line itself
     END IF;
-    IF line."endAt" IS NULL THEN
-      RAISE EXCEPTION 'TimesheetSignature: line % has no departure time yet', NEW."entryId"
+    -- "TimesheetEntry_break_check" already ties the break to the departure;
+    -- both are tested so this guard does not rest on another constraint.
+    IF line."endAt" IS NULL OR line."breakMinutes" IS NULL THEN
+      RAISE EXCEPTION 'TimesheetSignature: line % has no departure time or no break yet', NEW."entryId"
         USING ERRCODE = 'check_violation', CONSTRAINT = 'TimesheetSignature_guard';
     END IF;
-    -- The signer attests the hours they were SHOWN, sent back by the app.
+    -- The signer attests the hours and break they were SHOWN, sent back by
+    -- the app.
     IF NEW."signedStartAt" IS DISTINCT FROM line."startAt"
-       OR NEW."signedEndAt" IS DISTINCT FROM line."endAt" THEN
-      RAISE EXCEPTION 'TimesheetSignature: line % hours differ from the hours shown to the signer', NEW."entryId"
+       OR NEW."signedEndAt" IS DISTINCT FROM line."endAt"
+       OR NEW."signedBreakMinutes" IS DISTINCT FROM line."breakMinutes" THEN
+      RAISE EXCEPTION 'TimesheetSignature: line % hours or break differ from what was shown to the signer', NEW."entryId"
         USING ERRCODE = 'check_violation', CONSTRAINT = 'TimesheetSignature_guard';
     END IF;
     RETURN NEW;
@@ -434,6 +491,7 @@ BEGIN
        OR NEW."image"         IS DISTINCT FROM OLD."image"
        OR NEW."signedStartAt" IS DISTINCT FROM OLD."signedStartAt"
        OR NEW."signedEndAt"   IS DISTINCT FROM OLD."signedEndAt"
+       OR NEW."signedBreakMinutes" IS DISTINCT FROM OLD."signedBreakMinutes"
        OR NEW."signerName"    IS DISTINCT FROM OLD."signerName"
        OR NEW."signedAt"      IS DISTINCT FROM OLD."signedAt"
        OR (NEW."capturedById" IS NOT NULL AND NEW."capturedById" IS DISTINCT FROM OLD."capturedById") THEN
@@ -470,7 +528,10 @@ CREATE TRIGGER "TimesheetSignature_guard"
 --    a FK proves the attachment exists, not the kind of account.
 -- 3. One human appearing as two populations on the same chantier and day (an
 --    Interim AND a SubcontractorPerson row): the database sees two fiches.
--- 4. The normalisation of the image (flatten, trim, fit 600x300, palette <= 16
---    colours, PNG) — the CHECK bounds its output, it cannot prove it ran.
--- 5. Breaks: a line is arrival -> departure; there is no pause column.
---    Whether hours worked = endAt - startAt is a decision still open.
+-- 4. The normalisation of the image (flatten on white, trim, fit inside
+--    600x300 without enlargement, palette of 4 colours, PNG) — the CHECK
+--    bounds its output, it cannot prove it ran.
+-- 5. Who may un-validate (ADMIN and above, by decision), and that the
+--    departure and the break are entered together at the end of the day.
+-- 6. Retention: nothing here purges, and nothing should until the retention
+--    period is decided.

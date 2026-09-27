@@ -1,15 +1,16 @@
 -- Pointage, livraison 2 : l'accès confiné des intérimaires et des personnes de
--- sous-traitants. Three things, and nothing that clocks a single hour yet
+-- sous-traitants. Four things, and nothing that clocks a single hour yet
 -- (lines, signatures and validations are 20260927110000, shipped separately):
 --   1. a WORKER role;
 --   2. an e-mail on "Interim" and "SubcontractorPerson";
---   3. a MATERIALISED link from each of those fiches to its WORKER login.
+--   3. a MATERIALISED link from each of those fiches to its WORKER login;
+--   4. account deactivation ("User"."deactivatedAt").
 --
 -- ---------------------------------------------------------------------------
 -- WHAT THIS DOES TO EXISTING DATA: NOTHING. IT IS NOT DESTRUCTIVE.
 -- ---------------------------------------------------------------------------
 --
--- Four NULLABLE columns with NO DEFAULT (catalogue-only on PostgreSQL 11+, no
+-- Five NULLABLE columns with NO DEFAULT (catalogue-only on PostgreSQL 11+, no
 -- rewrite), two CHECKs and four unique indexes that only look at those new
 -- columns — NULL on every existing row, so the CHECKs validate trivially
 -- (NULL passes, and a brand-new column cannot hold a value anybody wrote) and
@@ -150,6 +151,39 @@ CREATE UNIQUE INDEX "Interim_workerUserId_projectId_key" ON "Interim"("workerUse
 CREATE UNIQUE INDEX "SubcontractorPerson_workerUserId_companyId_key" ON "SubcontractorPerson"("workerUserId", "companyId");
 
 -- ---------------------------------------------------------------------------
+-- STEP 5 — account deactivation.
+-- ---------------------------------------------------------------------------
+--
+-- WHY HERE AND NOT WITH THE TIMESHEETS. 20260927110000 makes an account that
+-- carries hours undeletable (the User -> "ProjectWorker" cascade meets a
+-- RESTRICT). Deactivation is the way out, so it must exist BEFORE the first
+-- account becomes undeletable — i.e. it ships no later than livraison 3, and
+-- shipping it with livraison 2 is what guarantees that whatever order the
+-- deploys happen in. It also belongs with the access work: this is the
+-- delivery that creates logins for people who come and go (temps,
+-- subcontractors), and "deactivate" is a sign-in / session concern, the same
+-- code livraison 2 touches to confine WORKER.
+--
+-- NULL = active. NO BACKFILL, NO DEFAULT, and the house rule's domain of
+-- validity is exactly why: the backfill rule protects a REPLACEMENT, where a
+-- value must be carried across before something disappears. Nothing is
+-- replaced here. NULL is not a placeholder waiting for a value; it is the
+-- absence of an event — "this account has never been switched off" — and it
+-- is TRUE for every existing account. There is nothing true to write: any
+-- timestamp would deactivate the whole organisation, including every
+-- SUPERADMIN, at container start. A boolean isActive DEFAULT true was
+-- rejected: it loses WHEN (which a payroll dispute asks), and its DEFAULT
+-- would be the database deciding a security state rather than recording one.
+--
+-- No CHECK and no index. Every rule on this column crosses rows or reads the
+-- session (nobody deactivates their own account; nobody deactivates the last
+-- active SUPERADMIN; a deactivated account cannot sign in and its live JWT
+-- stops working) — the application's. Every list of users filters
+-- "deactivatedAt" IS NULL on a table of a few dozen rows: a sequential scan
+-- is the right plan there, and an index would only tax every write.
+ALTER TABLE "User" ADD COLUMN "deactivatedAt" TIMESTAMP(3);
+
+-- ---------------------------------------------------------------------------
 -- WHAT THIS MIGRATION DELIBERATELY DOES NOT ENFORCE (application layer).
 -- ---------------------------------------------------------------------------
 --
@@ -159,3 +193,6 @@ CREATE UNIQUE INDEX "SubcontractorPerson_workerUserId_companyId_key" ON "Subcont
 --    bound fiche clears "workerUserId" in the same write.
 -- 3. There is NO update path for either fiche today (create and delete only):
 --    existing fiches can only receive an e-mail once livraison 2 adds one.
+-- 4. Everything about deactivation (STEP 5): refusing sign-in and password
+--    reset, cutting live sessions, hiding the account from every picker, and
+--    the escape hatch (own account, last active SUPERADMIN).
