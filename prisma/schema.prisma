@@ -147,6 +147,9 @@ model Project {
   // Internal employees PRESENT on this chantier (see ProjectWorker) — not the
   // access list below (assignedUsers), which is a different axis.
   workers        ProjectWorker[]
+  // Clocked hours (pointage). onDelete: Restrict on the line side — a project
+  // carrying hours cannot be permanently deleted; see TimesheetEntry.
+  timesheetEntries TimesheetEntry[]
   reservePlans   ReservePlan[]
   reservePlanFolders ReservePlanFolder[]
   // Monotonic issuer for réserve numbers. A counter, not max(number)+1: the
@@ -676,8 +679,14 @@ model SubcontractorCompany {
   assignedTasks      ProjectTask[]
   assignedGroups     ProjectTaskGroup[]
   assignedCategories ProjectTaskCategory[]
+  timesheetEntries   TimesheetEntry[]
 
   @@index([projectId])
+  // Target of TimesheetEntry's composite FK (subcontractorCompanyId,
+  // projectId): it is what lets the DATABASE prove that a line's projectId is
+  // its company's project. Always satisfied (id is the primary key), so it
+  // cannot fail on existing rows. Migration 20260927110000.
+  @@unique([id, projectId])
 }
 
 model SubcontractorPerson {
@@ -701,9 +710,13 @@ model SubcontractorPerson {
   email         String?
   workerUser    User?                @relation("SubcontractorPersonWorkerLogin", fields: [workerUserId], references: [id], onDelete: SetNull)
   workerUserId  Int?
+  timesheetEntries TimesheetEntry[]
 
   @@index([companyId])
   @@index([jobFunctionId])
+  // Target of TimesheetEntry's composite FK (subcontractorPersonId,
+  // subcontractorCompanyId). Always satisfied. Migration 20260927110000.
+  @@unique([id, companyId])
   // Leading "email": serves the bind-time lookup WHERE email = $1.
   @@unique([email, companyId])
   // Leading "workerUserId": serves the WORKER's own scope read and the User
@@ -761,9 +774,14 @@ model Interim {
   email              String?
   workerUser         User?                 @relation("InterimWorkerLogin", fields: [workerUserId], references: [id], onDelete: SetNull)
   workerUserId       Int?
+  timesheetEntries   TimesheetEntry[]
 
   @@index([projectId])
   @@index([jobFunctionId])
+  // Target of TimesheetEntry's composite FK (interimId, projectId): the
+  // database, not the action, proves a line's projectId is its fiche's.
+  // Always satisfied (id is the primary key). Migration 20260927110000.
+  @@unique([id, projectId])
   // One fiche per address per project: two fiches bearing one address would
   // make "which fiche does this login clock for, on this project" ambiguous.
   // Leading "email", so it also serves the bind-time lookup
@@ -832,12 +850,21 @@ model ProjectWorker {
   assignedTasks      ProjectTask[]
   assignedGroups     ProjectTaskGroup[]
   assignedCategories ProjectTaskCategory[]
+  // Hours clocked by this employee on this project (migration
+  // 20260927110000). THIS is the decision the paragraph above deferred:
+  // TimesheetEntry references (projectId, userId) with onDelete: Restrict, so
+  // detaching an employee who has hours on the project fails, and so does
+  // deleting the user — the Cascade from User reaches this row, and the
+  // Restrict below it stops the whole statement. Payroll proof outlives
+  // neither the attachment nor the account by accident.
+  timesheetEntries   TimesheetEntry[]
 
   // One attachment per (project, employee): a duplicate would list the same
   // person twice in the Personnel page and split their progress tally in two.
   // Its btree, led by projectId, ALSO serves the per-project read (the list
   // on the Personnel page, the progress aggregate's final join) and the
   // Project cascade scan — so no separate @@index([projectId]).
+  // Also the TARGET of TimesheetEntry's composite FK (projectId, userId).
   @@unique([projectId, userId])
   // Backs the User cascade scan (onDelete: Cascade above — deleteUser
   // surfaces no warning for this relation, unlike Equipment/EquipmentLoan's
@@ -846,6 +873,200 @@ model ProjectWorker {
   // timesheet's project picker). Postgres does not index the referencing
   // side of a FK by itself.
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Pointage (timesheets) — migration 20260927110000
+//
+// One line = one person x one day x one project, with an arrival and a
+// departure, one signature per line, and a manager's validation. The person
+// is one of three populations, each through its PER-PROJECT fiche:
+//   - a salaried employee through their ProjectWorker attachment
+//     (projectId, userId);
+//   - an intérimaire through their Interim row (interimId, projectId);
+//   - a subcontractor's person through their SubcontractorPerson row
+//     (subcontractorPersonId, subcontractorCompanyId) and that company
+//     (subcontractorCompanyId, projectId).
+// Pointing at the fiche and not at a login is what makes the three uniform:
+// only employees have a User, and an intérimaire's WORKER login may come and
+// go (Interim.workerUser is SetNull) without touching a single hour.
+//
+// READ THE MIGRATION before touching this model: three triggers and several
+// CHECKs live there that Prisma cannot express and `migrate diff` cannot see.
+// ---------------------------------------------------------------------------
+
+// A clocked day.
+//
+// PERSON — three nullable columns, EXACTLY one set: CHECK (num_nonnulls(
+// "userId", "interimId", "subcontractorPersonId") = 1), plus
+// subcontractorCompanyId set iff subcontractorPersonId is. "= 1", not the
+// "<= 1" of the task assignee: a line without a person means nothing. The
+// same CHECK is why none of these FKs can be SetNull — nulling the only person
+// column would violate it and turn the parent's deletion into a 23514 anyway.
+//
+// PROJECT — denormalised on every line (the salaried FK needs it as a key
+// column anyway), and PROVEN by the database: every person FK is COMPOSITE and
+// includes projectId, so a line cannot claim project B for a fiche of
+// project A. Possible here and not on the task assignee (see
+// ProjectMaterialCategory) only because these FKs are Restrict, not SetNull.
+//
+// DELETION — every FK from a line to what it attests is onDelete: Restrict:
+// Project, ProjectWorker, Interim, SubcontractorPerson, SubcontractorCompany.
+// Deleting any of them — directly, or by the Cascade from Client, Project,
+// SubcontractorCompany or User — fails while a line references it. A clocked,
+// signed day is payroll proof; it is removed by an explicit act on the line
+// (and only while unsigned — see IMMUTABILITY), never as a side effect.
+//
+// TIME — workDate is the CIVIL day in Europe/Paris on which the shift
+// STARTED (@db.Date: no time, no zone). startAt / endAt are INSTANTS, stored
+// the house way: TIMESTAMP(3) holding UTC (what Prisma writes). So a night
+// shift crossing midnight is one line (endAt on the next civil day), and a
+// shift across a DST change measures its true length (UTC has no DST) — two
+// `time` columns could represent neither. Enforced by CHECK:
+//   workDate = ((startAt AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris')::date
+//   endAt IS NULL OR (startAt < endAt <= startAt + 24 hours)
+// endAt NULL = arrived, not yet left. The ISO week is a function of workDate
+// alone — its Monday is workDate - (ISODOW - 1) — no zone involved once the
+// day is fixed.
+// Why NOT timestamptz, although it looks like the textbook type: measured
+// through this app's client, @prisma/adapter-pg reads a timestamptz by
+// swapping its offset for "+00:00" without converting, so the value is right
+// only while the Postgres SESSION zone is UTC — the same row read 2 h late
+// under 'Europe/Paris'. TIMESTAMP(3) and DATE round-trip identically under
+// any session and process zone (probed both). The zone is therefore written
+// explicitly in the CHECK, never taken from the session.
+// Unlike EquipmentLoan's "days", workDate is a real date column: the CHECK
+// turns the truncation that comment fears into an error, not a silent shift.
+//
+// VALIDATION — per LINE (validatedAt / validatedById / validatorName). The
+// weekly validation is one UPDATE over a (project, person, ISO week) set of
+// lines, in one transaction; storing it on the line keeps each line's status
+// unambiguous (a line added after the week was validated is visibly NOT
+// validated) and needs no second copy of the polymorphic person. validatedBy
+// is SetNull + validatorName snapshot, so the stamp outlives the account.
+// CHECK: validatedAt and validatorName both set or both NULL; validatedById
+// only while validated.
+//
+// IMMUTABILITY — trigger "TimesheetEntry_guard" (BEFORE INSERT OR UPDATE):
+//   - no line is inserted already validated;
+//   - once SIGNED, person, project, workDate, startAt, endAt never change;
+//   - a line is validated only if signed;
+//   - a validated line's stamp never changes, except validatedById -> NULL
+//     (the FK's own SET NULL) or clearing all three at once (un-validation;
+//     WHO may un-validate is the application's decision).
+// DELETE is not in the trigger: a signed line is protected by the signature's
+// Restrict FK, and a validated line is always signed.
+model TimesheetEntry {
+  id                     Int                   @id @default(autoincrement())
+  project                Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectId              Int
+  // Salaried employee: the attachment (projectId, userId) must exist.
+  userId                 Int?
+  // Composite FKs carry explicit names (map): the generated ones exceed
+  // Postgres's 63-character limit and get truncated, and the application
+  // has to recognise them in a 23503 to say WHY a deletion was refused.
+  worker                 ProjectWorker?        @relation(fields: [projectId, userId], references: [projectId, userId], onDelete: Restrict, map: "TimesheetEntry_worker_fkey")
+  // Intérimaire: the fiche, of THIS project.
+  interimId              Int?
+  interim                Interim?              @relation(fields: [interimId, projectId], references: [id, projectId], onDelete: Restrict, map: "TimesheetEntry_interim_fkey")
+  // Subcontractor's person: the person, of this company, of THIS project.
+  subcontractorPersonId  Int?
+  subcontractorCompanyId Int?
+  subcontractorPerson    SubcontractorPerson?  @relation(fields: [subcontractorPersonId, subcontractorCompanyId], references: [id, companyId], onDelete: Restrict, map: "TimesheetEntry_subcontractorPerson_fkey")
+  subcontractorCompany   SubcontractorCompany? @relation(fields: [subcontractorCompanyId, projectId], references: [id, projectId], onDelete: Restrict, map: "TimesheetEntry_subcontractorCompany_fkey")
+  workDate               DateTime              @db.Date
+  startAt                DateTime
+  endAt                  DateTime?
+  validatedAt            DateTime?
+  validatedBy            User?                 @relation("TimesheetValidator", fields: [validatedById], references: [id], onDelete: SetNull)
+  validatedById          Int?
+  validatorName          String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  // 1-1, in its own table ON PURPOSE: a list of lines can never drag the
+  // image bytes along — they cost an explicit include. Select { entryId } to
+  // know whether a line is signed; include the image only to draw it.
+  signature              TimesheetSignature?
+
+  // "Une personne x un jour x un projet", one unique per population. Plain
+  // (not partial) uniques: NULLs are distinct, so rows of the other two
+  // populations never collide — and Prisma sees them, unlike a partial index.
+  // A fiche implies its project (Interim, SubcontractorPerson), so the day
+  // alone completes the key; the salaried key needs projectId explicitly.
+  // Each is led by the person column, so it also serves "this person's lines
+  // in a week" (WHERE <person> = $1 AND workDate BETWEEN ...) and the
+  // Restrict scan when that fiche / attachment is deleted.
+  @@unique([userId, workDate, projectId])
+  @@unique([interimId, workDate])
+  @@unique([subcontractorPersonId, workDate])
+  // The weekly sheet and its PDF: WHERE projectId = $1 AND workDate >= $2
+  // AND workDate < $3. Also the Project Restrict scan.
+  @@index([projectId, workDate])
+  // Restrict scan when a SubcontractorCompany is deleted (its FK columns are
+  // (subcontractorCompanyId, projectId); nothing else leads with it).
+  @@index([subcontractorCompanyId])
+  // SET NULL scan when a user is deleted — without it, deleting ANY user
+  // sequentially scans every line ever clocked.
+  @@index([validatedById])
+}
+
+// The signature of one line — what the signer saw, and the drawing.
+//
+// In the database, as bytes (bytea), not at Cloudinary: the weekly PDF embeds
+// ~5 per person, which is one query here and ~150 signed third-party fetches
+// there; and deleting a probative document must be certain (a Cloudinary
+// destroy has already returned without error while doing nothing). Measured
+// size after server normalisation: 3.2 KB (2 colours) to 11.2 KB (16 colours)
+// on the densest trace, ~6,900 signatures a year.
+//
+// entryId is both the primary key and the FK: one signature per line.
+// onDelete: Restrict — deleting a signed line needs the signature deleted
+// first, and the trigger below refuses that once the line is validated.
+//
+// signedStartAt / signedEndAt — the hours DISPLAYED to the signer, sent back
+//   by the application. The trigger locks the line (FOR UPDATE) and refuses
+//   the signature unless they equal the line's current hours: a manager
+//   editing the hours at the moment the worker signs cannot make the
+//   signature attest hours the worker never saw.
+// signerName — the person's name as shown at signing (Interim.name,
+//   SubcontractorPerson.name, or the employee's display name). A snapshot,
+//   because those names stay editable. Only CHECK: non-empty — NOT the
+//   [[:cntrl:]]/length shape of other labels: it copies names whose columns
+//   carry no such CHECK, and a stricter copy would make a legacy fiche
+//   impossible to sign.
+// capturedBy — the account whose session captured the signature (the
+//   worker's own login, or a manager's tablet). SetNull: the proof is the
+//   drawing and the snapshot, not the account.
+//
+// CHECK on image: PNG signature in the first 8 bytes, and
+// octet_length <= 98304 (96 KiB). That bound is DERIVED, not rounded: it is
+// the largest file the normalisation can emit — fit inside 600x300 px,
+// palette of at most 16 colours (4 bits/px): 300 rows x (1 + 300) bytes =
+// 90,300 raw bytes, zlib's worst case on incompressible data adds < 50, PNG
+// chunks < 400 — about 90.7 KB whatever the trace. So it rejects no legitimate
+// output of that normalisation, and bounds every row and the PDF's memory.
+// It does NOT detect a skipped normalisation (raw traces measured 5-81 KB):
+// that is the server's job. Changing the box or the palette changes this
+// number — in the same PR, with its twin constant in the application.
+//
+// IMMUTABILITY — trigger "TimesheetSignature_guard" (BEFORE INSERT OR UPDATE
+// OR DELETE): a signature is never updated (except capturedById -> NULL by
+// its own FK), is refused on a line without a departure time or whose hours
+// differ from signedStartAt/signedEndAt, and cannot be deleted while its line
+// is validated.
+model TimesheetSignature {
+  entry         TimesheetEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  entryId       Int            @id
+  image         Bytes
+  signedStartAt DateTime
+  signedEndAt   DateTime
+  signerName    String
+  capturedBy    User?          @relation("TimesheetSignatureCapturer", fields: [capturedById], references: [id], onDelete: SetNull)
+  capturedById  Int?
+  signedAt      DateTime       @default(now())
+
+  // SET NULL scan when a user is deleted.
+  @@index([capturedById])
 }
 
 model ProjectFile {
@@ -981,6 +1202,11 @@ model User {
   // login clocks for — one per project. See Interim.workerUser.
   interimFiches       Interim[]             @relation("InterimWorkerLogin")
   subcontractorFiches SubcontractorPerson[] @relation("SubcontractorPersonWorkerLogin")
+  // Timesheet lines this user validated, and signatures captured under this
+  // user's session. Both SetNull + a name snapshot on the row: the proof
+  // outlives the account without keeping a departed manager's login alive.
+  validatedTimesheetEntries   TimesheetEntry[]     @relation("TimesheetValidator")
+  capturedTimesheetSignatures TimesheetSignature[] @relation("TimesheetSignatureCapturer")
 
   @@index([jobFunctionId])
 }
