@@ -164,6 +164,14 @@ Une liste de **fonctions** (manœuvre, électricien, chef de chantier…) est g�
 
 Pour chaque fonction, un administrateur peut choisir **quelles sections de la page projet** sont visibles par les utilisateurs qui la portent (Tâches, Matériel, Réserves, Interventions, Sous-traitants, Intérimaires, Fichiers). Les administrateurs voient toujours toutes les sections.
 
+> ⚠️ **« Intérimaires » masque aussi les salariés rattachés au projet**
+> (travailleurs, PR #234) : il n'existe pas de clé de section distincte pour
+> eux. Décocher cette case retire donc à la fois les intérimaires **et** les
+> travailleurs — sélecteur d'assignation, compteur, avancement par personne et
+> rapport PDF. L'écran d'administration porte le libellé à jour ; ce
+> paragraphe-ci et la liste du chapitre « Utilisation » plus bas décrivent
+> encore l'ancien périmètre, à réécrire avec les captures.
+
 ![Configuration des sections visibles pour une fonction.](screenshots/admin-sections-visibility.png)
 
 # Utilisation
@@ -236,7 +244,10 @@ La page d'un projet est organisée en **sections dépliables**, dont l'ordre est
 - **Réserves** — plans PDF annotés de réserves géolocalisées.
 - **Interventions** — visites planifiées.
 - **Sous-traitants** — entreprises et personnel sous-traitants.
-- **Intérimaires** — travailleurs temporaires.
+- **Intérimaires** — travailleurs temporaires, **et** les salariés de
+  l'entreprise rattachés au projet (« travailleurs », PR #234) : une seule clé
+  de section pour les deux populations, réunies dans la page **Personnel**.
+  Description à réécrire (voir l'encadré du chapitre « Fonctions »).
 - **Fichiers** — arborescence de dossiers et documents.
 
 Un **tableau de bord projet** synthétise l'avancement, et un bouton **« Générer rapport PDF »** produit un rapport imprimable.
