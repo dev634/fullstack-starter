@@ -1,13 +1,15 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, MAX_REFERENCE_LENGTH } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_REFERENCE_LENGTH, CONTROL_CHAR } from "@/schemas/fields";
 
-// Matches migration 20260918120000's Equipment_name_check /
-// Equipment_reference_check (btrim(...) > 0, length <= N, no control
-// character) — same regex as schemas/reserve.ts's one-line pill label, not
-// extracted to schemas/fields.ts here since that file is outside this
-// change's scoped file list; flagged in the delivery report as a candidate
-// for a shared helper the day a third caller needs it.
-const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+// CONTROL_CHAR mirrors migration 20260918120000's Equipment_name_check /
+// Equipment_reference_check (btrim(...) > 0, length <= N, `!~ '[[:cntrl:]]'`),
+// and it is IMPORTED, never redeclared: this file used to carry its own
+// `/[\x00-\x1f\x7f]/`, which stops at ASCII while Postgres's [[:cntrl:]]
+// under a UTF-8 ctype also rejects the C1 range (U+0080–U+009F — what a `€`
+// pasted from a mis-decoded Windows-1252 document becomes). A name carrying
+// one of those traversed Zod and died on the CHECK as a generic "server
+// error" instead of a field error. Third time this class of divergence was
+// paid; tests/schema-control-char.test.ts now refuses the redeclaration.
 
 const nameSchema = z
     .string()
