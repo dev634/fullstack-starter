@@ -1,0 +1,261 @@
+import { describe, it, expect } from "vitest";
+import ts from "typescript";
+import { join, relative, sep } from "node:path";
+import { sourceFilesIn, parseSource, importedModulesIn } from "./helpers/astScan";
+
+/**
+ * Structural guarantee: the schema layer owns exactly ONE definition of
+ * "what a control character is", `CONTROL_CHAR` in schemas/fields.ts, and
+ * every schema that refuses them IMPORTS it.
+ *
+ * Why this exists: several columns carry a database CHECK of the form
+ * `!~ '[[:cntrl:]]'` (réserve status labels, material category names,
+ * equipment names and references). A CHECK is the net; the Zod schema is the
+ * door. Everything the net refuses, the door must refuse FIRST — otherwise a
+ * legitimate entry crosses Zod, dies on the constraint, and the user gets a
+ * generic "server error" instead of a field error.
+ *
+ * The trap is that the two classes look identical and are not: Postgres's
+ * `[[:cntrl:]]` under a UTF-8 ctype also covers C1 (U+0080–U+009F — what a
+ * `€` pasted from a mis-decoded Windows-1252 document becomes), while the
+ * obvious JS class `[\x00-\x1f\x7f]` stops at ASCII. That divergence was
+ * paid three times: schemas/materialCategory.ts had no class at all under a
+ * comment claiming it matched the CHECK (#228), the shared constant itself
+ * stopped at \x7f until a probe against the real database widened it, and
+ * schemas/equipment.ts shipped its own ASCII-only copy (#230) under a
+ * comment that claimed both "same regex as schemas/reserve.ts" (which
+ * imports the shared one) and "not extracted" (it already was).
+ *
+ * So this test bans the SHAPE, not a name: any regex literal in schemas/**
+ * that mentions a control code point is refused outside fields.ts — a local
+ * copy called `CTRL`, or written with a U+0000 escape instead of `\x00`, is the
+ * same defect. And it carries the matching positive requirement: a file that
+ * uses the name `CONTROL_CHAR` must have it bound by an import from
+ * @/schemas/fields, so a locally redeclared constant of the same name cannot
+ * pass for the shared one.
+ *
+ * Domain discovered by walking schemas/ — the directory IS the table of
+ * schema files — never a hand-maintained list, so a schema added tomorrow is
+ * covered without touching this file. lib/ is deliberately out of scope: its
+ * control-character regexes (header-injection stripping in
+ * lib/assetDelivery.ts, CSV formula-injection in lib/csv.ts) answer other
+ * questions and mirror no CHECK.
+ */
+
+const SCHEMAS_DIR = join(process.cwd(), "schemas");
+/** The one file allowed to WRITE the class — every other schema imports it. */
+const SHARED_SOURCE = join("schemas", "fields.ts");
+const SHARED_MODULE = "@/schemas/fields";
+const GUARD_NAME = "CONTROL_CHAR";
+
+/**
+ * Control characters are written as code points, never pasted raw into this
+ * file: a source carrying real control bytes is binary to git, and its diff
+ * stops being readable — which is how the first version of this test shipped.
+ */
+const cc = (code: number) => String.fromCodePoint(code);
+
+/** What the CHECKs reject: C0 (with tab and newline), DEL, C1, and the Unicode line separators. */
+const CONTROL_SAMPLES = [0x00, 0x09, 0x0a, 0x7f, 0x80, 0x85, 0x9f, 0x2028, 0x2029].map(cc);
+
+/** Code points Postgres's `[[:cntrl:]]` rejects under a UTF-8 ctype: C0, DEL, C1. */
+function isControlCodePoint(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+}
+
+/**
+ * The control code points a regex literal's source text mentions — both the
+ * escapes (`\x00`, `U+0080`, `\u{85}`, `\cA`, and the shorthands
+ * `\0 \n \r \t \f \v`) and any RAW control character sitting in the literal.
+ * Parsed rather than grepped: a regex looking for "\\x00" in the source
+ * would fire on a comment quoting one.
+ *
+ * The raw branch is not hypothetical: this test's own probe planted the
+ * class with real bytes instead of escape text, and the escape-only version
+ * of this function read it as harmless — a scan that certified exactly what
+ * it could not see. A file edited by a script, or a paste from a terminal,
+ * produces that form.
+ */
+function controlCodePointsIn(regexText: string): number[] {
+  const SHORTHAND: Record<string, number> = { "0": 0x00, n: 0x0a, r: 0x0d, t: 0x09, f: 0x0c, v: 0x0b };
+  const found: number[] = [];
+  for (let i = 0; i < regexText.length; i++) {
+    if (regexText[i] !== "\\") {
+      const raw = regexText.codePointAt(i);
+      if (raw !== undefined && isControlCodePoint(raw)) found.push(raw);
+      continue;
+    }
+    const kind = regexText[i + 1];
+    if (kind === "x") {
+      const code = Number.parseInt(regexText.slice(i + 2, i + 4), 16);
+      if (Number.isFinite(code) && isControlCodePoint(code)) found.push(code);
+      i += 3;
+    } else if (kind === "u") {
+      if (regexText[i + 2] === "{") {
+        const end = regexText.indexOf("}", i + 3);
+        const code = end === -1 ? NaN : Number.parseInt(regexText.slice(i + 3, end), 16);
+        if (Number.isFinite(code) && isControlCodePoint(code)) found.push(code);
+        i = end === -1 ? i + 1 : end;
+      } else {
+        const code = Number.parseInt(regexText.slice(i + 2, i + 6), 16);
+        if (Number.isFinite(code) && isControlCodePoint(code)) found.push(code);
+        i += 5;
+      }
+    } else if (kind === "c" && /[a-zA-Z]/.test(regexText[i + 2] ?? "")) {
+      found.push(regexText.charCodeAt(i + 2) % 32);
+      i += 2;
+    } else if (kind && kind in SHORTHAND) {
+      found.push(SHORTHAND[kind]);
+      i += 1;
+    } else {
+      i += 1; // any other escape (\\, \., \d…) consumes its char and means nothing here
+    }
+  }
+  return found;
+}
+
+/** Regex literals in `source` that write a control-character class themselves. */
+function controlCharClassLiteralsIn(source: ts.SourceFile): string[] {
+  const literals: string[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isRegularExpressionLiteral(n) && controlCodePointsIn(n.text).length > 0) literals.push(n.text);
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return literals;
+}
+
+/** Is the name `CONTROL_CHAR` used in this file, and is it bound by an import from the shared module? */
+function guardBinding(source: ts.SourceFile): { used: boolean; importedFromShared: boolean } {
+  let used = false;
+  let importedFromShared = false;
+  const visit = (n: ts.Node) => {
+    if (ts.isIdentifier(n) && n.text === GUARD_NAME) used = true;
+    if (
+      ts.isImportDeclaration(n) &&
+      ts.isStringLiteral(n.moduleSpecifier) &&
+      n.moduleSpecifier.text === SHARED_MODULE &&
+      n.importClause?.namedBindings &&
+      ts.isNamedImports(n.importClause.namedBindings) &&
+      n.importClause.namedBindings.elements.some((e) => (e.propertyName ?? e.name).text === GUARD_NAME)
+    ) {
+      importedFromShared = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return { used, importedFromShared };
+}
+
+function schemaFiles(): { rel: string; abs: string }[] {
+  return sourceFilesIn(SCHEMAS_DIR, [".ts"]).map((abs) => ({ rel: relative(process.cwd(), abs), abs }));
+}
+
+describe("schemas mirror the database's [[:cntrl:]] CHECKs through one shared constant", () => {
+  it("no schema outside schemas/fields.ts writes its own control-character class", () => {
+    const offenders: string[] = [];
+    for (const { rel, abs } of schemaFiles()) {
+      if (rel.split(sep).join(sep) === SHARED_SOURCE) continue;
+      for (const literal of controlCharClassLiteralsIn(parseSource(rel, abs))) {
+        offenders.push(`${rel.split(sep).join("/")}: ${literal}`);
+      }
+    }
+    expect(
+      offenders,
+      offenders.length
+        ? `These schemas redeclare a control-character class instead of importing CONTROL_CHAR from ${SHARED_MODULE}:\n` +
+          offenders.map((o) => `  - ${o}`).join("\n") +
+          `\n\nA local copy is narrower than Postgres's [[:cntrl:]] sooner or later (C1, U+0080–U+009F), ` +
+          `and the divergence surfaces as a generic "server error" on a legitimate entry.`
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("every schema that uses CONTROL_CHAR has it imported from the shared module", () => {
+    const unbound: string[] = [];
+    for (const { rel, abs } of schemaFiles()) {
+      if (rel.split(sep).join(sep) === SHARED_SOURCE) continue;
+      const { used, importedFromShared } = guardBinding(parseSource(rel, abs));
+      if (used && !importedFromShared) unbound.push(rel.split(sep).join("/"));
+    }
+    expect(
+      unbound,
+      unbound.length
+        ? `These schemas use the name CONTROL_CHAR without importing it from ${SHARED_MODULE}:\n` +
+          unbound.map((u) => `  - ${u}`).join("\n")
+        : undefined
+    ).toEqual([]);
+  });
+
+  it("the shared constant still covers what the CHECKs reject: C0, DEL and C1", () => {
+    // Guards the constant itself against being narrowed back to ASCII — the
+    // form it had before a probe against the real database widened it.
+    const shared = parseSource(SHARED_SOURCE, join(process.cwd(), SHARED_SOURCE));
+    const [literal] = controlCharClassLiteralsIn(shared);
+    expect(literal, "schemas/fields.ts no longer defines a control-character class").toBeTruthy();
+    const pattern = new RegExp(literal.slice(1, literal.lastIndexOf("/")));
+    for (const sample of CONTROL_SAMPLES) {
+      expect(pattern.test(sample), `U+${sample.codePointAt(0)!.toString(16).padStart(4, "0")} must be refused`).toBe(
+        true
+      );
+    }
+    for (const sample of ["é", "€", " ", "A", "—"]) {
+      expect(pattern.test(sample), `${sample} must be accepted`).toBe(false);
+    }
+  });
+
+  describe("probes — the scan is proven on planted sources, not assumed", () => {
+    const parse = (text: string) =>
+      ts.createSourceFile("probe.ts", text, ts.ScriptTarget.Latest, true);
+
+    it("catches the original form: the ASCII copy that shipped in schemas/equipment.ts", () => {
+      const probe = parse(`const CONTROL_CHAR = /[\\x00-\\x1f\\x7f]/;`);
+      expect(controlCharClassLiteralsIn(probe)).toHaveLength(1);
+    });
+
+    it("catches the neighbouring forms: another name, other escapes, a bare newline class, RAW bytes", () => {
+      const forms = [
+        `const CTRL = /[\\u0000-\\u001f]/;`,
+        `const anonymous = z.string().refine((v) => !/[\\x00-\\x08]/.test(v));`,
+        `const oneLine = /[\\n\\r]/;`,
+        `const tabbed = /[\\t]/;`,
+        `const cEscape = /[\\cA-\\cZ]/;`,
+        `const braced = /[\\u{85}]/u;`,
+        // Real control bytes inside the literal instead of escape text — the
+        // form that slipped past the first version of this scan.
+        `const raw = /[${cc(0x01)}-${cc(0x1f)}${cc(0x7f)}]/;`,
+      ];
+      for (const form of forms) {
+        expect(controlCharClassLiteralsIn(parse(form)), form).not.toHaveLength(0);
+      }
+    });
+
+    it("stays green on the guarded form and on regexes that mention no control code point", () => {
+      const guarded = parse(
+        `import { CONTROL_CHAR } from "@/schemas/fields";\nconst s = z.string().refine((v) => !CONTROL_CHAR.test(v));`
+      );
+      expect(controlCharClassLiteralsIn(guarded)).toEqual([]);
+      expect(guardBinding(guarded)).toEqual({ used: true, importedFromShared: true });
+
+      for (const form of [
+        `const hex = /^#[0-9a-fA-F]{6}$/;`,
+        `const slug = /[^a-z0-9-]+/g;`,
+        `const escaped = /\\d+\\.\\d+/;`,
+        `// const ghost = /[\\x00-\\x1f]/;`,
+      ]) {
+        expect(controlCharClassLiteralsIn(parse(form)), form).toEqual([]);
+      }
+    });
+
+    it("catches a local redeclaration that borrows the shared name", () => {
+      const impostor = parse(`const CONTROL_CHAR = /[\\x00-\\x1f]/;\nconst s = CONTROL_CHAR.test("x");`);
+      expect(guardBinding(impostor)).toEqual({ used: true, importedFromShared: false });
+    });
+
+    it("catches an import of the name from anywhere else", () => {
+      const elsewhere = parse(`import { CONTROL_CHAR } from "@/lib/somewhere";\nCONTROL_CHAR.test("x");`);
+      expect(guardBinding(elsewhere)).toEqual({ used: true, importedFromShared: false });
+      expect(importedModulesIn(elsewhere).has(SHARED_MODULE)).toBe(false);
+    });
+  });
+});
