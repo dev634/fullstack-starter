@@ -40,18 +40,20 @@ export async function detach(id: number) {
     }
 }
 
-export type ProjectWorkerRow = {
+/**
+ * The raw travailleur row for a project — deliberately WITHOUT a
+ * `displayName`: this repository has no `t` (dictionary), so it cannot apply
+ * the "Utilisateur #{id}" fallback lib/workerDisplayName.ts needs for a null
+ * `name`, and it must never fall back to the email instead (see
+ * `findAttachableUsers`'s own doc below for why). The caller — the workforce
+ * page — maps this into `ProjectWorkerRow` below via `workerDisplayName`
+ * before handing rows to the client component of the same name.
+ */
+export type ProjectWorkerData = {
     id: number;
     userId: number;
-    /** The User's own name — may be null (User.name is nullable). Never the
-     * raw email as its own field; see `displayName` below for the one place
-     * it surfaces as a fallback. */
     name: string | null;
     jobFunctionName: string | null;
-    /** `name ?? email`, computed here rather than left to a client that only
-     * ever needs a label to render — the same COALESCE the SQL progress
-     * aggregate below applies. */
-    displayName: string;
 };
 
 /**
@@ -59,9 +61,10 @@ export type ProjectWorkerRow = {
  * oldest first — the Personnel page's "Travailleurs" list. Mirrors
  * repository/interims.ts::findByProject, minus the columns that live on
  * `Interim` directly (name, agency): here they're read through the `User`
- * FK, so this needs an explicit `select` (User.password must never surface).
+ * FK, so this needs an explicit `select` (User.password/email must never
+ * surface).
  */
-export async function findByProject(projectId: number): Promise<ProjectWorkerRow[]> {
+export async function findByProject(projectId: number): Promise<ProjectWorkerData[]> {
     try {
         const rows = await prisma.projectWorker.findMany({
             where: { projectId },
@@ -72,7 +75,6 @@ export async function findByProject(projectId: number): Promise<ProjectWorkerRow
                 user: {
                     select: {
                         name: true,
-                        email: true,
                         jobFunction: { select: { name: true } },
                     },
                 },
@@ -83,7 +85,6 @@ export async function findByProject(projectId: number): Promise<ProjectWorkerRow
             userId: row.userId,
             name: row.user.name,
             jobFunctionName: row.user.jobFunction?.name ?? null,
-            displayName: row.user.name ?? row.user.email,
         }));
     } catch (error) {
         console.log("Repository findByProject (project worker) error:", error);
@@ -93,6 +94,21 @@ export async function findByProject(projectId: number): Promise<ProjectWorkerRow
         };
     }
 }
+
+/**
+ * The exact shape components/ProjectWorkerRow.tsx's props need — built by the
+ * workforce page from `ProjectWorkerData` + `workerDisplayName(row, t)`,
+ * never re-derived inside the client component itself. Exported here (not
+ * declared client-side) so the component can `import type` it: a type-only
+ * import is erased at compile time, so this never pulls this file's
+ * Prisma-backed code into the client bundle. `name`/`userId` are
+ * deliberately absent — the client component never needs either.
+ */
+export type ProjectWorkerRow = {
+    id: number;
+    displayName: string;
+    jobFunctionName: string | null;
+};
 
 /**
  * Number of travailleurs attached to a project — the workforce hub card's
@@ -111,10 +127,16 @@ export async function countByProject(projectId: number): Promise<number> {
     }
 }
 
-export type ProjectWorkerOption = { id: number; name: string };
+/**
+ * `name` nullable, never the email — same reasoning as `ProjectWorkerData`
+ * above: this repository has no `t`, so the caller (the task assignee
+ * picker's own page) resolves the neutral "Utilisateur #{id}" fallback via
+ * lib/workerDisplayName.ts before building the picker's AssigneeOption[].
+ */
+export type ProjectWorkerOption = { id: number; name: string | null };
 
 /**
- * Just id + displayName of every travailleur attached to a project — for the
+ * Just id + name of every travailleur attached to a project — for the
  * task/série/catégorie assignee picker (components/AssigneePicker.tsx's
  * AssigneeOption), same shape and same reasoning as
  * repository/interims.ts::findOptionsByProject: never the full row, and the
@@ -124,10 +146,10 @@ export async function findOptionsByProject(projectId: number): Promise<ProjectWo
     try {
         const rows = await prisma.projectWorker.findMany({
             where: { projectId },
-            select: { id: true, user: { select: { name: true, email: true } } },
+            select: { id: true, user: { select: { name: true } } },
             orderBy: { createdAt: "asc" },
         });
-        return rows.map((row) => ({ id: row.id, name: row.user.name ?? row.user.email }));
+        return rows.map((row) => ({ id: row.id, name: row.user.name }));
     } catch (error) {
         console.log("Repository findOptionsByProject (project worker) error:", error);
         throw {
@@ -148,7 +170,29 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
-export type AttachableUserOption = { id: number; name: string };
+// The add-worker selector lists the WHOLE organisation directory (every
+// non-CLIENT user, not just this project's own crew) — a defensive ceiling
+// against a pathological user count, the same role RESERVES_PER_PLAN_LIMIT
+// plays in repository/reservePlans.ts and `take: 10000` plays in
+// repository/contacts.ts's CSV export, not a routine page size any real
+// organisation is expected to hit.
+const MAX_ATTACHABLE_USERS = 500;
+
+/**
+ * `name` nullable, never the email (see `ProjectWorkerData`'s own doc above
+ * for why this repository can't apply the "Utilisateur #{id}" fallback
+ * itself). Sorting also moves to the caller: the old `orderBy: { email:
+ * "asc" }` sorted by a column this type no longer carries, and there is no
+ * SQL-level substitute for "the label the caller is about to display" — the
+ * workforce page sorts the resolved labels in TS instead, after applying
+ * lib/workerDisplayName.ts's fallback.
+ *
+ * NOT exported — forms/AttachWorkerForm.tsx declares its own local
+ * `AttachableUserOption` (already resolved to a plain `name: string` by the
+ * time it reaches that form), so this repository-side one had no importer at
+ * all.
+ */
+type AttachableUserOption = { id: number; name: string | null };
 
 /**
  * Non-CLIENT users not yet attached to this project — the add-worker
@@ -157,16 +201,18 @@ export type AttachableUserOption = { id: number; name: string };
  * action-layer role check at submit time; ids are still re-resolved and
  * re-checked server-side when the form is submitted (actions/projectWorkers/
  * projectWorkers.ts), since a list fetched at render time can go stale
- * before the form posts.
+ * before the form posts. Ordered by `id` for a stable, deterministic `take`
+ * — which rows the ceiling above cuts must not depend on plan/scan order.
  */
 export async function findAttachableUsers(projectId: number): Promise<AttachableUserOption[]> {
     try {
         const users = await prisma.user.findMany({
             where: { role: { not: "CLIENT" }, projectWorkers: { none: { projectId } } },
-            select: { id: true, name: true, email: true },
-            orderBy: { email: "asc" },
+            select: { id: true, name: true },
+            orderBy: { id: "asc" },
+            take: MAX_ATTACHABLE_USERS,
         });
-        return users.map((user) => ({ id: user.id, name: user.name ?? user.email }));
+        return users.map((user) => ({ id: user.id, name: user.name }));
     } catch (error) {
         console.log("Repository findAttachableUsers (project worker) error:", error);
         throw {

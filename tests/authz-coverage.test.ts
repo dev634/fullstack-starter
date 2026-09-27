@@ -444,6 +444,47 @@ describe("authorization coverage across server actions", () => {
     ).toEqual([]);
   });
 
+  it("gates every report route behind the `projects` area, discovered by glob rather than a hand-written list", () => {
+    // A hand-written file list only ever protects the files it already
+    // names — exactly the OWNED_BY_SECTION trap (docs/CONVENTIONS.md,
+    // "Tests — le piège récurrent"): `actions/materialCategories` (PR #228)
+    // went unguarded through an entire implementation because no list named
+    // it yet. Every report — the five under dashboard/report/ plus the
+    // réserves one — lives under a `report` folder, so this discovers them
+    // by walking app/ (sourceFilesIn, already used above) and filtering on
+    // that folder segment, the same "table that defines the domain" move
+    // tests/project-section-authz-coverage.test.ts makes from
+    // PROJECT_SECTION_ROUTES rather than a file list of its own.
+    const reportRouteFiles = sourceFilesIn(APP_DIR, [".ts"])
+      .map((file) => relative(process.cwd(), file).split(sep).join("/"))
+      .filter((file) => file.endsWith("/route.ts") && file.split("/").includes("report"));
+
+    expect(reportRouteFiles.length, "no report route.ts found by glob — did report/ move?").toBeGreaterThan(3);
+
+    const ungated: string[] = [];
+    for (const file of reportRouteFiles) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(join(process.cwd(), file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const fns = functionsIn(source);
+      const getFn = fns.find((f) => f.exported && f.name === "GET");
+      expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
+      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
+    }
+
+    expect(
+      ungated,
+      ungated.length
+        ? `These report routes never check the caller's area:\n` +
+          ungated.map((k) => `  - ${k}`).join("\n") +
+          `\n\nAdd canAccessArea("projects") from @/lib/areaAccess, next to requireAppUser().`
+        : undefined
+    ).toEqual([]);
+  });
+
   it("gates the guarded asset delivery route and the réserves report route behind the `projects` area, not just their section", () => {
     // canAccessSection (via SECTION_BY_KIND / "reserves") only answers "which
     // of a project's OWN sections may this caller see" — a narrower question

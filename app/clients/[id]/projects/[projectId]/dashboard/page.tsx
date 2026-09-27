@@ -18,6 +18,7 @@ import {
 } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
 import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
@@ -122,7 +123,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
     materialCategories,
     interimProgress,
     companyProgress,
-    workerProgress,
+    workerProgressRaw,
     reserveTally,
   ] = await Promise.all([
     showTasks ? findByProject(pid) : Promise.resolve([]),
@@ -145,6 +146,11 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   ]);
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
+
+  // computeProgressByWorker can't resolve a null User.name itself (no `t`
+  // here — see that function's own doc), so this page does it once, right
+  // after the fetch, the same way tasks/page.tsx and workforce/page.tsx do.
+  const workerProgress = workerProgressRaw.map((row) => ({ ...row, name: workerDisplayName(row, t) }));
 
   // One bar per category and per ungrouped series — a categorized series or
   // task is rolled into its category's own bar instead of appearing on its

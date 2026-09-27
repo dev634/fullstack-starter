@@ -321,9 +321,10 @@ const fr = {
             workersHeading: "Travailleurs",
             noWorkers: "Aucun travailleur rattaché à ce projet.",
             workforceHeading: "Personnel",
-            workforceDescription: "Entreprises sous-traitantes et intérimaires affectés à ce chantier.",
+            workforceDescription: "Entreprises sous-traitantes, intérimaires et travailleurs affectés à ce chantier.",
             workforceSubcontractorsCount: "{count} sous-traitant(s)",
             workforceInterimsCount: "{count} intérimaire(s)",
+            workforceWorkersCount: "{count} travailleur(s)",
             filesHeading: "Fichiers",
             filesDescription: "Documents et plans du chantier, classés par dossier.",
             emptyFolder: "Ce dossier est vide.",
@@ -633,6 +634,10 @@ const fr = {
         selectPlaceholder: "Choisir un salarié…",
         noAttachableUsers: "Aucun salarié disponible à rattacher.",
         detachWorker: "Détacher {name}",
+        // Neutral fallback label for a User row whose `name` is null — the
+        // repository never sends an email to the client (lib/workerDisplayName.ts),
+        // so this is what renders instead of one.
+        unnamedUser: "Utilisateur #{id}",
         messages: {
             added: "Travailleur rattaché.",
             removed: "Travailleur détaché.",
@@ -932,6 +937,12 @@ const fr = {
             title: "Sections accessibles",
             saving: "Enregistrement…",
             saved: "Sections enregistrées.",
+            // Admin-only override of the `interims` key's label (see
+            // lib/projectSectionLabels.ts) — this checkbox/drag-item now also
+            // gates the travailleurs (ProjectWorker) picker and count, not
+            // just les intérimaires. Deliberately NOT projects.detail.interimsHeading,
+            // which stays "Intérimaires" on the workforce page's own heading.
+            interimsAndWorkersLabel: "Intérimaires et travailleurs",
         },
         areas: {
             title: "Rubriques de l'application",

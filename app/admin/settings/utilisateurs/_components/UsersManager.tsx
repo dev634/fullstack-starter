@@ -235,7 +235,8 @@ export default function UsersManager({
           )}
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.nameLabel}</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className={inputClass} />
+            {fieldErrors?.name && <p className="mt-1 text-xs text-red-500">{fieldErrors.name}</p>}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.roleLabel}</label>

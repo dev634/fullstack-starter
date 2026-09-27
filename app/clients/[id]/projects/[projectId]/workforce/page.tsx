@@ -5,6 +5,7 @@ import {
   findAttachableUsers,
 } from "@/repository/projectWorkers";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";
@@ -99,6 +100,27 @@ export default async function ProjectWorkforcePage({ params }: PageProps) {
     // form's own dropdown, so only fetched when that form can actually render.
     canEdit && showInterims ? findAttachableUsers(pid) : Promise.resolve([]),
   ]);
+
+  // Neither repository function knows `t` (see repository/projectWorkers.ts's
+  // own doc on ProjectWorkerData/AttachableUserOption), so the "Utilisateur
+  // #{id}" fallback for a null User.name is applied here, once per row —
+  // never the raw email either function used to fall back to. Fresh object
+  // LITERALS on purpose (`.map` return value, not the raw row forwarded as a
+  // variable): this is what actually narrows what reaches each client
+  // component's serialized props to exactly what it declares, not merely
+  // what its type annotation claims (docs/CONVENTIONS.md's "Requêtes base").
+  const workerRows = workers.map((worker) => ({
+    id: worker.id,
+    displayName: workerDisplayName(worker, t),
+    jobFunctionName: worker.jobFunctionName,
+  }));
+  // Sorted on the resolved label, in TS: the repository can no longer sort
+  // by email (removed), and there is no SQL-level substitute for "the label
+  // about to be displayed" once a null name resolves to "Utilisateur #{id}"
+  // only here.
+  const attachableUserOptions = attachableUsers
+    .map((user) => ({ id: user.id, name: workerDisplayName(user, t) }))
+    .sort((a, b) => a.name.localeCompare(b.name, locale));
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">
@@ -204,12 +226,12 @@ export default async function ProjectWorkforcePage({ params }: PageProps) {
                     </span>
                   )}
                 </h2>
-                {canEdit && <AttachWorkerForm clientId={clientId} projectId={pid} users={attachableUsers} />}
+                {canEdit && <AttachWorkerForm clientId={clientId} projectId={pid} users={attachableUserOptions} />}
               </div>
 
-              {workers.length ? (
+              {workerRows.length ? (
                 <ul className="divide-y divide-gray-300 dark:divide-gray-700">
-                  {workers.map((worker) => (
+                  {workerRows.map((worker) => (
                     <ProjectWorkerRow key={worker.id} worker={worker} clientId={clientId} projectId={pid} canEdit={canEdit} />
                   ))}
                 </ul>

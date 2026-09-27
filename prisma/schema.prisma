@@ -781,9 +781,12 @@ model ProjectWorker {
   // on the Personnel page, the progress aggregate's final join) and the
   // Project cascade scan — so no separate @@index([projectId]).
   @@unique([projectId, userId])
-  // Backs the User cascade scan and every "which projects is this employee
-  // attached to" read (deleteUser's warning, the future timesheet's project
-  // picker). Postgres does not index the referencing side of a FK by itself.
+  // Backs the User cascade scan (onDelete: Cascade above — deleteUser
+  // surfaces no warning for this relation, unlike Equipment/EquipmentLoan's
+  // onDelete: Restrict; see actions/users/users.ts::deleteUser) and every
+  // other "which projects is this employee attached to" read (the future
+  // timesheet's project picker). Postgres does not index the referencing
+  // side of a FK by itself.
   @@index([userId])
 }
 

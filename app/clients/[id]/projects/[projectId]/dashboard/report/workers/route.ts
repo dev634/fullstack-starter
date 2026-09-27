@@ -4,6 +4,7 @@ import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
 import { computeProgressByWorker } from "@/repository/tasks";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { localeTag } from "@/lib/i18n/formatDate";
@@ -62,7 +63,10 @@ export async function GET(
 
     // Already a GROUP BY aggregate, one row per assignee — the list this
     // report prints IS that aggregate, never a raw task/série/catégorie row.
-    const rows = await computeProgressByWorker(pid);
+    // computeProgressByWorker can't resolve a null User.name itself (no `t`
+    // there — see that function's own doc), so this route does it once here.
+    const rawRows = await computeProgressByWorker(pid);
+    const rows = rawRows.map((row) => ({ ...row, name: workerDisplayName(row, t) }));
     const generatedAt = new Date();
 
     const pdf = await buildWorkersReport({

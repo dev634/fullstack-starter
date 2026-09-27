@@ -281,8 +281,12 @@ describe("free-text length ceilings (adversarial pass 2, point 5)", () => {
 
   it("rejects a new-user email over MAX_EMAIL_LENGTH", () => {
     const local = "x".repeat(MAX_EMAIL_LENGTH);
+    // `name` provided so this fails for the ONE reason this test targets
+    // (email length), not ambiguously for that or the unrelated missing-name
+    // requirement schemas/user.ts::createUserSchema also enforces now.
     const result = createUserSchema.safeParse({
       email: `${local}@example.com`,
+      name: "Test",
       role: "VIEWER",
       password: "longenough1",
     });
@@ -292,8 +296,12 @@ describe("free-text length ceilings (adversarial pass 2, point 5)", () => {
   it("still accepts a well-formed login/reset/new-user email", () => {
     expect(loginSchema.safeParse({ email: "a@example.com", password: "whatever" }).success).toBe(true);
     expect(requestResetSchema.safeParse({ email: "a@example.com" }).success).toBe(true);
+    // `name` is required since the refactoring point that made it so
+    // (schemas/user.ts::createUserSchema) — without it this fixture would
+    // fail for an unrelated reason than the one this test targets.
     expect(
-      createUserSchema.safeParse({ email: "a@example.com", role: "VIEWER", password: "longenough1" }).success
+      createUserSchema.safeParse({ email: "a@example.com", name: "Test", role: "VIEWER", password: "longenough1" })
+        .success
     ).toBe(true);
   });
 });

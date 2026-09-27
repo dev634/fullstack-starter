@@ -4,6 +4,7 @@ import { countByProject as countMaterialsByProject, computeStockStatsByProject }
 import { countByProject as countInterventionsByProject } from "@/repository/interventions";
 import { countCompaniesByProject } from "@/repository/subcontractors";
 import { countByProject as countInterimsByProject } from "@/repository/interims";
+import { countByProject as countWorkersByProject } from "@/repository/projectWorkers";
 import { countByProject as countFilesByProject } from "@/repository/projectFiles";
 import { countByProject as countReservePlansByProject } from "@/repository/reservePlans";
 import { tallyByProject as tallyReservesByProject } from "@/repository/reserves";
@@ -131,6 +132,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     interventionsCount,
     subcontractorCount,
     interimCount,
+    workerCount,
     reservePlanCount,
     reserveTally,
     fileCount,
@@ -145,6 +147,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     hiddenSections.has("interventions") ? Promise.resolve(0) : countInterventionsByProject(pid),
     hiddenSections.has("subcontractors") ? Promise.resolve(0) : countCompaniesByProject(pid),
     hiddenSections.has("interims") ? Promise.resolve(0) : countInterimsByProject(pid),
+    // Travailleurs share the "interims" section key — there is no dedicated
+    // "workers" key (see actions/projectWorkers/projectWorkers.ts's own
+    // doc) — same guard as interimCount just above.
+    hiddenSections.has("interims") ? Promise.resolve(0) : countWorkersByProject(pid),
     hiddenSections.has("reserves") ? Promise.resolve(0) : countReservePlansByProject(pid),
     hiddenSections.has("reserves")
       ? Promise.resolve({ total: 0, open: 0, resolved: 0 })
@@ -351,13 +357,16 @@ export default async function ProjectDetailPage({ params }: PageProps) {
             title={t.projects.detail.workforceHeading}
             description={t.projects.detail.workforceDescription}
             counter={
-              subcontractorCount > 0 || interimCount > 0
+              subcontractorCount > 0 || interimCount > 0 || workerCount > 0
                 ? [
                     subcontractorCount > 0
                       ? format(t.projects.detail.workforceSubcontractorsCount, { count: subcontractorCount })
                       : null,
                     interimCount > 0
                       ? format(t.projects.detail.workforceInterimsCount, { count: interimCount })
+                      : null,
+                    workerCount > 0
+                      ? format(t.projects.detail.workforceWorkersCount, { count: workerCount })
                       : null,
                   ]
                     .filter((segment): segment is string => segment !== null)

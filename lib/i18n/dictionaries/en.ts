@@ -319,9 +319,10 @@ const en: Dictionary = {
             workersHeading: "Employees",
             noWorkers: "No employees attached to this project.",
             workforceHeading: "Workforce",
-            workforceDescription: "Subcontractor companies and temp workers assigned to this project.",
+            workforceDescription: "Subcontractor companies, temp workers, and employees assigned to this project.",
             workforceSubcontractorsCount: "{count} subcontractor(s)",
             workforceInterimsCount: "{count} temp worker(s)",
+            workforceWorkersCount: "{count} employee(s)",
             filesHeading: "Files",
             filesDescription: "Project documents and drawings, organized in folders.",
             emptyFolder: "This folder is empty.",
@@ -629,6 +630,10 @@ const en: Dictionary = {
         selectPlaceholder: "Choose an employee…",
         noAttachableUsers: "No employee available to attach.",
         detachWorker: "Detach {name}",
+        // Neutral fallback label for a User row whose `name` is null — the
+        // repository never sends an email to the client (lib/workerDisplayName.ts),
+        // so this is what renders instead of one.
+        unnamedUser: "User #{id}",
         messages: {
             added: "Employee attached.",
             removed: "Employee detached.",
@@ -910,6 +915,13 @@ const en: Dictionary = {
             title: "Accessible sections",
             saving: "Saving…",
             saved: "Sections saved.",
+            // Admin-only override of the `interims` key's label (see
+            // lib/projectSectionLabels.ts) — this checkbox/drag-item now also
+            // gates the temp workers/employees (ProjectWorker) picker and
+            // count, not just the intérimaires. Deliberately NOT
+            // projects.detail.interimsHeading, which stays "Temp workers" on
+            // the workforce page's own heading.
+            interimsAndWorkersLabel: "Temp workers and employees",
         },
         areas: {
             title: "Application areas",

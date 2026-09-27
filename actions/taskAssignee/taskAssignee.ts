@@ -63,6 +63,21 @@ export async function setAssignee(
 
     const parsed = parseAssignee(assignee);
 
+    // The assignee kind gates a SECOND section, beyond the unconditional
+    // `tasks` check above: an entreprise sous-traitante is the
+    // `subcontractors` section, an intérimaire or an internal travailleur are
+    // both the `interims` section (docs/CONVENTIONS.md: `workforce` fuses
+    // `subcontractors` + `interims`, and the assignee picker's `interim:`/
+    // `worker:` options come from that same population). Clearing the
+    // assignment ("") touches neither and only needs `tasks`.
+    if (parsed.assignedCompanyId != null) {
+      const companySectionCheck = await requireSectionAccess("subcontractors");
+      if (companySectionCheck.error) return companySectionCheck.error;
+    } else if (parsed.assignedInterimId != null || parsed.assignedWorkerId != null) {
+      const workforceSectionCheck = await requireSectionAccess("interims");
+      if (workforceSectionCheck.error) return workforceSectionCheck.error;
+    }
+
     // The picker only ever lists this project's own subcontractor companies
     // / intérimaires / travailleurs — but nothing server-side checked that
     // before, so a submitted id from another project silently assigned a

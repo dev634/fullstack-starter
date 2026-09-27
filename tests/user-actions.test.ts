@@ -71,8 +71,21 @@ describe("user management actions", () => {
 
   it("addUser: an ADMIN cannot grant SUPERADMIN", async () => {
     actor("ADMIN");
-    const res = await addUser(initial, form({ email: "n@x.com", role: "SUPERADMIN", password: "password123" }));
+    // `name` is required since the refactoring point that made it so (schemas/
+    // user.ts::createUserSchema) — without it this fixture would fail Zod
+    // validation before ever reaching the role check this test targets.
+    const res = await addUser(initial, form({ email: "n@x.com", name: "N", role: "SUPERADMIN", password: "password123" }));
     expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3 (revue + audit "travailleurs"): name is now required
+  // at creation (schemas/user.ts::createUserSchema) — a null/blank name used
+  // to fall back to the raw email everywhere this account was displayed.
+  it("addUser: a fixture without a name fails Zod validation (name is now required)", async () => {
+    actor("ADMIN");
+    const res = await addUser(initial, form({ email: "n@x.com", role: "EDITOR", password: "password123" }));
+    expect(res.type).toBe("zodError");
     expect(createMock).not.toHaveBeenCalled();
   });
 
@@ -91,6 +104,19 @@ describe("user management actions", () => {
     findByIdMock.mockResolvedValue({ id: 9, email: "s@x.com", role: "SUPERADMIN" } as never);
     const res = await updateUser(initial, form({ id: "9", role: "ADMIN" }));
     expect(res.type).toBe("error");
+    expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3: updateUserSchema's `name` stays `.optional()` — a
+  // caller that never sends the field is unaffected (see the SUPERADMIN test
+  // just above, whose fixture omits it) — but once SENT, it must not be
+  // blank: an admin cannot clear an existing name via this form, only
+  // replace it.
+  it("updateUser: a name sent as an empty string fails Zod validation", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR" } as never);
+    const res = await updateUser(initial, form({ id: "9", name: "", role: "EDITOR" }));
+    expect(res.type).toBe("zodError");
     expect(updateProfileMock).not.toHaveBeenCalled();
   });
 

@@ -27,6 +27,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { setAssignee } from "@/actions/taskAssignee/taskAssignee";
 import { requireRole } from "@/lib/authz";
+import { requireSectionAccess } from "@/lib/sectionAccess";
 import { canReachProject } from "@/lib/accessContext";
 import { setAssignee as setTaskAssigneeRepo, findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { setAssignee as setGroupAssigneeRepo } from "@/repository/taskGroups";
@@ -37,6 +38,7 @@ import { findProjectId as findWorkerProjectId } from "@/repository/projectWorker
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
+const requireSectionAccessMock = vi.mocked(requireSectionAccess);
 const canReachProjectMock = vi.mocked(canReachProject);
 const taskRepoMock = vi.mocked(setTaskAssigneeRepo);
 const findTaskProjectIdMock = vi.mocked(findTaskProjectId);
@@ -45,6 +47,7 @@ const categoryRepoMock = vi.mocked(setCategoryAssigneeRepo);
 const findCompanyProjectIdMock = vi.mocked(findCompanyProjectId);
 const findInterimProjectIdMock = vi.mocked(findInterimProjectId);
 const findWorkerProjectIdMock = vi.mocked(findWorkerProjectId);
+const FORBIDDEN_SECTION = { error: { type: "error" as const, message: fr.errors.forbiddenSection } };
 
 describe("parseAssignee", () => {
   it("maps company:<id> to assignedCompanyId only", () => {
@@ -64,7 +67,15 @@ describe("parseAssignee", () => {
 });
 
 describe("setAssignee action", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // clearAllMocks() wipes call history but not a mock's implementation — a
+    // "section masquée" test below replaces it with mockImplementation(...)
+    // (matched by argument, so it applies to every call regardless of order).
+    // Reset the default explicitly each time so that override never leaks
+    // into the next test.
+    requireSectionAccessMock.mockResolvedValue({ error: null });
+  });
 
   it("refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
@@ -109,6 +120,56 @@ describe("setAssignee action", () => {
     const res = await setAssignee("task", 7, "worker:11", 1, 3);
     expect(taskRepoMock).toHaveBeenCalledWith(7, { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: 11 });
     expect(res.type).toBe("success");
+  });
+
+  // Refactoring point 1 (revue + audit "travailleurs"): the assignee kind
+  // gates a SECOND section beyond `tasks` — company: subcontractors,
+  // interim:/worker: interims. This changes existing behaviour for
+  // intérimaires and entreprises sous-traitantes, which previously only
+  // needed `tasks`.
+  describe("gates the assignee kind behind its own section, beyond tasks", () => {
+    it("refuses a company assignment when the subcontractors section is hidden", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      requireSectionAccessMock.mockImplementation(async (section) =>
+        section === "subcontractors" ? FORBIDDEN_SECTION : { error: null }
+      );
+      const res = await setAssignee("task", 7, "company:2", 1, 3);
+      expect(res).toEqual({ type: "error", message: fr.errors.forbiddenSection });
+      expect(taskRepoMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses an intérimaire assignment when the interims section is hidden", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      requireSectionAccessMock.mockImplementation(async (section) =>
+        section === "interims" ? FORBIDDEN_SECTION : { error: null }
+      );
+      const res = await setAssignee("task", 7, "interim:9", 1, 3);
+      expect(res).toEqual({ type: "error", message: fr.errors.forbiddenSection });
+      expect(taskRepoMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a travailleur assignment when the interims section is hidden", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      requireSectionAccessMock.mockImplementation(async (section) =>
+        section === "interims" ? FORBIDDEN_SECTION : { error: null }
+      );
+      const res = await setAssignee("task", 7, "worker:11", 1, 3);
+      expect(res).toEqual({ type: "error", message: fr.errors.forbiddenSection });
+      expect(taskRepoMock).not.toHaveBeenCalled();
+    });
+
+    it("clearing the assignment only requires the tasks section, not subcontractors or interims", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      // Only "tasks" resolves — if the action asked for subcontractors or
+      // interims on a clear ("") assignee, this would refuse instead.
+      requireSectionAccessMock.mockImplementation(async (section) =>
+        section === "tasks" ? { error: null } : FORBIDDEN_SECTION
+      );
+      categoryRepoMock.mockResolvedValue({ id: 1 } as never);
+      const res = await setAssignee("category", 6, "", 1, 3);
+      expect(res.type).toBe("success");
+      expect(categoryRepoMock).toHaveBeenCalledWith(6, { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null });
+    });
   });
 
   // Passe 3a, point 3: the picker only ever lists this project's own

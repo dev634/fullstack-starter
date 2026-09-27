@@ -9,6 +9,7 @@ import {
   computeProgressByCompany,
   computeProgressByWorker,
 } from "@/repository/tasks";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
@@ -79,11 +80,13 @@ export async function GET(
     const showTasks = await canAccessSection("tasks");
     const showInterims = showTasks && (await canAccessSection("interims"));
     const showCompanies = showTasks && (await canAccessSection("subcontractors"));
-    // Same identity-guard reasoning as showInterims/showCompanies above: a
-    // travailleur's own name is personnel data, gated by "interims" on the
+    // A travailleur's own name is personnel data, gated by "interims" on the
     // fused workforce page (there is no dedicated "workers" section key —
-    // see actions/projectWorkers/projectWorkers.ts's own doc).
-    const showWorkers = showTasks && (await canAccessSection("interims"));
+    // see actions/projectWorkers/projectWorkers.ts's own doc) — the EXACT
+    // same condition as showInterims above (both are "showTasks && interims
+    // visible"), so reused rather than a second identical `canAccessSection`
+    // await.
+    const showWorkers = showInterims;
     const showReserves = await canAccessSection("reserves");
     const showMaterials = await canAccessSection("materials");
 
@@ -99,6 +102,10 @@ export async function GET(
         showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
         showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
       ]);
+
+    // computeProgressByWorker can't resolve a null User.name itself (no `t`
+    // there — see that function's own doc), so this route does it once here.
+    const workerDisplayRows = workerRows.map((row) => ({ ...row, name: workerDisplayName(row, t) }));
 
     const chrome = {
       generatedOn: t.projectDashboard.report.generatedOn,
@@ -168,7 +175,7 @@ export async function GET(
 
     if (showWorkers) {
       sections.workers = {
-        rows: workerRows,
+        rows: workerDisplayRows,
         labels: {
           title: t.projectDashboard.workersTitle,
           none: t.projectDashboard.workersNone,

@@ -4,22 +4,18 @@ import { TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { useRowAction } from "@/lib/useRowAction";
+import type { ProjectWorkerRow as ProjectWorkerRowData } from "@/repository/projectWorkers";
 
-// Structural mirror of repository/projectWorkers.ts::ProjectWorkerRow — kept
-// local rather than imported so this client component never pulls a server
-// repository module into its bundle (same rule as every other row component
-// in this codebase: e.g. ProjectInterimRow imports the Prisma `Interim`
-// type, never repository/interims.ts).
-type ProjectWorkerData = {
-  id: number;
-  userId: number;
-  name: string | null;
-  jobFunctionName: string | null;
-  displayName: string;
-};
+// `import type` only — erased at compile time, so this never pulls
+// repository/projectWorkers.ts's Prisma-backed code into this client
+// component's bundle. An earlier version of this file duplicated the shape
+// locally instead, on the theory that importing it would bundle the server
+// module; that theory was false (a type-only import carries no runtime
+// code), and the duplicate had already drifted (it still carried `name`/
+// `userId`, which this component never reads — see that type's own doc).
 
 type ProjectWorkerRowProps = {
-  worker: ProjectWorkerData;
+  worker: ProjectWorkerRowData;
   clientId: number;
   projectId: number;
   canEdit: boolean;
