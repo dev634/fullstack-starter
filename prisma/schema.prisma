@@ -691,9 +691,24 @@ model SubcontractorPerson {
   jobFunctionId Int?
   phone         String?
   createdAt     DateTime             @default(now())
+  // --- Timesheet access (pointage), migration 20260927100000 ---------------
+  // Same contract as Interim.email / Interim.workerUser — read the comment
+  // there. Differences: the scope key is companyId (a SubcontractorCompany
+  // belongs to exactly one project, so "one fiche per login per company" is
+  // "per project" unless the same login sits in two companies of one project,
+  // which the application refuses), and the project is reached through the
+  // company.
+  email         String?
+  workerUser    User?                @relation("SubcontractorPersonWorkerLogin", fields: [workerUserId], references: [id], onDelete: SetNull)
+  workerUserId  Int?
 
   @@index([companyId])
   @@index([jobFunctionId])
+  // Leading "email": serves the bind-time lookup WHERE email = $1.
+  @@unique([email, companyId])
+  // Leading "workerUserId": serves the WORKER's own scope read and the User
+  // ON DELETE SET NULL scan.
+  @@unique([workerUserId, companyId])
 }
 
 // A temp/agency worker (intérimaire) attached directly to the project — a
@@ -714,9 +729,52 @@ model Interim {
   assignedTasks      ProjectTask[]
   assignedGroups     ProjectTaskGroup[]
   assignedCategories ProjectTaskCategory[]
+  // --- Timesheet access (pointage), migration 20260927100000 ---------------
+  //
+  // email — the address of the person on THIS fiche. NULL = none given, a
+  //   legitimate permanent state (no backfill: the column is new and NULL
+  //   means "not provided", there is nothing to carry over). Canonical form
+  //   enforced by a database CHECK ("Interim_email_check"): lower-case, no
+  //   whitespace or control character, contains an "@", at most
+  //   MAX_EMAIL_LENGTH (254) characters. The door is Zod
+  //   (.trim().toLowerCase() then an e-mail check, which is ASCII-only and
+  //   therefore stricter than every clause of the CHECK). NOT unique on its
+  //   own: one person = one Interim row PER PROJECT, so the same address
+  //   legitimately appears on several fiches. Unique per project only.
+  //
+  // workerUser — the WORKER login bound to this fiche, MATERIALISED rather
+  //   than computed by matching e-mails at read time. The e-mail above is the
+  //   KEY used to find or create that login when an admin binds it; it is not
+  //   itself the authorisation. Why: every holder of content.edit on the
+  //   project's Intérimaires section can write the e-mail; if the match were
+  //   computed at read time, writing an address would silently hand this
+  //   fiche — and the right to clock and sign hours under its name — to
+  //   whichever login bears it. Binding stays a users.manage act, exactly like
+  //   createPortalLogin for a CLIENT (Contact.userId). SetNull: deleting the
+  //   login unbinds the fiche, the fiche and its hours stay.
+  //
+  // Application invariants (a FK proves a row exists, not what kind):
+  //   - the bound User.role is WORKER;
+  //   - lower(User.email) = email at bind time, and editing the e-mail of a
+  //     bound fiche clears workerUserId in the same write (re-binding is an
+  //     admin act again).
+  email              String?
+  workerUser         User?                 @relation("InterimWorkerLogin", fields: [workerUserId], references: [id], onDelete: SetNull)
+  workerUserId       Int?
 
   @@index([projectId])
   @@index([jobFunctionId])
+  // One fiche per address per project: two fiches bearing one address would
+  // make "which fiche does this login clock for, on this project" ambiguous.
+  // Leading "email", so it also serves the bind-time lookup
+  //   SELECT ... FROM "Interim" WHERE "email" = $1
+  // (NULLs are distinct in a unique index: fiches without e-mail never clash.)
+  @@unique([email, projectId])
+  // One fiche per login per project, for the same reason. Leading
+  // "workerUserId", so it serves the WORKER's own scope read
+  //   SELECT ... FROM "Interim" WHERE "workerUserId" = $1
+  // and the User ON DELETE SET NULL scan.
+  @@unique([workerUserId, projectId])
 }
 
 // An internal employee (a User of the organisation) ATTACHED to a project —
@@ -845,6 +903,16 @@ enum Role {
   // External client-portal login, tied to a Contact; confined to /portail and
   // scoped to the contact's linked projects. Below VIEWER in the hierarchy.
   CLIENT
+  // External timesheet login (pointage) for an intérimaire or a subcontractor's
+  // person — NOT for salaried employees, who clock in with their normal
+  // account. Bound to its fiches by Interim.workerUserId /
+  // SubcontractorPerson.workerUserId (one login, one fiche per project), and
+  // meant to be confined to the timesheet pages exactly as CLIENT is to
+  // /portail. Migration 20260927100000 only adds the value: until the proxy
+  // and the guards confine it, NO account may be given this role — every
+  // existing role check in the app is a deny-list on CLIENT, which a WORKER
+  // would slip past.
+  WORKER
 }
 
 // A configurable list of job functions / trades (manœuvre, électricien, chef de
@@ -909,6 +977,10 @@ model User {
   // its own — it is reached through equipment.loans (the lender is the owner).
   equipment        Equipment[]
   borrowedLoans    EquipmentLoan[]
+  // Timesheet login (role WORKER): the intérimaire / subcontractor fiches this
+  // login clocks for — one per project. See Interim.workerUser.
+  interimFiches       Interim[]             @relation("InterimWorkerLogin")
+  subcontractorFiches SubcontractorPerson[] @relation("SubcontractorPersonWorkerLogin")
 
   @@index([jobFunctionId])
 }
