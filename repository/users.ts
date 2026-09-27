@@ -148,8 +148,11 @@ export async function findById(id: number) {
             // actions/users/users.ts — jobFunctionId added for the passe 3b,
             // point 3 self-lock guard: it lets updateUser compare a submitted
             // jobFunctionId against the target's CURRENT one without a second
-            // query).
-            select: { id: true, email: true, role: true, jobFunctionId: true },
+            // query; name added by the refactoring point that fixed updateUser
+            // writing NULL over an existing name when the form field is
+            // omitted — it lets updateUser fall back to the CURRENT name
+            // without a second query too).
+            select: { id: true, email: true, role: true, jobFunctionId: true, name: true },
         });
     } catch (error) {
         console.log("Repository findById (user) error:", error);

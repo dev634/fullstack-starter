@@ -93,6 +93,12 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   // call above is built on, rather than widening that call's own key set
   // (which decides page-halves, not which assignee list-options load).
   const canAssignWorkforce = canEdit && showTasks && (await canAccessSection("interims"));
+  // Symmetric to canAssignWorkforce above: actions/taskAssignee/taskAssignee.ts
+  // gates a `company:` assignee on requireSectionAccess("subcontractors"), a
+  // SECOND section beyond the unconditional `tasks` check — so the picker's
+  // company list must not load when that function hides `subcontractors`,
+  // same reasoning as the interims/workers list just above.
+  const canAssignCompanies = canEdit && showTasks && (await canAccessSection("subcontractors"));
 
   const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, workerOptions, materials, materialCategories] =
     await Promise.all([
@@ -111,7 +117,7 @@ export default async function ProjectTasksPage({ params }: PageProps) {
       // reads a company's personnel or an intérimaire's job function/agency
       // (see each function's own doc). Only fetched when the Tâches half
       // actually renders — nothing on the Matériel half uses them.
-      canEdit && showTasks ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
+      canAssignCompanies ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
       canAssignWorkforce ? findInterimOptionsByProject(pid) : Promise.resolve([]),
       canAssignWorkforce ? findWorkerOptionsByProject(pid) : Promise.resolve([]),
       showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),

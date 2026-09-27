@@ -89,6 +89,23 @@ describe("user management actions", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  // Refactoring point 5 (audit du delta "travailleurs"): `name` now refuses
+  // CONTROL_CHAR (schemas/fields.ts), imported rather than redeclared — this
+  // account's name is rendered as a plain label at six display sites, two of
+  // them PDF reports. Same set the CHECK-backed schemas (materialCategory,
+  // reserve, equipment) already refuse: ASCII controls and the C1 range
+  // (U+0085 here) — there is no database CHECK on User.name, this is a
+  // display-safety refine only.
+  it("addUser: a name containing a C1 control (U+0085) fails Zod validation", async () => {
+    actor("ADMIN");
+    const res = await addUser(
+      initial,
+      form({ email: "n@x.com", name: "JeanDupont", role: "EDITOR", password: "password123" })
+    );
+    expect(res.type).toBe("zodError");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
   it("addUser: an ADMIN adds an EDITOR with a hashed password", async () => {
     actor("ADMIN");
     createMock.mockResolvedValue({ id: 5 } as never);
@@ -118,6 +135,33 @@ describe("user management actions", () => {
     const res = await updateUser(initial, form({ id: "9", name: "", role: "EDITOR" }));
     expect(res.type).toBe("zodError");
     expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 5: same CONTROL_CHAR refine as addUser above, on the
+  // update path.
+  it("updateUser: a name containing a C1 control (U+0085) fails Zod validation", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR" } as never);
+    const res = await updateUser(initial, form({ id: "9", name: "JeanDupont", role: "EDITOR" }));
+    expect(res.type).toBe("zodError");
+    expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3 (audit du delta "travailleurs"): `name` omitted from
+  // the payload used to write NULL over an existing name (`?? null` in the
+  // action) — this fixture's target HAS a name and the submitted form does
+  // not send the field at all, so updateProfile must receive the target's
+  // CURRENT name, not null. Red before the fix (asserted "New Name" via
+  // `?? null` never applies; the actual regression was a null being written).
+  it("updateUser: omitting `name` preserves the target's existing name instead of writing NULL", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR", name: "Existing Name" } as never);
+    updateProfileMock.mockResolvedValue({ id: 9 } as never);
+
+    const res = await updateUser(initial, form({ id: "9", role: "EDITOR" }));
+
+    expect(res.type).toBe("success");
+    expect(updateProfileMock).toHaveBeenCalledWith(9, expect.objectContaining({ name: "Existing Name" }));
   });
 
   it("updateUser: cannot demote the last SUPERADMIN", async () => {

@@ -207,9 +207,11 @@ export type AssigneeProgress = { id: number; name: string; done: number; total: 
  * the query UNINTERPRETED (no parameterization, no escaping): safe here only
  * because every value it can ever receive is one of these three fixed
  * strings, hardcoded below, and never a call-site argument. This is the one
- * place in this codebase `Prisma.raw` is used — see docs/CONVENTIONS.md if a
- * second one is ever proposed; it must meet the same "closed literal table"
- * bar, not just "the value happens not to be attacker-controlled today".
+ * place in this codebase `Prisma.raw` is used — see docs/CONVENTIONS.md's
+ * "SQL brut (Prisma.raw)" section if a second one is ever proposed; it must
+ * meet the same "closed literal table" bar, not just "the value happens not
+ * to be attacker-controlled today". Locked by
+ * tests/prisma-raw-literal-guard.test.ts.
  */
 const ASSIGNEE_COLUMN = {
     interim: Prisma.raw('"assignedInterimId"'),

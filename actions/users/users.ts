@@ -63,7 +63,9 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
     const password = await bcrypt.hash(parsed.data.password, 10);
     const user = await create({
       email: parsed.data.email,
-      name: parsed.data.name ?? null,
+      // createUserSchema's `name` is required (non-optional) — the `?? null`
+      // this replaced was dead: parsed.data.name can never be undefined here.
+      name: parsed.data.name,
       role: parsed.data.role,
       jobFunctionId: parsed.data.jobFunctionId ?? null,
       password,
@@ -138,7 +140,14 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     }
 
     const user = await updateProfile(target.id, {
-      name: parsed.data.name ?? null,
+      // Refactoring point 3 (revue + audit "travailleurs"): `name` is
+      // `.optional()` in updateUserSchema, so an omitted field parses to
+      // `undefined` — `?? null` here used to write NULL over an existing
+      // name whenever the field was left off the payload, instead of leaving
+      // it untouched. Falling back to the CURRENT name (read via findById
+      // above) preserves it; a blank string is still rejected upstream by
+      // Zod's `min(1)`, so this can never be used to erase a name either.
+      name: parsed.data.name ?? target.name,
       role: parsed.data.role,
       jobFunctionId: parsed.data.jobFunctionId ?? null,
     });

@@ -645,6 +645,7 @@ const en: Dictionary = {
     assignees: {
         label: "Assigned to",
         none: "Unassigned",
+        hidden: "Assigned (hidden)",
         companies: "Subcontractors",
         interims: "Temp workers",
         workers: "Employees",

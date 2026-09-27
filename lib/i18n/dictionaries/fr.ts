@@ -649,6 +649,7 @@ const fr = {
     assignees: {
         label: "Assigné à",
         none: "Non assigné",
+        hidden: "Assigné (masqué)",
         companies: "Sous-traitants",
         interims: "Intérimaires",
         workers: "Travailleurs",

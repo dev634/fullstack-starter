@@ -353,6 +353,39 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   de l'adaptateur (et l'épingler par un test), sinon un doublon sur la
   nouvelle contrainte sera annoncé comme un doublon sur l'ancienne.
 
+## SQL brut (Prisma.raw)
+
+`Prisma.raw` splice son argument dans la requête **non interprété** — aucune
+paramétrisation, aucun échappement, à la différence de `$queryRaw`/`$executeRaw`
+(tagged-template) dont les `${…}` sont de vrais paramètres liés. C'est le seul
+endroit du dépôt où une valeur peut atteindre du SQL sans passer par un bind :
+la barre à tenir est donc plus haute que « la valeur n'est pas contrôlée par
+l'utilisateur aujourd'hui ».
+
+Un seul point d'usage : `repository/tasks.ts::ASSIGNEE_COLUMN`, qui choisit
+entre les trois colonnes d'assignation (`assignedInterimId`/
+`assignedCompanyId`/`assignedWorkerId`) pour les CTE de progression par
+intérimaire/entreprise/travailleur. Sûr uniquement parce que l'argument de
+chaque `Prisma.raw` est un **littéral de chaîne fixé dans le code**, tiré
+d'une table fermée à trois entrées codée en dur juste au-dessus — jamais une
+valeur lue en base ni un paramètre d'appel ; `${projectId}`, dans le même
+tagged-template, reste lui un paramètre lié normal.
+
+**La barre pour un second usage** : uniquement une table fermée de littéraux
+de chaîne écrits dans le code, jamais une valeur qui *se trouve* ne pas être
+contrôlée par l'utilisateur aujourd'hui — cette dernière propriété ne survit
+pas à un refactoring qui fait remonter la valeur un niveau plus haut.
+`$queryRawUnsafe`/`$executeRawUnsafe` sont interdits sans exception : leur
+paramétrage optionnel n'est pas la protection qu'il paraît être sur une
+requête déjà construite par concaténation.
+
+Verrouillé par `tests/prisma-raw-literal-guard.test.ts` : tout `Prisma.raw`
+dont l'argument n'est pas un littéral de chaîne (variable, template avec
+substitution, concaténation, argument absent) fait rougir la suite, de même
+que tout appel à `$queryRawUnsafe`/`$executeRawUnsafe` — domaine découvert en
+parcourant le dépôt entier (à l'exclusion du code non applicatif), jamais par
+une liste de fichiers.
+
 ## Couleurs dynamiques et CSP
 
 `proxy.ts` pose `style-src 'self' 'nonce-…'`, **sans `unsafe-inline`**. Un nonce

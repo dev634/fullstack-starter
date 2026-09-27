@@ -90,18 +90,20 @@ const OWNED_BY_SECTION = [
 ];
 
 /**
- * "Resolved by import" helpers for requireAreaOrRedirect (lib/areaAccess.ts),
- * used by the page-level test below. Same technique as
- * tests/project-section-authz-coverage.test.ts's resolveProjectSectionAccess
- * check (a second, narrower occurrence — not extracted per this repo's
- * two-occurrence DRY threshold, flagged as a shared-helper candidate the day
- * a third caller needs it): matching the bare identifier
- * "requireAreaOrRedirect" would also count a locally redeclared function of
- * the same name that never imports the real guard.
+ * "Resolved by import" helpers for lib/areaAccess.ts exports (requireAreaOrRedirect,
+ * canAccessArea), used by the page-level and report-route tests below. Same
+ * technique as tests/project-section-authz-coverage.test.ts's
+ * resolveProjectSectionAccess check: matching a bare identifier would also
+ * count a locally redeclared function of the same name that never imports
+ * the real guard. `collectAreaGuardNames` takes the export name as a
+ * parameter rather than being duplicated per export — a third near-identical
+ * copy, one per guard name, is exactly the "third caller" this repo's
+ * two-occurrence DRY threshold would have to extract anyway.
  */
 const ROOT = process.cwd();
 const AREA_ACCESS_LIB_FILE = resolve(ROOT, "lib", "areaAccess.ts").toLowerCase();
 const AREA_GUARD_EXPORT_NAME = "requireAreaOrRedirect";
+const AREA_CAN_ACCESS_EXPORT_NAME = "canAccessArea";
 
 /** Whether import specifier `spec`, written in file `fromRelFile`, resolves to lib/areaAccess.ts. */
 function resolvesToAreaAccessLib(spec: string, fromRelFile: string): boolean {
@@ -113,8 +115,8 @@ function resolvesToAreaAccessLib(spec: string, fromRelFile: string): boolean {
   return candidates.some((c) => c.toLowerCase() === AREA_ACCESS_LIB_FILE);
 }
 
-/** Local names bound to lib/areaAccess.ts's requireAreaOrRedirect export, aliased or not. */
-function collectAreaGuardNames(source: ts.SourceFile, relFile: string): Set<string> {
+/** Local names bound to lib/areaAccess.ts's `exportName` export, aliased or not. */
+function collectAreaGuardNames(source: ts.SourceFile, relFile: string, exportName: string): Set<string> {
   const names = new Set<string>();
   for (const stmt of source.statements) {
     if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
@@ -122,7 +124,7 @@ function collectAreaGuardNames(source: ts.SourceFile, relFile: string): Set<stri
     const bindings = stmt.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
     for (const el of bindings.elements) {
-      if ((el.propertyName ?? el.name).text === AREA_GUARD_EXPORT_NAME) names.add(el.name.text);
+      if ((el.propertyName ?? el.name).text === exportName) names.add(el.name.text);
     }
   }
   return names;
@@ -449,7 +451,7 @@ describe("authorization coverage across server actions", () => {
     // names — exactly the OWNED_BY_SECTION trap (docs/CONVENTIONS.md,
     // "Tests — le piège récurrent"): `actions/materialCategories` (PR #228)
     // went unguarded through an entire implementation because no list named
-    // it yet. Every report — the five under dashboard/report/ plus the
+    // it yet. Every report — the six under dashboard/report/ plus the
     // réserves one — lives under a `report` folder, so this discovers them
     // by walking app/ (sourceFilesIn, already used above) and filtering on
     // that folder segment, the same "table that defines the domain" move
@@ -459,7 +461,12 @@ describe("authorization coverage across server actions", () => {
       .map((file) => relative(process.cwd(), file).split(sep).join("/"))
       .filter((file) => file.endsWith("/route.ts") && file.split("/").includes("report"));
 
-    expect(reportRouteFiles.length, "no report route.ts found by glob — did report/ move?").toBeGreaterThan(3);
+    // Exact count, not a floor: `toBeGreaterThan(3)` stayed green even if half
+    // these routes vanished from the glob. Recounted at this commit: 7 (5
+    // per-section dashboard reports + the whole-dashboard report + réserves).
+    // Adding a genuine 8th report route bumps this number too — that's the
+    // point, it forces a human to notice the domain grew.
+    expect(reportRouteFiles.length, "report route count changed — recount and update this expectation").toBe(7);
 
     const ungated: string[] = [];
     for (const file of reportRouteFiles) {
@@ -469,16 +476,21 @@ describe("authorization coverage across server actions", () => {
         ts.ScriptTarget.Latest,
         true
       );
-      const fns = functionsIn(source);
+      const guardNames = collectAreaGuardNames(source, file, AREA_CAN_ACCESS_EXPORT_NAME);
+      const fns = pageFunctionsIn(source);
       const getFn = fns.find((f) => f.exported && f.name === "GET");
       expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
-      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
+      // The call must be resolved by import AND name this rubrique:
+      // canAccessArea("clients") pasted into a project report route would
+      // still be "a call to canAccessArea" (the bare-name check this
+      // replaces) while checking the wrong rubrique.
+      if (!bodyCallsAnyOfWithFirstArg(getFn!.body, guardNames, "projects")) ungated.push(`${file}::GET`);
     }
 
     expect(
       ungated,
       ungated.length
-        ? `These report routes never check the caller's area:\n` +
+        ? `These report routes never check the caller's area for "projects":\n` +
           ungated.map((k) => `  - ${k}`).join("\n") +
           `\n\nAdd canAccessArea("projects") from @/lib/areaAccess, next to requireAppUser().`
         : undefined
@@ -651,7 +663,7 @@ describe("authorization coverage across server actions", () => {
         ts.ScriptTarget.Latest,
         true
       );
-      const guardNames = collectAreaGuardNames(source, rel);
+      const guardNames = collectAreaGuardNames(source, rel, AREA_GUARD_EXPORT_NAME);
       const fns = pageFunctionsIn(source).filter((f) => f.exported);
       expect(fns.length, `${file} has no exported page component — did it move?`).toBeGreaterThan(0);
       // The call must name THIS rubrique: requireAreaOrRedirect("projects")
@@ -680,7 +692,7 @@ describe("authorization coverage across server actions", () => {
       ts.ScriptTarget.Latest,
       true
     );
-    const guardNames = collectAreaGuardNames(source, file);
+    const guardNames = collectAreaGuardNames(source, file, AREA_GUARD_EXPORT_NAME);
     const pageFn = pageFunctionsIn(source).find((f) => f.exported && f.name === "HomePage");
     expect(pageFn, `${file} has no exported HomePage — did it get renamed?`).toBeDefined();
     expect(
