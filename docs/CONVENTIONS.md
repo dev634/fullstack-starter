@@ -31,7 +31,7 @@ Ce coût appartient au **lancement**, pas à la feature. Sans lui, l'agent ne
 peut lancer aucun contrôle et rend un rapport que rien n'étaye — ce qui est
 pire qu'une absence de rapport, parce que ça se lit comme une preuve.
 
-## Modèle d'accès — trois axes orthogonaux
+## Modèle d'accès — trois axes orthogonaux, plus la propriété
 
 Ne jamais les croiser en matrice.
 
@@ -41,6 +41,20 @@ Ne jamais les croiser en matrice.
 | **Fonction → sections** | quelles sections d'un projet existent pour toi | `requireSectionAccess` — `lib/sectionAccess.ts` |
 | **Fonction → rubriques** | quelles rubriques de l'app existent pour toi | `requireAreaAccess` / `canAccessArea` — `lib/areaAccess.ts` |
 | **Fonction → projets** | quels projets tu peux atteindre | `requireProjectAccess` — `lib/accessContext.ts` |
+| **Propriété** (rubrique personnelle) | « cette ligne est-elle à moi ? » — l'utilisateur courant *ou* un ADMIN+ | `getLoansActor` — `lib/currentUser.ts` |
+
+**Le quatrième axe est arrivé avec la rubrique Prêts (PR #230)** et ne
+ressemble pas aux trois autres : il ne vient pas de la fonction mais de la
+**ligne** (`Equipment.ownerId`, `EquipmentLoan.borrowerId`). La session ne
+porte que `{email, role}`, jamais d'id numérique : l'id du « moi » se résout
+**en base** par e-mail (`getCurrentUserId`), jamais depuis le formulaire.
+`getLoansActor()` rend `{userId, isAdmin}` d'un coup — la page décide la
+visibilité et les actions décident l'autorisation avec la **même** source,
+sinon un bouton affiché et une action refusée divergent. Ordre dans une
+mutation de ce type : `requireCapability("content.edit")` →
+`requireAreaAccess("loans")` → parse Zod → **ligne résolue en base** →
+propriétaire ou admin. Hors périmètre ⇒ même message que « inexistant »
+(un emprunteur CLIENT rend `invalidId`, pas un message dédié).
 
 **Ordre des gardes dans une mutation, toujours le même :**
 
@@ -116,6 +130,20 @@ re-dériver :
   table** et exige un appel résolu par l'**import** (un homonyme local ne compte
   pas). C'est ce qui lui a fait attraper seul une page créée après lui. Ajouter
   une section = une entrée dans la table + le garde partagé, rien d'autre.
+
+**Ajouter une rubrique de l'app** (le chemin qu'a suivi Prêts, PR #230) touche
+six endroits : `lib/appAreas.ts` (`APP_AREA_KEYS`, `APP_AREA_CHILDREN`,
+`TOP_LEVEL_APP_AREAS`, `AREA_HREFS`), `PROTECTED_PATHS` (`lib/routeGuard.ts`),
+le lien de nav (`app/layout.tsx`, `canAccessArea`), la page
+(`blockClientFromApp()` puis `requireAreaOrRedirect("<clé>")`), ses fichiers
+d'actions dans `AREA_BY_FILE` (`tests/authz-coverage.test.ts`), et les deux
+dictionnaires i18n. Deux tests découvrent leurs cibles par `AREA_HREFS` et
+attrapent seuls, depuis #230 : une rubrique **sans entrée proxy**
+(`tests/route-guard-area-coverage.test.ts`, page et sous-arbre — `/loans` a
+été livré sans, la frontière anonyme/CLIENT ne tenait que par la page) et une
+page sans `requireAreaOrRedirect("<clé>")` **avec sa clé** (voir « Tests »).
+Ce qu'aucun test n'attrape : un fichier d'actions oublié d'`AREA_BY_FILE` —
+liste à la main, même défaut qu'`OWNED_BY_SECTION` plus bas.
 
 Hors périmètre ⇒ **« introuvable », jamais « interdit »** (anti-énumération).
 
@@ -213,6 +241,26 @@ repositories qui les écrivent → actions qui les importent), **une feature qui
 crée un fichier d'actions de projet l'ajoute à cette liste et le prouve par
 sonde** (garde retirée → rouge).
 
+**Une garde exigée par son nom seul certifie le mauvais domaine.** Le test des
+pages de rubrique (`tests/authz-coverage.test.ts`, PR #230) exigeait « un
+appel à `requireAreaOrRedirect` » : `requireAreaOrRedirect("projects")` collé
+dans `app/loans/page.tsx` restait vert tout en gardant la mauvaise rubrique.
+Il lit désormais l'**argument** (`bodyCallsAnyOfWithFirstArg`, sondé rouge →
+vert). Inventaire au 2026-09-20 (`9f718ec`) de ce qui vérifie encore le nom
+sans l'argument alors que la valeur attendue est connue — six vérifications
+dans deux fichiers, **à fermer** avec le même helper, une sonde chacune :
+
+- `tests/authz-coverage.test.ts` — `AREA_BY_FILE` : la valeur de la table
+  (`clients`, `projects`, `clients.contacts`, `loans`) n'est jamais comparée à
+  l'argument de `requireAreaAccess` ; `AREA_BY_ROUTE` : idem pour
+  `canAccessArea` sur les trois exports CSV ; `OWNED_BY_SECTION` :
+  `requireAreaAccess` sans exiger `"projects"` ; route `/api/assets` + rapport
+  de réserves : `canAccessArea` sans `"projects"` ; page de détail projet :
+  idem.
+- `tests/project-section-authz-coverage.test.ts` — `sectionKey` vient bien de
+  `PROJECT_SECTION_ROUTES` mais ne sert qu'au message : la page `reserves`
+  qui appellerait `resolveProjectSectionAccess(params, "tasks")` passe.
+
 ## Validation — primitives partagées, à réutiliser
 
 Ne pas réinventer un plafond ni une détection : ces deux modules existent, et
@@ -231,6 +279,19 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   pose avec `.trim().min(1).max(MAX_NAME_LENGTH).refine(CONTROL_CHAR)` en
   face, copié de `schemas/materialCategory.ts` ; les trois clauses doivent
   être là, et le test paramétré (`\t`, ``, ` `) avec.
+  ⚠️ **« La seule regex » est faux depuis PR #230** : `schemas/equipment.ts`
+  redéclare un `CONTROL_CHAR = /[\x00-\x1f\x7f]/` local — exactement la classe
+  ASCII que #228 avait remplacée — face à deux `CHECK … !~ '[[:cntrl:]]'`
+  (`Equipment_name_check`, `Equipment_reference_check`). Son commentaire dit
+  « même regex que `schemas/reserve.ts` » (faux : celui-ci importe la partagée)
+  et « pas extraite vers `fields.ts`, hors périmètre » (elle y était déjà,
+  exportée). Un nom portant un C1 (U+0085…) traverse Zod et meurt sur la
+  contrainte en « erreur serveur ». Troisième occurrence de la classe
+  (réserves #187, catégories #228, équipements #230), passée à travers deux
+  revues et un audit de delta : **à corriger** (importer `CONTROL_CHAR` de
+  `schemas/fields.ts`, sonder U+0085 contre la base) **et à instrumenter** —
+  un test structurel qui parse `schemas/**` et refuse tout littéral regex
+  contenant `\x00-\x1f` hors de `schemas/fields.ts`.
 - **Vrai type d'un fichier** : `lib/fileSignature.ts`
   (`detectRasterImageMediaType`, `looksLikeDangerousMarkup`, `looksLikePdf`) —
   magic bytes, extrait du scan de bulletin plutôt que dupliqué. ⚠️ Ce point
@@ -241,10 +302,23 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   uploadé en `resource_type: "image"` (nécessaire pour que Cloudinary
   rastérise le PDF — préservé). Fermé par `looksLikePdf`, qui cherche la
   signature `%PDF-` dans les 1024 premiers octets (tolérance du format lui-même,
-  pas une largesse ajoutée ici). Les cinq chemins d'upload y passent
-  maintenant. **HEIC/AVIF/BMP/TIFF sont explicitement couverts** : le HEIC est le
-  format par défaut des iPhone, et les réserves se photographient au téléphone.
-  Resserrer cette détection sans le vérifier casse le chemin le plus utilisé.
+  pas une largesse ajoutée ici). Les chemins d'upload y passent tous — **six**
+  au 2026-09-20 (`9f718ec`, les `export async function upload*` de
+  `lib/cloudinary.ts` : client photo, logo, fichier de projet, plan et photo
+  de réserve, **photo d'équipement** depuis PR #230 ; le scan de bulletin lit
+  aussi les magic bytes mais n'uploade pas). Ce compte a déjà été faux une
+  fois (« quatre ») : il se recompte, il ne se recopie pas.
+  **HEIC/AVIF/BMP/TIFF sont explicitement couverts** par la détection : le
+  HEIC est le format par défaut des iPhone, et les réserves se photographient
+  au téléphone. Resserrer cette détection sans le vérifier casse le chemin le
+  plus utilisé. ⚠️ Exception délibérée (PR #230, décision B) : la photo
+  d'équipement les **refuse** avec un message explicite, parce qu'elle part
+  vers un stockage public après `stripArchivedPhotoMetadata`
+  (`lib/imageMetadata.ts`), qui ne ré-encode que JPEG/PNG/WebP/GIF ; la
+  délégation à Cloudinary a été prouvée sur JPEG (`angle: "exif"` obligatoire,
+  sans lui ni rotation ni strip) mais **pas sur un HEIC réel** — voir l'en-tête
+  d'`uploadEquipmentPhoto` pour lever l'exception le jour où un fichier
+  d'iPhone est disponible.
 - Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer
   `Infinity` ; une date non validée laisse écrire `+275760-09-12`, que Prisma
   relit en `Invalid Date` et qui a rendu `/projects/export` en 500 **pour tout
@@ -264,6 +338,20 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   puis relire : le diff doit contenir *exactement* le changement voulu.
 - La prod applique les migrations **au démarrage du conteneur**
   (`docker-entrypoint.sh`) — une migration mergée part automatiquement.
+- **Un index unique partiel** (`CREATE UNIQUE INDEX … WHERE …`) n'existe pas
+  pour Prisma : `migrate diff` ne le voit pas, il vit **seulement** dans le SQL
+  de la migration — se vérifie dans `pg_indexes`, pas dans `schema.prisma`
+  (`EquipmentLoan_equipmentId_open_key`, « un prêt ouvert par équipement »).
+- **Sur un P2002, `meta.target` est vide** avec le driver que l'app utilise
+  (`@prisma/adapter-pg`, `lib/prisma.ts`) — sondé sur la base locale, PR #230 :
+  les colonnes sont sous `meta.driverAdapterError.cause.constraint.fields`,
+  non documenté, et le nom de l'index seulement dans `…originalMessage`. Les
+  quatre `catch` P2002 du dépôt (`repository/{clients,jobFunctions,users,
+  equipmentLoans}.ts`) traitent donc tout P2002 de leur table comme **le seul
+  unique qu'elle porte** — vrai aujourd'hui, faux le jour où une de ces
+  tables gagne une seconde contrainte unique : ce jour-là, lire la structure
+  de l'adaptateur (et l'épingler par un test), sinon un doublon sur la
+  nouvelle contrainte sera annoncé comme un doublon sur l'ancienne.
 
 ## Couleurs dynamiques et CSP
 
