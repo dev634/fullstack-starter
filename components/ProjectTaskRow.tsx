@@ -17,7 +17,7 @@ type ProjectTaskRowProps = {
   projectId: number;
   canEdit: boolean;
   categories?: TaskCategoryOption[];
-  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[]; workers: AssigneeOption[] };
 };
 
 export default function ProjectTaskRow({ task, clientId, projectId, canEdit, categories, assignees }: ProjectTaskRowProps) {
@@ -128,8 +128,10 @@ export default function ProjectTaskRow({ task, clientId, projectId, canEdit, cat
           projectId={projectId}
           companies={assignees.companies}
           interims={assignees.interims}
+          workers={assignees.workers}
           assignedCompanyId={task.assignedCompanyId}
           assignedInterimId={task.assignedInterimId}
+          assignedWorkerId={task.assignedWorkerId}
         />
       )}
       {canEdit && (

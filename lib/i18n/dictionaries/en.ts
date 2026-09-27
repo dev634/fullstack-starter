@@ -316,10 +316,13 @@ const en: Dictionary = {
             noSubcontractors: "No subcontractors for this project.",
             interimsHeading: "Temp workers",
             noInterims: "No temp workers for this project.",
+            workersHeading: "Employees",
+            noWorkers: "No employees attached to this project.",
             workforceHeading: "Workforce",
-            workforceDescription: "Subcontractor companies and temp workers assigned to this project.",
+            workforceDescription: "Subcontractor companies, temp workers, and employees assigned to this project.",
             workforceSubcontractorsCount: "{count} subcontractor(s)",
             workforceInterimsCount: "{count} temp worker(s)",
+            workforceWorkersCount: "{count} employee(s)",
             filesHeading: "Files",
             filesDescription: "Project documents and drawings, organized in folders.",
             emptyFolder: "This folder is empty.",
@@ -621,11 +624,31 @@ const en: Dictionary = {
             invalidId: "Invalid temp worker ID.",
         },
     },
+    workers: {
+        addToggle: "Attach an employee",
+        selectLabel: "Employee",
+        selectPlaceholder: "Choose an employee…",
+        noAttachableUsers: "No employee available to attach.",
+        detachWorker: "Detach {name}",
+        // Neutral fallback label for a User row whose `name` is null — the
+        // repository never sends an email to the client (lib/workerDisplayName.ts),
+        // so this is what renders instead of one.
+        unnamedUser: "User #{id}",
+        messages: {
+            added: "Employee attached.",
+            removed: "Employee detached.",
+            invalidId: "Invalid employee ID.",
+            alreadyAttached: "This employee is already attached to this project.",
+            clientNotAllowed: "A client account cannot be attached as an employee.",
+        },
+    },
     assignees: {
         label: "Assigned to",
         none: "Unassigned",
+        hidden: "Assigned (hidden)",
         companies: "Subcontractors",
         interims: "Temp workers",
+        workers: "Employees",
         messages: {
             updated: "Assignment updated.",
         },
@@ -893,6 +916,13 @@ const en: Dictionary = {
             title: "Accessible sections",
             saving: "Saving…",
             saved: "Sections saved.",
+            // Admin-only override of the `interims` key's label (see
+            // lib/projectSectionLabels.ts) — this checkbox/drag-item now also
+            // gates the temp workers/employees (ProjectWorker) picker and
+            // count, not just the intérimaires. Deliberately NOT
+            // projects.detail.interimsHeading, which stays "Temp workers" on
+            // the workforce page's own heading.
+            interimsAndWorkersLabel: "Temp workers and employees",
         },
         areas: {
             title: "Application areas",
@@ -952,6 +982,7 @@ const en: Dictionary = {
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
+            cannotSetClientWhileAttached: "This account is attached as an employee to at least one project. Detach it before switching it to client.",
             // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are
             // onDelete: Restrict (migration 20260918120000) — closed loans
             // are purged automatically when the user is deleted.
@@ -1103,6 +1134,8 @@ const en: Dictionary = {
         interimsNone: "No task, series or category assigned to a temp worker yet.",
         companiesTitle: "Progress by subcontractor company",
         companiesNone: "No task, series or category assigned to a subcontractor company yet.",
+        workersTitle: "Progress by employee",
+        workersNone: "No task, series or category assigned to an employee yet.",
         reservesTitle: "Snag progress",
         reservesNone: "No snags yet.",
         // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —

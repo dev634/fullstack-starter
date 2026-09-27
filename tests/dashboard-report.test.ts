@@ -5,6 +5,7 @@ import {
   buildTasksReport,
   buildInterimsReport,
   buildCompaniesReport,
+  buildWorkersReport,
   buildMaterialsReport,
   buildGlobalDashboardReport,
   buildMaterialCategoryGroups,
@@ -124,7 +125,7 @@ describe("buildTasksReport", () => {
   });
 });
 
-describe("buildInterimsReport / buildCompaniesReport", () => {
+describe("buildInterimsReport / buildCompaniesReport / buildWorkersReport", () => {
   it("lists one row per assignee", async () => {
     const pdf = await buildInterimsReport({
       project,
@@ -166,6 +167,20 @@ describe("buildInterimsReport / buildCompaniesReport", () => {
       labels: assigneeLabels,
     });
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("workers report renders the same shape with its own title", async () => {
+    const pdf = await buildWorkersReport({
+      project,
+      companyName,
+      locale,
+      generatedAt,
+      chrome,
+      rows: [{ id: 1, name: "Chef d'équipe", done: 3, total: 6, percent: 50 }],
+      labels: { ...assigneeLabels, title: "Avancement par travailleur" },
+    });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(pageCount(pdf)).toBe(2);
   });
 });
 
@@ -284,11 +299,30 @@ describe("buildGlobalDashboardReport", () => {
     });
 
     // Cover + tasks + materials = 3 — no page at all for interims/companies/
-    // réserves, which the caller never included in `sections`. This is the
-    // unit-level proof that the combined report only ever draws what it's
-    // handed; the route handler is what decides WHICH sections that is
+    // workers/réserves, which the caller never included in `sections`. This
+    // is the unit-level proof that the combined report only ever draws what
+    // it's handed; the route handler is what decides WHICH sections that is
     // (canAccessSection per section, mirrored from the dashboard page).
     expect(pageCount(pdf)).toBe(3);
+  });
+
+  it("draws a page for the workers section too, when the caller includes it", async () => {
+    const pdf = await buildGlobalDashboardReport({
+      project,
+      companyName,
+      locale,
+      generatedAt,
+      chrome,
+      title: "Rapport complet du tableau de bord",
+      sections: {
+        workers: {
+          rows: [{ id: 1, name: "Chef d'équipe", done: 3, total: 6, percent: 50 }],
+          labels: assigneeLabels,
+        },
+      },
+    });
+    // Cover + workers = 2.
+    expect(pageCount(pdf)).toBe(2);
   });
 
   it("renders a bare cover when the caller may see no section at all", async () => {

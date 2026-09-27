@@ -23,11 +23,18 @@ type TaskGroupSummary = {
   categoryId?: number | null;
   assignedCompanyId?: number | null;
   assignedInterimId?: number | null;
+  assignedWorkerId?: number | null;
   tasks: ProjectTask[];
 };
 
 type ProjectTaskCategorySectionProps = {
-  category: { id: number; name: string; assignedCompanyId?: number | null; assignedInterimId?: number | null };
+  category: {
+    id: number;
+    name: string;
+    assignedCompanyId?: number | null;
+    assignedInterimId?: number | null;
+    assignedWorkerId?: number | null;
+  };
   groups: TaskGroupSummary[];
   // Standalone (non-series) tasks assigned directly to this category —
   // rendered alongside the series, same section, same "Groupe" concept.
@@ -36,7 +43,7 @@ type ProjectTaskCategorySectionProps = {
   clientId: number;
   projectId: number;
   canEdit: boolean;
-  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[]; workers: AssigneeOption[] };
 };
 
 export default function ProjectTaskCategorySection({
@@ -136,8 +143,10 @@ export default function ProjectTaskCategorySection({
             projectId={projectId}
             companies={assignees.companies}
             interims={assignees.interims}
+            workers={assignees.workers}
             assignedCompanyId={category.assignedCompanyId ?? null}
             assignedInterimId={category.assignedInterimId ?? null}
+            assignedWorkerId={category.assignedWorkerId ?? null}
           />
         )}
         {canEdit && (

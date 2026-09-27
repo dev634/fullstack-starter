@@ -49,12 +49,19 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
-/** Sets a category's assignee (subcontractor company OR intérimaire). */
-export async function setAssignee(id: number, data: { assignedCompanyId: number | null; assignedInterimId: number | null }) {
+/** Sets a category's assignee (subcontractor company OR intérimaire OR internal worker). */
+export async function setAssignee(
+    id: number,
+    data: { assignedCompanyId: number | null; assignedInterimId: number | null; assignedWorkerId: number | null }
+) {
     try {
         return await prisma.projectTaskCategory.update({
             where: { id },
-            data: { assignedCompanyId: data.assignedCompanyId, assignedInterimId: data.assignedInterimId },
+            data: {
+                assignedCompanyId: data.assignedCompanyId,
+                assignedInterimId: data.assignedInterimId,
+                assignedWorkerId: data.assignedWorkerId,
+            },
         });
     } catch (error) {
         console.log("Repository setAssignee (task category) error:", error);

@@ -25,7 +25,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 | Exigence | Où | État |
 |---|---|---|
 | Échappement de sortie | React échappe par défaut ; `lib/email/render.ts` échappe explicitement et rejette les URL non-http(s) | ✅ |
-| Pas d'injection SQL | Accès exclusivement via Prisma (paramétré), aucune concaténation | ✅ |
+| Pas d'injection SQL | Accès exclusivement via Prisma (paramétré). Une exception : `Prisma.raw` (`repository/tasks.ts::ASSIGNEE_COLUMN`) splice trois identifiants de colonne depuis une table littérale fermée — jamais une valeur d'exécution — et `${projectId}` dans le même tagged-template reste un paramètre lié, pas concaténé. Verrouillé par `tests/prisma-raw-literal-guard.test.ts` : tout `Prisma.raw` dont l'argument n'est pas un littéral de chaîne, ou tout `$queryRawUnsafe`/`$executeRawUnsafe`, fait rougir la suite. Détail : `docs/CONVENTIONS.md` § SQL brut (Prisma.raw) | ✅ |
 | En-tête `Content-Disposition` | Nom de fichier PDF slugifié en ASCII (testé) | ✅ |
 | Valeurs de la base interpolées dans du CSS | Couleurs de thème et de statut de réserve : Zod `hexColor` à l'écriture, `CHECK` **ancré** en base (`~` est une correspondance non ancrée en PostgreSQL — sans `^…$`, `#000000; background:url(…)` passe), puis `safeHex` juste avant l'interpolation dans le `<style nonce>` (`app/layout.tsx`, `components/ReserveStatusStyleVars.tsx`), lié à ses sites d'appel par `tests/style-color-injection-guard.test.ts`. ⚠️ Ce ✅ a certifié une couche absente du 2026-08-23 au 2026-08-28 : `AppSettings.primaryColor`/`accentColor` n'avaient **aucun** `CHECK`, seules les colonnes de `Project` en portaient un. Réparé par la migration `20260828100000`. Se recompte dans `pg_constraint`, pas en relisant cette ligne | ✅ |
 

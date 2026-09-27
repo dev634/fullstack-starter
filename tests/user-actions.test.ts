@@ -24,10 +24,16 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
+// Read by updateUser's CLIENT lever (an account already attached as a worker
+// to a project must not become a CLIENT portal login). Defaults to "not
+// attached" so every pre-existing test in this file, which never touches
+// this lever, keeps passing unchanged.
+vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
 import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers } from "@/repository/users";
+import { hasAnyAttachment } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
@@ -36,6 +42,7 @@ const updateProfileMock = vi.mocked(updateProfile);
 const removeMock = vi.mocked(remove);
 const findByIdMock = vi.mocked(findById);
 const countSuperMock = vi.mocked(countSuperadmins);
+const hasAnyAttachmentMock = vi.mocked(hasAnyAttachment);
 const countOwnershipBlockersMock = vi.mocked(countOwnershipBlockers);
 const initial = { type: null, message: "" } as const;
 
@@ -64,8 +71,38 @@ describe("user management actions", () => {
 
   it("addUser: an ADMIN cannot grant SUPERADMIN", async () => {
     actor("ADMIN");
-    const res = await addUser(initial, form({ email: "n@x.com", role: "SUPERADMIN", password: "password123" }));
+    // `name` is required since the refactoring point that made it so (schemas/
+    // user.ts::createUserSchema) — without it this fixture would fail Zod
+    // validation before ever reaching the role check this test targets.
+    const res = await addUser(initial, form({ email: "n@x.com", name: "N", role: "SUPERADMIN", password: "password123" }));
     expect(res.type).toBe("error");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3 (revue + audit "travailleurs"): name is now required
+  // at creation (schemas/user.ts::createUserSchema) — a null/blank name used
+  // to fall back to the raw email everywhere this account was displayed.
+  it("addUser: a fixture without a name fails Zod validation (name is now required)", async () => {
+    actor("ADMIN");
+    const res = await addUser(initial, form({ email: "n@x.com", role: "EDITOR", password: "password123" }));
+    expect(res.type).toBe("zodError");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 5 (audit du delta "travailleurs"): `name` now refuses
+  // CONTROL_CHAR (schemas/fields.ts), imported rather than redeclared — this
+  // account's name is rendered as a plain label at six display sites, two of
+  // them PDF reports. Same set the CHECK-backed schemas (materialCategory,
+  // reserve, equipment) already refuse: ASCII controls and the C1 range
+  // (U+0085 here) — there is no database CHECK on User.name, this is a
+  // display-safety refine only.
+  it("addUser: a name containing a C1 control (U+0085) fails Zod validation", async () => {
+    actor("ADMIN");
+    const res = await addUser(
+      initial,
+      form({ email: "n@x.com", name: "JeanDupont", role: "EDITOR", password: "password123" })
+    );
+    expect(res.type).toBe("zodError");
     expect(createMock).not.toHaveBeenCalled();
   });
 
@@ -85,6 +122,46 @@ describe("user management actions", () => {
     const res = await updateUser(initial, form({ id: "9", role: "ADMIN" }));
     expect(res.type).toBe("error");
     expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3: updateUserSchema's `name` stays `.optional()` — a
+  // caller that never sends the field is unaffected (see the SUPERADMIN test
+  // just above, whose fixture omits it) — but once SENT, it must not be
+  // blank: an admin cannot clear an existing name via this form, only
+  // replace it.
+  it("updateUser: a name sent as an empty string fails Zod validation", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR" } as never);
+    const res = await updateUser(initial, form({ id: "9", name: "", role: "EDITOR" }));
+    expect(res.type).toBe("zodError");
+    expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 5: same CONTROL_CHAR refine as addUser above, on the
+  // update path.
+  it("updateUser: a name containing a C1 control (U+0085) fails Zod validation", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR" } as never);
+    const res = await updateUser(initial, form({ id: "9", name: "JeanDupont", role: "EDITOR" }));
+    expect(res.type).toBe("zodError");
+    expect(updateProfileMock).not.toHaveBeenCalled();
+  });
+
+  // Refactoring point 3 (audit du delta "travailleurs"): `name` omitted from
+  // the payload used to write NULL over an existing name (`?? null` in the
+  // action) — this fixture's target HAS a name and the submitted form does
+  // not send the field at all, so updateProfile must receive the target's
+  // CURRENT name, not null. Red before the fix (asserted "New Name" via
+  // `?? null` never applies; the actual regression was a null being written).
+  it("updateUser: omitting `name` preserves the target's existing name instead of writing NULL", async () => {
+    actor("ADMIN");
+    findByIdMock.mockResolvedValue({ id: 9, email: "e@x.com", role: "EDITOR", name: "Existing Name" } as never);
+    updateProfileMock.mockResolvedValue({ id: 9 } as never);
+
+    const res = await updateUser(initial, form({ id: "9", role: "EDITOR" }));
+
+    expect(res.type).toBe("success");
+    expect(updateProfileMock).toHaveBeenCalledWith(9, expect.objectContaining({ name: "Existing Name" }));
   });
 
   it("updateUser: cannot demote the last SUPERADMIN", async () => {
@@ -147,6 +224,59 @@ describe("user management actions", () => {
 
       expect(res.type).toBe("success");
       expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 9 }));
+    });
+  });
+
+  // "Personne ne modifie la contrainte qui le contraint", appliqué dans
+  // l'autre sens: a User already attached to a project as a worker
+  // (ProjectWorker) must not become a CLIENT portal login (migration
+  // 20260920100000_project_workers, "WHAT THIS MIGRATION DELIBERATELY DOES
+  // NOT ENFORCE" §1). Refused, not silently detached.
+  describe("CLIENT lever: switching an attached worker's role to CLIENT", () => {
+    it("refuses to switch an attached user's role to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      hasAnyAttachmentMock.mockResolvedValue(true);
+
+      const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.users.messages.cannotSetClientWhileAttached);
+      expect(updateProfileMock).not.toHaveBeenCalled();
+    });
+
+    it("allows switching an UNattached user's role to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      hasAnyAttachmentMock.mockResolvedValue(false);
+      updateProfileMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
+
+      expect(res.type).toBe("success");
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ role: "CLIENT" }));
+    });
+
+    it("does not check attachments when the role isn't changing to CLIENT", async () => {
+      actor("ADMIN", "me@x.com");
+      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
+      updateProfileMock.mockResolvedValue({ id: 7 } as never);
+
+      const res = await updateUser(initial, form({ id: "7", role: "VIEWER" }));
+
+      expect(res.type).toBe("success");
+      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
+    });
+
+    it("does not re-check an account that is already CLIENT", async () => {
+      actor("SUPERADMIN", "boss@x.com");
+      findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
+      updateProfileMock.mockResolvedValue({ id: 8 } as never);
+
+      const res = await updateUser(initial, form({ id: "8", role: "CLIENT" }));
+
+      expect(res.type).toBe("success");
+      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
     });
   });
 

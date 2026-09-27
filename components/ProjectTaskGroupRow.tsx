@@ -21,6 +21,7 @@ type TaskGroupSummary = {
   categoryId?: number | null;
   assignedCompanyId?: number | null;
   assignedInterimId?: number | null;
+  assignedWorkerId?: number | null;
   tasks: ProjectTask[];
 };
 
@@ -30,7 +31,7 @@ type ProjectTaskGroupRowProps = {
   projectId: number;
   canEdit: boolean;
   categories?: TaskCategoryOption[];
-  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[] };
+  assignees?: { companies: AssigneeOption[]; interims: AssigneeOption[]; workers: AssigneeOption[] };
 };
 
 export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdit, categories, assignees }: ProjectTaskGroupRowProps) {
@@ -99,8 +100,10 @@ export default function ProjectTaskGroupRow({ group, clientId, projectId, canEdi
             projectId={projectId}
             companies={assignees.companies}
             interims={assignees.interims}
+            workers={assignees.workers}
             assignedCompanyId={group.assignedCompanyId ?? null}
             assignedInterimId={group.assignedInterimId ?? null}
+            assignedWorkerId={group.assignedWorkerId ?? null}
           />
         )}
         {canEdit && (

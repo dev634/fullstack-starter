@@ -318,10 +318,13 @@ const fr = {
             noSubcontractors: "Aucun sous-traitant pour ce projet.",
             interimsHeading: "Intérimaires",
             noInterims: "Aucun intérimaire pour ce projet.",
+            workersHeading: "Travailleurs",
+            noWorkers: "Aucun travailleur rattaché à ce projet.",
             workforceHeading: "Personnel",
-            workforceDescription: "Entreprises sous-traitantes et intérimaires affectés à ce chantier.",
+            workforceDescription: "Entreprises sous-traitantes, intérimaires et travailleurs affectés à ce chantier.",
             workforceSubcontractorsCount: "{count} sous-traitant(s)",
             workforceInterimsCount: "{count} intérimaire(s)",
+            workforceWorkersCount: "{count} travailleur(s)",
             filesHeading: "Fichiers",
             filesDescription: "Documents et plans du chantier, classés par dossier.",
             emptyFolder: "Ce dossier est vide.",
@@ -625,11 +628,31 @@ const fr = {
             invalidId: "Identifiant d'intérimaire invalide.",
         },
     },
+    workers: {
+        addToggle: "Rattacher un travailleur",
+        selectLabel: "Salarié",
+        selectPlaceholder: "Choisir un salarié…",
+        noAttachableUsers: "Aucun salarié disponible à rattacher.",
+        detachWorker: "Détacher {name}",
+        // Neutral fallback label for a User row whose `name` is null — the
+        // repository never sends an email to the client (lib/workerDisplayName.ts),
+        // so this is what renders instead of one.
+        unnamedUser: "Utilisateur #{id}",
+        messages: {
+            added: "Travailleur rattaché.",
+            removed: "Travailleur détaché.",
+            invalidId: "Identifiant de travailleur invalide.",
+            alreadyAttached: "Ce salarié est déjà rattaché à ce projet.",
+            clientNotAllowed: "Un compte client ne peut pas être rattaché comme travailleur.",
+        },
+    },
     assignees: {
         label: "Assigné à",
         none: "Non assigné",
+        hidden: "Assigné (masqué)",
         companies: "Sous-traitants",
         interims: "Intérimaires",
+        workers: "Travailleurs",
         messages: {
             updated: "Affectation mise à jour.",
         },
@@ -915,6 +938,12 @@ const fr = {
             title: "Sections accessibles",
             saving: "Enregistrement…",
             saved: "Sections enregistrées.",
+            // Admin-only override of the `interims` key's label (see
+            // lib/projectSectionLabels.ts) — this checkbox/drag-item now also
+            // gates the travailleurs (ProjectWorker) picker and count, not
+            // just les intérimaires. Deliberately NOT projects.detail.interimsHeading,
+            // which stays "Intérimaires" on the workforce page's own heading.
+            interimsAndWorkersLabel: "Intérimaires et travailleurs",
         },
         areas: {
             title: "Rubriques de l'application",
@@ -974,6 +1003,7 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
+            cannotSetClientWhileAttached: "Ce compte est rattaché comme travailleur à au moins un projet. Détachez-le avant de le passer en client.",
             // Equipment.ownerId et EquipmentLoan.borrowerId (prêts OUVERTS)
             // sont en onDelete: Restrict (migration 20260918120000) — les
             // prêts fermés, eux, sont purgés automatiquement à la suppression.
@@ -1128,6 +1158,8 @@ const fr = {
         interimsNone: "Aucune tâche, série ou catégorie assignée à un intérimaire pour le moment.",
         companiesTitle: "Avancement par entreprise sous-traitante",
         companiesNone: "Aucune tâche, série ou catégorie assignée à une entreprise sous-traitante pour le moment.",
+        workersTitle: "Avancement par travailleur",
+        workersNone: "Aucune tâche, série ou catégorie assignée à un travailleur pour le moment.",
         reservesTitle: "Avancement des réserves",
         reservesNone: "Aucune réserve pour le moment.",
         // Chrome shared by every dashboard PDF report (lib/dashboardReport.ts) —

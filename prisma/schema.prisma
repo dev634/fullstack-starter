@@ -144,6 +144,9 @@ model Project {
   interventions  Intervention[]
   subcontractors SubcontractorCompany[]
   interims       Interim[]
+  // Internal employees PRESENT on this chantier (see ProjectWorker) — not the
+  // access list below (assignedUsers), which is a different axis.
+  workers        ProjectWorker[]
   reservePlans   ReservePlan[]
   reservePlanFolders ReservePlanFolder[]
   // Monotonic issuer for réserve numbers. A counter, not max(number)+1: the
@@ -393,22 +396,33 @@ model ProjectTask {
   category       ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId     Int?
   // Optional assignee — a task can be handled by EITHER a subcontractor
-  // company OR an intérimaire (mutually exclusive, enforced in the action).
+  // company, OR an intérimaire, OR an internal employee attached to the
+  // project (ProjectWorker). At most ONE of the three is set: enforced in the
+  // action (parseAssignee yields exactly one non-null) AND by a database CHECK
+  // (num_nonnulls(...) <= 1, migration 20260920100000_project_workers) — added
+  // NOT VALID, so it binds every write from now on without judging rows the
+  // app could never have produced; see that migration before validating it.
   // SetNull so deleting the assignee just clears the assignment.
   assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+  // Points at the RATTACHEMENT (ProjectWorker.id), not at User.id, exactly as
+  // assignedInterimId points at the per-project Interim row: detaching the
+  // employee from the project clears their assignments through the FK alone.
+  assignedWorker    ProjectWorker?        @relation(fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  assignedWorkerId  Int?
 
   // findByProject filters (projectId, groupId IS NULL); the group include
   // fetches WHERE groupId IN (...). The remaining FK indexes back the
-  // SetNull/Cascade delete scans (deleting a category/company/interim/group
-  // otherwise seq-scans this table across every project).
+  // SetNull/Cascade delete scans (deleting a category/company/interim/worker/
+  // group otherwise seq-scans this table across every project).
   @@index([projectId])
   @@index([groupId])
   @@index([categoryId])
   @@index([assignedCompanyId])
   @@index([assignedInterimId])
+  @@index([assignedWorkerId])
 }
 
 // A named, pattern-generated batch of tasks (e.g. "Strings onduleur" ->
@@ -429,18 +443,22 @@ model ProjectTaskGroup {
   // delete the series, just ungroup it.
   category   ProjectTaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId Int?
-  // Optional assignee (subcontractor company OR intérimaire) for the whole
-  // series — same rule as ProjectTask.assignedCompany/assignedInterim.
+  // Optional assignee (subcontractor company OR intérimaire OR internal
+  // worker) for the whole series — same rule and same CHECK as
+  // ProjectTask.assignedCompany/assignedInterim/assignedWorker.
   assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+  assignedWorker    ProjectWorker?        @relation(fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  assignedWorkerId  Int?
 
   // projectId backs findByProject; the rest back SetNull/Cascade delete scans.
   @@index([projectId])
   @@index([categoryId])
   @@index([assignedCompanyId])
   @@index([assignedInterimId])
+  @@index([assignedWorkerId])
 }
 
 // Groups several ProjectTaskGroup series under one named category (e.g.
@@ -454,17 +472,21 @@ model ProjectTaskCategory {
   groups    ProjectTaskGroup[]
   tasks     ProjectTask[]
   materials ProjectMaterial[]
-  // Optional assignee (subcontractor company OR intérimaire) for the whole
-  // category — same rule as ProjectTask.assignedCompany/assignedInterim.
+  // Optional assignee (subcontractor company OR intérimaire OR internal
+  // worker) for the whole category — same rule and same CHECK as
+  // ProjectTask.assignedCompany/assignedInterim/assignedWorker.
   assignedCompany   SubcontractorCompany? @relation(fields: [assignedCompanyId], references: [id], onDelete: SetNull)
   assignedCompanyId Int?
   assignedInterim   Interim?              @relation(fields: [assignedInterimId], references: [id], onDelete: SetNull)
   assignedInterimId Int?
+  assignedWorker    ProjectWorker?        @relation(fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  assignedWorkerId  Int?
 
   // projectId backs findByProject; the rest back SetNull delete scans.
   @@index([projectId])
   @@index([assignedCompanyId])
   @@index([assignedInterimId])
+  @@index([assignedWorkerId])
 }
 
 // Self-referential tree: a folder can live at the project root (parentId
@@ -697,6 +719,77 @@ model Interim {
   @@index([jobFunctionId])
 }
 
+// An internal employee (a User of the organisation) ATTACHED to a project —
+// the "Travailleurs" list of the Personnel page, next to Intérimaires and
+// Sous-traitants, and assignable to a task / série / catégorie exactly like an
+// Interim. Also the future "projet de rattachement" of a timesheet: a row here
+// is (project, employee, since when), which is precisely what a pointage hangs
+// off. Nothing else is stored here on purpose: the employee's name, email and
+// job function live on User, this row only records the attachment.
+//
+// WHY A TABLE OF ITS OWN AND NOT User.assignedProjects ("_UserProjects").
+// That relation is an ACCESS axis: it is consulted only when the holder's
+// JobFunction.projectScope is ASSIGNED, and it decides which projects the user
+// may REACH (docs/CONVENTIONS.md, "trois axes orthogonaux"). This table is a
+// PRESENCE axis: who works on the chantier. Merging the two would cross the
+// axes in exactly the way the conventions forbid, and the crossing bites in
+// both directions — attaching a project manager as a worker would silently
+// open the project to him (or do nothing, depending on his function's scope:
+// the same row would MEAN two different things depending on another table),
+// and detaching a worker could close a project he must still see. It would
+// also hand an access-configuration write (users.manage, a LOCKED capability)
+// to whoever holds content.edit on the Personnel page. Finally the implicit
+// join table has no surrogate id, so the three task tables could not point at
+// an attachment at all. Two tables, two questions; a user commonly sits in
+// both, and neither is derived from the other.
+//
+// Delete behaviour, both CASCADE — read together with the SET NULL that the
+// three task tables carry on assignedWorkerId:
+//   - project deleted -> attachments go with it (same as Interim, Subcontractor).
+//   - user deleted -> attachments go with it, and the FK chain nulls that
+//     worker's assignments on every task/série/catégorie — the same outcome,
+//     hop for hop, as deleting an Interim today. NOT Restrict: an attachment is
+//     not data worth outliving the account, unlike the equipment/loans of the
+//     sibling branch. The day timesheets reference this row, THEY decide
+//     (Restrict there would transitively protect the user, as it should for
+//     payroll data); nothing here pre-empts it.
+//
+// Invariants that live in the APPLICATION, not in this table — a FK proves a
+// row exists, never what kind of row it is:
+//   - User.role is never CLIENT (portal logins are not employees). Two
+//     levers, both to close: attaching (check the role at attach time) and
+//     updateUser switching an attached user's role to CLIENT.
+//   - assignedWorkerId points at a ProjectWorker of the SAME project as the
+//     task — the same cross-project duty assignedInterimId already carries
+//     (actions/taskAssignee: resolve the row, compare its projectId, 404).
+//     Not a composite FK, for the reason ProjectMaterialCategory states:
+//     ON DELETE SET NULL on a composite key would try to null "projectId".
+model ProjectWorker {
+  id                 Int                   @id @default(autoincrement())
+  project            Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId          Int
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId             Int
+  createdAt          DateTime              @default(now())
+  assignedTasks      ProjectTask[]
+  assignedGroups     ProjectTaskGroup[]
+  assignedCategories ProjectTaskCategory[]
+
+  // One attachment per (project, employee): a duplicate would list the same
+  // person twice in the Personnel page and split their progress tally in two.
+  // Its btree, led by projectId, ALSO serves the per-project read (the list
+  // on the Personnel page, the progress aggregate's final join) and the
+  // Project cascade scan — so no separate @@index([projectId]).
+  @@unique([projectId, userId])
+  // Backs the User cascade scan (onDelete: Cascade above — deleteUser
+  // surfaces no warning for this relation, unlike Equipment/EquipmentLoan's
+  // onDelete: Restrict; see actions/users/users.ts::deleteUser) and every
+  // other "which projects is this employee attached to" read (the future
+  // timesheet's project picker). Postgres does not index the referencing
+  // side of a FK by itself.
+  @@index([userId])
+}
+
 model ProjectFile {
   id        Int            @id @default(autoincrement())
   project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -807,6 +900,10 @@ model User {
   // projectScope is ASSIGNED; mirrors the Contact↔Project link the client
   // portal already scopes with.
   assignedProjects Project[]          @relation("UserProjects")
+  // Projects this employee is ATTACHED to as a worker (presence on the
+  // chantier) — a different axis from assignedProjects above (reach). See
+  // ProjectWorker.
+  projectWorkers   ProjectWorker[]
   // Personal loans module ("Prêts"): the tools this user owns, and the loans
   // where this user is the borrower. What this user LENT is not a relation of
   // its own — it is reached through equipment.loans (the lender is the owner).

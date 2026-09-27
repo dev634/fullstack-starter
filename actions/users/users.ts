@@ -17,6 +17,7 @@ import {
   countOwnershipBlockers,
 } from "@/repository/users";
 import { updatePassword } from "@/repository/users";
+import { hasAnyAttachment } from "@/repository/projectWorkers";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -62,7 +63,9 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
     const password = await bcrypt.hash(parsed.data.password, 10);
     const user = await create({
       email: parsed.data.email,
-      name: parsed.data.name ?? null,
+      // createUserSchema's `name` is required (non-optional) — the `?? null`
+      // this replaced was dead: parsed.data.name can never be undefined here.
+      name: parsed.data.name,
       role: parsed.data.role,
       jobFunctionId: parsed.data.jobFunctionId ?? null,
       password,
@@ -119,8 +122,32 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       return { ...prevState, type: "error", message: t.users.messages.cannotEditOwnFunction };
     }
 
+    // Personne ne modifie la contrainte qui le contraint, appliqué ici dans
+    // l'autre sens : un compte déjà RATTACHÉ à un projet comme travailleur
+    // (ProjectWorker) ne peut pas devenir un login client — un login portail
+    // n'est jamais un salarié (migration 20260920100000_project_workers,
+    // "WHAT THIS MIGRATION DELIBERATELY DOES NOT ENFORCE" §1). Refusé plutôt
+    // que détaché en silence : cette action modifie le rôle d'un compte, pas
+    // la composition d'un chantier — un admin qui change juste le nom d'un
+    // utilisateur ne doit jamais avoir pour effet de bord de le retirer de
+    // tous ses chantiers.
+    if (
+      target.role !== "CLIENT" &&
+      parsed.data.role === "CLIENT" &&
+      (await hasAnyAttachment(target.id))
+    ) {
+      return { ...prevState, type: "error", message: t.users.messages.cannotSetClientWhileAttached };
+    }
+
     const user = await updateProfile(target.id, {
-      name: parsed.data.name ?? null,
+      // Refactoring point 3 (revue + audit "travailleurs"): `name` is
+      // `.optional()` in updateUserSchema, so an omitted field parses to
+      // `undefined` — `?? null` here used to write NULL over an existing
+      // name whenever the field was left off the payload, instead of leaving
+      // it untouched. Falling back to the CURRENT name (read via findById
+      // above) preserves it; a blank string is still rejected upstream by
+      // Zod's `min(1)`, so this can never be used to erase a name either.
+      name: parsed.data.name ?? target.name,
       role: parsed.data.role,
       jobFunctionId: parsed.data.jobFunctionId ?? null,
     });

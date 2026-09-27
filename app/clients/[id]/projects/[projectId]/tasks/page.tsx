@@ -3,10 +3,13 @@ import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroup
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findCompanyOptionsByProject } from "@/repository/subcontractors";
 import { findOptionsByProject as findInterimOptionsByProject } from "@/repository/interims";
+import { findOptionsByProject as findWorkerOptionsByProject } from "@/repository/projectWorkers";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { findByProject as findMaterialCategoriesByProject } from "@/repository/materialCategories";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
+import { canAccessSection } from "@/lib/sectionAccess";
 import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";
 import { blockClientFromApp } from "@/lib/portal";
 import { computeMaterialCategoryGroups } from "@/lib/projectDashboard";
@@ -82,8 +85,22 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   const showMaterials = access.visibleSections.has("materials");
   const session = await auth();
   const canEdit = await can(session?.user?.role, "content.edit");
+  // The intérimaire/travailleur options are the `interims` section's own
+  // population (docs/CONVENTIONS.md: `workforce` fuses `subcontractors` +
+  // `interims`) — a caller whose function hides it must not receive that
+  // list just because this page fused Tâches + Matériel. Checked here with
+  // the same canAccessSection this page's own resolveProjectSectionAccess
+  // call above is built on, rather than widening that call's own key set
+  // (which decides page-halves, not which assignee list-options load).
+  const canAssignWorkforce = canEdit && showTasks && (await canAccessSection("interims"));
+  // Symmetric to canAssignWorkforce above: actions/taskAssignee/taskAssignee.ts
+  // gates a `company:` assignee on requireSectionAccess("subcontractors"), a
+  // SECOND section beyond the unconditional `tasks` check — so the picker's
+  // company list must not load when that function hides `subcontractors`,
+  // same reasoning as the interims/workers list just above.
+  const canAssignCompanies = canEdit && showTasks && (await canAccessSection("subcontractors"));
 
-  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, materials, materialCategories] =
+  const [tasks, taskGroups, taskCategories, companyOptions, interimOptions, workerOptions, materials, materialCategories] =
     await Promise.all([
       // Loaded unconditionally, whether or not `tasks` itself is visible: the
       // materials picker below (materialLinkOptions) links a material to a
@@ -100,8 +117,9 @@ export default async function ProjectTasksPage({ params }: PageProps) {
       // reads a company's personnel or an intérimaire's job function/agency
       // (see each function's own doc). Only fetched when the Tâches half
       // actually renders — nothing on the Matériel half uses them.
-      canEdit && showTasks ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
-      canEdit && showTasks ? findInterimOptionsByProject(pid) : Promise.resolve([]),
+      canAssignCompanies ? findCompanyOptionsByProject(pid) : Promise.resolve([]),
+      canAssignWorkforce ? findInterimOptionsByProject(pid) : Promise.resolve([]),
+      canAssignWorkforce ? findWorkerOptionsByProject(pid) : Promise.resolve([]),
       showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
       // Filing (WHAT a material is) — only fetched when the Matériel half
       // renders, same rule as `materials` just above.
@@ -177,9 +195,16 @@ export default async function ProjectTasksPage({ params }: PageProps) {
   const doneCount = tasks.filter((task) => task.done).length + taskGroups.reduce((sum, g) => sum + g.doneCount, 0);
   const totalCount = tasks.length + taskGroups.reduce((sum, g) => sum + g.totalCount, 0);
 
-  // Options for the task/series/category assignee picker: either a
-  // subcontractor company or an intérimaire (mutually exclusive).
-  const assigneeOptions = { companies: companyOptions, interims: interimOptions };
+  // Options for the task/series/category assignee picker: a subcontractor
+  // company, an intérimaire, or an internal travailleur (mutually exclusive).
+  // Travailleur options resolve a null User.name to "Utilisateur #{id}" here
+  // — repository/projectWorkers.ts has no `t` and never falls back to the
+  // email (see that file's own doc on ProjectWorkerOption).
+  const assigneeOptions = {
+    companies: companyOptions,
+    interims: interimOptions,
+    workers: workerOptions.map((worker) => ({ id: worker.id, name: workerDisplayName(worker, t) })),
+  };
 
   return (
     <main className="flex flex-1 min-h-0 flex-col overflow-y-auto px-6 py-8">

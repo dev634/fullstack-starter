@@ -3,7 +3,7 @@ import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { getHiddenSections } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";
 import { blockClientFromApp } from "@/lib/portal";
-import { findByProject, computeProgressByInterim, computeProgressByCompany } from "@/repository/tasks";
+import { findByProject, computeProgressByInterim, computeProgressByCompany, computeProgressByWorker } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findTaskCategoriesByProject } from "@/repository/taskCategories";
 import { findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
@@ -18,6 +18,7 @@ import {
 } from "@/lib/projectDashboard";
 import { STOCK_DOT_CLASSES } from "@/lib/materialStock";
 import { resolveReserveStatusStyle } from "@/lib/reserveStatusStyle";
+import { workerDisplayName } from "@/lib/workerDisplayName";
 import Title from "@/components/Title";
 import TaskProgressDonut from "@/components/charts/TaskProgressDonut";
 import SeriesProgressBars from "@/components/charts/SeriesProgressBars";
@@ -37,6 +38,7 @@ import {
   CubeIcon,
   UsersIcon,
   BuildingOfficeIcon,
+  UserGroupIcon,
   MapPinIcon,
 } from "@heroicons/react/24/outline";
 
@@ -106,28 +108,49 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   // visible.
   const showInterimProgress = showTasks && !hiddenSections.has("interims");
   const showCompanyProgress = showTasks && !hiddenSections.has("subcontractors");
+  // A travailleur's own name is personnel data gated by "interims" on the
+  // workforce page (there is no dedicated "workers" section key — see
+  // actions/projectWorkers/projectWorkers.ts's own doc) — same condition as
+  // showInterimProgress above, kept as its own boolean for what it means
+  // here rather than reused, matching the report route's own showWorkers.
+  const showWorkerProgress = showTasks && !hiddenSections.has("interims");
   const showReserves = !hiddenSections.has("reserves");
-  const [tasks, taskGroups, taskCategories, materials, materialCategories, interimProgress, companyProgress, reserveTally] =
-    await Promise.all([
-      showTasks ? findByProject(pid) : Promise.resolve([]),
-      showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
-      showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
-      showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
-      // Filing (WHAT a material is) — only fetched when Matériel renders,
-      // same rule as `materials` just above.
-      showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
-      // Both computed entirely in SQL (GROUP BY), never by loading every
-      // task/série/catégorie row into JS — see repository/tasks.ts's own doc
-      // for the weighting rule and its equivalence proof against
-      // lib/projectDashboard.ts::computeTaskBarStats/computeTaskProgress.
-      showInterimProgress ? computeProgressByInterim(pid) : Promise.resolve([]),
-      showCompanyProgress ? computeProgressByCompany(pid) : Promise.resolve([]),
-      // repository/reserves.ts::tallyByProject already exists — a plain
-      // groupBy(status), never a réserve row.
-      showReserves ? tallyReservesByProject(pid) : Promise.resolve({ total: 0, open: 0, resolved: 0 }),
-    ]);
+  const [
+    tasks,
+    taskGroups,
+    taskCategories,
+    materials,
+    materialCategories,
+    interimProgress,
+    companyProgress,
+    workerProgressRaw,
+    reserveTally,
+  ] = await Promise.all([
+    showTasks ? findByProject(pid) : Promise.resolve([]),
+    showTasks ? findTaskGroupsByProject(pid) : Promise.resolve([]),
+    showTasks ? findTaskCategoriesByProject(pid) : Promise.resolve([]),
+    showMaterials ? findMaterialsByProject(pid) : Promise.resolve([]),
+    // Filing (WHAT a material is) — only fetched when Matériel renders,
+    // same rule as `materials` just above.
+    showMaterials ? findMaterialCategoriesByProject(pid) : Promise.resolve([]),
+    // Both computed entirely in SQL (GROUP BY), never by loading every
+    // task/série/catégorie row into JS — see repository/tasks.ts's own doc
+    // for the weighting rule and its equivalence proof against
+    // lib/projectDashboard.ts::computeTaskBarStats/computeTaskProgress.
+    showInterimProgress ? computeProgressByInterim(pid) : Promise.resolve([]),
+    showCompanyProgress ? computeProgressByCompany(pid) : Promise.resolve([]),
+    showWorkerProgress ? computeProgressByWorker(pid) : Promise.resolve([]),
+    // repository/reserves.ts::tallyByProject already exists — a plain
+    // groupBy(status), never a réserve row.
+    showReserves ? tallyReservesByProject(pid) : Promise.resolve({ total: 0, open: 0, resolved: 0 }),
+  ]);
 
   const taskProgress = computeTaskProgress(tasks, taskGroups, taskCategories);
+
+  // computeProgressByWorker can't resolve a null User.name itself (no `t`
+  // here — see that function's own doc), so this page does it once, right
+  // after the fetch, the same way tasks/page.tsx and workforce/page.tsx do.
+  const workerProgress = workerProgressRaw.map((row) => ({ ...row, name: workerDisplayName(row, t) }));
 
   // One bar per category and per ungrouped series — a categorized series or
   // task is rolled into its category's own bar instead of appearing on its
@@ -209,6 +232,7 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
   // sections already use for their badges.
   const interimBadge = interimProgress.length > 0 ? `(${interimProgress.length})` : undefined;
   const companyBadge = companyProgress.length > 0 ? `(${companyProgress.length})` : undefined;
+  const workerBadge = workerProgress.length > 0 ? `(${workerProgress.length})` : undefined;
   // Open count, in the same words as the pill just below it once expanded
   // (t.reserves.countWithLabel) — the vocabulary must not shift between the
   // closed and open state. Shown as soon as there's at least one réserve at
@@ -350,6 +374,39 @@ export default async function ProjectDashboardPage({ params }: PageProps) {
                 <SeriesProgressBars items={companyProgress} />
               ) : (
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.companiesNone}</p>
+              )}
+            </div>
+            </CollapsibleSection>
+          </div>
+        </div>
+        )}
+
+        {/* Progress by travailleur (internal employee attached via
+            ProjectWorker) — mirror-imaged version of the two sections above
+            (repository/tasks.ts::computeProgressByWorker). Placed right
+            after "par entreprise sous-traitante", same order
+            lib/dashboardReport.ts::buildGlobalDashboardReport draws its
+            sections in — the on-screen order and the full-PDF order must
+            never disagree. */}
+        {showWorkerProgress && (
+        <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-[#f3f4f6] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 shadow-sm print:border-gray-300 print:bg-white print:text-gray-900 print:shadow-none dark:print:border-gray-300 dark:print:bg-white dark:print:text-gray-900">
+          <div className="overflow-hidden rounded-xl">
+            <CollapsibleSection
+              icon={<UserGroupIcon className="h-5 w-5 text-indigo-500" />}
+              title={t.projectDashboard.workersTitle}
+              badge={workerBadge}
+              headerExtra={
+                <ReportDownloadLink
+                  href={`/clients/${id}/projects/${pid}/dashboard/report/workers`}
+                  label={t.projectDashboard.generateReport}
+                />
+              }
+            >
+            <div className="px-4 py-6 sm:px-6">
+              {workerProgress.length > 0 ? (
+                <SeriesProgressBars items={workerProgress} />
+              ) : (
+                <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t.projectDashboard.workersNone}</p>
               )}
             </div>
             </CollapsibleSection>
