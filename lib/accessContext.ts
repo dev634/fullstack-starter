@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { findAccessScopeByEmail, type AccessScope } from "@/repository/users";
-import { isProjectSectionKey, type ProjectSectionKey } from "@/lib/projectSections";
-import { normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
+import { PROJECT_SECTION_KEYS, isProjectSectionKey, type ProjectSectionKey } from "@/lib/projectSections";
+import { APP_AREA_KEYS, normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
 
 /**
  * Everything that decides what the current user may reach, resolved once.
@@ -46,6 +46,28 @@ const UNRESTRICTED: Omit<AccessContext, "email" | "role"> = {
   projectIds: null,
 };
 
+/**
+ * Every section and area key hidden, no project reachable — what an absent
+ * or unverifiable caller resolves to. Used to read "anonymous = unrestricted"
+ * here, exactly backwards: a caller with no session, or whose session's
+ * account lib/sessionGate.ts can no longer verify (deleted mid-session — see
+ * its own doc on why that race survives the JWT-level gate), must see and
+ * reach NOTHING, not everything.
+ *
+ * Builds fresh Sets on every call on purpose — unlike UNRESTRICTED above,
+ * never share one mutable Set across callers who might (today, none do;
+ * verified by grep) come to rely on mutating what they were handed.
+ * `projectIds` is an empty Set, never `null` — `null` means "every project",
+ * the one thing DENIED must not say.
+ */
+function deniedScope(): Omit<AccessContext, "email" | "role"> {
+  return {
+    hiddenSections: new Set(PROJECT_SECTION_KEYS),
+    hiddenAreas: new Set(APP_AREA_KEYS),
+    projectIds: new Set<number>(),
+  };
+}
+
 function resolveHiddenAreas(scope: AccessScope | null): Set<AppAreaKey> {
   return new Set(normalizeHiddenAreas(scope?.hiddenAreas));
 }
@@ -55,14 +77,29 @@ export async function getAccessContext(): Promise<AccessContext> {
   const email = session?.user?.email ?? null;
   const role = session?.user?.role;
 
-  // SUPERADMIN (and an anonymous caller) bypass every axis, including
-  // hiddenAreas. Restricting the people who configure the restrictions is how
-  // you end up locked out of your own instance.
-  if (!email || hasMinRole(role, "SUPERADMIN")) {
+  // No email at all: a truly anonymous caller, or a session lib/sessionGate.ts
+  // has already voided because its account is gone. DENIED, resolved with no
+  // database round trip — there is no row to look up.
+  if (!email) return { email, role, ...deniedScope() };
+
+  // SUPERADMIN bypasses every axis, including hiddenAreas, WITHOUT a scope
+  // lookup. Restricting the people who configure the restrictions is how you
+  // end up locked out of your own instance. Its existence is vouched for by
+  // lib/sessionGate.ts (the JWT is refused the moment the account vanishes),
+  // not by anything checked here.
+  if (hasMinRole(role, "SUPERADMIN")) {
     return { email, role, ...UNRESTRICTED };
   }
 
   const scope = await findAccessScopeByEmail(email);
+
+  // No row for this email — the race lib/sessionGate.ts's own per-request
+  // cache cannot always catch (a row deleted BETWEEN two requests, not
+  // within the one that already verified it). DENIED, for ADMIN exactly like
+  // every role below it — the lookup runs before the ADMIN branch on
+  // purpose, because a session claiming to be an account that no longer
+  // exists has no "ADMIN's own job" left to defer to.
+  if (!scope) return { email, role, ...deniedScope() };
 
   // ADMIN keeps its existing unrestricted hiddenSections/projectIds (that
   // configuration is an ADMIN's own job) — but hiddenAreas is resolved from
@@ -71,8 +108,6 @@ export async function getAccessContext(): Promise<AccessContext> {
   if (hasMinRole(role, "ADMIN")) {
     return { email, role, hiddenSections: UNRESTRICTED.hiddenSections, hiddenAreas: resolveHiddenAreas(scope), projectIds: null };
   }
-
-  if (!scope) return { email, role, ...UNRESTRICTED };
 
   return {
     email,

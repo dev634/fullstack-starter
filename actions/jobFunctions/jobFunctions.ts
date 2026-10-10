@@ -7,7 +7,7 @@ import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
-import { findJobFunctionIdByEmail } from "@/repository/users";
+import { findAccountJobFunctionByEmail } from "@/repository/users";
 import { isProjectSectionKey } from "@/lib/projectSections";
 import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
@@ -86,8 +86,13 @@ export async function deleteJobFunction(id: number) {
     const session = await auth();
     if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
       const email = session?.user?.email;
-      const ownFunctionId = email ? await findJobFunctionIdByEmail(email) : null;
-      if (ownFunctionId === id) {
+      // `null` here means "no account" (sessionAccountWhere found nothing) —
+      // refused outright, not read as "has no function" (which would make
+      // `ownFunctionId === id` false and silently let the call through for a
+      // session whose account just vanished).
+      const own = email ? await findAccountJobFunctionByEmail(email) : null;
+      if (!own) return { type: "error" as const, message: t.errors.unauthorized };
+      if (own.jobFunctionId === id) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotDeleteOwnFunction };
       }
     }
@@ -152,8 +157,11 @@ export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
     const session = await auth();
     if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
       const email = session?.user?.email;
-      const ownFunctionId = email ? await findJobFunctionIdByEmail(email) : null;
-      if (ownFunctionId === id) {
+      // Same "absent account refuses, absent function does not" distinction
+      // as deleteJobFunction above.
+      const own = email ? await findAccountJobFunctionByEmail(email) : null;
+      if (!own) return { type: "error" as const, message: t.errors.unauthorized };
+      if (own.jobFunctionId === id) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotEditOwnFunction };
       }
     }

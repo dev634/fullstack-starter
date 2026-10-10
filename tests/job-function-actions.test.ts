@@ -14,12 +14,12 @@ vi.mock("@/lib/accessContext", () => ({
   projectIdFilter: () => undefined,
 }));
 // Passe 3b, point 3: setFunctionAreas now also calls auth() directly (to
-// learn the ACTOR's own role, not the target's) and findJobFunctionIdByEmail
+// learn the ACTOR's own role, not the target's) and findAccountJobFunctionByEmail
 // (to learn the actor's own function id) — both must be mocked or the whole
 // file fails to load (auth() transitively pulls in next-auth, which errors
 // outside a request context in Vitest).
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
-vi.mock("@/repository/users", () => ({ findJobFunctionIdByEmail: vi.fn() }));
+vi.mock("@/repository/users", () => ({ findAccountJobFunctionByEmail: vi.fn() }));
 vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -28,13 +28,13 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
 import { requireRole } from "@/lib/authz";
 import { auth } from "@/lib/auth";
-import { findJobFunctionIdByEmail } from "@/repository/users";
+import { findAccountJobFunctionByEmail } from "@/repository/users";
 import { reorder, create, remove, updateHiddenSections, updateHiddenAreas } from "@/repository/jobFunctions";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
 const authMock = vi.mocked(auth);
-const findJobFunctionIdByEmailMock = vi.mocked(findJobFunctionIdByEmail);
+const findAccountJobFunctionByEmailMock = vi.mocked(findAccountJobFunctionByEmail);
 const reorderMock = vi.mocked(reorder);
 const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
@@ -107,6 +107,11 @@ describe("job function actions", () => {
 
   it("setFunctionAreas keeps only known area keys, deduped", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    // Self-lock guard below needs a real session + the caller's own function
+    // id resolved — give it one that isn't 5, the id under test, so it stays
+    // out of this deduping test's way.
+    actor("ADMIN", "admin@example.com");
+    findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: null });
     updateHiddenAreasMock.mockResolvedValue({} as never);
     const res = await setFunctionAreas(5, ["clients", "clients", "bogus", "admin.users", "<script>"]);
     expect((res as { type: string }).type).toBe("success");
@@ -130,7 +135,7 @@ describe("job function actions", () => {
   it("deleteJobFunction deletes a function that isn't the caller's own", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
     actor("ADMIN", "admin@example.com");
-    findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+    findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
     removeMock.mockResolvedValue({} as never);
 
     const res = await deleteJobFunction(9);
@@ -147,7 +152,7 @@ describe("job function actions", () => {
     it("an ADMIN cannot edit the function currently assigned to their own account", async () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
 
       const res = await setFunctionAreas(5, []);
 
@@ -159,7 +164,7 @@ describe("job function actions", () => {
     it("an ADMIN can still edit a DIFFERENT function than their own", async () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
       updateHiddenAreasMock.mockResolvedValue({} as never);
 
       const res = await setFunctionAreas(9, ["clients"]);
@@ -174,7 +179,7 @@ describe("job function actions", () => {
     it("a SUPERADMIN CAN edit the function assigned to their own account — the anti-lockout escape hatch", async () => {
       requireRoleMock.mockResolvedValue({ email: "boss@example.com" } as never);
       actor("SUPERADMIN", "boss@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the SUPERADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the SUPERADMIN's own function is id 5
       updateHiddenAreasMock.mockResolvedValue({} as never);
 
       const res = await setFunctionAreas(5, []);
@@ -183,7 +188,23 @@ describe("job function actions", () => {
       expect(updateHiddenAreasMock).toHaveBeenCalledWith(5, []);
       // The SUPERADMIN bypass never even needs to resolve the actor's own
       // function id — hasMinRole short-circuits it.
-      expect(findJobFunctionIdByEmailMock).not.toHaveBeenCalled();
+      expect(findAccountJobFunctionByEmailMock).not.toHaveBeenCalled();
+    });
+
+    // findAccountJobFunctionByEmail distinguishes "no account" (`null`) from
+    // "account, no function" (`{ jobFunctionId: null }`) — collapsing the two
+    // (the bug the rename closed) let a caller whose account just vanished
+    // slip through as "has no function", which this guard never refuses.
+    it("refuses when the caller's own account can no longer be resolved", async () => {
+      requireRoleMock.mockResolvedValue({ email: "ghost@example.com" } as never);
+      actor("ADMIN", "ghost@example.com");
+      findAccountJobFunctionByEmailMock.mockResolvedValue(null);
+
+      const res = await setFunctionAreas(9, ["clients"]);
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.errors.unauthorized);
+      expect(updateHiddenAreasMock).not.toHaveBeenCalled();
     });
   });
 
@@ -197,7 +218,7 @@ describe("job function actions", () => {
     it("an ADMIN cannot delete the function currently assigned to their own account", async () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
 
       const res = await deleteJobFunction(5);
 
@@ -209,7 +230,7 @@ describe("job function actions", () => {
     it("an ADMIN can still delete a DIFFERENT function than their own", async () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the ADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
       removeMock.mockResolvedValue({} as never);
 
       const res = await deleteJobFunction(9);
@@ -224,7 +245,7 @@ describe("job function actions", () => {
     it("a SUPERADMIN CAN delete the function assigned to their own account — the anti-lockout escape hatch", async () => {
       requireRoleMock.mockResolvedValue({ email: "boss@example.com" } as never);
       actor("SUPERADMIN", "boss@example.com");
-      findJobFunctionIdByEmailMock.mockResolvedValue(5); // the SUPERADMIN's own function is id 5
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the SUPERADMIN's own function is id 5
       removeMock.mockResolvedValue({} as never);
 
       const res = await deleteJobFunction(5);
@@ -233,7 +254,21 @@ describe("job function actions", () => {
       expect(removeMock).toHaveBeenCalledWith(5);
       // The SUPERADMIN bypass never even needs to resolve the actor's own
       // function id — hasMinRole short-circuits it.
-      expect(findJobFunctionIdByEmailMock).not.toHaveBeenCalled();
+      expect(findAccountJobFunctionByEmailMock).not.toHaveBeenCalled();
+    });
+
+    // Same "no account refuses, no function does not" distinction as
+    // setFunctionAreas above.
+    it("refuses when the caller's own account can no longer be resolved", async () => {
+      requireRoleMock.mockResolvedValue({ email: "ghost@example.com" } as never);
+      actor("ADMIN", "ghost@example.com");
+      findAccountJobFunctionByEmailMock.mockResolvedValue(null);
+
+      const res = await deleteJobFunction(9);
+
+      expect((res as { type: string }).type).toBe("error");
+      expect((res as { message: string }).message).toBe(fr.errors.unauthorized);
+      expect(removeMock).not.toHaveBeenCalled();
     });
   });
 });

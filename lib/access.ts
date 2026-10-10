@@ -36,10 +36,14 @@ export type ScopeCheckResult = { error: { type: "error"; message: string } | nul
  * (requireCapability) and section (requireSectionAccess): may this caller
  * touch THIS project at all.
  *
- * Must run after a role/session gate. `getAccessContext()` treats "no
- * session" the same as "unrestricted" (see lib/accessContext.ts — it exists
- * so ADMIN+ never locks itself out), so calling this alone, first, would let
- * an anonymous caller through.
+ * Still run after a role/session gate, for defense in depth and because the
+ * error message a bare role/session failure should give is more specific
+ * than "forbidden" — but `getAccessContext()` no longer treats "no session"
+ * as "unrestricted" (lib/accessContext.ts, lib/sessionGate.ts): an absent or
+ * unverifiable session now resolves to DENIED, so calling this alone, first,
+ * would refuse an anonymous caller rather than let them through. ADMIN+
+ * still never locks itself out — SUPERADMIN bypasses this axis entirely, and
+ * ADMIN keeps unrestricted projectIds once its own account resolves.
  *
  * `projectId` must be the resource's REAL project, resolved from the
  * database — never a client-supplied form field taken at face value. A

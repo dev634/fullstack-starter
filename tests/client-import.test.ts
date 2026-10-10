@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/service/clients", () => ({ createClient: vi.fn() }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
+// requireAreaAccess("clients") (via getAccessContext) now resolves "no
+// account" to DENIED rather than "unrestricted" — this file's ADMIN fixtures
+// carry a real email (see `actor` below) and need their scope resolved to a
+// real, existing account with no job function, or every one of them would be
+// refused at the area gate before ever reaching importClients' own logic.
+vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -11,11 +17,19 @@ import { importClients } from "@/actions/clients/clients";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { logActivity } from "@/repository/activity";
+import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS } from "@/lib/csv";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
 const logActivityMock = vi.mocked(logActivity);
+const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
+
+/** A real ADMIN session — every fixture below needs the email: getAccessContext
+ * now resolves a session with no email to DENIED, not "unrestricted". */
+function adminSession() {
+  return { user: { role: "ADMIN", email: "admin@example.com" } } as never;
+}
 
 const HEADER =
   '"Company","Email","Phone","Website","Status","Address","City","Zip Code","Country"';
@@ -28,7 +42,15 @@ function csvFile(rows: string[]): FormData {
 }
 
 describe("importClients", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findAccessScopeByEmailMock.mockResolvedValue({
+      hiddenSections: [],
+      hiddenAreas: [],
+      projectScope: "ALL",
+      assignedProjectIds: [],
+    });
+  });
 
   it("refuses without an ADMIN session", async () => {
     authMock.mockResolvedValue({ user: { role: "VIEWER" } } as never);
@@ -38,7 +60,7 @@ describe("importClients", () => {
   });
 
   it("rejects a request with no file", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     const res = await importClients(new FormData());
     expect(res.type).toBe("error");
     expect(createClientMock).not.toHaveBeenCalled();
@@ -48,7 +70,7 @@ describe("importClients", () => {
   // the only real ceiling was the 10 MB Server Action body cap (~170 000
   // rows for a short CSV row), each costing its own createClient call.
   it("rejects a file over MAX_IMPORT_ROWS without creating anything", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     const rows = Array.from(
       { length: MAX_IMPORT_ROWS + 1 },
       (_, i) => `"Acme","a${i}@x.com","","","","1 St","NYC","10001","US"`
@@ -61,7 +83,7 @@ describe("importClients", () => {
   });
 
   it("rejects a file with no data rows", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     const fd = new FormData();
     fd.set("file", new File([HEADER], "clients.csv", { type: "text/csv" }));
     const res = await importClients(fd);
@@ -70,7 +92,7 @@ describe("importClients", () => {
   });
 
   it("imports every valid row and reports the created count", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     createClientMock.mockResolvedValue({ type: "success", message: "ok" } as never);
 
     const res = await importClients(
@@ -91,7 +113,7 @@ describe("importClients", () => {
   });
 
   it("keeps processing after a row fails and reports it with its row number", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     createClientMock
       .mockResolvedValueOnce({ type: "success", message: "ok" } as never)
       .mockRejectedValueOnce({ type: "error", message: "A client with this email already exists." })
@@ -113,7 +135,7 @@ describe("importClients", () => {
   });
 
   it("omits a blank Status cell instead of passing an empty string", async () => {
-    authMock.mockResolvedValue({ user: { role: "ADMIN" } } as never);
+    authMock.mockResolvedValue(adminSession());
     createClientMock.mockResolvedValue({ type: "success", message: "ok" } as never);
 
     await importClients(

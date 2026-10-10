@@ -20,10 +20,21 @@ export type PortalContext = {
  * page to the portal. The proxy is the primary boundary; this second layer runs
  * inside the page render (where `auth()` always has the role) so a client can
  * never see company/project data even if the proxy check ever regresses.
+ *
+ * Mirrors the proxy's own two rules, in Node, for the one case Edge can't
+ * cover: the proxy (authConfig alone, no database) still sees a
+ * structurally valid, correctly-signed cookie after lib/sessionGate.ts has
+ * voided the account it names — here, in Node, `auth()` has already
+ * resolved that to no session at all. `!session?.user` must therefore send
+ * it to `/login` exactly like a never-authenticated visitor, not fall
+ * through to the CLIENT check below (which it would trivially fail, but
+ * only after this function had already behaved as if an absent session were
+ * an app user).
  */
 export async function blockClientFromApp(): Promise<void> {
   const session = await auth();
-  if (session?.user?.role === "CLIENT") redirect("/portail");
+  if (!session?.user) redirect("/login");
+  if (session.user.role === "CLIENT") redirect("/portail");
 }
 
 /** Resolve the portal scope for the current CLIENT session, or null. */

@@ -9,10 +9,11 @@ vi.mock("@/repository/users", () => ({
   countSuperadmins: vi.fn(),
   updatePassword: vi.fn(),
   // Read by requireAreaAccess (via getAccessContext) for every ADMIN actor —
-  // unmocked, this call is `undefined` (the module mock below replaces the
-  // whole file) and throws before the action's own logic ever runs. An
-  // unresolved value here reads the same as "no job function", i.e.
-  // unrestricted, which is what every actor in this file's fixtures is.
+  // defaulted in beforeEach below to the scope of a real, existing account
+  // with no job function. getAccessContext now resolves an UNRESOLVED mock
+  // (`undefined`, i.e. "no account") to DENIED rather than "unrestricted",
+  // so leaving this unset here would refuse every ADMIN fixture in this file
+  // at the admin.users area gate before the action's own logic ever runs.
   findAccessScopeByEmail: vi.fn(),
   // deleteUser now checks this BEFORE remove() — see the "owns equipment or
   // an open loan" tests below. Every other deleteUser test needs a zeroed
@@ -32,7 +33,7 @@ vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockRe
 
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
-import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers } from "@/repository/users";
+import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers, findAccessScopeByEmail } from "@/repository/users";
 import { hasAnyAttachment } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -44,6 +45,7 @@ const findByIdMock = vi.mocked(findById);
 const countSuperMock = vi.mocked(countSuperadmins);
 const hasAnyAttachmentMock = vi.mocked(hasAnyAttachment);
 const countOwnershipBlockersMock = vi.mocked(countOwnershipBlockers);
+const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
 const initial = { type: null, message: "" } as const;
 
 function actor(role: string, email = `${role.toLowerCase()}@x.com`) {
@@ -60,6 +62,16 @@ describe("user management actions", () => {
     vi.clearAllMocks();
     // Zeroed by default — see the dedicated tests below for the non-zero cases.
     countOwnershipBlockersMock.mockResolvedValue({ equipmentCount: 0, openLoanCount: 0 });
+    // getAccessContext resolves "account not found" to DENIED rather than
+    // "unrestricted" — give every actor here the scope of a real, existing
+    // account with no job function (the legitimate default every fixture in
+    // this file actually is).
+    findAccessScopeByEmailMock.mockResolvedValue({
+      hiddenSections: [],
+      hiddenAreas: [],
+      projectScope: "ALL",
+      assignedProjectIds: [],
+    });
   });
 
   it("addUser refuses a non-ADMIN", async () => {

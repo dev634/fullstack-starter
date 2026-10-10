@@ -2,6 +2,30 @@ import { prisma } from "@/lib/prisma";
 import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 
+/**
+ * THE filter every "who IS the caller" resolution applies to `User` — today,
+ * by email alone. Not a convenience copy of `{ email }`: this is the single
+ * place that question is answered, so the pointage module's `User.deactivatedAt`
+ * plugs in here once (`deactivatedAt: null`) instead of a second copy of the
+ * rule drifting from this one. A deactivated account would then read as
+ * "introuvable" wherever a session resolves to a row, exactly like a deleted
+ * one — and every caller below (and lib/sessionGate.ts) inherits that for
+ * free.
+ *
+ * `satisfies` against both shapes it's asked to fill keeps it honest: it must
+ * compile as a `Prisma.UserWhereUniqueInput` (`findUnique`'s `where`) AND as a
+ * `Prisma.UserWhereInput` (a nested relation filter, e.g.
+ * `where: { user: sessionAccountWhere(email) } }`).
+ *
+ * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
+ * and password reset, a call this pass does not make (a deactivated account
+ * arguably still needs to learn WHY it can't sign in, or reset a password it
+ * may need once reactivated).
+ */
+export function sessionAccountWhere(email: string) {
+    return { email } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;
+}
+
 /** App users for the management screen (without password hashes). Excludes
  * CLIENT portal logins — those are managed from their contact, not here.
  * Includes each user's job function (id + name) for display + edit. */
@@ -50,7 +74,7 @@ export type AccessScope = {
 export async function findAccessScopeByEmail(email: string): Promise<AccessScope | null> {
     try {
         const user = await prisma.user.findUnique({
-            where: { email },
+            where: sessionAccountWhere(email),
             select: {
                 jobFunction: { select: { hiddenSections: true, hiddenAreas: true, projectScope: true } },
                 assignedProjects: { select: { id: true } },
@@ -82,11 +106,32 @@ export async function findAccessScopeByEmail(email: string): Promise<AccessScope
  */
 export async function findIdByEmail(email: string): Promise<number | null> {
     try {
-        const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+        const user = await prisma.user.findUnique({ where: sessionAccountWhere(email), select: { id: true } });
         return user?.id ?? null;
     } catch (error) {
         console.log("Repository findIdByEmail error:", error);
         throw { type: "repositoryError", message: "Database Error fetching user id." };
+    }
+}
+
+/**
+ * Whether `email` STILL resolves to the SAME account `id` — the check
+ * lib/sessionGate.ts runs on every session: a deleted account's last-issued
+ * JWT must stop authenticating, and a deleted-then-recreated account under
+ * the same email must not hand the new row the old cookie's session. Indexed
+ * on id AND email together for exactly that second case — ids are never
+ * reused, so a stale `sub` can't resolve to whatever row the email now
+ * belongs to.
+ */
+export async function findSessionAccount(id: number, email: string): Promise<{ id: number } | null> {
+    try {
+        return await prisma.user.findUnique({
+            where: { id, ...sessionAccountWhere(email) },
+            select: { id: true },
+        });
+    } catch (error) {
+        console.log("Repository findSessionAccount error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching session account." };
     }
 }
 
@@ -166,13 +211,21 @@ export async function findById(id: number) {
  * RESOLVES to (hiddenSections/hiddenAreas/projectScope), not the id itself.
  * Passe 3b, point 3: setFunctionAreas (actions/jobFunctions/jobFunctions.ts)
  * needs the caller's OWN function id to refuse editing it.
+ *
+ * `null` means "no account" (sessionAccountWhere found no row); `{
+ * jobFunctionId: null }` means "account, no function". Collapsing the two —
+ * the bug this rename closes — let deleteJobFunction/setFunctionAreas treat
+ * a caller whose account just vanished as merely "has no function", i.e.
+ * nothing stops it: `ownFunctionId === id` is `null === id`, always false,
+ * so the self-lock guard silently let the call through instead of refusing
+ * it outright.
  */
-export async function findJobFunctionIdByEmail(email: string): Promise<number | null> {
+export async function findAccountJobFunctionByEmail(email: string): Promise<{ jobFunctionId: number | null } | null> {
     try {
-        const user = await prisma.user.findUnique({ where: { email }, select: { jobFunctionId: true } });
-        return user?.jobFunctionId ?? null;
+        const user = await prisma.user.findUnique({ where: sessionAccountWhere(email), select: { jobFunctionId: true } });
+        return user ?? null;
     } catch (error) {
-        console.log("Repository findJobFunctionIdByEmail error:", error);
+        console.log("Repository findAccountJobFunctionByEmail error:", error);
         throw { type: "repositoryError", message: "Database Error fetching user's job function." };
     }
 }
