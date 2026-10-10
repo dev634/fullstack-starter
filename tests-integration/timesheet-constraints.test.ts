@@ -48,9 +48,9 @@ type Fixture = { clientId: number; projectA: number; projectB: number; interim1:
 
 const ROLLBACK = new Error("timesheet-constraints: rolled back on purpose");
 
-/** Runs `body` in a transaction that is ALWAYS rolled back; returns its outcome. */
-async function rolledBack(body: (tx: Tx) => Promise<Outcome>): Promise<Outcome> {
-  const box: Outcome[] = [];
+/** Runs `body` in a transaction that is ALWAYS rolled back; returns what it returned. */
+async function rolledBack<T>(body: (tx: Tx) => Promise<T>): Promise<T> {
+  const box: T[] = [];
   try {
     await prisma.$transaction(async (tx) => {
       box.push(await body(tx));
@@ -59,9 +59,8 @@ async function rolledBack(body: (tx: Tx) => Promise<Outcome>): Promise<Outcome> 
   } catch (error) {
     if (error !== ROLLBACK) throw error;
   }
-  const [outcome] = box;
-  if (outcome === undefined) throw new Error("rolledBack: the body produced no outcome");
-  return outcome;
+  if (box.length !== 1) throw new Error("rolledBack: the body produced no result");
+  return box[0];
 }
 
 /** One step down an unknown object, without a cast. */
@@ -146,15 +145,56 @@ function pngOfSize(size: number): Buffer {
 }
 
 /** Signs the reference line with the hours and break it was shown. */
-async function signReferenceLine(tx: Tx, entryId: number): Promise<void> {
+async function signReferenceLine(tx: Tx, entryId: number, capturedById: number | null = null): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO "TimesheetSignature" ("entryId", "image", "signedStartAt", "signedEndAt", "signedBreakMinutes", "signerName")
-    VALUES (${entryId}, ${TINY_PNG}, '2026-03-28 23:30'::timestamp, '2026-03-29 07:30'::timestamp, 30, 'Intérimaire sonde')`;
+    INSERT INTO "TimesheetSignature" ("entryId", "image", "signedStartAt", "signedEndAt", "signedBreakMinutes", "signerName", "capturedById")
+    VALUES (${entryId}, ${TINY_PNG}, '2026-03-28 23:30'::timestamp, '2026-03-29 07:30'::timestamp, 30, 'Intérimaire sonde', ${capturedById})`;
 }
 
-async function validate(tx: Tx, entryId: number): Promise<void> {
+async function validate(tx: Tx, entryId: number, validatedById: number | null = null): Promise<void> {
   await tx.$executeRaw`
-    UPDATE "TimesheetEntry" SET "validatedAt" = now(), "validatorName" = 'Chef' WHERE "id" = ${entryId}`;
+    UPDATE "TimesheetEntry" SET "validatedAt" = now(), "validatorName" = 'Chef', "validatedById" = ${validatedById}
+    WHERE "id" = ${entryId}`;
+}
+
+/** An account of the organisation, inside the rolled-back transaction. */
+async function makeUser(tx: Tx, tag: string, role: "ADMIN" | "EDITOR" | "WORKER"): Promise<number> {
+  const user = await tx.user.create({
+    data: {
+      email: `${tag}-${Date.now()}-${Math.random().toString(36).slice(2)}${TEST_DOMAIN}`,
+      password: "x",
+      name: `Sonde ${tag}`,
+      role,
+    },
+    select: { id: true },
+  });
+  return user.id;
+}
+
+/** A subcontractor company on `projectId` with one person; returns both ids. */
+async function makeSubcontractor(tx: Tx, projectId: number, name: string): Promise<{ company: number; person: number }> {
+  const company = await tx.subcontractorCompany.create({ data: { projectId, name }, select: { id: true } });
+  const person = await tx.subcontractorPerson.create({
+    data: { companyId: company.id, name: `Compagnon ${name}` },
+    select: { id: true },
+  });
+  return { company: company.id, person: person.id };
+}
+
+/** What a deleted account leaves on a validated, signed line. */
+type ProofSnapshot = {
+  deletion: Outcome;
+  line: { validated: boolean; validatedById: number | null; validatorName: string | null }[];
+  signature: { capturedById: number | null; signerName: string }[];
+};
+
+async function proofAfter(tx: Tx, entryId: number, deletion: Outcome): Promise<ProofSnapshot> {
+  const line = await tx.$queryRaw<ProofSnapshot["line"]>`
+    SELECT "validatedAt" IS NOT NULL AS validated, "validatedById", "validatorName"
+    FROM "TimesheetEntry" WHERE "id" = ${entryId}`;
+  const signature = await tx.$queryRaw<ProofSnapshot["signature"]>`
+    SELECT "capturedById", "signerName" FROM "TimesheetSignature" WHERE "entryId" = ${entryId}`;
+  return { deletion, line, signature };
 }
 
 beforeAll(async () => {
@@ -602,5 +642,204 @@ describe("pointage — signature, plafond d'image (amendement B), validation, su
       return attempt(tx, () => tx.$executeRaw`DELETE FROM "TimesheetSignature" WHERE "entryId" = ${entryId}`);
     });
     expect(outcome).toEqual({ ok: true });
+  });
+
+  // Not B1/B2: those are the CHECK refusing the LINE (departure without break,
+  // break without departure). This is the signature trigger refusing to sign a
+  // line that is still open — arrived, not yet left.
+  it("S1 : une ligne encore ouverte (sans départ) ne peut pas être signée", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const rows = await tx.$queryRaw<{ id: number }[]>`
+        INSERT INTO "TimesheetEntry" ("projectId", "interimId", "workDate", "startAt", "updatedAt")
+        VALUES (${f.projectA}, ${f.interim1}, '2026-03-29'::date, '2026-03-28 23:30'::timestamp, now())
+        RETURNING "id"`;
+      const entryId = rows[0].id;
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetSignature" ("entryId", "image", "signedStartAt", "signedEndAt", "signedBreakMinutes", "signerName")
+          VALUES (${entryId}, ${TINY_PNG}, '2026-03-28 23:30'::timestamp, '2026-03-29 07:30'::timestamp, 30, 'Intérimaire sonde')`
+      );
+    });
+    expect(outcome).toEqual(refused(CHECK, "has no departure time or no break yet"));
+  });
+});
+
+describe("pointage — les deux autres populations : projet prouvé par FK composite", () => {
+  it("P1 : un salarié rattaché au chantier A pointe sur A (témoin positif)", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const userId = await makeUser(tx, "salarie", "EDITOR");
+      await tx.projectWorker.create({ data: { projectId: f.projectA, userId } });
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetEntry" ("projectId", "userId", "workDate", "startAt", "updatedAt")
+          VALUES (${f.projectA}, ${userId}, '2026-05-04'::date, '2026-05-04 05:00'::timestamp, now())`
+      );
+    });
+    expect(outcome).toEqual({ ok: true });
+  });
+
+  it("P2 : un salarié rattaché au chantier A est refusé sur le chantier B", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const userId = await makeUser(tx, "salarie", "EDITOR");
+      await tx.projectWorker.create({ data: { projectId: f.projectA, userId } });
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetEntry" ("projectId", "userId", "workDate", "startAt", "updatedAt")
+          VALUES (${f.projectB}, ${userId}, '2026-05-04'::date, '2026-05-04 05:00'::timestamp, now())`
+      );
+    });
+    expect(outcome).toEqual(refused(FOREIGN_KEY, "TimesheetEntry_worker_fkey"));
+  });
+
+  it("P3 : une personne sous-traitante de son entreprise, sur le chantier de celle-ci, pointe (témoin positif)", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const sub = await makeSubcontractor(tx, f.projectA, "Élec A");
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetEntry" ("projectId", "subcontractorPersonId", "subcontractorCompanyId", "workDate", "startAt", "updatedAt")
+          VALUES (${f.projectA}, ${sub.person}, ${sub.company}, '2026-05-04'::date, '2026-05-04 05:00'::timestamp, now())`
+      );
+    });
+    expect(outcome).toEqual({ ok: true });
+  });
+
+  // Both companies sit on project A, so the company <-> project FK is
+  // satisfied: only the person <-> company FK can refuse.
+  it("P4 : une personne déclarée sous une entreprise qui n'est pas la sienne est refusée", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const own = await makeSubcontractor(tx, f.projectA, "Élec A");
+      const other = await makeSubcontractor(tx, f.projectA, "Couverture A");
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetEntry" ("projectId", "subcontractorPersonId", "subcontractorCompanyId", "workDate", "startAt", "updatedAt")
+          VALUES (${f.projectA}, ${own.person}, ${other.company}, '2026-05-04'::date, '2026-05-04 05:00'::timestamp, now())`
+      );
+    });
+    expect(outcome).toEqual(refused(FOREIGN_KEY, "TimesheetEntry_subcontractorPerson_fkey"));
+  });
+
+  // Person and company agree, so the person <-> company FK is satisfied: only
+  // the company <-> project FK can refuse.
+  it("P5 : une personne et son entreprise cohérentes, mais l'entreprise d'un autre chantier, sont refusées", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const onB = await makeSubcontractor(tx, f.projectB, "Élec B");
+      return attempt(
+        tx,
+        () => tx.$executeRaw`
+          INSERT INTO "TimesheetEntry" ("projectId", "subcontractorPersonId", "subcontractorCompanyId", "workDate", "startAt", "updatedAt")
+          VALUES (${f.projectA}, ${onB.person}, ${onB.company}, '2026-05-04'::date, '2026-05-04 05:00'::timestamp, now())`
+      );
+    });
+    expect(outcome).toEqual(refused(FOREIGN_KEY, "TimesheetEntry_subcontractorCompany_fkey"));
+  });
+});
+
+describe("pointage — un login, une fiche par chantier (livraison 2)", () => {
+  it("W1 : un même login sur deux fiches d'intérimaire du même chantier est refusé", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const login = await makeUser(tx, "worker", "WORKER");
+      await tx.$executeRaw`UPDATE "Interim" SET "workerUserId" = ${login} WHERE "id" = ${f.interim1}`;
+      return attempt(tx, () => tx.$executeRaw`UPDATE "Interim" SET "workerUserId" = ${login} WHERE "id" = ${f.interim2}`);
+    });
+    expect(outcome).toEqual(refused(UNIQUE, "Interim_workerUserId_projectId_key"));
+  });
+
+  // The legitimate case the unique must NOT forbid: the same temp, one fiche
+  // per chantier, one login.
+  it("W2 : le même login sur la fiche d'intérimaire d'un autre chantier est accepté", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const login = await makeUser(tx, "worker", "WORKER");
+      const onB = await tx.interim.create({ data: { projectId: f.projectB, name: "Intérimaire sonde" }, select: { id: true } });
+      await tx.$executeRaw`UPDATE "Interim" SET "workerUserId" = ${login} WHERE "id" = ${f.interim1}`;
+      return attempt(tx, () => tx.$executeRaw`UPDATE "Interim" SET "workerUserId" = ${login} WHERE "id" = ${onB.id}`);
+    });
+    expect(outcome).toEqual({ ok: true });
+  });
+
+  it("W3 : un même login sur deux personnes de la même entreprise sous-traitante est refusé", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const login = await makeUser(tx, "worker", "WORKER");
+      const sub = await makeSubcontractor(tx, f.projectA, "Élec A");
+      const second = await tx.subcontractorPerson.create({
+        data: { companyId: sub.company, name: "Compagnon bis" },
+        select: { id: true },
+      });
+      await tx.$executeRaw`UPDATE "SubcontractorPerson" SET "workerUserId" = ${login} WHERE "id" = ${sub.person}`;
+      return attempt(
+        tx,
+        () => tx.$executeRaw`UPDATE "SubcontractorPerson" SET "workerUserId" = ${login} WHERE "id" = ${second.id}`
+      );
+    });
+    expect(outcome).toEqual(refused(UNIQUE, "SubcontractorPerson_workerUserId_companyId_key"));
+  });
+
+  it("W4 : le même login sur la personne d'une entreprise d'un autre chantier est accepté", async () => {
+    const outcome = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const login = await makeUser(tx, "worker", "WORKER");
+      const onA = await makeSubcontractor(tx, f.projectA, "Élec A");
+      const onB = await makeSubcontractor(tx, f.projectB, "Élec B");
+      await tx.$executeRaw`UPDATE "SubcontractorPerson" SET "workerUserId" = ${login} WHERE "id" = ${onA.person}`;
+      return attempt(
+        tx,
+        () => tx.$executeRaw`UPDATE "SubcontractorPerson" SET "workerUserId" = ${login} WHERE "id" = ${onB.person}`
+      );
+    });
+    expect(outcome).toEqual({ ok: true });
+  });
+});
+
+describe("pointage — la preuve survit au compte (SET NULL + nom figé)", () => {
+  // The line is SIGNED and VALIDATED: the FK's SET NULL runs as an UPDATE
+  // that both guard triggers see, and their "-> NULL" exception is what lets
+  // it through. The frozen names must come out untouched.
+  it("N1 : supprimer le compte du validateur garde la ligne validée, vide validatedById, garde validatorName", async () => {
+    const snapshot = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const validator = await makeUser(tx, "validateur", "ADMIN");
+      const entryId = await insertReferenceLine(tx, f);
+      await signReferenceLine(tx, entryId);
+      await validate(tx, entryId, validator);
+      const deletion = await attempt(tx, () => tx.$executeRaw`DELETE FROM "User" WHERE "id" = ${validator}`);
+      return proofAfter(tx, entryId, deletion);
+    });
+    expect(snapshot).toEqual({
+      deletion: { ok: true },
+      line: [{ validated: true, validatedById: null, validatorName: "Chef" }],
+      signature: [{ capturedById: null, signerName: "Intérimaire sonde" }],
+    });
+  });
+
+  it("N2 : supprimer le compte qui a capté la signature garde la signature, vide capturedById, garde signerName", async () => {
+    const result = await rolledBack(async (tx) => {
+      const f = await makeFixture(tx);
+      const validator = await makeUser(tx, "validateur", "ADMIN");
+      const capturer = await makeUser(tx, "capteur", "WORKER");
+      const entryId = await insertReferenceLine(tx, f);
+      await signReferenceLine(tx, entryId, capturer);
+      await validate(tx, entryId, validator);
+      const deletion = await attempt(tx, () => tx.$executeRaw`DELETE FROM "User" WHERE "id" = ${capturer}`);
+      return { validator, snapshot: await proofAfter(tx, entryId, deletion) };
+    });
+    // The validator was NOT deleted: its id must still be on the line.
+    expect(result.snapshot).toEqual({
+      deletion: { ok: true },
+      line: [{ validated: true, validatedById: result.validator, validatorName: "Chef" }],
+      signature: [{ capturedById: null, signerName: "Intérimaire sonde" }],
+    });
   });
 });
