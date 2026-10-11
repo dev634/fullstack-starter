@@ -227,8 +227,7 @@ export async function findById(id: number) {
  */
 export async function findAccountJobFunctionByEmail(email: string): Promise<{ jobFunctionId: number | null } | null> {
     try {
-        const user = await prisma.user.findUnique({ where: sessionAccountWhere(email), select: { jobFunctionId: true } });
-        return user ?? null;
+        return await prisma.user.findUnique({ where: sessionAccountWhere(email), select: { jobFunctionId: true } });
     } catch (error) {
         console.log("Repository findAccountJobFunctionByEmail error:", error);
         throw { type: "repositoryError", message: "Database Error fetching user's job function." };

@@ -49,9 +49,7 @@ import { findSessionAccount } from "@/repository/users";
  * memoization and stays correct — `cache` is documented to pass through
  * uncached when there is no request-scoped cache to attach to.
  */
-const findLiveSessionAccount = cache(async (id: number, email: string) => {
-  return await findSessionAccount(id, email);
-});
+const findLiveSessionAccount = cache(findSessionAccount);
 
 /**
  * `sub` must be the decimal text of a positive safe integer — anything this
