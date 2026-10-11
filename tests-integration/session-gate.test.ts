@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { remove } from "@/repository/users";
+import { authConfig } from "@/auth.config";
 
 /**
  * lib/auth.ts's own `jwt` callback is the one place the session-liveness
@@ -19,7 +20,7 @@ import { remove } from "@/repository/users";
 
 type SessionToken = { sub?: string; email?: string | null; role?: string };
 type JwtCallback = (params: { token: SessionToken; user?: { role?: string } }) => Promise<SessionToken | null>;
-type CapturedConfig = { callbacks: { jwt: JwtCallback } };
+type CapturedConfig = { callbacks: { jwt: JwtCallback; session: unknown } };
 
 // `vi.hoisted` so `captured` exists already when the `next-auth` mock
 // factory below runs — that factory executes while `@/lib/auth` is being
@@ -38,9 +39,13 @@ vi.mock("next-auth/providers/credentials", () => ({ default: vi.fn() }));
 
 import "@/lib/auth";
 
-function jwt(): JwtCallback {
+function config(): CapturedConfig {
   if (!captured.config) throw new Error("NextAuth() was never called — lib/auth.ts did not build its config");
-  return captured.config.callbacks.jwt;
+  return captured.config;
+}
+
+function jwt(): JwtCallback {
+  return config().callbacks.jwt;
 }
 
 const TEST_DOMAIN = "@session-gate-test.local";
@@ -92,14 +97,37 @@ describe("lib/auth.ts's real jwt callback, against a real Postgres", () => {
     expect(await jwt()({ token: newToken })).toEqual(newToken);
   });
 
-  it("a sign-in call (user present) returns the token unchanged WITHOUT any database lookup", async () => {
+  it("a sign-in call (user present) carries the role onto the token, WITHOUT any database lookup", async () => {
+    // The token arrives WITHOUT a role, as Auth.js hands it to the callback at
+    // sign-in: the role is what authConfig's own `jwt` puts there from the
+    // authorize() payload. It lives in authConfig because the proxy runs on
+    // authConfig alone and reads `req.auth.user.role` for the client-portal
+    // boundary — so a lib/auth.ts `jwt` that stops delegating to it would
+    // keep every other test in this file green and strip the role off every
+    // new login. Asserting the role here is what makes that visible.
+    //
     // No account anywhere matches this sub/email — if this reached the
     // database it WOULD come back null, exactly like the "deleted" case
-    // above. Getting the token back unchanged proves the lookup never ran,
-    // by construction, rather than by an assertion on a call count on a
-    // mock (there is no mock here — this is the real repository).
-    const token: SessionToken = { sub: "999999999", email: "nobody@session-gate-test.local", role: "EDITOR" };
+    // above. Getting a token back proves the lookup never ran, by
+    // construction, rather than by an assertion on a call count on a mock
+    // (there is no mock here — this is the real repository).
+    const token: SessionToken = { sub: "999999999", email: "nobody@session-gate-test.local" };
+    expect(token.role).toBeUndefined();
 
-    expect(await jwt()({ token, user: { role: "EDITOR" } })).toEqual(token);
+    const result = await jwt()({ token, user: { role: "EDITOR" } });
+
+    expect(result).not.toBeNull();
+    expect(result?.role).toBe("EDITOR");
+    expect(result?.sub).toBe(token.sub);
+    expect(result?.email).toBe(token.email);
+  });
+
+  it("keeps authConfig's `session` callback as it is (the role reaches the session through it)", () => {
+    // lib/auth.ts overrides `jwt` while spreading authConfig.callbacks. The
+    // `session` callback is the other half of the role's journey (token →
+    // session.user.role); it must be the very function authConfig defines, so
+    // a wiring change that drops or replaces it fails here and not in
+    // production, where nothing but the role-gated UI would notice.
+    expect(config().callbacks.session).toBe(authConfig.callbacks.session);
   });
 });
