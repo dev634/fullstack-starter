@@ -13,12 +13,27 @@ import { join } from "node:path";
  * call sites instead of drifting between two near-identical copies.
  */
 
-/** Every source file under `dir`, recursively, whose extension is in `extensions` (e.g. [".ts", ".tsx"]). */
+/**
+ * Directory names no source walk enters, AT ANY DEPTH, because what they hold
+ * is another tree, not this one: `node_modules` is third-party code, and
+ * `.claude` holds the agents' isolated worktrees — a whole copy of the
+ * repository each, its own `node_modules` included.
+ *
+ * Matched by NAME, not by repo-relative path. A session started from a
+ * subfolder creates its worktrees there: `actions/.claude/worktrees/` held
+ * 31 636 `.ts` files when this was written, which a root-anchored `.claude`
+ * exclusion let through — authz-coverage then walked every one of them as if
+ * it were an action of this repository, and the run never finished.
+ */
+export const FOREIGN_TREE_DIRS: ReadonlySet<string> = new Set(["node_modules", ".claude"]);
+
+/** Every source file under `dir`, recursively, whose extension is in `extensions` (e.g. [".ts", ".tsx"]), minus FOREIGN_TREE_DIRS. */
 export function sourceFilesIn(dir: string, extensions: readonly string[], out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) sourceFilesIn(full, extensions, out);
-    else if (extensions.some((ext) => full.endsWith(ext))) out.push(full);
+    if (statSync(full).isDirectory()) {
+      if (!FOREIGN_TREE_DIRS.has(name)) sourceFilesIn(full, extensions, out);
+    } else if (extensions.some((ext) => full.endsWith(ext))) out.push(full);
   }
   return out;
 }
