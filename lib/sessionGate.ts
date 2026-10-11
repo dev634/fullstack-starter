@@ -66,12 +66,38 @@ function parseSessionId(sub: string | undefined): number | null {
 }
 
 /**
- * The token unchanged if its account still exists, `null` otherwise.
+ * The token unchanged if its account still exists, `null` otherwise — and a
+ * THROW if the lookup itself fails (database down): `findSessionAccount`
+ * rejects and this function lets it through, so a session is never kept on an
+ * answer nobody gave.
  *
  * The id AND the email are checked together (never the id alone): ids are
  * never reused, so an account deleted and then recreated under the SAME
  * email gets a NEW id. A stale cookie carrying the OLD id must not resolve
  * to the new row and inherit whatever role that new account was just given.
+ *
+ * During a database outage, what happens (checked by running the real
+ * NextAuth() and lib/auth.ts with only this lookup made to fail, next-auth
+ * 5.0.0-beta.32 — not inferred from the code):
+ *   - Auth.js catches the throw inside its own session handler, so `auth()`
+ *     never throws: it logs and resolves to `null`, exactly as for a voided
+ *     token. Pages therefore land on /login (blockClientFromApp redirects an
+ *     absent session there; a page whose first guard is another one gets
+ *     there through /acces-refuse or /clients), actions answer "unauthorized",
+ *     routes answer 401, and getAccessContext is DENIED.
+ *   - The journal gets one `[auth][error] JWTSessionError` line per `auth()`
+ *     call. It carries no cause: what is thrown is the repository's plain
+ *     `{ type, message }` object, not an Error, so Auth.js has nothing to
+ *     unwrap. The line that names the database is the repository's own
+ *     `Repository findSessionAccount error:`.
+ *   - The browser's cookie is left alone: a server-side `auth()` takes the
+ *     session response's body and drops its Set-Cookie, and `auth()` calls
+ *     `cookies()` zero times. Everyone is back as soon as the database is.
+ *
+ * Signing everyone out for the length of an outage is the price of failing
+ * closed. The alternative — keep the token when the lookup cannot answer —
+ * fails open: every deleted account's cookie would be good again at this
+ * layer for as long as the outage lasts.
  */
 export async function keepLiveSessionToken<T extends { sub?: string; email?: string | null }>(
   token: T

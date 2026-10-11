@@ -29,6 +29,17 @@ describe("keepLiveSessionToken", () => {
     expect(result).toBeNull();
   });
 
+  // The contract lib/sessionGate.ts documents for a database outage: the
+  // lookup's failure goes through, so a session is never kept on an answer
+  // nobody gave. (What Auth.js then does with the throw — `auth()` resolves to
+  // null, /login, a JWTSessionError line — was checked against the real
+  // NextAuth(), not here: that needs a Next request context.)
+  it("lets the lookup's failure through instead of keeping the token", async () => {
+    findSessionAccountMock.mockRejectedValue({ type: "repositoryError", message: "Database Error fetching session account." });
+
+    await expect(keepLiveSessionToken({ sub: "7", email: "user@example.com" })).rejects.toMatchObject({ type: "repositoryError" });
+  });
+
   // A value this gate cannot parse must void the session outright, never
   // fall back to treating it as valid — see each case below.
   describe("an unparsable sub refuses without a database round trip", () => {
