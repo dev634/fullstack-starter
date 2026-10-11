@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import ts from "typescript";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { FOREIGN_TREE_DIRS } from "./helpers/astScan";
 
 /**
  * Structural guarantee: every `Prisma.raw(...)` call in application code
@@ -46,12 +47,16 @@ import { join, relative, sep } from "node:path";
 const ROOT = process.cwd();
 const SOURCE_EXTENSIONS = [".ts", ".tsx"] as const;
 
-/** Directories/files the walk never enters, each with why it isn't application code. */
+/**
+ * Directories/files the walk never enters, each with why it isn't application
+ * code. Repo-relative, so they apply at the root only — `node_modules` and
+ * `.claude` are NOT here: they are skipped at any depth by name
+ * (FOREIGN_TREE_DIRS in helpers/astScan.ts, with the reason), since a
+ * root-only entry let `actions/.claude/worktrees/<copy>/` through.
+ */
 const EXCLUDED: ReadonlyArray<{ path: string; reason: string }> = [
-  { path: "node_modules", reason: "third-party code, not ours to check" },
   { path: ".next", reason: "build output; its inputs are checked instead" },
   { path: ".git", reason: "not source" },
-  { path: ".claude", reason: "agents' isolated worktrees live here — other trees, other code" },
   { path: "tests", reason: "vitest only, including this file itself — its planted probe sources are not application code" },
   { path: "tests-integration", reason: "vitest only; already proven to use only the safe $queryRaw tagged-template form" },
   { path: "docs", reason: "documentation sources" },
@@ -74,7 +79,7 @@ function walk(dir: string, out: string[]): void {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     const relPath = rel(full);
-    if (isExcluded(relPath)) continue;
+    if (FOREIGN_TREE_DIRS.has(name) || isExcluded(relPath)) continue;
     if (statSync(full).isDirectory()) walk(full, out);
     else if (SOURCE_EXTENSIONS.some((ext) => name.endsWith(ext))) out.push(full);
   }

@@ -3,6 +3,7 @@ import ts from "typescript";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { join, relative, sep } from "node:path";
+import { FOREIGN_TREE_DIRS } from "./helpers/astScan";
 
 /**
  * Structural guarantee: every npm package the SHIPPED code imports at
@@ -50,13 +51,15 @@ const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".mjs", ".cjs"] as cons
 /**
  * Paths (relative to the repo root, forward slashes) the walk never enters.
  * Every entry names why it is not shipped code; remove the entry the day the
- * reason stops being true.
+ * reason stops being true. Root-relative, so `node_modules` and `.claude` are
+ * NOT here: they are skipped at any depth by name (FOREIGN_TREE_DIRS in
+ * helpers/astScan.ts, with the reason), since a root-only entry let
+ * `actions/.claude/worktrees/<copy>/` — another tree, another package.json —
+ * through.
  */
 const EXCLUDED: ReadonlyArray<{ path: string; reason: string }> = [
-  { path: "node_modules", reason: "third-party code, not ours to check" },
   { path: ".next", reason: "build output; its inputs are checked instead" },
   { path: ".git", reason: "not source" },
-  { path: ".claude", reason: "agents' isolated worktrees live here — other trees, other package.json" },
   { path: "tests", reason: "vitest only; never copied into the image" },
   { path: "tests-integration", reason: "vitest only; never copied into the image" },
   { path: "docs", reason: "documentation sources; never copied into the image" },
@@ -97,7 +100,7 @@ function walk(dir: string, out: string[]): void {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     const relPath = rel(full);
-    if (isExcluded(relPath)) continue;
+    if (FOREIGN_TREE_DIRS.has(name) || isExcluded(relPath)) continue;
     if (statSync(full).isDirectory()) walk(full, out);
     else if (SOURCE_EXTENSIONS.some((ext) => name.endsWith(ext))) out.push(full);
   }

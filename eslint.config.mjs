@@ -46,7 +46,11 @@ const eslintConfig = defineConfig([
     // ne s'y appliquent pas, donc du bruit qui peut masquer une vraie erreur.
     // git ignore deja .claude/, donc la CI n'a jamais vu ce probleme -- il
     // n'existe qu'en local, et seulement pendant qu'un agent travaille.
-    ".claude/**",
+    // `**/` et pas la racine seule : une session lancee depuis un sous-dossier
+    // (ex. actions/) cree ses copies sous actions/.claude/worktrees/, que
+    // ".claude/**" ne couvrait pas -- `--print-config` les analysait
+    // (constate le 2026-10-10 sur deux copies).
+    "**/.claude/**",
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
