@@ -143,6 +143,24 @@ async function expectRedirectTo(run: () => Promise<unknown>, destination: string
   await expect(run()).rejects.toMatchObject({ destination });
 }
 
+/**
+ * The guard must REDIRECT (returning is what lets a caller through) and must
+ * not send the caller to an Administration tab. It deliberately does not pin
+ * WHERE else it lands: that is the guard's own routing choice (a generic
+ * fallback today, itself a page that sends an absent session on to /login),
+ * and pinning it made these probes fail on a harmless change of fallback
+ * while saying nothing about the session.
+ */
+async function expectRedirectAwayFromAdmin(run: () => Promise<unknown>): Promise<void> {
+  const error = await run().then(
+    () => undefined,
+    (rejection: unknown) => rejection
+  );
+  expect(error, "the guard returned instead of redirecting — it let the caller through").toBeDefined();
+  expect(error).toMatchObject({ destination: expect.any(String) });
+  expect(error).not.toMatchObject({ destination: expect.stringMatching(/^\/admin(\/|$)/) });
+}
+
 type ReaderProbe = {
   /** `auth()` resolves to no session at all. Required for every reader. */
   noSession: () => Promise<void>;
@@ -170,18 +188,20 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
   "lib/adminAccess.ts::requireAdminTab": {
     noSession: async () => {
       authMock.mockResolvedValue(null as never);
-      // No accessible tab for a session with no role at all: redirected to
-      // the generic fallback rather than any admin tab.
-      await expectRedirectTo(() => requireAdminTab("users"), "/clients");
+      // A session with no role opens no admin tab: the guard redirects, and
+      // not to one.
+      await expectRedirectAwayFromAdmin(() => requireAdminTab("users"));
     },
   },
 
   "lib/areaAccess.ts::requireAreaOrRedirect": {
     noSession: async () => {
       authMock.mockResolvedValue(null as never);
-      // DENIED hides every area, including admin.functions — proceeds past
-      // the early return and redirects to the "everything is hidden" page.
-      await expectRedirectTo(() => requireAreaOrRedirect("admin.functions"), "/acces-refuse");
+      // DENIED hides every area, including admin.functions — the guard gets
+      // past its early return and redirects, and not to an admin tab. Where it
+      // lands is areaAccess's own fallback chain, pinned where it belongs
+      // (tests/area-access.test.ts), not through an absent session.
+      await expectRedirectAwayFromAdmin(() => requireAreaOrRedirect("admin.functions"));
     },
   },
 
