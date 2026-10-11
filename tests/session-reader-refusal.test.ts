@@ -146,9 +146,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { auth } from "@/lib/auth";
-import { findAccessScopeByEmail, findIdByEmail, findAccountJobFunctionByEmail, type AccessScope } from "@/repository/users";
+import { findAccessScopeByEmail, findIdByEmail, findAccountJobFunctionByEmail } from "@/repository/users";
 import { findByUserEmail } from "@/repository/contacts";
-import { getAccessContext, canReachProject } from "@/lib/accessContext";
+import { getAccessContext } from "@/lib/accessContext";
 import { requireAdminTab } from "@/lib/adminAccess";
 import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import { requireSession, requireRole } from "@/lib/authz";
@@ -158,15 +158,13 @@ import { requireAppUser } from "@/lib/requireAppUser";
 import { addUser } from "@/actions/users/users";
 import { deleteJobFunction, setFunctionAreas } from "@/actions/jobFunctions/jobFunctions";
 import fr from "@/lib/i18n/dictionaries/fr";
+import { accountWithoutFunction, expectDenied } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
 const findIdByEmailMock = vi.mocked(findIdByEmail);
 const findAccountJobFunctionByEmailMock = vi.mocked(findAccountJobFunctionByEmail);
 const findByUserEmailMock = vi.mocked(findByUserEmail);
-
-/** A present, unrestricted scope — "account exists, no job function". */
-const EXISTING_SCOPE: AccessScope = { hiddenSections: [], hiddenAreas: [], projectScope: "ALL", assignedProjectIds: [] };
 
 async function expectRedirectTo(run: () => Promise<unknown>, destination: string): Promise<void> {
   await expect(run()).rejects.toMatchObject({ destination });
@@ -187,16 +185,12 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
   "lib/accessContext.ts::getAccessContext": {
     noSession: async () => {
       authMock.mockResolvedValue(null as never);
-      const ctx = await getAccessContext();
-      expect(ctx.hiddenAreas.size).toBeGreaterThan(0);
-      expect(canReachProject(ctx, 1)).toBe(false);
+      expectDenied(await getAccessContext());
     },
     absentRow: async () => {
       authMock.mockResolvedValue({ user: { role: "EDITOR", email: "ghost@example.com" } } as never);
       findAccessScopeByEmailMock.mockResolvedValue(null);
-      const ctx = await getAccessContext();
-      expect(ctx.hiddenAreas.size).toBeGreaterThan(0);
-      expect(canReachProject(ctx, 1)).toBe(false);
+      expectDenied(await getAccessContext());
     },
   },
 
@@ -309,7 +303,7 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
     // DURING the request" window, not "no session at all".
     absentRow: async () => {
       authMock.mockResolvedValue({ user: { role: "ADMIN", email: "ghost@example.com" } } as never);
-      findAccessScopeByEmailMock.mockResolvedValue(EXISTING_SCOPE);
+      findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
       findAccountJobFunctionByEmailMock.mockResolvedValue(null);
       const res = await deleteJobFunction(9);
       expect((res as { type: string }).type).toBe("error");
@@ -325,7 +319,7 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
     },
     absentRow: async () => {
       authMock.mockResolvedValue({ user: { role: "ADMIN", email: "ghost@example.com" } } as never);
-      findAccessScopeByEmailMock.mockResolvedValue(EXISTING_SCOPE);
+      findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
       findAccountJobFunctionByEmailMock.mockResolvedValue(null);
       const res = await setFunctionAreas(9, []);
       expect((res as { type: string }).type).toBe("error");

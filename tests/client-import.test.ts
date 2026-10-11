@@ -19,6 +19,7 @@ import { createClient } from "@/service/clients";
 import { logActivity } from "@/repository/activity";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS } from "@/lib/csv";
+import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
@@ -44,12 +45,7 @@ function csvFile(rows: string[]): FormData {
 describe("importClients", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    findAccessScopeByEmailMock.mockResolvedValue({
-      hiddenSections: [],
-      hiddenAreas: [],
-      projectScope: "ALL",
-      assignedProjectIds: [],
-    });
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
   });
 
   it("refuses without an ADMIN session", async () => {

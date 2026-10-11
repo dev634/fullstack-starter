@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
 
-import { getAccessContext, canReachProject } from "@/lib/accessContext";
+import { getAccessContext } from "@/lib/accessContext";
 import { auth } from "@/lib/auth";
 import { findAccessScopeByEmail, type AccessScope } from "@/repository/users";
+import { accountWithoutFunction, expectDenied } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const scopeMock = vi.mocked(findAccessScopeByEmail);
@@ -41,10 +42,7 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
   it("an anonymous caller (no session) is DENIED on every axis, without querying the scope", async () => {
     authMock.mockResolvedValue(null as never);
     const ctx = await getAccessContext();
-    expect(ctx.hiddenAreas.size).toBeGreaterThan(0);
-    expect(ctx.hiddenSections.size).toBeGreaterThan(0);
-    expect(ctx.projectIds).toEqual(new Set());
-    expect(canReachProject(ctx, 1)).toBe(false);
+    expectDenied(ctx);
     expect(scopeMock).not.toHaveBeenCalled();
   });
 
@@ -70,7 +68,7 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
   // the fixture now sets up.
   it("an ADMIN with no job function has empty hiddenAreas (no restriction by default)", async () => {
     authMock.mockResolvedValue(session("ADMIN"));
-    scopeMock.mockResolvedValue({ hiddenSections: [], hiddenAreas: [], projectScope: "ALL", assignedProjectIds: [] });
+    scopeMock.mockResolvedValue(accountWithoutFunction());
     const ctx = await getAccessContext();
     expect(ctx.hiddenAreas.size).toBe(0);
   });
@@ -86,22 +84,14 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
   it("an ADMIN whose account no longer resolves (row deleted) is DENIED, not unrestricted", async () => {
     authMock.mockResolvedValue(session("ADMIN"));
     scopeMock.mockResolvedValue(null);
-    const ctx = await getAccessContext();
-    expect(ctx.hiddenAreas.size).toBeGreaterThan(0);
-    expect(ctx.hiddenSections.size).toBeGreaterThan(0);
-    expect(ctx.projectIds).toEqual(new Set());
-    expect(canReachProject(ctx, 1)).toBe(false);
+    expectDenied(await getAccessContext());
   });
 
   // New: same window, a role below ADMIN.
   it("an EDITOR whose account no longer resolves (row deleted) is DENIED", async () => {
     authMock.mockResolvedValue(session("EDITOR"));
     scopeMock.mockResolvedValue(null);
-    const ctx = await getAccessContext();
-    expect(ctx.hiddenAreas.size).toBeGreaterThan(0);
-    expect(ctx.hiddenSections.size).toBeGreaterThan(0);
-    expect(ctx.projectIds).toEqual(new Set());
-    expect(canReachProject(ctx, 1)).toBe(false);
+    expectDenied(await getAccessContext());
   });
 
   it("a regular role (EDITOR) resolves hiddenAreas from its function, same as hiddenSections/projectIds", async () => {

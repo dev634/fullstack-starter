@@ -21,6 +21,7 @@ import { findByEmail } from "@/repository/clients";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS } from "@/lib/csv";
+import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const createMock = vi.mocked(create);
@@ -48,12 +49,7 @@ describe("importContacts", () => {
     vi.clearAllMocks();
     // Default: no managed functions, so the "Role" column resolves to none.
     findJobFunctionsMock.mockResolvedValue([] as never);
-    findAccessScopeByEmailMock.mockResolvedValue({
-      hiddenSections: [],
-      hiddenAreas: [],
-      projectScope: "ALL",
-      assignedProjectIds: [],
-    });
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
   });
 
   it("refuses without an ADMIN session", async () => {

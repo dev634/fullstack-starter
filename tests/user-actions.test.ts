@@ -36,6 +36,7 @@ import { auth } from "@/lib/auth";
 import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers, findAccessScopeByEmail } from "@/repository/users";
 import { hasAnyAttachment } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
+import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const createMock = vi.mocked(create);
@@ -66,12 +67,7 @@ describe("user management actions", () => {
     // "unrestricted" — give every actor here the scope of a real, existing
     // account with no job function (the legitimate default every fixture in
     // this file actually is).
-    findAccessScopeByEmailMock.mockResolvedValue({
-      hiddenSections: [],
-      hiddenAreas: [],
-      projectScope: "ALL",
-      assignedProjectIds: [],
-    });
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
   });
 
   it("addUser refuses a non-ADMIN", async () => {

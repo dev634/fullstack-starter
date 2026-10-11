@@ -33,6 +33,7 @@ import { findAccessScopeByEmail } from "@/repository/users";
 import { hasProjectAmong } from "@/repository/projects";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
+import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
@@ -72,12 +73,7 @@ describe("client action auth guard + delegation", () => {
     // every ADMIN/EDITOR fixture here the scope of a real, existing account
     // with no job function (the legitimate default) unless a test below sets
     // its own scope.
-    findAccessScopeByEmailMock.mockResolvedValue({
-      hiddenSections: [],
-      hiddenAreas: [],
-      projectScope: "ALL",
-      assignedProjectIds: [],
-    });
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
   });
 
   it("addClient refuses without a session", async () => {
