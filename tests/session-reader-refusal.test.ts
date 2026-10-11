@@ -95,10 +95,17 @@ function discoverSessionReaders(): string[] {
 // edges are mocked: the session itself, the repositories, and the two
 // Next.js modules (navigation/cache) that don't run outside a request.
 
-class RedirectSignal extends Error {
-  constructor(public readonly destination: string) {
-    super(`redirect:${destination}`);
-  }
+/**
+ * What the mocked `redirect()` throws, in place of Next's own control-flow
+ * error: an `Error` carrying the destination, which `expectRedirectTo`
+ * matches on. A type + a function, not a class — this file is the only place
+ * under tests/ a class appeared for a reason other than a third-party SDK
+ * stand-in (see the `class` ban and its tests/ exemption in eslint.config.mjs).
+ */
+type RedirectSignal = Error & { readonly destination: string };
+
+function redirectSignal(destination: string): RedirectSignal {
+  return Object.assign(new Error(`redirect:${destination}`), { destination });
 }
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
@@ -141,7 +148,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((url: string) => {
-    throw new RedirectSignal(url);
+    throw redirectSignal(url);
   }),
 }));
 
