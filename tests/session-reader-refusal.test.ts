@@ -1,17 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import ts from "typescript";
-import { join, relative, sep } from "node:path";
-import { sourceFilesIn, functionsIn, importedModulesIn, parseSource } from "./helpers/astScan";
+import { sessionDomain, sessionReaderNamesIn } from "./helpers/sessionReaderScan";
 
 /**
- * Structural + behavioral guarantee, in one file: every function anywhere
- * under lib/ or actions/ that reads the session directly (calls `auth()`)
- * must refuse when that session cannot be trusted — no session at all, and,
- * for every one that also reads a row of its own beyond the session itself,
- * that row having just vanished (the one window lib/sessionGate.ts cannot
- * close: deleted DURING a request, after the gate passed the token and before
- * the reader's own query ran — a row deleted BEFORE the request is voided by
- * the gate and arrives as no session at all, which `noSession` covers).
+ * Structural + behavioral guarantee, in one file: every declaration anywhere
+ * outside app/ that reads the session directly (uses `auth`) must refuse when
+ * that session cannot be trusted — no session at all, and, for every one that
+ * also reads a row of its own beyond the session itself, that row having just
+ * vanished (the one window lib/sessionGate.ts cannot close: deleted DURING a
+ * request, after the gate passed the token and before the reader's own query
+ * ran — a row deleted BEFORE the request is voided by the gate and arrives as
+ * no session at all, which `noSession` covers).
  *
  * This is the general net behind the specific fix: lib/sessionGate.ts closes
  * the defect at its one root (the JWT callback), so every caller below
@@ -20,68 +18,36 @@ import { sourceFilesIn, functionsIn, importedModulesIn, parseSource } from "./he
  * discovers its own domain from the code rather than a hand-written list
  * that would simply forget the next one.
  *
- * Discovery (method, recorded here rather than just asserted): every `.ts`
- * file under lib/ or actions/ (lib/auth.ts itself excluded — it IS the
- * boundary, not a caller of it) that imports `@/lib/auth` — statically
- * (alias resolved: `import { auth as a } from "@/lib/auth"` binds the local
- * name `a`) or dynamically (`import("@/lib/auth")`, tracked by the literal
- * name `auth` — the one dynamic-import shape in this codebase,
- * lib/areaAccess.ts, destructures it under exactly that name, so a full
- * destructuring-pattern tracker isn't worth building for one call site).
- * Within such a file, every TOP-LEVEL function (exported or not —
- * actions/users/users.ts's `requireManager` is not exported, and is probed
- * below through an exported action that calls it) whose own body calls that
- * local name directly is a "session reader", identified `path::name`.
- * "Directly" on purpose: a function that only calls a local helper which
- * itself reads the session is not re-derived here — the helper is its own
- * entry in this same table.
+ * Discovery (method, recorded here rather than just asserted), implemented in
+ * tests/helpers/sessionReaderScan.ts:
+ *   - Domain: the whole repository minus a table of non-application folders
+ *     (each with its reason there), not a list of lib/ and actions/ — a reader
+ *     added in components/ or service/ is swept up by default.
+ *   - A file counts only if it binds `auth` by the one allowed form (a named,
+ *     unaliased `import { auth } from "@/lib/auth"`, or the destructured
+ *     dynamic import lib/areaAccess.ts needs). Every OTHER way of reaching
+ *     lib/auth (namespace import, relative path, rename, re-export,
+ *     un-destructured dynamic import) is banned outright by
+ *     tests/session-reader-discovery.test.ts, so it cannot hide a reader here.
+ *   - A reader is a TOP-LEVEL declaration (exported or not —
+ *     actions/users/users.ts's `requireManager` is not exported, and is probed
+ *     below through an exported action that calls it) that mentions `auth`
+ *     anywhere in it, identified `path::name`. Attributed whole, so a reader
+ *     wrapped in a call (`export const f = cache(async () => auth())`) is found
+ *     under the name it is exported as. "Directly" on purpose: a function that
+ *     only calls a local helper which itself reads the session is not
+ *     re-derived here — the helper is its own entry in this same table.
+ *   - app/ is out of this table: its ~26 pages and layouts are covered by a
+ *     written exemption with its own exact-set check, in
+ *     tests/session-reader-discovery.test.ts.
  */
 
-const ROOT = process.cwd();
-
-function relPath(file: string): string {
-  return relative(ROOT, file).split(sep).join("/");
-}
-
-/** Every local name this file binds to `@/lib/auth`'s `auth` export. */
-function localAuthNamesIn(source: ts.SourceFile): Set<string> {
-  const names = new Set<string>();
-  const visit = (n: ts.Node) => {
-    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text === "@/lib/auth") {
-      const bindings = n.importClause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const el of bindings.elements) {
-          const imported = el.propertyName?.text ?? el.name.text;
-          if (imported === "auth") names.add(el.name.text);
-        }
-      }
-    }
-    if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      const [arg] = n.arguments;
-      if (arg && ts.isStringLiteral(arg) && arg.text === "@/lib/auth") names.add("auth");
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(source);
-  return names;
-}
-
-/** Every `path::name` session reader, sorted. */
+/** Every `path::name` session reader outside app/, sorted. */
 function discoverSessionReaders(): string[] {
-  const files = ["lib", "actions"].flatMap((dir) => sourceFilesIn(join(ROOT, dir), [".ts"]));
-  const readers: string[] = [];
-  for (const file of files) {
-    const rel = relPath(file);
-    if (rel === "lib/auth.ts") continue;
-    const source = parseSource(rel, file);
-    if (!importedModulesIn(source).has("@/lib/auth")) continue;
-    const authNames = localAuthNamesIn(source);
-    if (authNames.size === 0) continue;
-    for (const fn of functionsIn(source)) {
-      if ([...fn.calls].some((call) => authNames.has(call))) readers.push(`${rel}::${fn.name}`);
-    }
-  }
-  return readers.sort();
+  return sessionDomain()
+    .files.filter(({ rel }) => !rel.startsWith("app/"))
+    .flatMap(({ rel, source }) => sessionReaderNamesIn(source, rel).map((name) => `${rel}::${name}`))
+    .sort();
 }
 
 // --- Module boundaries ------------------------------------------------
