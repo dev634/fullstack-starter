@@ -16,20 +16,25 @@ export type PortalContext = {
 };
 
 /**
- * Server-side belt-and-suspenders: bounce a CLIENT login out of a normal app
- * page to the portal. The proxy is the primary boundary; this second layer runs
- * inside the page render (where `auth()` always has the role) so a client can
- * never see company/project data even if the proxy check ever regresses.
+ * First line of a main-app page: the caller must be a signed-in, non-CLIENT
+ * user. Two redirects, in this order, mirroring the proxy's own two rules but
+ * in Node, where the session is fully resolved:
  *
- * Mirrors the proxy's own two rules, in Node, for the one case Edge can't
- * cover: the proxy (authConfig alone, no database) still sees a
- * structurally valid, correctly-signed cookie after lib/sessionGate.ts has
- * voided the account it names — here, in Node, `auth()` has already
- * resolved that to no session at all. `!session?.user` must therefore send
- * it to `/login` exactly like a never-authenticated visitor, not fall
- * through to the CLIENT check below (which it would trivially fail, but
- * only after this function had already behaved as if an absent session were
- * an app user).
+ *   1. No session → `/login`. This is the rule the Edge proxy cannot enforce
+ *      alone: it runs on authConfig, with no database, so it still sees a
+ *      structurally valid, correctly signed cookie after lib/sessionGate.ts
+ *      has voided the account it names (deleted account) or could not verify
+ *      it (database down). In Node, `auth()` has already resolved those to no
+ *      session at all, and this sends that caller where a never-authenticated
+ *      visitor goes — instead of letting an absent session act as an app user.
+ *   2. A CLIENT login → `/portail`. The proxy is the primary boundary for this
+ *      one; this second layer runs inside the render (where `auth()` always
+ *      has the role) so a client can never see company/project data even if
+ *      the proxy check ever regresses.
+ *
+ * The name only says the second half. It predates the first rule and is kept
+ * on purpose: many app pages call it by this name, and renaming them all is
+ * its own change.
  */
 export async function blockClientFromApp(): Promise<void> {
   const session = await auth();
