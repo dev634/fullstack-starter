@@ -5,11 +5,26 @@ import { findSessionAccount } from "@/repository/users";
  * Closes a gap the JWT session strategy otherwise leaves wide open: next-auth
  * re-signs the session cookie with a fresh 30-day expiry on every request
  * that uses it (handleAuth → the session actions re-encode the token), so it
- * never naturally expires on its own. Nothing else re-reads the account it
- * claims to be. Delete that account — an admin removing a departing EDITOR,
- * say — and its last-issued cookie keeps authenticating as that (now
- * nonexistent) row forever, with whatever role it last carried, for as long
- * as the browser holds onto it.
+ * never naturally expires on its own, and the token carries nothing that
+ * tells it its account is gone. Delete that account — an admin removing a
+ * departing EDITOR, say — and, before this gate, its last-issued cookie kept
+ * authenticating as that (now nonexistent) row forever, with whatever role
+ * it last carried, for as long as the browser held onto it: the one lookup
+ * that did read the row on each request (getAccessContext's
+ * findAccessScopeByEmail) read its absence as "no restriction".
+ *
+ * Two layers refuse now, and they cover different moments — do not read one
+ * as a duplicate of the other:
+ *   - THIS gate, on the token, at the root. An account deleted BETWEEN two
+ *     requests is caught by the next one: each request re-reads the row
+ *     (the memoization below is per render, never across requests), the
+ *     token is voided, and every reader sees no session at all.
+ *   - The readers' own refusals (getAccessContext → DENIED, getCurrentUserId
+ *     → null, …, all resolving the row through
+ *     repository/users.ts::sessionAccountWhere). They are what catches an
+ *     account deleted DURING a request: after this gate passed the token
+ *     (its verdict is memoized for the render) and before the reader's own
+ *     query ran. That is the one window the gate cannot close.
  *
  * lib/auth.ts's `jwt` callback calls keepLiveSessionToken on every pass
  * EXCEPT a fresh sign-in (the row was just read and the password just

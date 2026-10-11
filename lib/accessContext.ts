@@ -21,13 +21,20 @@ import { APP_AREA_KEYS, normalizeHiddenAreas, type AppAreaKey } from "@/lib/appA
 export type AccessContext = {
   email: string | null;
   role: string | undefined;
-  /** Project-detail sections this user may not touch. Empty for ADMIN+. */
+  /**
+   * Project-detail sections this user may not touch. Empty for ADMIN+ that
+   * has a session email (and, for ADMIN, an account row); EVERY key for a
+   * caller with no session or, below SUPERADMIN, no account row (DENIED, see
+   * `deniedScope`) — ADMIN included.
+   */
   hiddenSections: Set<ProjectSectionKey>;
   /**
-   * Top-level app rubriques this user may not reach. Empty for SUPERADMIN
-   * only — unlike `hiddenSections`, ADMIN is NOT exempt here: an ADMIN's own
-   * job function can still hide rubriques from them (see lib/areaAccess.ts
-   * for why the bypass rule deliberately differs).
+   * Top-level app rubriques this user may not reach. Empty for a SUPERADMIN
+   * with a session email — unlike `hiddenSections`, ADMIN is NOT exempt here:
+   * an ADMIN's own job function can still hide rubriques from them (see
+   * lib/areaAccess.ts for why the bypass rule deliberately differs). EVERY
+   * key for a caller with no session or, below SUPERADMIN, no account row
+   * (DENIED) — ADMIN included.
    */
   hiddenAreas: Set<AppAreaKey>;
   /**
@@ -49,10 +56,11 @@ const UNRESTRICTED: Omit<AccessContext, "email" | "role"> = {
 /**
  * Every section and area key hidden, no project reachable — what an absent
  * or unverifiable caller resolves to. Used to read "anonymous = unrestricted"
- * here, exactly backwards: a caller with no session, or whose session's
- * account lib/sessionGate.ts can no longer verify (deleted mid-session — see
- * its own doc on why that race survives the JWT-level gate), must see and
- * reach NOTHING, not everything.
+ * here, exactly backwards: a caller with no session, or whose account row has
+ * vanished since lib/sessionGate.ts passed its token (deleted DURING this
+ * request — an account deleted BEFORE it is voided by the gate and arrives
+ * here as no session at all; see the gate's own doc for the two moments),
+ * must see and reach NOTHING, not everything.
  *
  * Builds fresh Sets on every call on purpose — unlike UNRESTRICTED above,
  * never share one mutable Set across callers who might (today, none do;
@@ -85,20 +93,23 @@ export async function getAccessContext(): Promise<AccessContext> {
   // SUPERADMIN bypasses every axis, including hiddenAreas, WITHOUT a scope
   // lookup. Restricting the people who configure the restrictions is how you
   // end up locked out of your own instance. Its existence is vouched for by
-  // lib/sessionGate.ts (the JWT is refused the moment the account vanishes),
-  // not by anything checked here.
+  // lib/sessionGate.ts (the JWT is refused from the next request after the
+  // account vanishes), not by anything checked here — so a SUPERADMIN deleted
+  // DURING a request finishes that request: no lookup runs for it.
   if (hasMinRole(role, "SUPERADMIN")) {
     return { email, role, ...UNRESTRICTED };
   }
 
   const scope = await findAccessScopeByEmail(email);
 
-  // No row for this email — the race lib/sessionGate.ts's own per-request
-  // cache cannot always catch (a row deleted BETWEEN two requests, not
-  // within the one that already verified it). DENIED, for ADMIN exactly like
-  // every role below it — the lookup runs before the ADMIN branch on
-  // purpose, because a session claiming to be an account that no longer
-  // exists has no "ADMIN's own job" left to defer to.
+  // No row for this email. A row deleted BEFORE this request began never gets
+  // here: lib/sessionGate.ts voids its token and the `!email` branch above
+  // answers. What does get here is the one window the gate cannot close — the
+  // row deleted DURING this request, after the gate passed the token (its
+  // verdict is memoized for the render) and before this lookup ran. DENIED,
+  // for ADMIN exactly like every role below it — the lookup runs before the
+  // ADMIN branch on purpose, because a session claiming to be an account that
+  // no longer exists has no "ADMIN's own job" left to defer to.
   if (!scope) return { email, role, ...deniedScope() };
 
   // ADMIN keeps its existing unrestricted hiddenSections/projectIds (that

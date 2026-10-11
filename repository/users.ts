@@ -15,12 +15,17 @@ import { Prisma, type Role } from "@/app/generated/prisma/client";
  * `satisfies` against both shapes it's asked to fill keeps it honest: it must
  * compile as a `Prisma.UserWhereUniqueInput` (`findUnique`'s `where`) AND as a
  * `Prisma.UserWhereInput` (a nested relation filter, e.g.
- * `where: { user: sessionAccountWhere(email) } }`).
+ * `where: { user: sessionAccountWhere(email) }`).
  *
  * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
- * and password reset, a call this pass does not make (a deactivated account
- * arguably still needs to learn WHY it can't sign in, or reset a password it
- * may need once reactivated).
+ * (verifyCredentials) and password reset, a call this pass does not make, so
+ * both keep finding a deactivated row. What that does, once the column
+ * exists: the account CAN still sign in or reset its password; from the next
+ * request on, every resolver above reads it as "introuvable" and the gate
+ * (lib/sessionGate.ts) voids its token, so it lands back on /login. What it
+ * does NOT do is tell the account why — nothing in this design produces a
+ * message, a refusal at sign-in, or a "deactivated" state anywhere. Surfacing
+ * the reason is the pointage branch's decision, not made here.
  */
 export function sessionAccountWhere(email: string) {
     return { email } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;

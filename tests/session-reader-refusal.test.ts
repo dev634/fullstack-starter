@@ -8,9 +8,10 @@ import { sourceFilesIn, functionsIn, importedModulesIn, parseSource } from "./he
  * under lib/ or actions/ that reads the session directly (calls `auth()`)
  * must refuse when that session cannot be trusted — no session at all, and,
  * for every one that also reads a row of its own beyond the session itself,
- * that row having just vanished (the race lib/sessionGate.ts's own
- * per-request cache cannot always catch: deleted BETWEEN two requests, not
- * within the one that already verified it).
+ * that row having just vanished (the one window lib/sessionGate.ts cannot
+ * close: deleted DURING a request, after the gate passed the token and before
+ * the reader's own query ran — a row deleted BEFORE the request is voided by
+ * the gate and arrives as no session at all, which `noSession` covers).
  *
  * This is the general net behind the specific fix: lib/sessionGate.ts closes
  * the defect at its one root (the JWT callback), so every caller below
@@ -305,7 +306,7 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
     // PRESENT here on purpose: this isolates the resolver actually under
     // test (findAccountJobFunctionByEmail, the caller's OWN function id) by
     // getting every other gate to pass first — this is the "row deleted
-    // BETWEEN two requests" race, not "no session at all".
+    // DURING the request" window, not "no session at all".
     absentRow: async () => {
       authMock.mockResolvedValue({ user: { role: "ADMIN", email: "ghost@example.com" } } as never);
       findAccessScopeByEmailMock.mockResolvedValue(EXISTING_SCOPE);
@@ -353,7 +354,7 @@ describe("session readers refuse an absent/unverifiable account", () => {
       it("refuses when there is no session", probe.noSession);
 
       if (probe.absentRow) {
-        it("refuses when its own row has just been deleted (race, not 'no session')", probe.absentRow);
+        it("refuses when its own row was deleted during the request (valid session, row gone — not 'no session')", probe.absentRow);
       }
     });
   }

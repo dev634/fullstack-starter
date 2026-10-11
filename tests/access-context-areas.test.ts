@@ -75,11 +75,14 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
     expect(ctx.hiddenAreas.size).toBe(0);
   });
 
-  // New: an ADMIN account resolves (session has the role), but its row is
-  // gone — the exact race lib/sessionGate.ts's own per-request cache cannot
-  // always catch (deleted BETWEEN two requests). DENIED, same as every role
-  // below it: the scope lookup runs before the ADMIN branch precisely so
-  // this can't fall through to "ADMIN's own job, unrestricted".
+  // New: the session is valid (it has the role and the email), but the row is
+  // gone — the one window lib/sessionGate.ts cannot close: the row deleted
+  // DURING the request, after the gate passed the token and before this
+  // lookup ran. (A row deleted BEFORE the request is voided by the gate and
+  // reaches getAccessContext as no session at all — the anonymous case
+  // above.) DENIED, same as every role below it: the scope lookup runs
+  // before the ADMIN branch precisely so this can't fall through to
+  // "ADMIN's own job, unrestricted".
   it("an ADMIN whose account no longer resolves (row deleted) is DENIED, not unrestricted", async () => {
     authMock.mockResolvedValue(session("ADMIN"));
     scopeMock.mockResolvedValue(null);
@@ -90,7 +93,7 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
     expect(canReachProject(ctx, 1)).toBe(false);
   });
 
-  // New: same race, a role below ADMIN.
+  // New: same window, a role below ADMIN.
   it("an EDITOR whose account no longer resolves (row deleted) is DENIED", async () => {
     authMock.mockResolvedValue(session("EDITOR"));
     scopeMock.mockResolvedValue(null);
