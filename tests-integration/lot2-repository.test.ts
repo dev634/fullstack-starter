@@ -6,7 +6,8 @@ import {
   findReachableOptions,
   search as searchClients,
 } from "@/repository/clients";
-import { setContactProjects, hasLinkOutside } from "@/repository/contacts";
+import { setContactProjects, findLinkedProjectIds } from "@/repository/contacts";
+import { canRemoveContact } from "@/lib/contactPolicy";
 import { remove as removeUser, updatePassword, setUserProjects, createResetToken, markResetTokenUsed } from "@/repository/users";
 
 /**
@@ -167,22 +168,30 @@ describe("setContactProjects — touches only the links the caller can edit", ()
   });
 });
 
-describe("hasLinkOutside — deleteContact for a restricted caller", () => {
-  it("no link at all -> false; all links inside -> false; one outside (trashed included) -> true", async () => {
+describe("findLinkedProjectIds + canRemoveContact — deleteContact for a restricted caller", () => {
+  it("returns EVERY link (trashed included); the policy then decides on the real data", async () => {
     const co = await makeCompany();
     const a = await makeProject(co.id, "A");
     const b = await makeProject(co.id, "B");
     const t = await makeProject(co.id, "T", new Date());
     const contact = await prisma.contact.create({ data: { clientId: co.id, firstName: "A", lastName: "B" } });
+    const link = (ids: number[]) =>
+      prisma.contact.update({ where: { id: contact.id }, data: { projects: { set: ids.map((id) => ({ id })) } } });
+    const sorted = async () => (await findLinkedProjectIds(contact.id)).sort((x, y) => x - y);
 
-    expect(await hasLinkOutside(contact.id, [a.id])).toBe(false);
-    await prisma.contact.update({ where: { id: contact.id }, data: { projects: { set: [{ id: a.id }] } } });
-    expect(await hasLinkOutside(contact.id, [a.id])).toBe(false);
-    await prisma.contact.update({ where: { id: contact.id }, data: { projects: { set: [{ id: a.id }, { id: b.id }] } } });
-    expect(await hasLinkOutside(contact.id, [a.id])).toBe(true);
-    await prisma.contact.update({ where: { id: contact.id }, data: { projects: { set: [{ id: a.id }, { id: t.id }] } } });
-    expect(await hasLinkOutside(contact.id, [a.id])).toBe(true);
-    expect(await hasLinkOutside(contact.id, [a.id, t.id])).toBe(false);
+    // Degenerate row: a contact with no link, and a contact that does not exist.
+    expect(await sorted()).toEqual([]);
+    expect(canRemoveContact(await sorted(), [a.id])).toBe(true);
+    expect(await findLinkedProjectIds(2_147_000_000)).toEqual([]);
+
+    await link([a.id]);
+    expect(canRemoveContact(await sorted(), [a.id])).toBe(true);
+    await link([a.id, b.id]);
+    expect(canRemoveContact(await sorted(), [a.id])).toBe(false);
+    await link([a.id, t.id]);
+    expect(await sorted()).toEqual([a.id, t.id].sort((x, y) => x - y));
+    expect(canRemoveContact(await sorted(), [a.id])).toBe(false);
+    expect(canRemoveContact(await sorted(), [a.id, t.id])).toBe(true);
   });
 });
 

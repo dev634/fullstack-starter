@@ -52,21 +52,19 @@ export async function findById(id: number) {
 }
 
 /**
- * Is this contact linked to at least one project (trashed ones included)
- * OUTSIDE `scopeProjectIds`? Deleting a contact also deletes its portal login
- * (see remove), which cuts the client's access to EVERY linked project — so a
- * restricted caller may only do it when all the links are inside its own scope.
- * One query. A contact with no link at all is never "outside".
+ * Ids of EVERY project the contact is linked to, trashed ones included — the
+ * input of lib/contactPolicy.ts::canRemoveContact. Minimal `select`.
  */
-export async function hasLinkOutside(contactId: number, scopeProjectIds: number[]): Promise<boolean> {
+export async function findLinkedProjectIds(contactId: number): Promise<number[]> {
     try {
-        const count = await prisma.contact.count({
-            where: { id: contactId, projects: { some: { id: { notIn: scopeProjectIds } } } },
+        const row = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { projects: { select: { id: true } } },
         });
-        return count > 0;
+        return row ? row.projects.map((p) => p.id) : [];
     } catch (error) {
-        console.log("Repository hasLinkOutside (contact) error:", error);
-        throw { type: "repositoryError", message: "Database Error checking contact links." };
+        console.log("Repository findLinkedProjectIds (contact) error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching contact links." };
     }
 }
 

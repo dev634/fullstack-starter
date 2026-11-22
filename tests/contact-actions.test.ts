@@ -12,7 +12,7 @@ vi.mock("@/repository/contacts", () => ({
   setPrimary: vi.fn(),
   remove: vi.fn(),
   setContactProjects: vi.fn(),
-  hasLinkOutside: vi.fn().mockResolvedValue(false),
+  findLinkedProjectIds: vi.fn().mockResolvedValue([]),
   findById: vi.fn().mockResolvedValue({ id: 1, clientId: 1 }),
 }));
 // requireClientAccess now also reads the company's trash state (lib/access.ts):
@@ -29,7 +29,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 
 import { addContact, editContact, setPrimaryContact, deleteContact } from "@/actions/contacts/contacts";
 import { requireRole } from "@/lib/authz";
-import { create, update, setPrimary, remove, hasLinkOutside, setContactProjects, findById as findContactById } from "@/repository/contacts";
+import { create, update, setPrimary, remove, findLinkedProjectIds, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { hasProjectAmong } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import fr from "@/lib/i18n/dictionaries/fr";
@@ -39,7 +39,7 @@ const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const setPrimaryMock = vi.mocked(setPrimary);
 const removeMock = vi.mocked(remove);
-const hasLinkOutsideMock = vi.mocked(hasLinkOutside);
+const findLinkedMock = vi.mocked(findLinkedProjectIds);
 const initial = { type: null, message: "" } as const;
 
 function formOf(fields: Record<string, string>): FormData {
@@ -171,9 +171,9 @@ describe("contact actions", () => {
     it("refuses, deleting nothing, when a link is outside the scope — same answer as an absent contact", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
       restrictTo([10]);
-      hasLinkOutsideMock.mockResolvedValue(true);
+      findLinkedMock.mockResolvedValue([10, 99]);
       const res = await deleteContact(5, 1);
-      expect(hasLinkOutsideMock).toHaveBeenCalledWith(5, [10]);
+      expect(findLinkedMock).toHaveBeenCalledWith(5);
       expect(res).toEqual({ type: "error", message: fr.contacts.messages.invalidId });
       expect(removeMock).not.toHaveBeenCalled();
     });
@@ -181,7 +181,7 @@ describe("contact actions", () => {
     it("deletes when every link (or no link at all) is inside the scope", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
       restrictTo([10]);
-      hasLinkOutsideMock.mockResolvedValue(false);
+      findLinkedMock.mockResolvedValue([10]);
       removeMock.mockResolvedValue({ id: 5 } as never);
       expect((await deleteContact(5, 1)).type).toBe("success");
       expect(removeMock).toHaveBeenCalledWith(5);
@@ -191,7 +191,7 @@ describe("contact actions", () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "a@example.com" });
       removeMock.mockResolvedValue({ id: 5 } as never);
       await deleteContact(5, 1);
-      expect(hasLinkOutsideMock).not.toHaveBeenCalled();
+      expect(findLinkedMock).not.toHaveBeenCalled();
     });
   });
 });

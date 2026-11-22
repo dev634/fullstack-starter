@@ -3,9 +3,10 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireClientAccess } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { canRemoveContact } from "@/lib/contactPolicy";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
-import { create, update, setPrimary, remove, setContactProjects, hasLinkOutside, findById as findContactById } from "@/repository/contacts";
+import { create, update, setPrimary, remove, setContactProjects, findLinkedProjectIds, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
 import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords, MAX_IMPORT_ROWS } from "@/lib/csv";
@@ -235,8 +236,8 @@ export async function deleteContact(id: number, clientId: number) {
     // to. Reaching the company is not enough to do that: a restricted caller
     // needs ALL the links (trash included) inside its own scope, otherwise
     // the answer is the one for an absent contact. Unrestricted: unchanged.
-    const scope = projectIdFilter(await getAccessContext());
-    if (scope !== undefined && (await hasLinkOutside(id, scope))) {
+    const scope = (await getAccessContext()).projectIds;
+    if (scope !== null && !canRemoveContact(await findLinkedProjectIds(id), [...scope])) {
       return { type: "error" as const, message: t.contacts.messages.invalidId };
     }
     const contact = await remove(id);
