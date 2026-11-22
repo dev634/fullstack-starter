@@ -34,15 +34,26 @@ function lineOf(source: ts.SourceFile, node: ts.Node): number {
 }
 
 /**
+ * The repo-relative path (normalised, no extension, no trailing `/index`) a
+ * specifier written in the file at `fromRel` resolves to, or `null` for a bare
+ * package specifier. Both branches are normalised: `@/lib/./auth`,
+ * `@/lib/../lib/auth` and `@/lib//auth` resolve to lib/auth for TypeScript
+ * exactly as `../lib/auth` does.
+ */
+export function resolveSpecifier(specifier: string, fromRel: string): string | null {
+  const bare = (p: string) => p.replace(/\.[cm]?[jt]sx?$/, "").replace(/\/index$/, "");
+  if (specifier.startsWith("@/")) return bare(posix.normalize(specifier.slice(2)));
+  if (specifier.startsWith(".")) return bare(posix.join(posix.dirname(fromRel), specifier));
+  return null;
+}
+
+/**
  * Whether `specifier`, written in the file at repo-relative `fromRel`,
  * designates lib/auth.ts — through the `@/` alias or any relative path, with
- * or without an extension.
+ * or without an extension, however it is spelled.
  */
 export function designatesAuthModule(specifier: string, fromRel: string): boolean {
-  const bare = (p: string) => p.replace(/\.[cm]?[jt]sx?$/, "").replace(/\/index$/, "");
-  if (specifier.startsWith("@/")) return bare(specifier.slice(2)) === AUTH_MODULE_PATH;
-  if (specifier.startsWith(".")) return bare(posix.join(posix.dirname(fromRel), specifier)) === AUTH_MODULE_PATH;
-  return false;
+  return resolveSpecifier(specifier, fromRel) === AUTH_MODULE_PATH;
 }
 
 function isPromiseAll(call: ts.CallExpression): boolean {
@@ -113,7 +124,7 @@ export function authImportFormViolationsIn(source: ts.SourceFile, fromRel: strin
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && designatesAuthModule(n.moduleSpecifier.text, fromRel)) {
       const clause = n.importClause;
-      if (n.moduleSpecifier.text !== "@/lib/auth") flag(n, `relative import of lib/auth ("${n.moduleSpecifier.text}") — use the "@/lib/auth" alias`);
+      if (n.moduleSpecifier.text !== "@/lib/auth") flag(n, `non-canonical import of lib/auth ("${n.moduleSpecifier.text}") — the only accepted specifier is exactly "@/lib/auth"`);
       if (!clause) flag(n, "side-effect import of lib/auth");
       else if (clause.name) flag(n, "default import of lib/auth");
       else if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) flag(n, "namespace import (`import * as …`) of lib/auth");
@@ -139,7 +150,7 @@ export function authImportFormViolationsIn(source: ts.SourceFile, fromRel: strin
       if ((dynamic || required) && arg && ts.isStringLiteralLike(arg) && designatesAuthModule(arg.text, fromRel)) {
         if (required) flag(n, "`require()` of lib/auth");
         else {
-          if (arg.text !== "@/lib/auth") flag(n, `relative dynamic import of lib/auth ("${arg.text}") — use the "@/lib/auth" alias`);
+          if (arg.text !== "@/lib/auth") flag(n, `non-canonical dynamic import of lib/auth ("${arg.text}") — the only accepted specifier is exactly "@/lib/auth"`);
           const names = dynamicImportBinding(n);
           if (names === null) flag(n, "dynamic import of lib/auth not destructured into shorthand names (`const { auth } = await import(…)`)");
           else checkNames(n, names);
@@ -296,10 +307,193 @@ export function sessionReadsBeyondRoleIn(source: ts.SourceFile): Finding[] {
   return findings;
 }
 
+/**
+ * Every `import(…)` / `require(…)` whose specifier is not a string literal —
+ * `import("@/lib/" + "auth")`, `import(name)`. The scan resolves specifiers
+ * textually, so a computed one reaches lib/auth (or next-auth) by a path it
+ * cannot see. None exists in the domain today (the test asserts it), so the
+ * form is banned rather than tolerated.
+ */
+export function computedModuleSpecifiersIn(source: ts.SourceFile): Finding[] {
+  const findings: Finding[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n)) {
+      const dynamic = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const required = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      const [arg] = n.arguments;
+      if ((dynamic || required) && !(arg && ts.isStringLiteralLike(arg))) {
+        findings.push({
+          line: lineOf(source, n),
+          message: `\`${dynamic ? "import" : "require"}()\` with a computed specifier: \`${n.getText(source).slice(0, 60)}\``,
+        });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return findings;
+}
+
+// --- The role-only exemption: HOW the role is used ---------------------------
+
+/**
+ * The functions a role may be handed to, and the module each must be imported
+ * from. `hasMinRole(undefined, …)` is false, so `can(undefined, …)` and
+ * `getAdminAccess(undefined)` refuse: a voided session lands in the no-permission
+ * branch by construction. `role !== "VIEWER"` is the opposite — an undefined
+ * role satisfies it — so a role read anywhere else is not covered.
+ */
+const ROLE_GUARDS: Readonly<Record<string, string>> = { can: "lib/access", getAdminAccess: "lib/adminAccess" };
+
+/**
+ * The local names `source` binds to a ROLE_GUARDS function, resolved through
+ * its imports: an alias is followed, and a same-named function that is not the
+ * imported one does not count.
+ */
+function roleGuardLocalNames(source: ts.SourceFile, fromRel: string): Set<string> {
+  const names = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (statement.importClause?.isTypeOnly) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const resolved = resolveSpecifier(statement.moduleSpecifier.text, fromRel);
+    for (const el of bindings.elements) {
+      const imported = (el.propertyName ?? el.name).text;
+      if (!el.isTypeOnly && ROLE_GUARDS[imported] === resolved) names.add(el.name.text);
+    }
+  }
+  return names;
+}
+
+/** `use` (a reference to a variable bound by `auth()`) as the `x.user.role` access it heads, or `null`. */
+function asRoleRead(use: ts.Identifier): ts.PropertyAccessExpression | null {
+  const user = use.parent;
+  const role = user.parent;
+  if (
+    ts.isPropertyAccessExpression(user) &&
+    user.expression === use &&
+    user.name.text === "user" &&
+    ts.isPropertyAccessExpression(role) &&
+    role.expression === user &&
+    role.name.text === "role"
+  ) {
+    return role;
+  }
+  return null;
+}
+
+/** The names bound by `const x = await auth()`. */
+function sessionVariableNames(source: ts.SourceFile): Set<string> {
+  const bound = new Set<string>();
+  for (const id of runtimeReferencesTo(source, "auth")) {
+    const call = id.parent;
+    if (!ts.isCallExpression(call) || call.expression !== id) continue;
+    const awaited = ts.isAwaitExpression(call.parent) ? call.parent : call;
+    const declaration = awaited.parent;
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer === awaited && ts.isIdentifier(declaration.name)) {
+      bound.add(declaration.name.text);
+    }
+  }
+  return bound;
+}
+
+/**
+ * Every read of the session's role that is NOT the first argument of a call to
+ * `can` or `getAdminAccess` (each resolved by its import, see ROLE_GUARDS).
+ * A comparison (`role === "CLIENT"`, `role !== "VIEWER"`), a ternary, a
+ * fallback (`role ?? "X"`), a role handed to any other function: all findings,
+ * the role is then used for a decision this exemption cannot vouch for.
+ */
+export function roleReadsOutsideGuardsIn(source: ts.SourceFile, fromRel: string): Finding[] {
+  const findings: Finding[] = [];
+  const guards = roleGuardLocalNames(source, fromRel);
+  for (const name of sessionVariableNames(source)) {
+    for (const use of runtimeReferencesTo(source, name)) {
+      const read = asRoleRead(use);
+      if (!read) continue;
+      const call = read.parent;
+      const guarded = ts.isCallExpression(call) && call.arguments[0] === read && ts.isIdentifier(call.expression) && guards.has(call.expression.text);
+      if (!guarded) {
+        findings.push({
+          line: lineOf(source, read),
+          message: `the role (\`${read.getText(source)}\`) is used other than as the first argument of can() / getAdminAccess()`,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+// --- Who may build a session reader of their own -----------------------------
+
+/**
+ * lib/auth.ts is the one `NextAuth()` instance that carries the liveness gate.
+ * A second `NextAuth()`, a `getToken` (next-auth/jwt), or anything built from
+ * `@/auth.config` (the shared config, without the gate's `jwt` check) reads
+ * sessions without it, and no discovery above would see it: it never imports
+ * lib/auth. So every VALUE import of those is a finding unless the file is in
+ * an allowed set the test states, each with its reason. A type-only import
+ * reads nothing and is always fine.
+ */
+const SESSION_INFRASTRUCTURE: ReadonlyArray<{ label: string; matches: (specifier: string, fromRel: string) => boolean }> = [
+  { label: "next-auth", matches: (s) => s === "next-auth" },
+  { label: "next-auth/jwt", matches: (s) => s === "next-auth/jwt" },
+  { label: "@/auth.config", matches: (s, fromRel) => resolveSpecifier(s, fromRel) === "auth.config" },
+];
+
+function infrastructureLabel(specifier: string, fromRel: string): string | null {
+  return SESSION_INFRASTRUCTURE.find((entry) => entry.matches(specifier, fromRel))?.label ?? null;
+}
+
+/** Every VALUE import (static, dynamic, `require`, `import = require`, re-export) of next-auth, next-auth/jwt or auth.config in `source`. */
+export function sessionInfrastructureImportsIn(source: ts.SourceFile, fromRel: string): Finding[] {
+  const findings: Finding[] = [];
+  const flag = (node: ts.Node, label: string, how: string) => findings.push({ line: lineOf(source, node), message: `${how} of ${label}` });
+  const visit = (n: ts.Node) => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      const label = infrastructureLabel(n.moduleSpecifier.text, fromRel);
+      const clause = n.importClause;
+      const typeOnly =
+        !!clause &&
+        (clause.isTypeOnly ||
+          (!clause.name &&
+            !!clause.namedBindings &&
+            ts.isNamedImports(clause.namedBindings) &&
+            clause.namedBindings.elements.length > 0 &&
+            clause.namedBindings.elements.every((el) => el.isTypeOnly)));
+      if (label && !typeOnly) flag(n, label, "value import");
+    } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && !n.isTypeOnly) {
+      const label = infrastructureLabel(n.moduleSpecifier.text, fromRel);
+      if (label) flag(n, label, "re-export");
+    } else if (
+      ts.isImportEqualsDeclaration(n) &&
+      !n.isTypeOnly &&
+      ts.isExternalModuleReference(n.moduleReference) &&
+      ts.isStringLiteral(n.moduleReference.expression)
+    ) {
+      const label = infrastructureLabel(n.moduleReference.expression.text, fromRel);
+      if (label) flag(n, label, "`import x = require()`");
+    } else if (ts.isCallExpression(n)) {
+      const [arg] = n.arguments;
+      const dynamic = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const required = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      if ((dynamic || required) && arg && ts.isStringLiteralLike(arg)) {
+        const label = infrastructureLabel(arg.text, fromRel);
+        if (label) flag(n, label, dynamic ? "dynamic import" : "`require()`");
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 // --- Domain --------------------------------------------------------------
 
 const ROOT = process.cwd();
-const SOURCE_EXTENSIONS = [".ts", ".tsx"] as const;
+/** Everything tsconfig's `allowJs` lets the compiler resolve, plus the module-flavoured variants. */
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"] as const;
 
 /**
  * Paths the walk never enters, each with why it isn't application code
@@ -344,15 +538,16 @@ export type DomainFile = { rel: string; source: ts.SourceFile };
 /**
  * The domain: every application source file (the repository minus EXCLUDED).
  * `paths` lists all of them, for the anti-vacuity witnesses; `files` holds
- * the parsed ones that spell `auth` at all — a file that never does cannot
- * reach lib/auth.ts, and skipping the parse keeps the walk cheap.
+ * the parsed ones that spell `auth` or call `import()` / `require()` — any
+ * other file cannot reach lib/auth.ts, and skipping the parse keeps the walk cheap.
  */
 export function sessionDomain(): { paths: string[]; files: DomainFile[] } {
   const absolutes: string[] = [];
   walk(ROOT, absolutes);
   const files: DomainFile[] = [];
   for (const abs of absolutes) {
-    if (!/auth/.test(readFileSync(abs, "utf8"))) continue;
+    // `auth` spelled anywhere, or a call to import()/require(): a computed specifier ("@/lib/" + "au" + "th") spells no `auth` at all.
+    if (!/auth|\bimport\s*\(|\brequire\s*\(/.test(readFileSync(abs, "utf8"))) continue;
     files.push({ rel: rel(abs), source: parseSource(rel(abs), abs) });
   }
   return { paths: absolutes.map(rel), files };
