@@ -20,12 +20,19 @@ import type { JobFunctionActionState } from "@/types/jobFunction";
 /**
  * Everything that touches an ADMIN or SUPERADMIN account goes through a
  * SUPERADMIN (lib/accountPolicy.ts). A function held by such an account is a
- * constraint ON that administrator: editing it lifts or imposes their
- * restrictions (hiddenAreas can lock them out of Administration), and deleting
- * it detaches them (onDelete: SetNull on User.jobFunctionId). The self-lock
- * guards below only cover the caller's OWN function — this covers every
- * OTHER administrator's. Returns the refusal, or null when the call may go on.
- * The refusal depends on the caller's role, not on a row: it can be explicit.
+ * constraint ON that administrator, through ONE axis only: its hiddenAreas
+ * (which can lift their restrictions, or lock them out of Administration). An
+ * ADMIN is exempt from hiddenSections and from the project scope
+ * (lib/accessContext.ts), a SUPERADMIN from every axis — so on sections and
+ * scope this guard takes nothing from an attacker today: it is kept on all four
+ * actions for the rule's coherence, and so it already holds the day an ADMIN
+ * becomes subject to those axes. Deleting the function detaches its holders
+ * (onDelete: SetNull on User.jobFunctionId). The self-lock guards below only
+ * cover the caller's OWN function — this covers every OTHER administrator's.
+ * Returns the refusal, or null when the call may go on.
+ * The refusal can be explicit: it does depend on rows (who holds the function),
+ * but the caller already reads that whole domain — the functions page lists
+ * every function and marks the ones held by an administrator.
  */
 async function refuseIfHeldByAdmin(id: number, t: Dictionary) {
   // The role comes from getAccessContext (a session reader already probed for
