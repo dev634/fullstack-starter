@@ -219,8 +219,12 @@ export async function setPrimary(id: number, clientId: number) {
 
 /**
  * Deletes a contact; if it was the primary, promotes the oldest remaining
- * contact so the client keeps one. Also deletes its portal login (if any) —
- * a Contact.userId is 1:1 and exists only to authenticate as this contact, so
+ * contact so the client keeps one. Also deletes its portal login (if any),
+ * but ONLY while that account is still a CLIENT: a login promoted to a
+ * higher role is an internal account now, and deleting a contact (a
+ * content.edit action) must never be a way to delete an ADMIN — the account
+ * is left alone (Contact.userId is SetNull, the contact row is gone anyway).
+ * A Contact.userId is 1:1 and exists only to authenticate as this contact, so
  * leaving it behind after the contact is gone would let a revoked contact
  * keep signing in indefinitely (the account just fails to resolve a portal
  * scope; it stays otherwise fully authenticatable).
@@ -230,7 +234,7 @@ export async function remove(id: number) {
         return await prisma.$transaction(async (tx) => {
             const contact = await tx.contact.delete({ where: { id } });
             if (contact.userId) {
-                await tx.user.delete({ where: { id: contact.userId } });
+                await tx.user.deleteMany({ where: { id: contact.userId, role: "CLIENT" } });
             }
             if (contact.isPrimary) {
                 const next = await tx.contact.findFirst({

@@ -3,6 +3,7 @@ import { requireRole, hasMinRole, type RoleCheckResult } from "@/lib/authz";
 import { resolveAccessConfig, type Capability, type Role } from "@/lib/capabilities";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
+import { isFullyInScope, findFullyInScopeIds } from "@/repository/clients";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
@@ -71,6 +72,42 @@ export async function requireClientAccess(clientId: number): Promise<ScopeCheckR
   if (ctx.projectIds === null) return { error: null };
   const reachable = await hasProjectAmong(clientId, [...ctx.projectIds]);
   if (reachable) return { error: null };
+  const t = getDictionary(await getLocale());
+  return { error: { type: "error", message: t.errors.forbidden } };
+}
+
+/**
+ * Non-throwing core of requireFullClientAccess, also what the interface asks
+ * before offering a whole-company action (trash, restore, permanent delete).
+ *
+ * requireClientAccess answers "may I reach this company" (at least one live
+ * project in scope). An action that acts on the company ENTIRELY takes ALL
+ * its projects with it — trashed ones included — so it needs a stronger
+ * answer: every project of the company is in the caller's scope. An
+ * unrestricted caller passes; a restricted one must also still reach the
+ * company (a company with no project at all stays unreachable, as before).
+ */
+export async function canFullyAccessClient(clientId: number): Promise<boolean> {
+  const ctx = await getAccessContext();
+  if (ctx.projectIds === null) return true;
+  return isFullyInScope(clientId, [...ctx.projectIds]);
+}
+
+/**
+ * The same rule over a list: of these company ids, the ones the caller may act
+ * on ENTIRELY. One query for the whole list — for the bulk action, and for the
+ * list screen that decides which cards get a delete box (a box the action then
+ * refuses would be a dead control).
+ */
+export async function fullyAccessibleClientIds(clientIds: number[]): Promise<number[]> {
+  const ctx = await getAccessContext();
+  if (ctx.projectIds === null) return clientIds;
+  return findFullyInScopeIds(clientIds, [...ctx.projectIds]);
+}
+
+/** Guard an action that takes the WHOLE company (every project) with it. Same refusal message as requireClientAccess. */
+export async function requireFullClientAccess(clientId: number): Promise<ScopeCheckResult> {
+  if (await canFullyAccessClient(clientId)) return { error: null };
   const t = getDictionary(await getLocale());
   return { error: { type: "error", message: t.errors.forbidden } };
 }

@@ -1,7 +1,8 @@
 import { getClient } from '@/actions/clients/clients';
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
-import { can } from "@/lib/access";
+import { can, canFullyAccessClient } from "@/lib/access";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
@@ -80,6 +81,12 @@ export default async function ClientPage({ params }: PageProps) {
     : null;
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
+  // Deleting a company takes ALL its projects with it: the server requires the
+  // trash capability AND reach over every project (requireFullClientAccess).
+  const canDeleteClient =
+    (await can(session?.user?.role, "content.trash")) && (await canFullyAccessClient(clientId));
+  // Portal logins create an account: users.manage + the admin.users rubrique.
+  const canCreatePortalLogin = (await getAdminAccess(session?.user?.role)).users;
 
   // Sub-parts of this page, individually hideable by the caller's job
   // function (see lib/appAreas.ts). Data is only fetched for a block that
@@ -172,7 +179,7 @@ export default async function ClientPage({ params }: PageProps) {
               {t.common.edit}
             </Link>
           )}
-          {canEdit && <DeleteClientButton clientId={data.id} />}
+          {canDeleteClient && <DeleteClientButton clientId={data.id} />}
           <Link
             href="/clients"
             className="inline-flex w-full items-center justify-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 sm:ml-auto sm:w-auto"
@@ -198,7 +205,7 @@ export default async function ClientPage({ params }: PageProps) {
         {contacts.length ? (
           <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
+              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} canCreatePortalLogin={canCreatePortalLogin} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
             ))}
           </ul>
         ) : (

@@ -7,8 +7,14 @@ import {
   findClientIdsAmong,
   findTrashed as findTrashedProjects,
 } from "@/repository/projects";
-import { search as searchClients, findTrashed as findTrashedClients, getDashboardStats } from "@/repository/clients";
-import { findAccessScopeByEmail } from "@/repository/users";
+import {
+  search as searchClients,
+  findTrashed as findTrashedClients,
+  getDashboardStats,
+  isFullyInScope,
+  findFullyInScopeIds,
+} from "@/repository/clients";
+import { findAccessScopeByEmail, countPrivilegedHolders, findFunctionIdsHeldByPrivileged } from "@/repository/users";
 import { logActivity as logProjectActivity, listActivity as listProjectActivity } from "@/repository/projectActivity";
 import { logActivity as logClientActivity, listActivity as listClientActivity } from "@/repository/activity";
 
@@ -181,6 +187,75 @@ describe("project scoping by job function", () => {
   });
 });
 
+describe("functions held by an administrator (countPrivilegedHolders, findFunctionIdsHeldByPrivileged)", () => {
+  it("counts only ADMIN / SUPERADMIN holders, and the list read agrees with the count", async () => {
+    const stamp = Date.now();
+    const heldByAdmin = await prisma.jobFunction.create({ data: { name: `ScopeTest admin ${stamp}` } });
+    const heldByEditors = await prisma.jobFunction.create({ data: { name: `ScopeTest editors ${stamp}` } });
+    const held = await prisma.jobFunction.create({ data: { name: `ScopeTest super ${stamp}` } });
+    const empty = await prisma.jobFunction.create({ data: { name: `ScopeTest empty ${stamp}` } });
+    const mk = (tag: string, role: "ADMIN" | "SUPERADMIN" | "EDITOR" | "VIEWER", jobFunctionId: number) =>
+      prisma.user.create({ data: { email: uniqueEmail(tag), password: "x", role, jobFunctionId } });
+    await mk("a1", "ADMIN", heldByAdmin.id);
+    await mk("a2", "EDITOR", heldByAdmin.id);
+    await mk("e1", "EDITOR", heldByEditors.id);
+    await mk("e2", "VIEWER", heldByEditors.id);
+    await mk("s1", "SUPERADMIN", held.id);
+    await mk("s2", "SUPERADMIN", held.id);
+
+    await expect(countPrivilegedHolders(heldByAdmin.id)).resolves.toBe(1);
+    await expect(countPrivilegedHolders(held.id)).resolves.toBe(2);
+    await expect(countPrivilegedHolders(heldByEditors.id)).resolves.toBe(0);
+    await expect(countPrivilegedHolders(empty.id)).resolves.toBe(0);
+
+    const listed = await findFunctionIdsHeldByPrivileged();
+    expect(listed).toContain(heldByAdmin.id);
+    expect(listed).toContain(held.id);
+    expect(listed).not.toContain(heldByEditors.id);
+    expect(listed).not.toContain(empty.id);
+    // distinct: a function held by two administrators is listed once.
+    expect(listed.filter((id) => id === held.id)).toHaveLength(1);
+  });
+});
+
+describe("fully in scope (fullyInScopeWhere: isFullyInScope, findFullyInScopeIds)", () => {
+  it("isFullyInScope: every project in the list, a live one at least", async () => {
+    const whole = await makeCompanyWithProjects("ZzyxFullWhole SARL", ["A", "B"]);
+    const partial = await makeCompanyWithProjects("ZzyxFullPartial SARL", ["A", "B"]);
+    const hiddenTrash = await makeCompanyWithProjects("ZzyxFullHiddenBin SARL", ["A", "B"]);
+    await prisma.project.update({ where: { id: hiddenTrash.projects[1].id }, data: { deletedAt: new Date() } });
+    const ids = [...whole.projects.map((p) => p.id), partial.projects[0].id, hiddenTrash.projects[0].id];
+
+    await expect(isFullyInScope(whole.client.id, ids)).resolves.toBe(true);
+    await expect(isFullyInScope(partial.client.id, ids)).resolves.toBe(false);
+    // A TRASHED project outside the list still counts as outside.
+    await expect(isFullyInScope(hiddenTrash.client.id, ids)).resolves.toBe(false);
+    // An empty list reaches nothing.
+    await expect(isFullyInScope(whole.client.id, [])).resolves.toBe(false);
+  });
+
+  it("isFullyInScope: a company whose only projects are trashed is not reached (no LIVE project among the list)", async () => {
+    const { client, projects } = await makeCompanyWithProjects("ZzyxFullAllTrashed SARL", ["A"]);
+    await prisma.project.update({ where: { id: projects[0].id }, data: { deletedAt: new Date() } });
+    await expect(isFullyInScope(client.id, [projects[0].id])).resolves.toBe(false);
+  });
+
+  it("findFullyInScopeIds keeps, out of a list of companies, exactly the ones isFullyInScope accepts", async () => {
+    const whole = await makeCompanyWithProjects("ZzyxListWhole SARL", ["A", "B"]);
+    const partial = await makeCompanyWithProjects("ZzyxListPartial SARL", ["A", "B"]);
+    const foreign = await makeCompanyWithProjects("ZzyxListForeign SARL", ["A"]);
+    const ids = [...whole.projects.map((p) => p.id), partial.projects[0].id];
+    const asked = [whole.client.id, partial.client.id, foreign.client.id, 999999999];
+
+    await expect(findFullyInScopeIds(asked, ids)).resolves.toEqual([whole.client.id]);
+    for (const id of asked) {
+      await expect(isFullyInScope(id, ids)).resolves.toBe((await findFullyInScopeIds([id], ids)).length === 1);
+    }
+    await expect(findFullyInScopeIds([], ids)).resolves.toEqual([]);
+    await expect(findFullyInScopeIds(asked, [])).resolves.toEqual([]);
+  });
+});
+
 describe("trash listings are scoped like the live ones (adversarial pass 1, #2)", () => {
   it("findTrashed (projects) only returns the allowlisted ids", async () => {
     const { projects } = await makeCompanyWithProjects("ZzyxTrashScope SARL", ["Chantier visible", "Chantier caché"]);
@@ -213,6 +288,37 @@ describe("trash listings are scoped like the live ones (adversarial pass 1, #2)"
 
     const empty = await findTrashedClients([]);
     expect(empty.some((c) => c.id === client.id)).toBe(false);
+  });
+
+  // Lot 1, F1: this listing feeds the restore / permanent-delete buttons, and
+  // those actions need EVERY project of the company in scope. A row listed
+  // for a partly-reachable company would be a dead control.
+  it("findTrashed (clients) hides a trashed company that has a project outside the scope, trashed ones included", async () => {
+    const partial = await makeCompanyWithProjects("ZzyxTrashPartial SARL", ["Dans le périmètre", "Hors périmètre"]);
+    await prisma.client.update({ where: { id: partial.client.id }, data: { deletedAt: new Date() } });
+    const whole = await makeCompanyWithProjects("ZzyxTrashWhole SARL", ["Mien", "Mien aussi, en corbeille"]);
+    await prisma.client.update({ where: { id: whole.client.id }, data: { deletedAt: new Date() } });
+    await prisma.project.update({ where: { id: whole.projects[1].id }, data: { deletedAt: new Date() } });
+    const hiddenTrash = await makeCompanyWithProjects("ZzyxTrashHiddenBin SARL", ["Mien", "Pas à moi, en corbeille"]);
+    await prisma.client.update({ where: { id: hiddenTrash.client.id }, data: { deletedAt: new Date() } });
+    await prisma.project.update({ where: { id: hiddenTrash.projects[1].id }, data: { deletedAt: new Date() } });
+
+    const scoped = await findTrashedClients([
+      partial.projects[0].id,
+      whole.projects[0].id,
+      whole.projects[1].id,
+      hiddenTrash.projects[0].id,
+    ]);
+
+    expect(scoped.some((c) => c.id === partial.client.id)).toBe(false);
+    expect(scoped.some((c) => c.id === hiddenTrash.client.id)).toBe(false);
+    expect(scoped.some((c) => c.id === whole.client.id)).toBe(true);
+  });
+
+  it("findTrashed (clients) without a scope (undefined) still lists every trashed company", async () => {
+    const { client } = await makeCompanyWithProjects("ZzyxTrashUnscoped SARL", ["P"]);
+    await prisma.client.update({ where: { id: client.id }, data: { deletedAt: new Date() } });
+    expect((await findTrashedClients()).some((c) => c.id === client.id)).toBe(true);
   });
 });
 

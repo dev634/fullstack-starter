@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { can } from "@/lib/access";
+import { canAssignRole, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
@@ -26,6 +27,18 @@ import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 
 type Actor = { role: Role; email: string };
+
+type Dictionary = ReturnType<typeof getDictionary>;
+
+/** The refusal to give when canManageAccount says no: a higher rank, or an administrator account. */
+function manageRefusal(actorRole: Role, targetRole: Role, t: Dictionary): string {
+  return hasMinRole(actorRole, targetRole) ? t.users.messages.adminRequiresSuperadmin : t.users.messages.cannotManageHigher;
+}
+
+/** The refusal to give when canAssignRole says no. */
+function assignRefusal(actorRole: Role, role: Role, t: Dictionary): string {
+  return hasMinRole(actorRole, role) ? t.users.messages.adminRequiresSuperadmin : t.users.messages.cannotAssignHigher;
+}
 
 /**
  * Gate on the configurable `users.manage` capability and return the actor's
@@ -54,9 +67,10 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
     return { ...prevState, type: "zodError", message: t.errors.validationError, fieldsForm: makeObjectFromZodError(parsed.error, t) };
   }
 
-  // An actor may only grant a role at or below their own rank.
-  if (!hasMinRole(actor.role, parsed.data.role)) {
-    return { ...prevState, type: "error", message: t.users.messages.cannotAssignHigher };
+  // An actor may only grant a role at or below their own rank, and only a
+  // SUPERADMIN may create an ADMIN or above (lib/accountPolicy.ts).
+  if (!canAssignRole(actor.role, parsed.data.role)) {
+    return { ...prevState, type: "error", message: assignRefusal(actor.role, parsed.data.role, t) };
   }
 
   try {
@@ -97,9 +111,17 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     const target = await findById(parsed.data.id);
     if (!target) return { ...prevState, type: "error", message: t.errors.invalidId };
 
-    // Can't manage a user whose CURRENT role outranks you, nor set a role above your own.
-    if (!hasMinRole(actor.role, target.role) || !hasMinRole(actor.role, parsed.data.role)) {
-      return { ...prevState, type: "error", message: t.users.messages.cannotManageHigher };
+    // Whoever touches an ADMIN+ account goes through a SUPERADMIN; the one
+    // exception is an ADMIN editing their OWN account (name, password), which
+    // never changes its role (lib/accountPolicy.ts).
+    const isSelf = target.email === actor.email;
+    if (!canManageAccount(actor.role, target.role, isSelf)) {
+      return { ...prevState, type: "error", message: manageRefusal(actor.role, target.role, t) };
+    }
+    if (parsed.data.role !== target.role) {
+      if (isOwnAccountLocked(actor.role, isSelf) || !canAssignRole(actor.role, parsed.data.role)) {
+        return { ...prevState, type: "error", message: assignRefusal(actor.role, parsed.data.role, t) };
+      }
     }
     // Never demote the last SUPERADMIN.
     if (target.role === "SUPERADMIN" && parsed.data.role !== "SUPERADMIN" && (await countSuperadmins()) <= 1) {
@@ -114,11 +136,11 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     // hatch stays SUPERADMIN, who bypasses hiddenAreas unconditionally
     // anyway (lib/accessContext.ts) — letting them repoint their own account
     // here changes nothing they can't already do.
-    if (
-      target.email === actor.email &&
-      actor.role !== "SUPERADMIN" &&
-      (parsed.data.jobFunctionId ?? null) !== target.jobFunctionId
-    ) {
+    // "Absent" is not "empty": an omitted field keeps the CURRENT function,
+    // only an explicit "" (parsed to null) clears it.
+    const nextJobFunctionId =
+      parsed.data.jobFunctionId === undefined ? target.jobFunctionId : parsed.data.jobFunctionId;
+    if (isOwnAccountLocked(actor.role, isSelf) && nextJobFunctionId !== target.jobFunctionId) {
       return { ...prevState, type: "error", message: t.users.messages.cannotEditOwnFunction };
     }
 
@@ -149,7 +171,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       // Zod's `min(1)`, so this can never be used to erase a name either.
       name: parsed.data.name ?? target.name,
       role: parsed.data.role,
-      jobFunctionId: parsed.data.jobFunctionId ?? null,
+      jobFunctionId: nextJobFunctionId,
     });
     if (parsed.data.password) {
       await updatePassword(target.id, await bcrypt.hash(parsed.data.password, 10));
@@ -177,8 +199,8 @@ export async function deleteUser(id: number) {
     if (target.email === actor.email) {
       return { type: "error" as const, message: t.users.messages.cannotDeleteSelf };
     }
-    if (!hasMinRole(actor.role, target.role)) {
-      return { type: "error" as const, message: t.users.messages.cannotManageHigher };
+    if (!canManageAccount(actor.role, target.role, false)) {
+      return { type: "error" as const, message: manageRefusal(actor.role, target.role, t) };
     }
     if (target.role === "SUPERADMIN" && (await countSuperadmins()) <= 1) {
       return { type: "error" as const, message: t.users.messages.lastSuperadmin };
@@ -226,8 +248,8 @@ export async function setUserProjectAssignments(userId: number, projectIds: numb
     }
     const target = await findById(userId);
     if (!target) return { type: "error" as const, message: t.errors.invalidId };
-    if (!hasMinRole(actor.role, target.role)) {
-      return { type: "error" as const, message: t.users.messages.cannotManageHigher };
+    if (!canManageAccount(actor.role, target.role, false)) {
+      return { type: "error" as const, message: manageRefusal(actor.role, target.role, t) };
     }
 
     const ids = Array.isArray(projectIds)

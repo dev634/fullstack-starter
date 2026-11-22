@@ -93,7 +93,7 @@ describe("permanentlyDeleteProject", () => {
 
   it("permanently removes the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([]);
     removeMock.mockResolvedValue({ id: 1 } as never);
     const res = await permanentlyDeleteProject(1);
@@ -104,6 +104,21 @@ describe("permanentlyDeleteProject", () => {
     expect(res.type).toBe("success");
   });
 
+  // Lot 1: irreversible, so only a project already in the trash may go. A
+  // LIVE project used to be destroyed outright, files included; it now
+  // answers like an unknown one.
+  it("refuses a LIVE project, with the same answer as an unknown one", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: null } as never);
+    const live = await permanentlyDeleteProject(1);
+    findByIdMock.mockResolvedValue(null as never);
+    const unknown = await permanentlyDeleteProject(1);
+    expect(live.type).toBe("error");
+    expect(live.message).toBe(unknown.message);
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(destroyProjectFileMock).not.toHaveBeenCalled();
+  });
+
   // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
   // defaults `type` to "upload" when it isn't passed, so a destroy call that
   // only knows the mime type quietly does NOTHING on an asset re-typed to
@@ -111,7 +126,7 @@ describe("permanentlyDeleteProject", () => {
   // must read the stored deliveryType/resourceType and pass them through.
   it("destroys the project's Cloudinary files, with their stored guarded type, before deleting", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([
       { publicId: "projects/1/plan", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
       { publicId: "projects/1/photo", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" },

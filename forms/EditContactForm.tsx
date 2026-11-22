@@ -28,11 +28,13 @@ export type EditableContact = {
 export default function EditContactForm({
   contact,
   clientId,
+  canCreatePortalLogin,
   functions,
   projects,
 }: {
   contact: EditableContact;
   clientId: number;
+  canCreatePortalLogin: boolean;
   functions: JobFunctionOption[];
   projects: { id: number; name: string }[];
 }) {
@@ -128,13 +130,14 @@ export default function EditContactForm({
 
         {/* Portal login — created out of band (a User with role CLIENT + a
             one-time password-reset link the admin forwards to the contact). */}
+        {(contact.hasLogin || resetUrl || canCreatePortalLogin) && (
         <div className="mt-4 border-t border-gray-300 dark:border-gray-700 pt-4">
           {contact.hasLogin || resetUrl ? (
             <p className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
               <CheckBadgeIcon className="h-5 w-5 shrink-0" />
               {t.portal.admin.hasLogin}
             </p>
-          ) : (
+          ) : canCreatePortalLogin ? (
             <button
               type="button"
               onClick={provisionLogin}
@@ -146,8 +149,8 @@ export default function EditContactForm({
               <KeyIcon className="h-4 w-4" />
               {pending ? t.portal.admin.creating : t.portal.admin.createLogin}
             </button>
-          )}
-          {!contact.email && !contact.hasLogin && (
+          ) : null}
+          {canCreatePortalLogin && !contact.email && !contact.hasLogin && (
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t.portal.admin.emailRequired}</p>
           )}
           {loginError && <p className="mt-1 text-xs text-red-500">{loginError}</p>}
@@ -178,6 +181,7 @@ export default function EditContactForm({
             </div>
           )}
         </div>
+        )}
       </ModalShell>
     </>
   );

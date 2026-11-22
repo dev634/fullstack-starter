@@ -361,6 +361,11 @@ describe("authorization coverage across server actions", () => {
       "actions/clients/clients.ts": "clients",
       "actions/projects/projects.ts": "projects",
       "actions/contacts/contacts.ts": "clients.contacts",
+      // createPortalLogin needs TWO rubriques (admin.users and clients.contacts):
+      // this table only checks that requireAreaAccess is called, not its
+      // argument (the value below is documentation). Both arguments are
+      // proven by tests/portal-actions.test.ts instead.
+      "actions/portal/portal.ts": "clients.contacts",
       "actions/equipment/equipment.ts": "loans",
       "actions/equipmentLoans/equipmentLoans.ts": "loans",
     };

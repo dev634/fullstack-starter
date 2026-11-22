@@ -49,6 +49,25 @@ describe("contacts repository remove() against a real Postgres", () => {
     expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
   });
 
+  // Lot 1, F2: deleting a contact (a content.edit action) must never delete an
+  // account that has since been promoted — the FK is SetNull, the account stays.
+  it.each(["ADMIN", "EDITOR", "SUPERADMIN"] as const)(
+    "keeps a linked account that is no longer a CLIENT (%s) and only deletes the contact",
+    async (role) => {
+      const client = await makeClient();
+      const contact = await createContact({ clientId: client.id, firstName: "E", lastName: "F" });
+      const user = await prisma.user.create({
+        data: { email: uniqueEmail("promoted"), password: "hashed", role },
+      });
+      await attachLogin(contact.id, user.id);
+
+      await remove(contact.id);
+
+      expect(await prisma.contact.findUnique({ where: { id: contact.id } })).toBeNull();
+      expect(await prisma.user.findUnique({ where: { id: user.id } })).toMatchObject({ id: user.id, role });
+    }
+  );
+
   it("deletes a contact with no portal login without touching any User row", async () => {
     const client = await makeClient();
     const contact = await createContact({ clientId: client.id, firstName: "C", lastName: "D" });
