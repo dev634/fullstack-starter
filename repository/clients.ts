@@ -172,6 +172,50 @@ export async function findAll(orderBy: GetClientsByOrder) {
 }
 
 /**
+ * THE rule "a company entirely within the caller's project scope": at least
+ * one LIVE project among `projectIds`, and NO project of the company outside
+ * them — trashed ones included, since trashing / restoring / destroying a
+ * company takes every project with it (a permanent delete cascades through the
+ * trash). Written once: the trash listing, the whole-company guard
+ * (lib/access.ts::canFullyAccessClient) and the list screen's delete boxes all
+ * read it, so a control offered and an action refused cannot drift apart.
+ * An empty list matches nothing (no live project among it).
+ */
+export function fullyInScopeWhere(projectIds: number[]): Prisma.ClientWhereInput {
+    return {
+        projects: {
+            some: { id: { in: projectIds }, deletedAt: null },
+            none: { id: { notIn: projectIds } },
+        },
+    };
+}
+
+/** Is this company entirely within `projectIds`? One query (see fullyInScopeWhere). */
+export async function isFullyInScope(clientId: number, projectIds: number[]): Promise<boolean> {
+    try {
+        return (await prisma.client.count({ where: { id: clientId, ...fullyInScopeWhere(projectIds) } })) > 0;
+    } catch (error) {
+        console.log("Repository isFullyInScope error:", error);
+        throw { type: "repositoryError", message: "Database Error checking client access." };
+    }
+}
+
+/** Of these company ids, the ones entirely within `projectIds` — one query for a whole list. */
+export async function findFullyInScopeIds(clientIds: number[], projectIds: number[]): Promise<number[]> {
+    if (clientIds.length === 0) return [];
+    try {
+        const rows = await prisma.client.findMany({
+            where: { id: { in: clientIds }, ...fullyInScopeWhere(projectIds) },
+            select: { id: true },
+        });
+        return rows.map((r) => r.id);
+    } catch (error) {
+        console.log("Repository findFullyInScopeIds error:", error);
+        throw { type: "repositoryError", message: "Database Error checking client access." };
+    }
+}
+
+/**
  * Trashed companies (most recently deleted first), optionally scoped to the
  * given project ids (pass
  * `projectIdFilter(await getAccessContext())` — `undefined` means
@@ -201,14 +245,7 @@ export async function findTrashed(projectIds?: number[]) {
         const clients = await prisma.client.findMany({
             where: {
                 deletedAt: { not: null },
-                ...(projectIds !== undefined
-                    ? {
-                          projects: {
-                              some: { id: { in: projectIds }, deletedAt: null },
-                              none: { id: { notIn: projectIds } },
-                          },
-                      }
-                    : {}),
+                ...(projectIds !== undefined ? fullyInScopeWhere(projectIds) : {}),
             },
             orderBy: { deletedAt: "desc" },
             select: { id: true, companyName: true, email: true, photoUrl: true },

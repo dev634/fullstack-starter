@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { can } from "@/lib/access";
-import { canAssignRole, canManageAccount, isPrivilegedRole } from "@/lib/accountPolicy";
+import { canAssignRole, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
@@ -119,8 +119,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       return { ...prevState, type: "error", message: manageRefusal(actor.role, target.role, t) };
     }
     if (parsed.data.role !== target.role) {
-      const ownPrivilegedRole = isSelf && isPrivilegedRole(target.role) && actor.role !== "SUPERADMIN";
-      if (ownPrivilegedRole || !canAssignRole(actor.role, parsed.data.role)) {
+      if (isOwnAccountLocked(actor.role, isSelf) || !canAssignRole(actor.role, parsed.data.role)) {
         return { ...prevState, type: "error", message: assignRefusal(actor.role, parsed.data.role, t) };
       }
     }
@@ -141,11 +140,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     // only an explicit "" (parsed to null) clears it.
     const nextJobFunctionId =
       parsed.data.jobFunctionId === undefined ? target.jobFunctionId : parsed.data.jobFunctionId;
-    if (
-      target.email === actor.email &&
-      actor.role !== "SUPERADMIN" &&
-      nextJobFunctionId !== target.jobFunctionId
-    ) {
+    if (isOwnAccountLocked(actor.role, isSelf) && nextJobFunctionId !== target.jobFunctionId) {
       return { ...prevState, type: "error", message: t.users.messages.cannotEditOwnFunction };
     }
 

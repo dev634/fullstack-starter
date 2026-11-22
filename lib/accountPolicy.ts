@@ -1,22 +1,26 @@
-import { ROLE_RANK, meetsRole, type Role } from "@/lib/capabilities";
+import { ROLES, ROLE_RANK, meetsRole, type Role } from "@/lib/capabilities";
 
 /**
  * Who may touch which ACCOUNT — one pure source of truth, read by the server
- * actions (actions/users, which enforce) AND, later, by the users screen
+ * actions (actions/users, which enforce) AND by the users screen
  * (which must stop offering what the action refuses). Client-safe: nothing
  * here imports the server.
  *
  * The rule (decided by the owner, 2026-11-22): everything that touches an
  * ADMIN or SUPERADMIN account goes through a SUPERADMIN. ADMINs keep their
  * full power over EDITOR, VIEWER and CLIENT accounts. Without it, a restricted
- * ADMIN (a job function that hides areas / limits projects) could mint a free
- * ADMIN — one with no function, so no restriction — or take over another one.
+ * ADMIN (a job function that hides rubriques; an ADMIN is never restricted in
+ * projects) could mint a free ADMIN — one with no function, so no restriction —
+ * or take over another one.
  */
 
 /** ADMIN and above: the accounts only a SUPERADMIN may create, change or remove. */
 export function isPrivilegedRole(role: Role): boolean {
   return ROLE_RANK[role] >= ROLE_RANK.ADMIN;
 }
+
+/** The roles isPrivilegedRole accepts, as a list — for a query (`role: { in: PRIVILEGED_ROLES }`). */
+export const PRIVILEGED_ROLES: Role[] = ROLES.filter(isPrivilegedRole);
 
 /**
  * May `actorRole` give an account this role (creation, or a role change)?
@@ -54,4 +58,15 @@ export function canManageAccount(actorRole: Role, targetRole: Role, isSelf: bool
   if (!meetsRole(actorRole, targetRole)) return false;
   if (isPrivilegedRole(targetRole)) return isSelf;
   return true;
+}
+
+/**
+ * Is the account an actor is editing LOCKED against them, because it is their
+ * own? A non-SUPERADMIN may change their own name and password, never their own
+ * role nor their own job function: either would lift the restrictions the
+ * function imposes, with no SUPERADMIN involved. SUPERADMIN is the escape
+ * hatch. One source for the server (actions/users) and the screen.
+ */
+export function isOwnAccountLocked(actorRole: Role, isSelf: boolean): boolean {
+  return isSelf && actorRole !== "SUPERADMIN";
 }

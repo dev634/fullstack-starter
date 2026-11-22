@@ -2,8 +2,8 @@ import { getAppSettings } from "@/lib/appSettings";
 import { requireRole, hasMinRole, type RoleCheckResult } from "@/lib/authz";
 import { resolveAccessConfig, type Capability, type Role } from "@/lib/capabilities";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
-import { canAccessArea } from "@/lib/areaAccess";
-import { hasProjectAmong, countProjectsOutside } from "@/repository/projects";
+import { hasProjectAmong } from "@/repository/projects";
+import { isFullyInScope, findFullyInScopeIds } from "@/repository/clients";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
@@ -90,9 +90,19 @@ export async function requireClientAccess(clientId: number): Promise<ScopeCheckR
 export async function canFullyAccessClient(clientId: number): Promise<boolean> {
   const ctx = await getAccessContext();
   if (ctx.projectIds === null) return true;
-  const ids = [...ctx.projectIds];
-  if (!(await hasProjectAmong(clientId, ids))) return false;
-  return (await countProjectsOutside(clientId, ids)) === 0;
+  return isFullyInScope(clientId, [...ctx.projectIds]);
+}
+
+/**
+ * The same rule over a list: of these company ids, the ones the caller may act
+ * on ENTIRELY. One query for the whole list — for the bulk action, and for the
+ * list screen that decides which cards get a delete box (a box the action then
+ * refuses would be a dead control).
+ */
+export async function fullyAccessibleClientIds(clientIds: number[]): Promise<number[]> {
+  const ctx = await getAccessContext();
+  if (ctx.projectIds === null) return clientIds;
+  return findFullyInScopeIds(clientIds, [...ctx.projectIds]);
 }
 
 /** Guard an action that takes the WHOLE company (every project) with it. Same refusal message as requireClientAccess. */
@@ -100,14 +110,4 @@ export async function requireFullClientAccess(clientId: number): Promise<ScopeCh
   if (await canFullyAccessClient(clientId)) return { error: null };
   const t = getDictionary(await getLocale());
   return { error: { type: "error", message: t.errors.forbidden } };
-}
-
-/**
- * Should the "create a portal login" button be offered? Same two gates as
- * actions/portal::createPortalLogin applies before anything else: the
- * users.manage capability AND the admin.users rubrique (the action creates an
- * account). The caller's role comes from the session the page already read.
- */
-export async function canManagePortalLogins(role: string | undefined): Promise<boolean> {
-  return (await can(role, "users.manage")) && (await canAccessArea("admin.users"));
 }

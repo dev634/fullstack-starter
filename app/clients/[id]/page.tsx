@@ -1,7 +1,8 @@
 import { getClient } from '@/actions/clients/clients';
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
-import { can, canFullyAccessClient, canManagePortalLogins } from "@/lib/access";
+import { can, canFullyAccessClient } from "@/lib/access";
+import { getAdminAccess } from "@/lib/adminAccess";
 import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
@@ -85,7 +86,7 @@ export default async function ClientPage({ params }: PageProps) {
   const canDeleteClient =
     (await can(session?.user?.role, "content.trash")) && (await canFullyAccessClient(clientId));
   // Portal logins create an account: users.manage + the admin.users rubrique.
-  const canCreatePortalLogin = (await canManagePortalLogins(session?.user?.role));
+  const canCreatePortalLogin = (await getAdminAccess(session?.user?.role)).users;
 
   // Sub-parts of this page, individually hideable by the caller's job
   // function (see lib/appAreas.ts). Data is only fetched for a block that

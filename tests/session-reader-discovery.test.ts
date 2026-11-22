@@ -432,14 +432,6 @@ describe("probes — the discovery is proven on planted sources, not assumed", (
       expect(outside(page(body))).toEqual([]);
     });
 
-    it("green: canManagePortalLogins from @/lib/access takes the role, a same-named import from elsewhere does not", () => {
-      const mk = (from: string) => `import { auth } from "@/lib/auth";
-import { canManagePortalLogins } from "${from}";
-export default async function P() { const s = await auth(); return canManagePortalLogins(s?.user?.role); }`;
-      expect(outside(mk("@/lib/access"))).toEqual([]);
-      expect(outside(mk("@/lib/other")).length).toBeGreaterThan(0);
-    });
-
     it("green: an aliased import is followed (`import { can as mayI }`)", () => {
       const text = `import { auth } from "@/lib/auth";\nimport { can as mayI } from "@/lib/access";\nexport default async function P() { const s = await auth(); return mayI(s?.user?.role, "x"); }`;
       expect(outside(text)).toEqual([]);

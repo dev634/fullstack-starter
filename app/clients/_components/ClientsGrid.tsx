@@ -18,8 +18,19 @@ type ClientCard = {
   status: string;
 };
 
-export default function ClientsGrid({ clients, canDelete = true }: { clients: ClientCard[]; canDelete?: boolean }) {
+export default function ClientsGrid({
+  clients,
+  canDelete,
+  deletableIds,
+}: {
+  clients: ClientCard[];
+  canDelete: boolean;
+  // Required, no permissive default: only these companies are entirely within
+  // the caller's scope, so only these cards get a delete box.
+  deletableIds: number[];
+}) {
   const { t } = useTranslation();
+  const deletable = new Set(deletableIds);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
@@ -86,7 +97,7 @@ export default function ClientsGrid({ clients, canDelete = true }: { clients: Cl
       <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {clients.map((client) => (
           <li key={client.id} className="group relative">
-            {canDelete && (
+            {canDelete && deletable.has(client.id) && (
               <input
                 type="checkbox"
                 checked={selected.has(client.id)}
@@ -97,7 +108,7 @@ export default function ClientsGrid({ clients, canDelete = true }: { clients: Cl
             )}
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all group-hover:bg-[#d1d5dc] group-hover:shadow-lg dark:group-hover:bg-gray-700 ${canDelete ? "pr-9" : ""} ${
+              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all group-hover:bg-[#d1d5dc] group-hover:shadow-lg dark:group-hover:bg-gray-700 ${canDelete && deletable.has(client.id) ? "pr-9" : ""} ${
                 selected.has(client.id) ? "border-blue-500" : "border-gray-300 dark:border-gray-700"
               }`}
             >

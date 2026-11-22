@@ -4,7 +4,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireRole } from "@/lib/authz";
-import { requireCapability, requireClientAccess, requireFullClientAccess } from "@/lib/access";
+import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
@@ -281,13 +281,15 @@ export async function deleteClients(ids: number[]) {
     }
     let deleted = 0;
     let skipped = 0;
+    // One query for the whole batch, not two per id (fullyAccessibleClientIds).
+    const allowed = new Set(await fullyAccessibleClientIds(valid));
     for (const id of valid) {
-      // A client outside the caller's scope is skipped, not errored — a
-      // restricted actor selecting a mixed batch must not be able to tell
-      // which ids in it belonged to companies they can't reach. The success
-      // message reports HOW MANY were skipped, so the refusal is not invisible.
-      const scopeCheck = await requireFullClientAccess(id);
-      if (scopeCheck.error) {
+      // A company the caller cannot act on ENTIRELY is skipped, not errored,
+      // and the success message reports HOW MANY were skipped so the refusal
+      // is not invisible. No existence oracle: an unknown company, an
+      // unreachable one and a partly reachable one are treated the same way,
+      // so the count says nothing about which of them an id was.
+      if (!allowed.has(id)) {
         skipped++;
         continue;
       }
@@ -386,7 +388,7 @@ export async function permanentlyDeleteClient(id: number) {
     // are gone and the Cloudinary blobs would be orphaned.
     const projectFiles = await findPublicIdsByClient(id);
     const client = await permanentlyRemove(id);
-    await destroyClientPhoto(existing?.photoUrl);
+    await destroyClientPhoto(existing.photoUrl);
     await Promise.all(
       projectFiles.map((f) =>
         destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType })
@@ -395,7 +397,7 @@ export async function permanentlyDeleteClient(id: number) {
     await logActivity({
       action: "PERMANENTLY_DELETED",
       clientId: id,
-      clientName: existing?.companyName ?? `#${id}`,
+      clientName: existing.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients/trash");

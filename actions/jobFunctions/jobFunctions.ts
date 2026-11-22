@@ -4,16 +4,38 @@ import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { auth } from "@/lib/auth";
+import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
 import { createJobFunctionSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
-import { findAccountJobFunctionByEmail } from "@/repository/users";
+import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
 import { isProjectSectionKey } from "@/lib/projectSections";
 import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { JobFunctionActionState } from "@/types/jobFunction";
+
+/**
+ * Everything that touches an ADMIN or SUPERADMIN account goes through a
+ * SUPERADMIN (lib/accountPolicy.ts). A function held by such an account is a
+ * constraint ON that administrator: editing it lifts or imposes their
+ * restrictions (hiddenAreas can lock them out of Administration), and deleting
+ * it detaches them (onDelete: SetNull on User.jobFunctionId). The self-lock
+ * guards below only cover the caller's OWN function — this covers every
+ * OTHER administrator's. Returns the refusal, or null when the call may go on.
+ * The refusal depends on the caller's role, not on a row: it can be explicit.
+ */
+async function refuseIfHeldByAdmin(id: number, t: Dictionary) {
+  // The role comes from getAccessContext (a session reader already probed for
+  // the no-session case) rather than a second auth() read: no session means no
+  // role, so the check applies and the call is refused.
+  const ctx = await getAccessContext();
+  if (hasMinRole(ctx.role, "SUPERADMIN")) return null;
+  if ((await countPrivilegedHolders(id)) === 0) return null;
+  return { type: "error" as const, message: t.jobFunctions.messages.heldByAdminRequiresSuperadmin };
+}
 
 /** Add a job function (ADMIN+). */
 export async function addJobFunction(
@@ -96,6 +118,8 @@ export async function deleteJobFunction(id: number) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotDeleteOwnFunction };
       }
     }
+    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    if (heldByAdmin) return heldByAdmin;
 
     const deleted = await remove(id);
     revalidatePath("/admin/settings/fonctions");
@@ -119,6 +143,8 @@ export async function setFunctionSections(id: number, hiddenSections: string[]) 
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    if (heldByAdmin) return heldByAdmin;
     const valid = Array.isArray(hiddenSections) ? [...new Set(hiddenSections.filter(isProjectSectionKey))] : [];
     await updateHiddenSections(id, valid);
     revalidatePath("/admin/settings/fonctions");
@@ -165,6 +191,8 @@ export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotEditOwnFunction };
       }
     }
+    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    if (heldByAdmin) return heldByAdmin;
 
     const valid = Array.isArray(hiddenAreas) ? normalizeHiddenAreas(hiddenAreas) : [];
     await updateHiddenAreas(id, valid);
@@ -188,6 +216,8 @@ export async function setFunctionScope(id: number, scope: string) {
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    if (heldByAdmin) return heldByAdmin;
     // Anything unrecognised falls back to the permissive default rather than
     // silently locking people out of every chantier.
     const valid = scope === "ASSIGNED" ? "ASSIGNED" : "ALL";

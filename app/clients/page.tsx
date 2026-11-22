@@ -3,7 +3,7 @@ import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import Title from "@/components/Title";
 import { search, type ClientSortField } from "@/repository/clients";
 import { auth } from "@/lib/auth";
-import { can } from "@/lib/access";
+import { can, fullyAccessibleClientIds } from "@/lib/access";
 import { blockClientFromApp } from "@/lib/portal";
 import { requireAreaOrRedirect } from "@/lib/areaAccess";
 import ClientsGrid from "./_components/ClientsGrid";
@@ -51,6 +51,10 @@ export default async function ClientsPage({
   const canEdit = (await can(session?.user?.role, "content.edit"));
   // Bulk deletion is gated by the trash capability on the server, not by edit.
   const canTrash = (await can(session?.user?.role, "content.trash"));
+  // Only a company the caller may trash ENTIRELY gets a delete box: the bulk
+  // action skips the others, so a box on them would be a dead control. Same
+  // rule, same read as the action (fullyAccessibleClientIds).
+  const deletableIds = canTrash ? await fullyAccessibleClientIds(clients.map((c) => c.id)) : [];
   const t = getDictionary(await getLocale());
 
   // Shared query string for the current search/sort (used by pager + export).
@@ -148,7 +152,7 @@ export default async function ClientsPage({
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           {clients.length ? (
-            <ClientsGrid clients={clients} canDelete={canTrash} />
+            <ClientsGrid clients={clients} canDelete={canTrash} deletableIds={deletableIds} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4">
               {q ? (

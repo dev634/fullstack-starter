@@ -7,7 +7,7 @@ import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
-import { assignableRoles, canManageAccount, isPrivilegedRole } from "@/lib/accountPolicy";
+import { assignableRoles, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
@@ -75,8 +75,7 @@ export default function UsersManager({
   const editingUser = editing?.mode === "edit" ? editing.user : null;
   // An ADMIN opening their OWN account: name and password only. Role and
   // function stay as they are (the server refuses both changes).
-  const ownAccountLocked =
-    editingUser !== null && isSelfRow(editingUser) && isPrivilegedRole(editingUser.role) && actorRole !== "SUPERADMIN";
+  const ownAccountLocked = editingUser !== null && isOwnAccountLocked(actorRole, isSelfRow(editingUser));
   // Project assignments follow canManageAccount(…, false) server-side: an ADMIN
   // never manages an ADMIN account's assignments, not even their own.
   const canAssignProjects = editingUser === null || canManageAccount(actorRole, editingUser.role, false);

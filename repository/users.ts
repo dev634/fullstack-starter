@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
+import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
 
 /**
  * THE filter every "who IS the caller" resolution applies to `User` — today,
@@ -231,6 +232,41 @@ export async function findAccountJobFunctionByEmail(email: string): Promise<{ jo
     } catch (error) {
         console.log("Repository findAccountJobFunctionByEmail error:", error);
         throw { type: "repositoryError", message: "Database Error fetching user's job function." };
+    }
+}
+
+/**
+ * How many ADMIN / SUPERADMIN accounts hold this job function. A function
+ * carried by one of them is a constraint ON that administrator: whoever edits
+ * or deletes it (onDelete: SetNull detaches its holders) lifts or imposes
+ * restrictions on an account only a SUPERADMIN may touch
+ * (lib/accountPolicy.ts). Read by actions/jobFunctions.
+ */
+export async function countPrivilegedHolders(jobFunctionId: number): Promise<number> {
+    try {
+        return await prisma.user.count({ where: { jobFunctionId, role: { in: PRIVILEGED_ROLES } } });
+    } catch (error) {
+        console.log("Repository countPrivilegedHolders error:", error);
+        throw { type: "repositoryError", message: "Database Error counting function holders." };
+    }
+}
+
+/**
+ * The same question for the whole list, for the functions screen: ids of the
+ * job functions held by at least one ADMIN / SUPERADMIN account — exactly the
+ * ones countPrivilegedHolders refuses to a non-SUPERADMIN.
+ */
+export async function findFunctionIdsHeldByPrivileged(): Promise<number[]> {
+    try {
+        const rows = await prisma.user.findMany({
+            where: { jobFunctionId: { not: null }, role: { in: PRIVILEGED_ROLES } },
+            select: { jobFunctionId: true },
+            distinct: ["jobFunctionId"],
+        });
+        return rows.flatMap((r) => (r.jobFunctionId === null ? [] : [r.jobFunctionId]));
+    } catch (error) {
+        console.log("Repository findFunctionIdsHeldByPrivileged error:", error);
+        throw { type: "repositoryError", message: "Database Error listing function holders." };
     }
 }
 

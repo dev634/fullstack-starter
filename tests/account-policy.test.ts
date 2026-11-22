@@ -1,11 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { ROLES, type Role } from "@/lib/capabilities";
-import { assignableRoles, canAssignRole, canManageAccount, isPrivilegedRole } from "@/lib/accountPolicy";
+import { assignableRoles, canAssignRole, canManageAccount, isOwnAccountLocked, isPrivilegedRole, PRIVILEGED_ROLES } from "@/lib/accountPolicy";
 
 // Lot 1, F2 — the one rule behind actions/users AND the users screen.
 describe("accountPolicy", () => {
   it("only ADMIN and SUPERADMIN are privileged", () => {
     expect(ROLES.filter(isPrivilegedRole).sort()).toEqual(["ADMIN", "SUPERADMIN"]);
+  });
+
+  it("PRIVILEGED_ROLES lists exactly the roles isPrivilegedRole accepts", () => {
+    expect([...PRIVILEGED_ROLES].sort()).toEqual(ROLES.filter(isPrivilegedRole).sort());
+  });
+
+  describe("isOwnAccountLocked", () => {
+    it("locks a non-SUPERADMIN's own account, never another account, never a SUPERADMIN's", () => {
+      expect(isOwnAccountLocked("ADMIN", true)).toBe(true);
+      expect(isOwnAccountLocked("ADMIN", false)).toBe(false);
+      expect(isOwnAccountLocked("SUPERADMIN", true)).toBe(false);
+      expect(isOwnAccountLocked("SUPERADMIN", false)).toBe(false);
+    });
   });
 
   describe("canManageAccount", () => {

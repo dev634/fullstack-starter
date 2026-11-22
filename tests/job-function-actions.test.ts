@@ -9,7 +9,7 @@ vi.mock("@/lib/authz", async () => {
   return { ...actual, requireRole: vi.fn() };
 });
 vi.mock("@/lib/accessContext", () => ({
-  getAccessContext: vi.fn().mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null }),
+  getAccessContext: vi.fn(),
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
@@ -19,17 +19,18 @@ vi.mock("@/lib/accessContext", () => ({
 // file fails to load (auth() transitively pulls in next-auth, which errors
 // outside a request context in Vitest).
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
-vi.mock("@/repository/users", () => ({ findAccountJobFunctionByEmail: vi.fn() }));
-vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn() }));
+vi.mock("@/repository/users", () => ({ findAccountJobFunctionByEmail: vi.fn(), countPrivilegedHolders: vi.fn() }));
+vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn(), updateProjectScope: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
+import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas, setFunctionScope, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
+import { getAccessContext } from "@/lib/accessContext";
 import { requireRole } from "@/lib/authz";
 import { auth } from "@/lib/auth";
-import { findAccountJobFunctionByEmail } from "@/repository/users";
-import { reorder, create, remove, updateHiddenSections, updateHiddenAreas } from "@/repository/jobFunctions";
+import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
+import { reorder, create, remove, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -40,6 +41,9 @@ const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
 const updateHiddenSectionsMock = vi.mocked(updateHiddenSections);
 const updateHiddenAreasMock = vi.mocked(updateHiddenAreas);
+const updateProjectScopeMock = vi.mocked(updateProjectScope);
+const countPrivilegedHoldersMock = vi.mocked(countPrivilegedHolders);
+const getAccessContextMock = vi.mocked(getAccessContext);
 
 // setFunctionAreas' own self-lock guard (passe 3b, point 3) needs the
 // ACTOR's session role/email — separate from requireRoleMock above, which
@@ -47,10 +51,21 @@ const updateHiddenAreasMock = vi.mocked(updateHiddenAreas);
 // which role it actually is.
 function actor(role: string, email = "admin@example.com") {
   authMock.mockResolvedValue({ user: { role, email } } as never);
+  // refuseIfHeldByAdmin reads the caller's role through getAccessContext.
+  setAccessContextRole(role, email);
+}
+
+function setAccessContextRole(role: string, email: string) {
+  getAccessContextMock.mockResolvedValue({ email, role, hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null });
 }
 
 describe("job function actions", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default caller: an ADMIN, on a function no administrator holds.
+    setAccessContextRole("ADMIN", "admin@example.com");
+    countPrivilegedHoldersMock.mockResolvedValue(0);
+  });
 
   it("reorderJobFunctions refuses a non-ADMIN", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);
@@ -269,6 +284,71 @@ describe("job function actions", () => {
       expect((res as { type: string }).type).toBe("error");
       expect((res as { message: string }).message).toBe(fr.errors.unauthorized);
       expect(removeMock).not.toHaveBeenCalled();
+    });
+  });
+  // Rule decided by the owner (2026-11-22): everything that touches an ADMIN
+  // or SUPERADMIN account goes through a SUPERADMIN. A function held by such an
+  // account is a constraint on that administrator — editing it lifts or imposes
+  // their restrictions, deleting it detaches them (onDelete: SetNull). The
+  // self-lock guards above only cover the caller's OWN function.
+  describe("a function held by an administrator account is reserved to a SUPERADMIN", () => {
+    const refused = fr.jobFunctions.messages.heldByAdminRequiresSuperadmin;
+
+    const calls: [string, () => Promise<{ type: string; message?: string }>, () => void][] = [
+      ["setFunctionSections", () => setFunctionSections(9, ["tasks"]), () => expect(updateHiddenSectionsMock).not.toHaveBeenCalled()],
+      ["setFunctionAreas", () => setFunctionAreas(9, ["clients"]), () => expect(updateHiddenAreasMock).not.toHaveBeenCalled()],
+      ["setFunctionScope", () => setFunctionScope(9, "ASSIGNED"), () => expect(updateProjectScopeMock).not.toHaveBeenCalled()],
+      ["deleteJobFunction", () => deleteJobFunction(9), () => expect(removeMock).not.toHaveBeenCalled()],
+    ];
+
+    beforeEach(() => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the caller's own function is not 9
+      updateHiddenSectionsMock.mockResolvedValue({} as never);
+      updateHiddenAreasMock.mockResolvedValue({} as never);
+      updateProjectScopeMock.mockResolvedValue({} as never);
+      removeMock.mockResolvedValue({} as never);
+    });
+
+    it.each(calls)("%s: an ADMIN is refused when another ADMIN holds the function", async (_name, call, assertUntouched) => {
+      actor("ADMIN", "admin@example.com");
+      countPrivilegedHoldersMock.mockResolvedValue(1);
+
+      const res = await call();
+
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(refused);
+      expect(countPrivilegedHoldersMock).toHaveBeenCalledWith(9);
+      assertUntouched();
+    });
+
+    it.each(calls)("%s: an ADMIN still succeeds on a function held only by EDITOR / VIEWER accounts", async (_name, call) => {
+      actor("ADMIN", "admin@example.com");
+      countPrivilegedHoldersMock.mockResolvedValue(0);
+
+      const res = await call();
+
+      expect(res.type).toBe("success");
+    });
+
+    it.each(calls)("%s: a SUPERADMIN succeeds even when an ADMIN holds the function", async (_name, call) => {
+      actor("SUPERADMIN", "boss@example.com");
+      countPrivilegedHoldersMock.mockResolvedValue(2);
+
+      const res = await call();
+
+      expect(res.type).toBe("success");
+    });
+
+    it.each(calls)("%s: a session with no role is refused too (the check fails closed)", async (_name, call, assertUntouched) => {
+      actor("ADMIN", "admin@example.com");
+      getAccessContextMock.mockResolvedValue({ email: null, role: undefined, hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: new Set() });
+      countPrivilegedHoldersMock.mockResolvedValue(1);
+
+      const res = await call();
+
+      expect(res.type).toBe("error");
+      assertUntouched();
     });
   });
 });

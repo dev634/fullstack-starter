@@ -71,6 +71,8 @@ function SortableRow({
   deleteLabel,
   configureLabel,
   hiddenCount,
+  locked,
+  lockedLabel,
   onConfigure,
   onDelete,
 }: {
@@ -79,6 +81,10 @@ function SortableRow({
   deleteLabel: string;
   configureLabel: string;
   hiddenCount: number;
+  // Held by an ADMIN / SUPERADMIN account and the caller is not a SUPERADMIN:
+  // the server refuses every change, so the controls are not offered.
+  locked: boolean;
+  lockedLabel: string;
   onConfigure: () => void;
   onDelete: () => void;
 }) {
@@ -102,12 +108,16 @@ function SortableRow({
         <Bars3Icon className="h-5 w-5" />
       </button>
       <span className="min-w-0 flex-1 truncate text-sm text-gray-900 dark:text-gray-100">{fn.name}</span>
+      {locked && <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{lockedLabel}</span>}
       <button
         type="button"
         onClick={onConfigure}
+        disabled={locked}
         aria-label={configureLabel}
         title={configureLabel}
-        className="relative shrink-0 cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-500/10 dark:text-gray-400"
+        className={`relative shrink-0 rounded p-1 text-gray-500 dark:text-gray-400 ${
+          locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-gray-500/10"
+        }`}
       >
         <EyeIcon className="h-4 w-4" />
         {hiddenCount > 0 && (
@@ -119,8 +129,11 @@ function SortableRow({
       <button
         type="button"
         onClick={onDelete}
+        disabled={locked}
         aria-label={deleteLabel}
-        className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 dark:text-red-400"
+        className={`shrink-0 rounded p-1 text-red-500 dark:text-red-400 ${
+          locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-red-500/10"
+        }`}
       >
         <TrashIcon className="h-4 w-4" />
       </button>
@@ -128,7 +141,14 @@ function SortableRow({
   );
 }
 
-export default function JobFunctionsManager({ functions }: { functions: JobFunction[] }) {
+export default function JobFunctionsManager({
+  functions,
+  lockedFunctionIds,
+}: {
+  functions: JobFunction[];
+  // Required, no permissive default: the functions this caller may not touch.
+  lockedFunctionIds: number[];
+}) {
   const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<JobFunctionActionState, FormData>(addJobFunction, initialState);
@@ -141,6 +161,7 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
 
   // Local order for drag-and-drop; re-synced whenever the server list changes
   // (after add / delete / reorder revalidation).
+  const locked = new Set(lockedFunctionIds);
   const [items, setItems] = useState(functions);
   const [lastFns, setLastFns] = useState(functions);
   if (functions !== lastFns) {
@@ -316,6 +337,8 @@ export default function JobFunctionsManager({ functions }: { functions: JobFunct
                     deleteLabel={format(t.jobFunctions.deleteLabel, { name: fn.name })}
                     configureLabel={format(t.jobFunctions.configureLabel, { name: fn.name })}
                     hiddenCount={fn.hiddenSections.length + fn.hiddenAreas.length}
+                    locked={locked.has(fn.id)}
+                    lockedLabel={t.jobFunctions.superadminOnly}
                     onConfigure={() => openConfig(fn)}
                     onDelete={() => setToDelete(fn)}
                   />

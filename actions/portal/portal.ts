@@ -36,7 +36,10 @@ export async function createPortalLogin(contactId: number): Promise<PortalLoginR
     if (!Number.isInteger(contactId) || contactId <= 0) return { ok: false, message: t.errors.invalidId };
     const contact = await findContactById(contactId);
     if (!contact) return { ok: false, message: t.errors.invalidId };
-    // Out of scope answers exactly like "not found" (no existence oracle).
+    // Defence in depth, with no effect today: an ADMIN is never restricted in
+    // projects, so this never refuses one. What closes F3 are the two
+    // rubriques checked above (admin.users and clients.contacts). Out of
+    // scope answers exactly like "not found" (no existence oracle).
     const scopeCheck = await requireClientAccess(contact.clientId);
     if (scopeCheck.error) return { ok: false, message: t.errors.invalidId };
     if (!contact.email) return { ok: false, message: t.portal.admin.emailRequired };

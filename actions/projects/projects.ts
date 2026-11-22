@@ -222,7 +222,7 @@ export async function permanentlyDeleteProject(id: number) {
     await logActivity({
       action: "PERMANENTLY_DELETED",
       projectId: id,
-      projectName: existing?.name ?? `#${id}`,
+      projectName: existing.name,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/projects/trash");
