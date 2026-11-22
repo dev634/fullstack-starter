@@ -20,6 +20,7 @@ export default function ContactRow({
   contact,
   clientId,
   canEdit,
+  canDelete,
   canCreatePortalLogin,
   functions,
   projects,
@@ -27,6 +28,9 @@ export default function ContactRow({
   contact: ContactWithFunction;
   clientId: number;
   canEdit: boolean;
+  // Refused server-side to a restricted caller when the contact is linked
+  // outside its scope (lib/contactPolicy.ts), so offered separately from edit.
+  canDelete: boolean;
   canCreatePortalLogin: boolean;
   functions: JobFunctionOption[];
   projects: { id: number; name: string }[];
@@ -80,15 +84,17 @@ export default function ContactRow({
             functions={functions}
             projects={projects}
           />
-          <button
-            type="button"
-            onClick={() => run(() => deleteContact(contact.id, clientId))}
-            disabled={pending}
-            aria-label={format(t.contacts.deleteContact, { name: fullName })}
-            className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
-          >
-            <TrashIcon className="h-4 w-4" />
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => run(() => deleteContact(contact.id, clientId))}
+              disabled={pending}
+              aria-label={format(t.contacts.deleteContact, { name: fullName })}
+              className="shrink-0 cursor-pointer rounded p-1 text-red-500 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+            >
+              <TrashIcon className="h-4 w-4" />
+            </button>
+          )}
         </>
       )}
     </li>

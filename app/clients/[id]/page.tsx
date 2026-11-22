@@ -9,6 +9,7 @@ import { findByClient } from '@/repository/projects';
 import { findByClient as findContactsByClient } from '@/repository/contacts';
 import { findAllOptions as findJobFunctions } from '@/repository/jobFunctions';
 import ContactRow from '@/components/ContactRow';
+import { canRemoveContact } from "@/lib/contactPolicy";
 import CollapsibleSection from '@/components/CollapsibleSection';
 import AddContactForm from '@/forms/AddContactForm';
 import Title from '@/components/Title';
@@ -99,11 +100,14 @@ export default async function ClientPage({ params }: PageProps) {
   // Contacts' own "link to project" picker needs the project list even when
   // the Projects block itself is hidden — that's a different rubrique from
   // this feature, so its data dependency is OR'd rather than tied to it.
+  const accessContext = await getAccessContext();
   const projects = (showProjects || showContacts)
-    ? await findByClient(clientId, projectIdFilter(await getAccessContext()))
+    ? await findByClient(clientId, projectIdFilter(accessContext))
     : [];
   const contacts = showContacts ? await findContactsByClient(clientId) : [];
   // Managed job functions offered in the contact add/edit dropdowns.
+  // Same scope the deleteContact action applies (null = unrestricted).
+  const contactScope = accessContext.projectIds === null ? null : [...accessContext.projectIds];
   const jobFunctions = showContacts && canEdit ? await findJobFunctions() : [];
 
   return (
@@ -205,7 +209,7 @@ export default async function ClientPage({ params }: PageProps) {
         {contacts.length ? (
           <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} canCreatePortalLogin={canCreatePortalLogin} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
+              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} canDelete={canEdit && canRemoveContact(contact.projects.map((p) => p.id), contactScope)} canCreatePortalLogin={canCreatePortalLogin} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
             ))}
           </ul>
         ) : (
