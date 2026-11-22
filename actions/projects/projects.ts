@@ -5,10 +5,10 @@ import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
-import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
+import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { projectTrashState } from "@/lib/projectTrash";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
-import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
+import { create, findById, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
 import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
@@ -356,26 +356,6 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     total: records.length,
     errors,
   };
-}
-
-export async function getProjectsForClient(clientId: number) {
-  const roleCheck = await requireRole("VIEWER");
-  if (roleCheck.error) return roleCheck.error;
-  // Passe 3b, point 1 — same gap as getClient below: role alone doesn't
-  // check whether the caller's job function hides the "projects" rubrique.
-  const areaCheck = await requireAreaAccess("projects");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    const projects = await findByClient(clientId, projectIdFilter(await getAccessContext()));
-    return { type: "success" as const, data: projects };
-  } catch (error) {
-    return {
-      type: "error" as const,
-      message: getErrorMessage(error, t.errors.serverError),
-    };
-  }
 }
 
 export async function getProject(id: number) {

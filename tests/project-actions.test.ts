@@ -14,7 +14,6 @@ vi.mock("@/repository/projects", () => ({
   remove: vi.fn(),
   softDelete: vi.fn(),
   restore: vi.fn(),
-  findByClient: vi.fn(),
   findById: vi.fn(),
   findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
 }));
@@ -25,10 +24,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addProject, updateProject, deleteProject, getProject, getProjectsForClient } from "@/actions/projects/projects";
+import { addProject, updateProject, deleteProject, getProject } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
-import { create, update, remove, softDelete, findByClient, findById, findTrashState } from "@/repository/projects";
+import { create, update, remove, softDelete, findById, findTrashState } from "@/repository/projects";
 import { logActivity } from "@/repository/projectActivity";
 import fr from "@/lib/i18n/dictionaries/fr";
 import { createDefaults } from "@/repository/projectFolders";
@@ -40,7 +39,6 @@ const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const softDeleteMock = vi.mocked(softDelete);
-const findByClientMock = vi.mocked(findByClient);
 const findByIdMock = vi.mocked(findById);
 const createDefaultsMock = vi.mocked(createDefaults);
 const initial = { type: null, message: "" } as const;
@@ -158,21 +156,6 @@ describe("project actions", () => {
     expect(res).toEqual({ type: "error", message: fr.errors.inTrash });
     expect(softDeleteMock).not.toHaveBeenCalled();
     expect(vi.mocked(logActivity)).not.toHaveBeenCalled();
-  });
-
-  it("getProjectsForClient refuses a session below VIEWER", async () => {
-    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
-    const res = await getProjectsForClient(1);
-    expect(res.type).toBe("error");
-    expect(findByClientMock).not.toHaveBeenCalled();
-  });
-
-  it("getProjectsForClient returns projects for a VIEWER-or-above session", async () => {
-    requireRoleMock.mockResolvedValue({ error: null, email: "viewer@example.com" });
-    findByClientMock.mockResolvedValue([{ id: 1, name: "Toiture" }] as never);
-    const res = await getProjectsForClient(1);
-    expect(res.type).toBe("success");
-    expect(findByClientMock).toHaveBeenCalledWith(1, undefined);
   });
 
   // Regression coverage for docs/PENTEST-2026-08.md (F1): a caller restricted

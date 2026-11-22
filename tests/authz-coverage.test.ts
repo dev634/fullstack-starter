@@ -284,8 +284,19 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
       if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
         const varName = parent.name.text;
         const after = n.end;
+        // The `if` must sit at the level of the function that CALLS the guard: a refusal written inside a
+        // nested closure that is never invoked (`const never = () => { if (c.error) return c.error; }`)
+        // refuses nothing. So the search starts at the nearest enclosing function body and never enters a
+        // nested function.
+        let scope: ts.Node = n.parent;
+        while (scope !== body && scope.parent && !ts.isFunctionLike(scope)) scope = scope.parent;
+        const searchRoot =
+          (ts.isFunctionDeclaration(scope) || ts.isArrowFunction(scope) || ts.isFunctionExpression(scope) || ts.isMethodDeclaration(scope)) && scope.body
+            ? scope.body
+            : body;
         const find = (m: ts.Node) => {
           if (refused) return;
+          if (m !== searchRoot && ts.isFunctionLike(m)) return;
           if (
             ts.isIfStatement(m) &&
             m.pos >= after &&
@@ -297,7 +308,7 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
           }
           ts.forEachChild(m, find);
         };
-        find(body);
+        find(searchRoot);
       }
       sites.push({ exportName, line, refused });
     }
@@ -986,9 +997,6 @@ describe("authorization coverage across server actions", () => {
    * longer exists.
    */
   const FREEZE_EXEMPT: Record<string, string> = {
-    "actions/projects/projects.ts::getProjectsForClient":
-      "a read: nothing to freeze. Its listing already excludes trashed projects (repository/projects.ts::findByClient, " +
-      "deletedAt: null). Disappears the day it writes, or lists projects under a company in the trash.",
     "actions/projects/projects.ts::getProject":
       "a read: nothing to freeze. Its visibility rule is projectTrashState (lib/projectTrash.ts), the same formula " +
       "requireProjectAccess reads, pinned by the 'visibility reads' test below. Disappears the day it writes.",
@@ -1058,12 +1066,12 @@ describe("authorization coverage across server actions", () => {
   /**
    * Exact sizes of the domain above, recounted by AST (top-level exported
    * functions of the discovered files) on the working tree above 3bff9d8,
-   * before any commit of this change: 4 files, 22 exported actions, 6 exempt,
-   * 16 covered. An EXACT count: a file leaving the discovery (its guard import
+   * before any commit of this change: 4 files, 21 exported actions, 5 exempt,
+   * 16 covered (getProjectsForClient was removed: no caller). An EXACT count: a file leaving the discovery (its guard import
    * removed) or an action disappearing must fail here, not shrink the domain.
    */
   const FREEZE_FILES_EXPECTED = 4;
-  const FREEZE_ACTIONS_EXPECTED = 22;
+  const FREEZE_ACTIONS_EXPECTED = 21;
 
   it("every write outside OWNED_BY_SECTION (project row, company, contacts, portal) reaches a trash-aware scope guard and REFUSES on its result", () => {
     const files = freezeFiles();
