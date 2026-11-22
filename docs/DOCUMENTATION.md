@@ -317,6 +317,16 @@ Accessible via **Administration** dans la barre de navigation (selon les droits)
 
 - **Fonctions** — gérer la liste des métiers et, par fonction, les sections visibles.
 - **Utilisateurs** — créer, modifier, supprimer les comptes ; attribuer un rôle et une fonction. Un acteur ne peut jamais attribuer ni gérer un rôle supérieur au sien, ni se supprimer lui-même, ni retirer le dernier Super administrateur.
+
+  > ⚠️ **Depuis la PR #242, la phrase ci-dessus est incomplète.** Tout ce qui
+  > touche un compte **Administrateur ou Super administrateur** — création,
+  > promotion, modification (mot de passe compris), suppression, affectation de
+  > projets, et la fonction qu'il porte — passe par un **Super administrateur**.
+  > Un Administrateur ne change, sur son propre compte, que son nom et son mot
+  > de passe. Et un compte limité à certains chantiers ne peut mettre à la
+  > corbeille ou supprimer une entreprise que si **tous** ses chantiers lui
+  > sont accessibles. Ce chapitre et la capture restent à reprendre ; la
+  > référence technique est `docs/CONVENTIONS.md`.
 - **Thème** *(Super admin)* — nom de l'application, logo, couleurs (aperçu en direct).
 - **Ordre des sections** *(Super admin)* — glisser-déposer pour ordonner les sections de la page projet.
 - **Rôles & accès** *(Super admin)* — la matrice capacité → rôle minimum décrite plus haut.
