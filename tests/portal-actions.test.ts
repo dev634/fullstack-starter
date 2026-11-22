@@ -13,7 +13,7 @@ vi.mock("@/repository/users", () => ({
   findAccessScopeByEmail: vi.fn(),
 }));
 vi.mock("@/repository/contacts", () => ({ findById: vi.fn(), attachLogin: vi.fn() }));
-vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), countProjectsOutside: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));

@@ -258,25 +258,6 @@ export async function hasProjectAmong(clientId: number, projectIds: number[]): P
 }
 
 /**
- * How many projects of a client are NOT in `projectIds` — trashed ones
- * included (no `deletedAt` filter on purpose). An action that acts on the
- * whole company (trash, restore, permanent delete) takes every one of its
- * projects with it, live or trashed: a permanent delete cascades through the
- * trash too. 0 means every project of the company is within the list.
- * An empty list makes every project "outside".
- */
-export async function countProjectsOutside(clientId: number, projectIds: number[]): Promise<number> {
-    try {
-        return await prisma.project.count({
-            where: { clientId, id: { notIn: projectIds } },
-        });
-    } catch (error) {
-        console.log("Repository countProjectsOutside (project) error:", error);
-        throw { type: "repositoryError", message: "Database Error checking project access." };
-    }
-}
-
-/**
  * Distinct client ids owning any of the given project ids — used to scope
  * the client activity log (repository/activity.ts) to a restricted caller.
  * ActivityLog has no relation to Client (its `clientId` is a plain field so

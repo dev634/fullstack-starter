@@ -4,7 +4,6 @@ import {
   search as searchProjects,
   findByClient,
   hasProjectAmong,
-  countProjectsOutside,
   findClientIdsAmong,
   findTrashed as findTrashedProjects,
 } from "@/repository/projects";
@@ -188,28 +187,6 @@ describe("project scoping by job function", () => {
   });
 });
 
-describe("countProjectsOutside (requireFullClientAccess, lot 1 F1)", () => {
-  it("counts the projects of the company that are not in the list", async () => {
-    const { client, projects } = await makeCompanyWithProjects("ZzyxOutside SARL", ["A", "B", "C"]);
-    await expect(countProjectsOutside(client.id, [projects[0].id])).resolves.toBe(2);
-    await expect(countProjectsOutside(client.id, projects.map((p) => p.id))).resolves.toBe(0);
-  });
-
-  it("counts TRASHED projects too — a permanent delete cascades through them", async () => {
-    const { client, projects } = await makeCompanyWithProjects("ZzyxOutsideTrash SARL", ["Live", "Trashed"]);
-    await prisma.project.update({ where: { id: projects[1].id }, data: { deletedAt: new Date() } });
-    await expect(countProjectsOutside(client.id, [projects[0].id])).resolves.toBe(1);
-  });
-
-  it("an empty list leaves every project outside, and another company's projects never count", async () => {
-    const a = await makeCompanyWithProjects("ZzyxOutsideA SARL", ["A1", "A2"]);
-    const b = await makeCompanyWithProjects("ZzyxOutsideB SARL", ["B1"]);
-    await expect(countProjectsOutside(a.client.id, [])).resolves.toBe(2);
-    await expect(countProjectsOutside(a.client.id, [b.projects[0].id])).resolves.toBe(2);
-    await expect(countProjectsOutside(a.client.id, a.projects.map((p) => p.id))).resolves.toBe(0);
-  });
-});
-
 describe("functions held by an administrator (countPrivilegedHolders, findFunctionIdsHeldByPrivileged)", () => {
   it("counts only ADMIN / SUPERADMIN holders, and the list read agrees with the count", async () => {
     const stamp = Date.now();
@@ -242,7 +219,7 @@ describe("functions held by an administrator (countPrivilegedHolders, findFuncti
 });
 
 describe("fully in scope (fullyInScopeWhere: isFullyInScope, findFullyInScopeIds)", () => {
-  it("isFullyInScope: every project in the list, a live one at least — same answer as hasProjectAmong + countProjectsOutside", async () => {
+  it("isFullyInScope: every project in the list, a live one at least", async () => {
     const whole = await makeCompanyWithProjects("ZzyxFullWhole SARL", ["A", "B"]);
     const partial = await makeCompanyWithProjects("ZzyxFullPartial SARL", ["A", "B"]);
     const hiddenTrash = await makeCompanyWithProjects("ZzyxFullHiddenBin SARL", ["A", "B"]);
