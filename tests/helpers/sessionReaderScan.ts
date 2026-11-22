@@ -339,11 +339,16 @@ export function computedModuleSpecifiersIn(source: ts.SourceFile): Finding[] {
 /**
  * The functions a role may be handed to, and the module each must be imported
  * from. `hasMinRole(undefined, …)` is false, so `can(undefined, …)` and
- * `getAdminAccess(undefined)` refuse: a voided session lands in the no-permission
+ * `getAdminAccess(undefined)` refuse — and so does `canManagePortalLogins(undefined)`,
+ * which is `can(role, "users.manage")` first (probed in tests/portal-actions.test.ts): a voided session lands in the no-permission
  * branch by construction. `role !== "VIEWER"` is the opposite — an undefined
  * role satisfies it — so a role read anywhere else is not covered.
  */
-const ROLE_GUARDS: Readonly<Record<string, string>> = { can: "lib/access", getAdminAccess: "lib/adminAccess" };
+const ROLE_GUARDS: Readonly<Record<string, string>> = {
+  can: "lib/access",
+  getAdminAccess: "lib/adminAccess",
+  canManagePortalLogins: "lib/access",
+};
 
 /**
  * The local names `source` binds to a ROLE_GUARDS function, resolved through

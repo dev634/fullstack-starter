@@ -7,7 +7,7 @@ import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
-import { ROLE_RANK } from "@/lib/capabilities";
+import { assignableRoles, canManageAccount, isPrivilegedRole } from "@/lib/accountPolicy";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
@@ -25,9 +25,6 @@ type ManagedUser = {
 export type AssignableProject = { id: number; name: string; companyName: string };
 type Editing = { mode: "add" } | { mode: "edit"; user: ManagedUser };
 
-const RANK = ROLE_RANK;
-// CLIENT logins are created/managed from a contact, never assigned here.
-const ALL_ROLES: Role[] = ["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER"];
 const initialState: UserActionState = { type: null, message: "" };
 
 const roleBadge: Record<Role, string> = {
@@ -71,14 +68,24 @@ export default function UsersManager({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Roles the actor may assign / manage: only at or below their own rank.
-  const assignableRoles = ALL_ROLES.filter((r) => RANK[actorRole] >= RANK[r]);
-  const canManage = (target: ManagedUser) => RANK[actorRole] >= RANK[target.role];
+  // What the server accepts (lib/accountPolicy.ts) — never offer more. CLIENT
+  // logins are provisioned from a contact, so they are not in this list.
+  const offeredRoles = assignableRoles(actorRole);
+  const isSelfRow = (target: ManagedUser) => target.email === actorEmail;
+  const editingUser = editing?.mode === "edit" ? editing.user : null;
+  // An ADMIN opening their OWN account: name and password only. Role and
+  // function stay as they are (the server refuses both changes).
+  const ownAccountLocked =
+    editingUser !== null && isSelfRow(editingUser) && isPrivilegedRole(editingUser.role) && actorRole !== "SUPERADMIN";
+  // Project assignments follow canManageAccount(…, false) server-side: an ADMIN
+  // never manages an ADMIN account's assignments, not even their own.
+  const canAssignProjects = editingUser === null || canManageAccount(actorRole, editingUser.role, false);
+  const roleOptions = ownAccountLocked && editingUser ? [editingUser.role] : offeredRoles;
 
   function openAdd() {
     setEmail("");
     setName("");
-    setRole(assignableRoles[assignableRoles.length - 1] ?? "VIEWER");
+    setRole(offeredRoles[offeredRoles.length - 1] ?? "VIEWER");
     setJobFunctionId(null);
     setPassword("");
     setError(null);
@@ -119,7 +126,7 @@ export default function UsersManager({
       // Assignments are stored on the user, not in the profile form, so they
       // are saved right after — only once the profile itself succeeded, to
       // avoid assigning projects to a user whose creation just failed.
-      if (res.type === "success") {
+      if (res.type === "success" && canAssignProjects) {
         const targetId = editing.mode === "edit" ? editing.user.id : (res.data as { id?: number } | undefined)?.id;
         if (targetId) {
           const assignRes = await setUserProjectAssignments(targetId, [...assigned]);
@@ -172,7 +179,9 @@ export default function UsersManager({
         <ul className="divide-y divide-gray-300 dark:divide-gray-700 overflow-hidden rounded-lg border border-gray-300 dark:border-gray-700">
           {users.map((u) => {
             const isSelf = u.email === actorEmail;
-            const manageable = canManage(u);
+            const manageable = canManageAccount(actorRole, u.role, isSelf);
+            // Deletion and assignments are never allowed on an ADMIN+ row for an ADMIN, even their own.
+            const deletable = !isSelf && canManageAccount(actorRole, u.role, false);
             return (
               <li key={u.id} className="flex items-center gap-3 bg-[#f3f4f6] px-4 py-3 dark:bg-[#1f2937]">
                 <span className="min-w-0 flex-1">
@@ -202,7 +211,7 @@ export default function UsersManager({
                     <PencilIcon className="h-4 w-4" />
                   </button>
                 )}
-                {manageable && !isSelf && (
+                {deletable && (
                   <button
                     type="button"
                     onClick={() => setToDelete(u)}
@@ -240,8 +249,13 @@ export default function UsersManager({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.roleLabel}</label>
-            <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={inputClass}>
-              {assignableRoles.map((r) => (
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+              disabled={ownAccountLocked}
+              className={`${inputClass} disabled:opacity-60`}
+            >
+              {roleOptions.map((r) => (
                 <option key={r} value={r}>{t.users.roles[r]}</option>
               ))}
             </select>
@@ -251,11 +265,14 @@ export default function UsersManager({
             <select
               value={jobFunctionId ?? ""}
               onChange={(e) => setJobFunctionId(e.target.value ? Number(e.target.value) : null)}
-              className={inputClass}
+              disabled={ownAccountLocked}
+              className={`${inputClass} disabled:opacity-60`}
             >
               <JobFunctionOptions functions={functions} noneLabel={t.users.functionNone} />
             </select>
+            {ownAccountLocked && <p className="mt-1 text-xs text-gray-400">{t.users.ownAccountHint}</p>}
           </div>
+          {canAssignProjects && (
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
               {t.users.assignedProjectsLabel}
@@ -301,6 +318,7 @@ export default function UsersManager({
               </div>
             )}
           </div>
+          )}
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.passwordLabel}</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />

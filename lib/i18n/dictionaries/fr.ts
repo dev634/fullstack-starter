@@ -970,6 +970,7 @@ const fr = {
         emailLabel: "Email",
         nameLabel: "Nom",
         roleLabel: "Rôle",
+        ownAccountHint: "Sur votre propre compte, vous ne pouvez changer que votre nom et votre mot de passe. Demandez à un super admin pour changer votre rôle ou votre fonction.",
         functionLabel: "Fonction",
         functionNone: "Aucune",
         assignedProjectsLabel: "Chantiers affectés",

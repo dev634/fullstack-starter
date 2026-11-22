@@ -49,6 +49,8 @@ export default async function ClientsPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const session = await auth();
   const canEdit = (await can(session?.user?.role, "content.edit"));
+  // Bulk deletion is gated by the trash capability on the server, not by edit.
+  const canTrash = (await can(session?.user?.role, "content.trash"));
   const t = getDictionary(await getLocale());
 
   // Shared query string for the current search/sort (used by pager + export).
@@ -146,7 +148,7 @@ export default async function ClientsPage({
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           {clients.length ? (
-            <ClientsGrid clients={clients} canEdit={canEdit} />
+            <ClientsGrid clients={clients} canDelete={canTrash} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4">
               {q ? (

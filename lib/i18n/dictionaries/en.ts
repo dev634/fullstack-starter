@@ -949,6 +949,7 @@ const en: Dictionary = {
         emailLabel: "Email",
         nameLabel: "Name",
         roleLabel: "Role",
+        ownAccountHint: "On your own account you can only change your name and password. Ask a super admin to change your role or function.",
         functionLabel: "Function",
         functionNone: "None",
         assignedProjectsLabel: "Assigned projects",

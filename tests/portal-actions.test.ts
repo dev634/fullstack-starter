@@ -133,4 +133,9 @@ describe("canManagePortalLogins", () => {
     asAdmin();
     expect(await canManagePortalLogins("EDITOR")).toBe(false);
   });
+
+  it("refuses a voided session (undefined role) — why a page may hand it the role directly", async () => {
+    asAdmin();
+    expect(await canManagePortalLogins(undefined)).toBe(false);
+  });
 });

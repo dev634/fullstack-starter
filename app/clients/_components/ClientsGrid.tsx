@@ -18,12 +18,15 @@ type ClientCard = {
   status: string;
 };
 
-export default function ClientsGrid({ clients, canEdit = true }: { clients: ClientCard[]; canEdit?: boolean }) {
+export default function ClientsGrid({ clients, canDelete = true }: { clients: ClientCard[]; canDelete?: boolean }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server reports what it did, including companies it skipped because
+  // some of their projects are out of scope: that message must stay visible.
+  const [notice, setNotice] = useState<string | null>(null);
   const router = useRouter();
 
   function toggle(id: number) {
@@ -38,6 +41,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
   async function confirmDelete() {
     setPending(true);
     setError(null);
+    setNotice(null);
     const res = await deleteClients([...selected]);
     setPending(false);
     if (res.type === "error") {
@@ -46,12 +50,18 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
     }
     setSelected(new Set());
     setConfirming(false);
+    setNotice(res.message);
     router.refresh();
   }
 
   return (
     <div className="space-y-4">
-      {canEdit && selected.size > 0 && (
+      {notice && (
+        <p role="status" className="rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+          {notice}
+        </p>
+      )}
+      {canDelete && selected.size > 0 && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-4 py-2">
           <span className="text-sm text-gray-600 dark:text-gray-300">{format(t.clients.list.selected, { count: selected.size })}</span>
           <div className="flex gap-2">
@@ -76,7 +86,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
       <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {clients.map((client) => (
           <li key={client.id} className="group relative">
-            {canEdit && (
+            {canDelete && (
               <input
                 type="checkbox"
                 checked={selected.has(client.id)}
@@ -87,7 +97,7 @@ export default function ClientsGrid({ clients, canEdit = true }: { clients: Clie
             )}
             <Link
               href={`/clients/${client.id}`}
-              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all group-hover:bg-[#d1d5dc] group-hover:shadow-lg dark:group-hover:bg-gray-700 ${canEdit ? "pr-9" : ""} ${
+              className={`flex h-full items-center gap-4 rounded-lg border bg-[#f3f4f6] dark:bg-[#1f2937] p-4 text-gray-900 dark:text-gray-100 shadow-sm transition-all group-hover:bg-[#d1d5dc] group-hover:shadow-lg dark:group-hover:bg-gray-700 ${canDelete ? "pr-9" : ""} ${
                 selected.has(client.id) ? "border-blue-500" : "border-gray-300 dark:border-gray-700"
               }`}
             >

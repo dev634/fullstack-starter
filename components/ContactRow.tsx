@@ -20,12 +20,14 @@ export default function ContactRow({
   contact,
   clientId,
   canEdit,
+  canCreatePortalLogin,
   functions,
   projects,
 }: {
   contact: ContactWithFunction;
   clientId: number;
   canEdit: boolean;
+  canCreatePortalLogin: boolean;
   functions: JobFunctionOption[];
   projects: { id: number; name: string }[];
 }) {
@@ -74,6 +76,7 @@ export default function ContactRow({
               hasLogin: contact.user != null,
             }}
             clientId={clientId}
+            canCreatePortalLogin={canCreatePortalLogin}
             functions={functions}
             projects={projects}
           />
