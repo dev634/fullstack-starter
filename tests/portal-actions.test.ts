@@ -20,6 +20,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
 
 import { createPortalLogin } from "@/actions/portal/portal";
+import { canManagePortalLogins } from "@/lib/access";
 import { auth } from "@/lib/auth";
 import { getAccessContext } from "@/lib/accessContext";
 import { create, createResetToken, findAccessScopeByEmail } from "@/repository/users";
@@ -111,5 +112,25 @@ describe("createPortalLogin guards (lot 1, F3)", () => {
     const res = await createPortalLogin(3);
     expect(res.ok).toBe(true);
     expect(hasProjectAmong).toHaveBeenCalledWith(9, [202]);
+  });
+});
+
+// The button offered by the screen asks the same two gates as the action.
+describe("canManagePortalLogins", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    if (realGetAccessContext) vi.mocked(getAccessContext).mockImplementation(realGetAccessContext);
+  });
+
+  it("is true for an ADMIN whose function shows admin.users", async () => {
+    asAdmin();
+    expect(await canManagePortalLogins("ADMIN")).toBe(true);
+  });
+
+  it("is false when the function hides admin.users, or the role lacks users.manage", async () => {
+    asAdmin({ ...accountWithoutFunction(), hiddenAreas: ["admin.users"] });
+    expect(await canManagePortalLogins("ADMIN")).toBe(false);
+    asAdmin();
+    expect(await canManagePortalLogins("EDITOR")).toBe(false);
   });
 });

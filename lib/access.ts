@@ -2,6 +2,7 @@ import { getAppSettings } from "@/lib/appSettings";
 import { requireRole, hasMinRole, type RoleCheckResult } from "@/lib/authz";
 import { resolveAccessConfig, type Capability, type Role } from "@/lib/capabilities";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
+import { canAccessArea } from "@/lib/areaAccess";
 import { hasProjectAmong, countProjectsOutside } from "@/repository/projects";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -99,4 +100,14 @@ export async function requireFullClientAccess(clientId: number): Promise<ScopeCh
   if (await canFullyAccessClient(clientId)) return { error: null };
   const t = getDictionary(await getLocale());
   return { error: { type: "error", message: t.errors.forbidden } };
+}
+
+/**
+ * Should the "create a portal login" button be offered? Same two gates as
+ * actions/portal::createPortalLogin applies before anything else: the
+ * users.manage capability AND the admin.users rubrique (the action creates an
+ * account). The caller's role comes from the session the page already read.
+ */
+export async function canManagePortalLogins(role: string | undefined): Promise<boolean> {
+  return (await can(role, "users.manage")) && (await canAccessArea("admin.users"));
 }
