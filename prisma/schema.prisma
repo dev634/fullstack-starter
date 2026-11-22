@@ -722,10 +722,9 @@ model Interim {
 // An internal employee (a User of the organisation) ATTACHED to a project —
 // the "Travailleurs" list of the Personnel page, next to Intérimaires and
 // Sous-traitants, and assignable to a task / série / catégorie exactly like an
-// Interim. Also the future "projet de rattachement" of a timesheet: a row here
-// is (project, employee, since when), which is precisely what a pointage hangs
-// off. Nothing else is stored here on purpose: the employee's name, email and
-// job function live on User, this row only records the attachment.
+// Interim. A row is (project, employee, since when) and nothing else, on
+// purpose: the employee's name, email and job function live on User, this row
+// only records the attachment.
 //
 // WHY A TABLE OF ITS OWN AND NOT User.assignedProjects ("_UserProjects").
 // That relation is an ACCESS axis: it is consulted only when the holder's
@@ -749,10 +748,10 @@ model Interim {
 //   - user deleted -> attachments go with it, and the FK chain nulls that
 //     worker's assignments on every task/série/catégorie — the same outcome,
 //     hop for hop, as deleting an Interim today. NOT Restrict: an attachment is
-//     not data worth outliving the account, unlike the equipment/loans of the
-//     sibling branch. The day timesheets reference this row, THEY decide
-//     (Restrict there would transitively protect the user, as it should for
-//     payroll data); nothing here pre-empts it.
+//     not data worth outliving the account, unlike Equipment/EquipmentLoan
+//     (Restrict on User). A future table that references this row and must
+//     outlive the account (legal or payroll data) sets Restrict on ITS side —
+//     which transitively protects the user too; nothing here pre-empts it.
 //
 // Invariants that live in the APPLICATION, not in this table — a FK proves a
 // row exists, never what kind of row it is:
@@ -784,9 +783,10 @@ model ProjectWorker {
   // Backs the User cascade scan (onDelete: Cascade above — deleteUser
   // surfaces no warning for this relation, unlike Equipment/EquipmentLoan's
   // onDelete: Restrict; see actions/users/users.ts::deleteUser) and every
-  // other "which projects is this employee attached to" read (the future
-  // timesheet's project picker). Postgres does not index the referencing
-  // side of a FK by itself.
+  // "is this employee attached anywhere" read — today
+  // repository/projectWorkers.ts::hasAnyAttachment, which updateUser calls
+  // before switching an account's role to CLIENT. Postgres does not index
+  // the referencing side of a FK by itself.
   @@index([userId])
 }
 
