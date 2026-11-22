@@ -189,21 +189,81 @@ vérifiait déjà que ces fichiers appellent `requireSectionAccess` — il ne
 vérifiait **pas** `requireAreaAccess`, ce qui verrouillait le trou ; un
 second test, sur la même liste `OWNED_BY_SECTION`, ferme cet angle mort.
 
-**Personne ne modifie la contrainte qui le contraint.** ⚠️ Cette section
-affirmait « deux leviers » alors qu'il y en avait (au moins) **trois** — c'est
-la passe adverse EDITOR (lot C1, #2) qui a trouvé le troisième, resté invisible
-à la première revue. Trois leviers permettaient à un ADMIN de lever sur
-lui-même les restrictions de sa fonction : éditer cette fonction
-(`setFunctionAreas`), repointer son propre compte vers une autre
-(`updateUser`), ou **supprimer sa propre fonction** (`deleteJobFunction` —
-`onDelete: SetNull` sur `User.jobFunctionId` vide la contrainte aussi sûrement
-que l'éditer). Les trois sont fermés, sortie de secours **SUPERADMIN** (qui
-n'est de toute façon pas soumis à `hiddenAreas`). Fermer un levier sans les
-autres n'aurait rien fermé — d'où la consigne : **énumérer tous les chemins qui
-détachent un utilisateur de sa fonction, ou qui vident les restrictions d'une
-fonction** (suppression, y compris en masse ou via import — aucune des deux
-n'existe aujourd'hui pour `JobFunction`/`User`, vérifié par grep) avant de se
-déclarer fermé.
+**Personne ne modifie la contrainte qui le contraint — ni ne devient un compte
+qu'elle ne contraint pas.** ⚠️ Cette section a affirmé « deux leviers », puis
+« trois… les trois sont fermés » ; la checklist V8 en a publié « six »
+(`9aed83f`). Trois comptes faux, tous par le bas. Le dernier l'était par sa
+**méthode** : il ne lisait que les écritures de `User.jobFunctionId` et de la
+fonction elle-même, pas celles du **rôle** ni du **mot de passe** — c'est-à-dire
+pas les écritures qui permettent de *devenir* un compte non contraint.
+
+**Recompte à `96b041b` (2026-11-22).** Méthode : partir des **écritures**, pas
+des actions qu'on connaît. `git grep -nE
+"(prisma|tx)\.(user|jobFunction|passwordResetToken)\.(create|update|upsert|delete)"`
+hors tests et `prisma/seed.ts` rend 15 sites (`repository/users.ts` ×8,
+`repository/jobFunctions.ts` ×6, `repository/contacts.ts` ×1) ; on remonte à
+chaque action exportée qui les appelle et on lit ce qu'un non-SUPERADMIN peut en
+faire. Cascades lues dans `prisma/schema.prisma` : `User.jobFunctionId` est
+`SetNull`, et aucune FK ne supprime un `User` par cascade. Exclus, avec leur
+raison : `reorderJobFunctions` (position seule), `addJobFunction` (une fonction
+neuve ne contraint personne), `login` / `requestPasswordReset` /
+`resetPassword` (le lien part dans la boîte du compte, jamais vers l'appelant),
+changer son **propre** rôle (vers le haut, le rang l'a toujours refusé ; vers
+le bas, ça ne lève rien).
+
+*Auto-élévation* — un ADMIN dont la fonction masque des rubriques
+(`hiddenAreas`, le seul axe auquel un ADMIN est soumis) s'en affranchit.
+**Huit leviers, sept fermés :**
+
+| # | levier | action | état à `96b041b` |
+|---|---|---|---|
+| 1 | éditer sa propre fonction | `setFunctionAreas` | fermé (lot C1) |
+| 2 | repointer son compte vers une autre fonction, ou aucune | `updateUser` | fermé (lot C1) |
+| 3 | supprimer sa propre fonction (`SetNull`) | `deleteJobFunction` | fermé (lot C1) |
+| 4 | créer un ADMIN sans fonction et s'y connecter | `addUser` | fermé, lot 1 (`canAssignRole`) |
+| 5 | promouvoir ADMIN un compte qu'on contrôle (un EDITOR qu'on vient de créer) | `updateUser` | fermé, lot 1 (`canAssignRole`) — absent du compte « six » |
+| 6 | fixer le mot de passe d'un autre ADMIN non restreint, et s'y connecter | `updateUser` | fermé, lot 1 (`canManageAccount`) — absent du compte « six » |
+| 7 | lever les restrictions de la fonction portée par un autre ADMIN (utile combiné au 6) | les 4 actions d'écriture de `actions/jobFunctions` | fermé, lot 1 (`refuseIfHeldByAdmin`) |
+| 8 | **compte relais** : un EDITOR sans fonction, créé (`addUser`) ou repris (`updateUser` : fonction vidée, mot de passe fixé), pour voir par lui | `addUser`, `updateUser` | **ouvert, accepté** par l'humain le 2026-11-22 ; à rouvrir le jour où un ADMIN reçoit une fonction qui masque du contenu |
+
+*Comptes ADMIN+* — règle décidée le 2026-11-22 : **tout ce qui touche un compte
+ADMIN ou SUPERADMIN passe par un SUPERADMIN**. Chemins par lesquels un
+non-SUPERADMIN atteignait un tel compte : **9 actions exportées, toutes fermées
+à `96b041b`** — `addUser` (créer), `updateUser` (promouvoir, modifier, mot de
+passe ; seule exception, un ADMIN sur son **propre** nom et son propre mot de
+passe), `deleteUser`, `setUserProjectAssignments`, `deleteContact` (supprimait
+le compte lié **quel que soit son rôle** ; `repository/contacts.ts::remove` ne
+supprime plus qu'un compte encore `CLIENT`) et les quatre écritures de
+`actions/jobFunctions` sur une fonction portée par un ADMIN+. `createPortalLogin`
+n'y figure pas — il ne crée qu'un `CLIENT` et refuse un contact déjà lié — mais
+il créait ce compte **sans les rubriques de la gestion des comptes** (F3) :
+il exige désormais `admin.users` **et** `clients.contacts`.
+
+Source unique : `lib/accountPolicy.ts`, pure, lue par `actions/users` **et** par
+l'écran (`UsersManager`) — sinon l'écran propose ce que l'action refuse. Toute
+nouvelle écriture sur `User` ou sur une `JobFunction` passe par elle, et ce
+recompte se refait **depuis les écritures**, jamais en complétant la table.
+Sortie de secours SUPERADMIN et garde du dernier SUPERADMIN intactes.
+⚠️ **Aucun test ne découvre ces actions par leurs écritures** :
+`tests/user-actions-admin-rank.test.ts` et `tests/job-function-actions.test.ts`
+les nomment une à une ; une dixième action qui écrirait `User` ne serait vue
+par personne.
+
+**Atteindre une entreprise n'est pas l'emporter** (lot 1, F1). `requireClientAccess`
+répond « puis-je atteindre cette entreprise » — au moins un chantier **vivant**
+dans mon périmètre : c'est la garde des lectures et de la fiche. Posée sur la
+destruction, elle laissait un compte limité à un seul chantier détruire
+l'entreprise entière et, par cascade, les chantiers des autres. Une action qui emporte l'entreprise
+**entière** (corbeille, en masse comprise, restauration, destruction) exige
+`requireFullClientAccess` / `fullyAccessibleClientIds` (`lib/access.ts`) : **tous**
+ses chantiers, corbeille comprise, dans le périmètre. La règle n'est écrite
+qu'une fois, `repository/clients.ts::fullyInScopeWhere`, lue aussi par la liste
+de la corbeille, par le bouton de la fiche et par les cases de suppression de
+la grille. Et l'étape
+irréversible vérifie l'antichambre : `restoreClient`, `permanentlyDeleteClient`
+et `permanentlyDeleteProject` refusent une ligne qui n'est pas à la corbeille,
+même réponse qu'une ligne absente — l'écran ne les proposait que depuis la
+corbeille, l'appel direct détruisait une ligne vivante.
 
 `LOCKED_CAPABILITIES` (`lib/capabilities.ts`) = `settings.manage`,
 `functions.manage`, `users.manage` : **non délégables par la matrice de rôles**,
@@ -211,8 +271,13 @@ puisqu'elles configurent le modèle d'accès lui-même. Une capacité qui donne 
 pouvoir de changer les capacités rejoint cette liste.
 
 `tests/authz-coverage.test.ts` échoue si une fonction exportée de
-`actions/{clients,projects,contacts}` saute `requireAreaAccess` — **lectures
-comprises depuis PR #187**. Il portait auparavant un `READS = new Set([...])`
+`actions/{clients,projects,contacts,portal,equipment,equipmentLoans}` (six
+fichiers d'`AREA_BY_FILE` à `96b041b`) saute `requireAreaAccess` — **lectures
+comprises depuis PR #187**. Par son **nom seul** : la valeur de la table n'est
+pas comparée à l'argument (voir « Une garde exigée par son nom seul » plus bas),
+et une table à une valeur par fichier ne sait pas dire que `createPortalLogin`
+en exige **deux** (`admin.users` et `clients.contacts`) — ce sont
+`tests/portal-actions.test.ts` qui les prouvent, pas ce test. Il portait auparavant un `READS = new Set([...])`
 qui en exemptait trois : l'exemption *était* le trou. Aucune exemption ne se
 rajoute ici sans porter sa raison et la condition de sa disparition.
 
@@ -260,6 +325,11 @@ dans deux fichiers, **à fermer** avec le même helper, une sonde chacune :
 - `tests/project-section-authz-coverage.test.ts` — `sectionKey` vient bien de
   `PROJECT_SECTION_ROUTES` mais ne sert qu'au message : la page `reserves`
   qui appellerait `resolveProjectSectionAccess(params, "tasks")` passe.
+
+Toujours ouvert à `96b041b` : le lot 1 a ajouté `actions/portal/portal.ts` à
+`AREA_BY_FILE` avec un commentaire qui déclare sa valeur « documentation ». Une
+valeur de table que rien ne lit est un commentaire de plus ; la fermeture
+ci-dessus doit aussi accepter **plusieurs** rubriques par fichier.
 
 ## Validation — primitives partagées, à réutiliser
 
