@@ -2,6 +2,7 @@
 import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { requireCapability, requireClientAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { getErrorMessage } from "@/lib/helpers";
 import { findById as findContactById, attachLogin } from "@/repository/contacts";
@@ -41,7 +42,7 @@ export async function createPortalLogin(contactId: number): Promise<PortalLoginR
     // rubriques checked above (admin.users and clients.contacts). Out of
     // scope answers exactly like "not found" (no existence oracle).
     const scopeCheck = await requireClientAccess(contact.clientId);
-    if (scopeCheck.error) return { ok: false, message: t.errors.invalidId };
+    if (scopeCheck.error) return { ok: false, message: scopeRefusalMessage(scopeCheck, t.errors.invalidId) };
     if (!contact.email) return { ok: false, message: t.portal.admin.emailRequired };
     if (contact.userId) return { ok: false, message: t.portal.admin.alreadyHasLogin };
 

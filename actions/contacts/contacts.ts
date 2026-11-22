@@ -1,11 +1,15 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireCapability, requireClientAccess } from "@/lib/access";
+import { requireCapability, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { canRemoveContact } from "@/lib/contactPolicy";
+import { getAccessContext, projectIdFilter, type AccessContext } from "@/lib/accessContext";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
-import { create, update, setPrimary, remove, setContactProjects, findById as findContactById } from "@/repository/contacts";
+import { create, update, setPrimary, remove, setContactProjects, findLinkedProjectIds, findById as findContactById } from "@/repository/contacts";
 import { findByEmail } from "@/repository/clients";
+import type { Contact } from "@/app/generated/prisma/client";
 import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
 import { parseCsvRecords, MAX_IMPORT_ROWS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
@@ -14,6 +18,29 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
 import type { ContactActionState } from "@/types/contact";
 import type { ImportResult, ImportRowError } from "@/actions/clients/clients";
+
+type ContactInScope =
+  | { contact: Contact; ctx: AccessContext }
+  | { contact: null; message: string };
+
+/**
+ * A contact the caller may act on, resolved from the database by id, with the
+ * access context read once for it (the caller reuses it rather than reading
+ * it again) — or the message to answer instead. "Absent" and "its company is
+ * out of the caller's scope" both answer `invalidId`: a distinct refusal for
+ * the out-of-scope case would let a forged id map which contacts exist (same
+ * rule as actions/portal/portal.ts::createPortalLogin). A company in the
+ * trash is only ever reported to a caller already inside its scope, so that
+ * one keeps its own message (lib/scopeRefusal.ts).
+ */
+async function findContactInScope(id: number, invalidId: string): Promise<ContactInScope> {
+  const contact = await findContactById(id);
+  if (!contact) return { contact: null, message: invalidId };
+  const ctx = await getAccessContext();
+  const scopeCheck = await requireClientAccess(contact.clientId, ctx);
+  if (scopeCheck.error) return { contact: null, message: scopeRefusalMessage(scopeCheck, invalidId) };
+  return { contact, ctx };
+}
 
 export async function addContact(
   prevState: ContactActionState,
@@ -58,20 +85,22 @@ export async function editContact(
   }
 
   try {
-    const existingContact = await findContactById(parsed.data.id);
-    if (!existingContact) return { ...prevState, type: "error", message: t.contacts.messages.invalidId };
-    const scopeCheck = await requireClientAccess(existingContact.clientId);
-    if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
-    const contact = await update(parsed.data.id, parsed.data);
-    // Portal project links (checkbox group) — the repository re-checks each id
-    // belongs to this contact's company, so a tampered list can't cross tenants.
+    const found = await findContactInScope(parsed.data.id, t.contacts.messages.invalidId);
+    if (!found.contact) return { ...prevState, type: "error", message: found.message };
+    await update(parsed.data.id, parsed.data);
+    // Portal project links (checkbox group). The repository only touches the
+    // links THIS caller can edit — live projects of the contact's company
+    // inside the caller's scope, computed server-side from `scope` — and
+    // keeps every other link as it is. The form only ever shows that set, so
+    // saving must not erase what it never displayed, nor link a project the
+    // caller cannot reach.
     const projectIds = formData
       .getAll("projectIds")
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n) && n > 0);
-    await setContactProjects(parsed.data.id, projectIds);
+    await setContactProjects(parsed.data.id, projectIds, projectIdFilter(found.ctx));
     revalidatePath(`/clients/${parsed.data.clientId}`);
-    return { ...prevState, type: "success", message: t.contacts.messages.updated, data: contact };
+    return { ...prevState, type: "success", message: t.contacts.messages.updated };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
@@ -125,6 +154,10 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
   // creating new functions — the managed list stays the single source of truth.
   const jobFunctions = await findAllJobFunctions();
   const fnIdByName = new Map(jobFunctions.map((f) => [f.name.trim().toLowerCase(), f.id]));
+  // The caller's access context, read ONCE for the whole file: it cannot
+  // change between two rows, and re-reading it per row (session + account
+  // lookup) multiplied the cost by the row count.
+  const ctx = await getAccessContext();
 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
@@ -135,8 +168,14 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
       if (!companyEmail) throw { type: "error", message: t.contacts.import.missingCompanyEmail };
       const org = await findByEmail(companyEmail);
       if (!org) throw { type: "error", message: t.contacts.import.unknownCompanyEmail };
-      const scopeCheck = await requireClientAccess(org.id);
-      if (scopeCheck.error) throw new Error(scopeCheck.error.message);
+      // Out of scope reads exactly like an unknown email: a distinct refusal
+      // would let a CSV probe which addresses are companies. A company in the
+      // trash that the caller DOES reach says so — it is the actionable answer
+      // (restore it), and tells a caller inside the scope nothing new.
+      const scopeCheck = await requireClientAccessWithin(ctx, org);
+      if (scopeCheck.error) {
+        throw { type: "error", message: scopeRefusalMessage(scopeCheck, t.contacts.import.unknownCompanyEmail) };
+      }
 
       const isPrimary = PRIMARY_TRUE.test((record["Primary"] ?? "").trim());
       const parsed = createContactSchema.safeParse({
@@ -188,12 +227,10 @@ export async function setPrimaryContact(id: number, clientId: number) {
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id) || isNaN(clientId)) throw { type: "error", message: t.contacts.messages.invalidId };
-    const existingContact = await findContactById(id);
-    if (!existingContact) return { type: "error" as const, message: t.contacts.messages.invalidId };
-    const scopeCheck = await requireClientAccess(existingContact.clientId);
-    if (scopeCheck.error) return scopeCheck.error;
-    await setPrimary(id, existingContact.clientId);
-    revalidatePath(`/clients/${existingContact.clientId}`);
+    const found = await findContactInScope(id, t.contacts.messages.invalidId);
+    if (!found.contact) return { type: "error" as const, message: found.message };
+    await setPrimary(id, found.contact.clientId);
+    revalidatePath(`/clients/${found.contact.clientId}`);
     return { type: "success" as const, message: t.contacts.messages.primaryUpdated };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
@@ -210,13 +247,25 @@ export async function deleteContact(id: number, clientId: number) {
   const t = getDictionary(await getLocale());
   try {
     if (isNaN(id)) throw { type: "error", message: t.contacts.messages.invalidId };
-    const existingContact = await findContactById(id);
-    if (!existingContact) return { type: "error" as const, message: t.contacts.messages.invalidId };
-    const scopeCheck = await requireClientAccess(existingContact.clientId);
-    if (scopeCheck.error) return scopeCheck.error;
-    const contact = await remove(id);
+    const found = await findContactInScope(id, t.contacts.messages.invalidId);
+    if (!found.contact) return { type: "error" as const, message: found.message };
+    // Deleting a contact also deletes its portal login (repository remove),
+    // which cuts the client's access to EVERY project the contact is linked
+    // to. Reaching the company is not enough to do that: a restricted caller
+    // needs ALL the links (trash included) inside its own scope, otherwise
+    // the answer is the one for an absent contact. Unrestricted: unchanged.
+    const scope = found.ctx.projectIds;
+    if (scope !== null) {
+      // null = the contact vanished since it was resolved above: the same
+      // answer as an absent one, never "no links, so allowed".
+      const linked = await findLinkedProjectIds(id);
+      if (linked === null || !canRemoveContact(linked, scope)) {
+        return { type: "error" as const, message: t.contacts.messages.invalidId };
+      }
+    }
+    await remove(id);
     revalidatePath(`/clients/${clientId}`);
-    return { type: "success" as const, message: t.contacts.messages.deleted, data: contact };
+    return { type: "success" as const, message: t.contacts.messages.deleted };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/repository/contacts", () => ({ create: vi.fn() }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/jobFunctions", () => ({ findAllOptions: vi.fn() }));
 // requireAreaAccess("clients.contacts") (via getAccessContext) now resolves
 // "no account" to DENIED rather than "unrestricted" — this file's ADMIN
@@ -17,7 +17,8 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { importContacts } from "@/actions/contacts/contacts";
 import { auth } from "@/lib/auth";
 import { create } from "@/repository/contacts";
-import { findByEmail } from "@/repository/clients";
+import { findByEmail, findTrashState } from "@/repository/clients";
+import fr from "@/lib/i18n/dictionaries/fr";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS } from "@/lib/csv";
@@ -80,9 +81,39 @@ describe("importContacts", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  // F11: a company OUT OF THE CALLER'S SCOPE reads exactly like an unknown
+  // email (no oracle for which addresses are companies). A company IN THE
+  // TRASH that the caller does reach says so: "unknown company" would send
+  // them looking for a typo when the actionable answer is "restore it", and
+  // the trash message is only ever given to a caller already inside the scope.
+  // (This used to assert that a trashed company answered like an unknown one,
+  // which locked the misleading message in.)
+  it("tells a caller who reaches a TRASHED company that it is in the trash", async () => {
+    authMock.mockResolvedValue(adminSession());
+    findJobFunctionsMock.mockResolvedValue([] as never);
+    const row = ['"acme@x.com","Alice","Smith","","","",""'];
+    findByEmailMock.mockResolvedValue({ id: 7, deletedAt: new Date() } as never);
+    const trashed = await importContacts(csvFile(row));
+    expect(trashed.errors[0].message).toBe(fr.errors.inTrash);
+    expect(trashed.errors[0].message).not.toBe(fr.contacts.import.unknownCompanyEmail);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // The company row findByEmail already returned carries deletedAt: nothing is
+  // read again per row.
+  it("does not re-read the company's trash state per row", async () => {
+    authMock.mockResolvedValue(adminSession());
+    findByEmailMock.mockResolvedValue({ id: 7, deletedAt: null } as never);
+    createMock.mockResolvedValue({} as never);
+    const row = '"acme@x.com","Alice","Smith","","","",""';
+    await importContacts(csvFile([row, row, row]));
+    expect(createMock).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(findTrashState)).not.toHaveBeenCalled();
+  });
+
   it("links each row to its organisation and maps the Role column to a managed function by name", async () => {
     authMock.mockResolvedValue(adminSession());
-    findByEmailMock.mockResolvedValue({ id: 7 } as never);
+    findByEmailMock.mockResolvedValue({ id: 7, deletedAt: null } as never);
     createMock.mockResolvedValue({} as never);
     // "Électricien" (case-insensitive) resolves to its managed function id.
     findJobFunctionsMock.mockResolvedValue([{ id: 3, name: "Électricien" }] as never);
@@ -109,7 +140,7 @@ describe("importContacts", () => {
 
   it("leaves the function empty when the Role column matches no managed function", async () => {
     authMock.mockResolvedValue(adminSession());
-    findByEmailMock.mockResolvedValue({ id: 7 } as never);
+    findByEmailMock.mockResolvedValue({ id: 7, deletedAt: null } as never);
     createMock.mockResolvedValue({} as never);
     findJobFunctionsMock.mockResolvedValue([{ id: 3, name: "Électricien" }] as never);
 
@@ -145,7 +176,7 @@ describe("importContacts", () => {
 
   it("treats a blank Primary cell as non-primary", async () => {
     authMock.mockResolvedValue(adminSession());
-    findByEmailMock.mockResolvedValue({ id: 7 } as never);
+    findByEmailMock.mockResolvedValue({ id: 7, deletedAt: null } as never);
     createMock.mockResolvedValue({} as never);
 
     await importContacts(csvFile(['"acme@x.com","Alice","Smith","","","",""']));

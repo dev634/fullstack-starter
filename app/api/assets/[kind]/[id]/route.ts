@@ -5,6 +5,7 @@ import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { findById as findProjectById } from "@/repository/projects";
+import { projectTrashState } from "@/lib/projectTrash";
 import { findById as findProjectFileById } from "@/repository/projectFiles";
 import { findById as findReservePlanById } from "@/repository/reservePlans";
 import { findByIdWithProjectId as findReservePhotoById } from "@/repository/reservePhotos";
@@ -208,7 +209,7 @@ export async function GET(
     if (!resolved) return errorResponse("Not Found", 404);
 
     const project = await findProjectById(resolved.projectId);
-    if (!project || project.deletedAt || !canReachProject(access, project.id)) {
+    if (!project || projectTrashState(project).inTrash || !canReachProject(access, project.id)) {
       return errorResponse("Not Found", 404);
     }
 

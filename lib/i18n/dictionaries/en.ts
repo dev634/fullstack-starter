@@ -49,6 +49,8 @@ const en: Dictionary = {
         forbiddenArea: "Forbidden. This area is not available with your job function.",
         forbiddenSection: "Forbidden. This section is not available with your job function.",
         invalidId: "Invalid ID.",
+        inTrash: "This item is in the trash: restore it to edit it.",
+        parentInTrash: "This project's company is in the trash: restore it first.",
         serverError: "Server error. Please try again later.",
     },
     nav: {
@@ -640,7 +642,6 @@ const en: Dictionary = {
             removed: "Employee detached.",
             invalidId: "Invalid employee ID.",
             alreadyAttached: "This employee is already attached to this project.",
-            clientNotAllowed: "A client account cannot be attached as an employee.",
         },
     },
     assignees: {

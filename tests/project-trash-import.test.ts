@@ -17,8 +17,10 @@ vi.mock("@/repository/projects", () => ({
   restore: vi.fn(),
   findByClient: vi.fn(),
   findById: vi.fn(),
+  hasProjectAmong: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, parentTrashed: false, inTrash: false }),
 }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByProject: vi.fn() }));
 vi.mock("@/lib/cloudinary", () => ({ destroyProjectFile: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
@@ -32,8 +34,10 @@ import {
   importProjects,
 } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
-import { create, remove, restore, findById } from "@/repository/projects";
-import { findByEmail } from "@/repository/clients";
+import { create, remove, restore, findById, findTrashState, hasProjectAmong } from "@/repository/projects";
+import { getAccessContext } from "@/lib/accessContext";
+import fr from "@/lib/i18n/dictionaries/fr";
+import { findByEmail, findTrashState as findClientTrashState } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
@@ -44,6 +48,19 @@ const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
 const restoreMock = vi.mocked(restore);
 const findByIdMock = vi.mocked(findById);
+const findTrashStateMock = vi.mocked(findTrashState);
+// requireTrashedProjectAccess reads the project's OWN trash state.
+const TRASHED = { selfTrashed: true, parentTrashed: false, inTrash: true };
+const LIVE = { selfTrashed: false, parentTrashed: false, inTrash: false };
+// Trashed project AND trashed company: restoring the project alone would leave it frozen and invisible.
+const TRASHED_UNDER_TRASHED_COMPANY = { selfTrashed: true, parentTrashed: true, inTrash: true };
+// vi.clearAllMocks() empties calls but NOT implementations: a state set by one
+// test would answer in the next. Every describe's beforeEach calls this, so no
+// test depends on another one having cleaned up after itself.
+function resetTrashState() {
+  vi.clearAllMocks();
+  findTrashStateMock.mockResolvedValue(LIVE);
+}
 const findByEmailMock = vi.mocked(findByEmail);
 const findPublicIdsByProjectMock = vi.mocked(findPublicIdsByProject);
 const destroyProjectFileMock = vi.mocked(destroyProjectFile);
@@ -60,7 +77,7 @@ function csvFile(rows: string[]): FormData {
 }
 
 describe("restoreProject", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(resetTrashState);
 
   it("refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
@@ -71,6 +88,7 @@ describe("restoreProject", () => {
 
   it("restores the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     restoreMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
     const res = await restoreProject(1);
     expect(restoreMock).toHaveBeenCalledWith(1);
@@ -79,10 +97,48 @@ describe("restoreProject", () => {
     );
     expect(res.type).toBe("success");
   });
+
+  // A project that is not in the trash has nothing to restore: a live one
+  // used to be "restored" (re-journalled RESTORED) and an unknown one failed
+  // inside the repository. Both now answer the same way.
+  it("refuses a LIVE project, with the same answer as an unknown one", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(LIVE);
+    const live = await restoreProject(1);
+    findTrashStateMock.mockResolvedValue(null);
+    const unknown = await restoreProject(1);
+    expect(live.type).toBe("error");
+    expect(live.message).toBe(unknown.message);
+    expect(live.message).toBe(fr.projects.messages.invalidId);
+    expect(restoreMock).not.toHaveBeenCalled();
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
+
+  // A live project under a company in the trash is not itself trashed.
+  it("refuses a live project whose company is in the trash (nothing to restore on the project)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue({ selfTrashed: false, parentTrashed: true, inTrash: true });
+    const res = await restoreProject(1);
+    expect(res.message).toBe(fr.projects.messages.invalidId);
+    expect(restoreMock).not.toHaveBeenCalled();
+  });
+
+  // Restoring the project alone would take it out of the project trash while
+  // leaving it frozen (requireProjectAccess) and invisible (every read) under
+  // its company: not in any trash list, not re-deletable. The company is
+  // restored first, and the refusal says so.
+  it("refuses a trashed project whose COMPANY is also in the trash, and says to restore the company", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED_UNDER_TRASHED_COMPANY);
+    const res = await restoreProject(1);
+    expect(res).toEqual({ type: "error", message: fr.errors.parentInTrash });
+    expect(restoreMock).not.toHaveBeenCalled();
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("permanentlyDeleteProject", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(resetTrashState);
 
   it("refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
@@ -93,6 +149,7 @@ describe("permanentlyDeleteProject", () => {
 
   it("permanently removes the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([]);
     removeMock.mockResolvedValue({ id: 1 } as never);
@@ -109,14 +166,26 @@ describe("permanentlyDeleteProject", () => {
   // answers like an unknown one.
   it("refuses a LIVE project, with the same answer as an unknown one", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: null } as never);
+    findTrashStateMock.mockResolvedValue(LIVE);
     const live = await permanentlyDeleteProject(1);
-    findByIdMock.mockResolvedValue(null as never);
+    findTrashStateMock.mockResolvedValue(null);
     const unknown = await permanentlyDeleteProject(1);
     expect(live.type).toBe("error");
     expect(live.message).toBe(unknown.message);
     expect(removeMock).not.toHaveBeenCalled();
     expect(destroyProjectFileMock).not.toHaveBeenCalled();
+  });
+
+  // Destroying for good has no dependency on the company, unlike restoring.
+  it("still permanently removes a trashed project under a trashed company", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED_UNDER_TRASHED_COMPANY);
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
+    findPublicIdsByProjectMock.mockResolvedValue([]);
+    removeMock.mockResolvedValue({ id: 1 } as never);
+    const res = await permanentlyDeleteProject(1);
+    expect(res.type).toBe("success");
+    expect(removeMock).toHaveBeenCalledWith(1);
   });
 
   // Regression coverage for the silent-no-op trap: cloudinary.uploader.destroy
@@ -126,6 +195,7 @@ describe("permanentlyDeleteProject", () => {
   // must read the stored deliveryType/resourceType and pass them through.
   it("destroys the project's Cloudinary files, with their stored guarded type, before deleting", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([
       { publicId: "projects/1/plan", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
@@ -145,7 +215,7 @@ describe("permanentlyDeleteProject", () => {
 });
 
 describe("importProjects", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(resetTrashState);
 
   it("refuses without an ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
@@ -196,9 +266,69 @@ describe("importProjects", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  // A company the caller cannot reach must read exactly like an unknown
+  // email (a distinct refusal would let a CSV probe which addresses are
+  // companies) — but a company IN THE TRASH that the caller does reach says so:
+  // "unknown email" would send them looking for a typo, when the actionable
+  // answer is "restore it". The trash message is only ever given to a caller
+  // already inside the scope, so it reveals nothing new. (This used to assert
+  // the opposite — that a trashed company answered like an unknown one — and
+  // so locked the misleading message in.)
+  it("tells a caller who reaches a TRASHED company that it is in the trash", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const row = ['"Toiture","alice@x.com","AUTRE","ETUDE","","","","","",""'];
+    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com", deletedAt: new Date() } as never);
+    const trashed = await importProjects(csvFile(row));
+    expect(trashed.errors[0].message).toBe(fr.errors.inTrash);
+    expect(trashed.errors[0].message).not.toBe(fr.projects.messages.unknownClientEmail);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a trashed company the caller CANNOT reach exactly like an unknown email", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
+    const row = ['"Toiture","alice@x.com","AUTRE","ETUDE","","","","","",""'];
+    findByEmailMock.mockResolvedValue(null);
+    const unknown = await importProjects(csvFile(row));
+    vi.mocked(getAccessContext).mockResolvedValue({
+      email: "chef@example.com",
+      role: "EDITOR",
+      hiddenSections: new Set(),
+      hiddenAreas: new Set(),
+      projectIds: new Set([202]),
+    });
+    vi.mocked(hasProjectAmong).mockResolvedValue(false);
+    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com", deletedAt: new Date() } as never);
+    const outOfScope = await importProjects(csvFile(row));
+    vi.mocked(getAccessContext).mockResolvedValue({
+      email: "test@example.com",
+      role: "ADMIN",
+      hiddenSections: new Set(),
+      hiddenAreas: new Set(),
+      projectIds: null,
+    });
+    expect(outOfScope.errors).toEqual(unknown.errors);
+    expect(outOfScope.errors[0].message).toBe(fr.projects.messages.unknownClientEmail);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // The access context is read once for the whole file, not once per row.
+  it("reads the access context once for the whole file", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com", deletedAt: null } as never);
+    createMock.mockResolvedValue({ id: 1 } as never);
+    const row = '"Toiture","alice@x.com","AUTRE","ETUDE","","","","","",""';
+    // The guards before the loop read it too, so compare 1 row against 3: the count must not grow with the rows.
+    await importProjects(csvFile([row]));
+    const oneRow = vi.mocked(getAccessContext).mock.calls.length;
+    vi.mocked(getAccessContext).mockClear();
+    await importProjects(csvFile([row, row, row]));
+    expect(vi.mocked(getAccessContext)).toHaveBeenCalledTimes(oneRow);
+    expect(vi.mocked(findClientTrashState)).not.toHaveBeenCalled(); // the row findByEmail returned already says whether the company is trashed
+  });
+
   it("imports a valid row matched to an existing client", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com" } as never);
+    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com", deletedAt: null } as never);
     createMock.mockResolvedValue({ id: 1 } as never);
 
     const res = await importProjects(

@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createMaterialCategorySchema, updateMaterialCategorySchema } from "@/schemas/materialCategory";
@@ -88,7 +89,7 @@ export async function editMaterialCategory(
     // the database, so a distinct "forbidden" response would let a
     // restricted EDITOR enumerate ids across the whole company
     // (docs/CONVENTIONS.md), same rule as deleteTaskCategory/deleteMaterial.
-    if (scopeCheck.error) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
+    if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
 
     const category = await rename(parsed.data.id, parsed.data.name);
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
@@ -134,7 +135,7 @@ export async function deleteMaterialCategory(id: number, clientId: number, proje
     if (realProjectId === null) return { type: "error" as const, message: t.materials.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Same anti-enumeration rule as editMaterialCategory above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.materials.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
     const { category, unfiledCount } = await remove(id);
     revalidateMaterials(clientId, projectId);
     return {

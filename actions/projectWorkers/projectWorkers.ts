@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { attachWorkerSchema } from "@/schemas/projectWorker";
@@ -57,10 +58,14 @@ export async function attachWorker(
     // (migration 20260920100000_project_workers, "WHAT THIS MIGRATION
     // DELIBERATELY DOES NOT ENFORCE" §1 — a FK proves the row exists, not
     // what kind of row it is).
+    //
+    // An absent account and a CLIENT login answer the SAME invalidId: a
+    // distinct message for the second would let a forged userId tell which
+    // ids are portal accounts (same rule as
+    // actions/equipmentLoans/equipmentLoans.ts and actions/portal/portal.ts).
     const user = await findUserById(parsed.data.userId);
-    if (!user) return { ...prevState, type: "error", message: t.workers.messages.invalidId };
-    if (user.role === "CLIENT") {
-      return { ...prevState, type: "error", message: t.workers.messages.clientNotAllowed };
+    if (!user || user.role === "CLIENT") {
+      return { ...prevState, type: "error", message: t.workers.messages.invalidId };
     }
 
     const worker = await attach(parsed.data.projectId, parsed.data.userId);
@@ -94,7 +99,7 @@ export async function detachWorker(id: number, clientId: number, projectId: numb
     // Same anti-enumeration rule as actions/interims/interims.ts::deleteInterim:
     // a travailleur that exists but sits outside the caller's scope must read
     // exactly like one that doesn't exist at all.
-    if (scopeCheck.error) return { type: "error" as const, message: t.workers.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.workers.messages.invalidId) };
     const worker = await detach(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);

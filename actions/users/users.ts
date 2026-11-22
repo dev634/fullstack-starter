@@ -222,9 +222,11 @@ export async function deleteUser(id: number) {
       };
     }
 
-    const user = await remove(id);
+    await remove(id);
     revalidatePath("/admin/settings/utilisateurs");
-    return { type: "success" as const, message: t.users.messages.deleted, data: user };
+    // No `data`: the only reader (UsersManager) takes type + message, and the
+    // deleted row is an account (password hash) with no business in a response.
+    return { type: "success" as const, message: t.users.messages.deleted };
   } catch (error) {
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }

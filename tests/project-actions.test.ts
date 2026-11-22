@@ -14,20 +14,22 @@ vi.mock("@/repository/projects", () => ({
   remove: vi.fn(),
   softDelete: vi.fn(),
   restore: vi.fn(),
-  findByClient: vi.fn(),
   findById: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
 }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/projectFolders", () => ({ createDefaults: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addProject, updateProject, deleteProject, getProject, getProjectsForClient } from "@/actions/projects/projects";
+import { addProject, updateProject, deleteProject, getProject } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
-import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
+import { create, update, remove, softDelete, findById, findTrashState } from "@/repository/projects";
+import { logActivity } from "@/repository/projectActivity";
+import fr from "@/lib/i18n/dictionaries/fr";
 import { createDefaults } from "@/repository/projectFolders";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -37,10 +39,14 @@ const createMock = vi.mocked(create);
 const updateMock = vi.mocked(update);
 const removeMock = vi.mocked(remove);
 const softDeleteMock = vi.mocked(softDelete);
-const findByClientMock = vi.mocked(findByClient);
 const findByIdMock = vi.mocked(findById);
 const createDefaultsMock = vi.mocked(createDefaults);
 const initial = { type: null, message: "" } as const;
+// vi.clearAllMocks() empties calls but NOT implementations: a mockResolvedValue
+// set in one test would still answer in the next. beforeEach puts the "live"
+// state back, so no test depends on another one having cleaned up after itself.
+const LIVE = { selfTrashed: false, parentTrashed: false, inTrash: false };
+const TRASHED = { selfTrashed: true, parentTrashed: false, inTrash: true };
 
 function formOf(data: Record<string, string>): FormData {
   const fd = new FormData();
@@ -49,7 +55,10 @@ function formOf(data: Record<string, string>): FormData {
 }
 
 describe("project actions", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(findTrashState).mockResolvedValue(LIVE);
+  });
 
   it("addProject refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
@@ -138,19 +147,15 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
-  it("getProjectsForClient refuses a session below VIEWER", async () => {
-    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
-    const res = await getProjectsForClient(1);
-    expect(res.type).toBe("error");
-    expect(findByClientMock).not.toHaveBeenCalled();
-  });
-
-  it("getProjectsForClient returns projects for a VIEWER-or-above session", async () => {
-    requireRoleMock.mockResolvedValue({ error: null, email: "viewer@example.com" });
-    findByClientMock.mockResolvedValue([{ id: 1, name: "Toiture" }] as never);
-    const res = await getProjectsForClient(1);
-    expect(res.type).toBe("success");
-    expect(findByClientMock).toHaveBeenCalledWith(1, undefined);
+  // F10: scope alone no longer opens a project. Trashing it again would
+  // re-date deletedAt and journal a second DELETED.
+  it("deleteProject refuses a project already in the trash (no second DELETED)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    vi.mocked(findTrashState).mockResolvedValue(TRASHED);
+    const res = await deleteProject(1, 2);
+    expect(res).toEqual({ type: "error", message: fr.errors.inTrash });
+    expect(softDeleteMock).not.toHaveBeenCalled();
+    expect(vi.mocked(logActivity)).not.toHaveBeenCalled();
   });
 
   // Regression coverage for docs/PENTEST-2026-08.md (F1): a caller restricted
@@ -170,7 +175,7 @@ describe("project actions", () => {
 
     it("getProject masks a project outside the caller's scope as not found, not as an error", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
-      findByIdMock.mockResolvedValue({ id: 203, name: "Chantier d'un autre client", deletedAt: null } as never);
+      findByIdMock.mockResolvedValue({ id: 203, name: "Chantier d'un autre client", deletedAt: null, client: { deletedAt: null } } as never);
       getAccessContextMock.mockResolvedValue({
         email: "chef@example.com",
         role: "EDITOR",
@@ -188,13 +193,27 @@ describe("project actions", () => {
 
     it("getProject returns the project once it IS in the caller's scope", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
-      findByIdMock.mockResolvedValue({ id: 202, name: "Mon chantier", deletedAt: null } as never);
+      findByIdMock.mockResolvedValue({ id: 202, name: "Mon chantier", deletedAt: null, client: { deletedAt: null } } as never);
       canReachProjectMock.mockReturnValueOnce(true);
 
       const res = await getProject(202);
 
       if (res.type !== "success") throw new Error(`expected success, got ${res.type}`);
       expect(res.data).toEqual(expect.objectContaining({ id: 202 }));
+    });
+
+    // The page must not show what every button on it would refuse: a live
+    // project under a company in the trash is frozen by requireProjectAccess,
+    // so it reads as "not found" here, exactly like a trashed project.
+    it("getProject masks a LIVE project whose COMPANY is in the trash, like a trashed one", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "chef@example.com" });
+      canReachProjectMock.mockReturnValue(true);
+      findByIdMock.mockResolvedValue({ id: 202, name: "Mon chantier", deletedAt: null, client: { deletedAt: new Date() } } as never);
+
+      const res = await getProject(202);
+
+      if (res.type !== "success") throw new Error(`expected success, got ${res.type}`);
+      expect(res.data).toBeNull();
     });
   });
 });

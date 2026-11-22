@@ -314,6 +314,36 @@ describe("user management actions", () => {
     expect(removeMock).toHaveBeenCalledWith(7);
   });
 
+  // F5: deleteUser used to return the deleted ROW (password hash included) to
+  // the browser. Even if a future remove() hands back a wide row again, the
+  // response must carry no password/token key at any depth.
+  it("deleteUser: the response carries no password or token key, at any depth", async () => {
+    actor("ADMIN", "me@x.com");
+    findByIdMock.mockResolvedValue({ id: 7, email: "v@x.com", role: "VIEWER" } as never);
+    removeMock.mockResolvedValue({
+      id: 7,
+      email: "v@x.com",
+      password: "$2b$10$hashhashhashhashhashhashhashhashhashhashhashhashhashh",
+      nested: { token: "abc", deeper: [{ password: "x" }] },
+    } as never);
+    const res = await deleteUser(7);
+    expect((res as { type: string }).type).toBe("success");
+    const keys: string[] = [];
+    const walk = (v: unknown) => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") {
+        for (const [k, x] of Object.entries(v)) {
+          keys.push(k);
+          walk(x);
+        }
+      }
+    };
+    walk(res);
+    expect(keys.filter((k) => /password|token/i.test(k))).toEqual([]);
+    expect(JSON.stringify(res)).not.toContain("$2b$");
+    expect(res).not.toHaveProperty("data");
+  });
+
   // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are both
   // onDelete: Restrict (migration 20260918120000) — without this check,
   // deleting either case would fail at the database with a generic 23503.

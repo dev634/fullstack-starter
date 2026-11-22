@@ -1,6 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { remove, setCategory, findProjectId as findGroupProjectId } from "@/repository/taskGroups";
@@ -39,7 +40,7 @@ export async function setTaskGroupCategory(
     // are resolved from the database, so a distinct "forbidden" response
     // would let a restricted EDITOR enumerate ids across the whole company
     // (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const group = await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
@@ -74,7 +75,7 @@ export async function deleteTaskGroup(id: number, clientId: number, projectId: n
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see setTaskGroupCategory's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const group = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);

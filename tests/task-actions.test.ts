@@ -32,6 +32,12 @@ vi.mock("@/repository/taskGroups", () => ({ create: vi.fn() }));
 // docs/CONVENTIONS.md's mock-parity trap: a silently-undefined resolution
 // would make the new guard reject every one of them the same way).
 vi.mock("@/repository/taskCategories", () => ({ findProjectId: vi.fn() }));
+// requireProjectAccess now also reads the project's trash state (lib/access.ts):
+// a live project, everything else real.
+vi.mock("@/repository/projects", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/repository/projects")>()),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -42,6 +48,7 @@ import { canReachProject } from "@/lib/accessContext";
 import { create, createMany, toggle, updateQuantity, update, remove, setCategory, findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { create as createGroup } from "@/repository/taskGroups";
 import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
+import { findTrashState as findProjectTrashState } from "@/repository/projects";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -370,6 +377,24 @@ describe("task actions", () => {
     expect((notFound as { message: string }).message).toBe(fr.tasks.messages.invalidId);
     expect((outOfScope as { message: string }).message).toBe(fr.tasks.messages.invalidId);
     expect((outOfScope as { message: string }).message).not.toBe(fr.errors.forbidden);
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+
+  // The masking above is for "forbidden" and "absent" ONLY. A project in the
+  // trash (or whose company is) is only ever reported to a caller who already
+  // reaches it, so it keeps its own message: answering "invalid id" there sent
+  // people looking for a typo when the thing to do is restore.
+  it("deleteTask names the trash, not 'invalid id', for a project the caller reaches but that is frozen", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const state = vi.mocked(findProjectTrashState);
+
+    state.mockResolvedValueOnce({ selfTrashed: true, parentTrashed: false, inTrash: true });
+    const trashed = await deleteTask(1, 1, 2);
+    state.mockResolvedValueOnce({ selfTrashed: false, parentTrashed: true, inTrash: true });
+    const underTrashedCompany = await deleteTask(1, 1, 2);
+
+    expect((trashed as { message: string }).message).toBe(fr.errors.inTrash);
+    expect((underTrashedCompany as { message: string }).message).toBe(fr.errors.parentInTrash);
     expect(removeMock).not.toHaveBeenCalled();
   });
 });

@@ -1,18 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { sessionAccountWhere } from "@/repository/users";
 
-/** Contacts of a client — primary first, then oldest first. Includes each
- * contact's job function (name), its linked project ids, and its portal login
- * (if any) for the contact management UI. */
+/** Contacts of a client — primary first, then oldest first. Explicit `select`,
+ * limited to what the contact list screen (components/ContactRow.tsx) reads:
+ * the contact's own fields, its job function name, the ids of its linked
+ * projects (the page narrows them to the ones the caller may edit before
+ * they reach the browser) and `userId` (only to know whether it has a portal
+ * login — the login's own email and role are not read). */
 export async function findByClient(clientId: number) {
     try {
         return await prisma.contact.findMany({
             where: { clientId },
             orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-            include: {
-                jobFunction: { select: { id: true, name: true } },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+                isPrimary: true,
+                jobFunctionId: true,
+                userId: true,
+                jobFunction: { select: { name: true } },
                 projects: { select: { id: true } },
-                user: { select: { id: true, email: true, role: true } },
             },
         });
     } catch (error) {
@@ -51,6 +61,25 @@ export async function findById(id: number) {
     }
 }
 
+/**
+ * Ids of EVERY project the contact is linked to, trashed ones included — the
+ * input of lib/contactPolicy.ts::canRemoveContact. Minimal `select`.
+ * `null` = no such contact, NOT "no links": an empty list means "nothing to
+ * lose" and authorizes a deletion, which an absent contact must never do.
+ */
+export async function findLinkedProjectIds(contactId: number): Promise<number[] | null> {
+    try {
+        const row = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { projects: { select: { id: true } } },
+        });
+        return row ? row.projects.map((p) => p.id) : null;
+    } catch (error) {
+        console.log("Repository findLinkedProjectIds (contact) error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching contact links." };
+    }
+}
+
 /** Attach a portal login (User id) to a contact. */
 export async function attachLogin(contactId: number, userId: number) {
     try {
@@ -62,24 +91,49 @@ export async function attachLogin(contactId: number, userId: number) {
 }
 
 /**
- * Set which of the contact's own company projects its portal login may see.
- * `projectIds` is filtered to projects that actually belong to the contact's
- * client, so a tampered payload can't link a project from another company.
+ * Set which of the contact's own company projects its portal login may see —
+ * touching ONLY the links the caller is entitled to edit.
+ *
+ * The editable set is computed here, from the database, never read from the
+ * form: the LIVE projects of the contact's own company that sit inside the
+ * caller's scope (`scopeProjectIds`: `projectIdFilter(await
+ * getAccessContext())`, `undefined` = unrestricted). The resulting links are
+ *
+ *   (existing links OUTSIDE the editable set)  U  (submitted ids INSIDE it)
+ *
+ * so a restricted caller's save cannot erase a link to a project it never saw
+ * (outside its scope, or in the trash — the form only lists its own live
+ * projects), nor create one to a project it cannot reach or to another
+ * company's. The parameter is required on purpose (no default): a caller must
+ * say which scope it writes under.
  */
-export async function setContactProjects(contactId: number, projectIds: number[]) {
+export async function setContactProjects(
+    contactId: number,
+    projectIds: number[],
+    scopeProjectIds: number[] | undefined
+) {
     try {
         return await prisma.$transaction(async (tx) => {
             const contact = await tx.contact.findUniqueOrThrow({
                 where: { id: contactId },
-                select: { clientId: true },
+                select: { clientId: true, projects: { select: { id: true } } },
             });
-            const valid = await tx.project.findMany({
-                where: { id: { in: projectIds }, clientId: contact.clientId, deletedAt: null },
+            const editable = await tx.project.findMany({
+                where: {
+                    clientId: contact.clientId,
+                    deletedAt: null,
+                    ...(scopeProjectIds !== undefined ? { id: { in: scopeProjectIds } } : {}),
+                },
                 select: { id: true },
             });
+            const editableIds = new Set(editable.map((p) => p.id));
+            const kept = contact.projects.map((p) => p.id).filter((id) => !editableIds.has(id));
+            const submitted = projectIds.filter((id) => editableIds.has(id));
+            const finalIds = [...new Set([...kept, ...submitted])];
             return tx.contact.update({
                 where: { id: contactId },
-                data: { projects: { set: valid.map((p) => ({ id: p.id })) } },
+                data: { projects: { set: finalIds.map((id) => ({ id })) } },
+                select: { id: true },
             });
         });
     } catch (error) {
@@ -197,6 +251,7 @@ export async function update(id: number, data: ContactUpdateData) {
                 phone: data.phone || null,
                 jobFunctionId: data.jobFunctionId ?? null,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update contact error:", error);
@@ -232,7 +287,10 @@ export async function setPrimary(id: number, clientId: number) {
 export async function remove(id: number) {
     try {
         return await prisma.$transaction(async (tx) => {
-            const contact = await tx.contact.delete({ where: { id } });
+            const contact = await tx.contact.delete({
+                where: { id },
+                select: { userId: true, isPrimary: true, clientId: true },
+            });
             if (contact.userId) {
                 await tx.user.deleteMany({ where: { id: contact.userId, role: "CLIENT" } });
             }
@@ -240,10 +298,11 @@ export async function remove(id: number) {
                 const next = await tx.contact.findFirst({
                     where: { clientId: contact.clientId },
                     orderBy: { createdAt: "asc" },
+                    select: { id: true },
                 });
                 if (next) await tx.contact.update({ where: { id: next.id }, data: { isPrimary: true } });
             }
-            return contact;
+            return { id };
         });
     } catch (error) {
         console.log("Repository remove contact error:", error);

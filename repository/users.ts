@@ -339,7 +339,10 @@ export async function remove(id: number) {
     try {
         return await prisma.$transaction(async (tx) => {
             await tx.equipmentLoan.deleteMany({ where: { borrowerId: id, returnedAt: { not: null } } });
-            return await tx.user.delete({ where: { id } });
+            // Explicit select: the bare row carries the password hash, and the
+            // caller (actions/users/users.ts::deleteUser) only needs to know it
+            // succeeded.
+            return await tx.user.delete({ where: { id }, select: { id: true } });
         });
     } catch (error) {
         console.log("Repository remove (user) error:", error);
@@ -382,6 +385,8 @@ export async function createResetToken(userId: number, token: string, expiresAt:
         // Store only the hash — the raw token lives solely in the emailed URL.
         return await prisma.passwordResetToken.create({
             data: { userId, token: hashResetToken(token), expiresAt },
+            // No caller reads the row; never hand back the stored token hash.
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository createResetToken error:", error);
@@ -417,6 +422,7 @@ export async function markResetTokenUsed(id: number) {
         return await prisma.passwordResetToken.update({
             where: { id },
             data: { usedAt: new Date() },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository markResetTokenUsed error:", error);
@@ -432,6 +438,8 @@ export async function updatePassword(userId: number, hashedPassword: string) {
         return await prisma.user.update({
             where: { id: userId },
             data: { password: hashedPassword },
+            // No caller reads the row; never hand back the password hash.
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository updatePassword error:", error);
@@ -443,22 +451,48 @@ export async function updatePassword(userId: number, hashedPassword: string) {
 }
 
 /**
- * Set which projects a user is assigned to.
+ * Set which projects a user is assigned to — touching ONLY the assignments
+ * this screen is entitled to edit.
  *
- * Ids are re-read from the database rather than trusted: a tampered payload
- * must not be able to link a trashed project, or an id that doesn't exist.
+ * The editable set is read from the database, never trusted from the payload:
+ * the projects that are live AND whose company is live (the ones the
+ * assignment screen offers). The resulting assignments are
+ *
+ *   (existing assignments OUTSIDE the editable set)  U  (submitted ids INSIDE it)
+ *
+ * so a tampered payload still cannot link a trashed project or an id that
+ * does not exist — and saving no longer erases an assignment the screen never
+ * displayed: a project in the trash (or under a company in the trash) keeps
+ * its assignees, so restoring it gives the user their access back. Same rule
+ * as setContactProjects, which this mirrors.
  * Only consulted when the user's job function scope is ASSIGNED, but stored
  * regardless so switching the function on doesn't lose the assignments.
  */
 export async function setUserProjects(userId: number, projectIds: number[]) {
     try {
-        const valid = await prisma.project.findMany({
-            where: { id: { in: projectIds }, deletedAt: null },
-            select: { id: true },
-        });
-        return await prisma.user.update({
-            where: { id: userId },
-            data: { assignedProjects: { set: valid.map((p) => ({ id: p.id })) } },
+        return await prisma.$transaction(async (tx) => {
+            const user = await tx.user.findUniqueOrThrow({
+                where: { id: userId },
+                select: { assignedProjects: { select: { id: true } } },
+            });
+            const existingIds = user.assignedProjects.map((p) => p.id);
+            const editable = await tx.project.findMany({
+                where: {
+                    id: { in: [...new Set([...existingIds, ...projectIds])] },
+                    deletedAt: null,
+                    client: { deletedAt: null },
+                },
+                select: { id: true },
+            });
+            const editableIds = new Set(editable.map((p) => p.id));
+            const kept = existingIds.filter((id) => !editableIds.has(id));
+            const submitted = projectIds.filter((id) => editableIds.has(id));
+            const finalIds = [...new Set([...kept, ...submitted])];
+            return tx.user.update({
+                where: { id: userId },
+                data: { assignedProjects: { set: finalIds.map((id) => ({ id })) } },
+                select: { id: true },
+            });
         });
     } catch (error) {
         console.log("Repository setUserProjects error:", error);
