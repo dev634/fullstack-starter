@@ -11,7 +11,8 @@ import { create, update, setPrimary, remove, setContactProjects, findLinkedProje
 import { findByEmail } from "@/repository/clients";
 import type { Contact } from "@/app/generated/prisma/client";
 import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
-import { parseCsvRecords, decodeCsvBytes, csvHeaderOf, CONTACT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
+import { readCsvUpload, csvHeaderOf, CONTACT_CSV_COLUMNS } from "@/lib/csv";
+import { csvRefusalResult } from "@/lib/csvRefusal";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -142,20 +143,10 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
     return { type: "error", message: t.contacts.import.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
-  const records = parseCsvRecords(decodeCsvBytes(await file.arrayBuffer()));
-  if (records.length === 0) {
-    return { type: "error", message: t.contacts.import.emptyCsvFile, created: 0, total: 0, errors: [] };
-  }
-  // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7.
-  if (records.length > MAX_IMPORT_ROWS) {
-    return {
-      type: "error",
-      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
-      created: 0,
-      total: records.length,
-      errors: [],
-    };
-  }
+  // See lib/csv.ts's MAX_IMPORT_* — adversarial pass 2, point 7.
+  const upload = await readCsvUpload(file);
+  if (!upload.ok) return csvRefusalResult(upload, t, t.contacts.import.emptyCsvFile);
+  const { records } = upload;
 
   let created = 0;
   const errors: ImportRowError[] = [];

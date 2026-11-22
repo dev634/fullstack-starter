@@ -50,12 +50,12 @@ export const DEFAULT_CAPABILITY_ROLE: Record<Capability, Role> = {
 // for a locked capability and forces it back to DEFAULT_CAPABILITY_ROLE
 // (ADMIN for both) — so locking them here changes nothing for the ADMIN
 // accounts that already hold them today. What it closes: an EDITOR who'd
-// been granted functions.manage could call setFunctionAreas on their OWN
+// been granted functions.manage could call saveFunctionConfig on their OWN
 // function and clear its hiddenAreas/hiddenSections entirely — annulling two
 // of the three access axes for themselves in one write, with no ADMIN/
 // SUPERADMIN step in between. Locking the capability that GRANTS that write
 // at EDITOR-or-below is the fix; it does not touch the passe 3b, point 3
-// self-lock guard in setFunctionAreas itself (that one stops an ADMIN from
+// self-lock guard in saveFunctionConfig itself (that one stops an ADMIN from
 // touching their OWN function even while legitimately holding the
 // capability — a different, narrower case).
 export const LOCKED_CAPABILITIES: readonly Capability[] = ["settings.manage", "functions.manage", "users.manage"];

@@ -217,7 +217,7 @@ describe("projects: export -> Excel FR -> import", () => {
     expect(created[2]).toMatchObject({ name: "Sans détails", businessNumber: "", power: undefined, budget: undefined, startDate: undefined, endDate: undefined });
   });
 
-  it("reads 03/04/2026 as the 3rd of April, never the 4th of March", async () => {
+  it('reads 03/04/2026 as the 3rd of April in a ";" file (Excel FR), never the 4th of March', async () => {
     const row = { ...base, startDate: new Date("2026-04-03"), endDate: new Date("2026-04-30") };
     vi.mocked(searchProjects).mockResolvedValue({ projects: [row] } as never);
     vi.mocked(findByEmail).mockResolvedValue(client as never);
@@ -225,6 +225,42 @@ describe("projects: export -> Excel FR -> import", () => {
     const exported = await exportText(await exportProjects(new Request("http://localhost/projects/export")));
     await importProjects(formWith(excelFrResave(exported, { dateHeaders: ["Start Date", "End Date"] })));
     expect(vi.mocked(createProjectRow).mock.calls[0][0]).toMatchObject({ startDate: "2026-04-03", endDate: "2026-04-30" });
+  });
+});
+
+describe("projects: a file with the English conventions (comma separator)", () => {
+  const client = { id: 5, email: "client@x.fr", deletedAt: null };
+  const HEADER = "Name,Client Email,Budget,Power,Start Date";
+
+  function englishFile(rows: string[]): FormData {
+    return formWith(new TextEncoder().encode([HEADER, ...rows].join("\r\n")).buffer as ArrayBuffer);
+  }
+
+  beforeEach(() => {
+    vi.mocked(findByEmail).mockResolvedValue(client as never);
+    vi.mocked(createProjectRow).mockResolvedValue({ id: 1 } as never);
+  });
+
+  it("reads 15,000 as fifteen thousand (the French reading made it 15) and 1,234.5 as 1234.5", async () => {
+    const res = await importProjects(englishFile(['A,client@x.fr,"15,000",12.5,2026-04-03', 'B,client@x.fr,"1,234.5",,']));
+    expect(res.errors).toEqual([]);
+    const created = vi.mocked(createProjectRow).mock.calls.map(([data]) => data);
+    expect(created[0]).toMatchObject({ budget: 15000, power: 12.5, startDate: "2026-04-03" });
+    expect(created[1]).toMatchObject({ budget: 1234.5 });
+  });
+
+  it("refuses a comma that is not a thousands separator, instead of storing a wrong value", async () => {
+    const res = await importProjects(englishFile(['Comma,client@x.fr,"1,234,5",,', 'Decimal,client@x.fr,"12,5",,']));
+    expect(res.created).toBe(0);
+    expect(createProjectRow).not.toHaveBeenCalled();
+    expect(res.errors.map((e) => e.row)).toEqual([2, 3]);
+  });
+
+  it("refuses a slashed start date: 3/4/2026 is the 4th of March or the 3rd of April", async () => {
+    const res = await importProjects(englishFile(["A,client@x.fr,,,3/4/2026"]));
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(createProjectRow).not.toHaveBeenCalled();
   });
 });
 

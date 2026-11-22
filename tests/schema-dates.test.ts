@@ -8,6 +8,7 @@ import {
   requiredDateField,
   requiredDateTimeField,
 } from "@/schemas/fields";
+import { makeObjectFromZodError } from "@/lib/zod";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { createTaskSchema } from "@/schemas/task";
 import { createInterventionSchema } from "@/schemas/intervention";
@@ -109,10 +110,23 @@ describe("project dates: start <= end (F9), create and update", () => {
     expect(updateProjectSchema.safeParse({ id: "3", ...project, startDate: "2026-06-01", endDate: "2026-06-30" }).success).toBe(true);
   });
 
-  it("an invalid date is reported once, on its own field, not also as an ordering error", () => {
-    const res = createProjectSchema.safeParse({ ...project, startDate: "2026-02-30", endDate: "2026-06-01" });
+  // Zod 4 runs the object-level ordering rule even when a field failed. The
+  // example must be one where the ordering rule WOULD fire without its guard:
+  // "2026-12-32" > "2026-06-01" lexicographically, so without the validity
+  // check the end would be reported as preceding the start as well.
+  it("an invalid start is reported once, on its own field, not also as an ordering error", () => {
+    const res = createProjectSchema.safeParse({ ...project, startDate: "2026-12-32", endDate: "2026-06-01" });
     expect(res.success).toBe(false);
     if (!res.success) expect(res.error.issues.map((i) => i.path.join("."))).toEqual(["startDate"]);
+  });
+
+  it("an invalid end keeps its own message, not the ordering one", () => {
+    const res = createProjectSchema.safeParse({ ...project, startDate: "2026-06-01", endDate: "2026-02-30" });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.map((i) => i.path.join("."))).toEqual(["endDate"]);
+      expect(makeObjectFromZodError(res.error)).toEqual({ endDate: "Date invalide" });
+    }
   });
 
   it("refuses an out-of-range year", () => {

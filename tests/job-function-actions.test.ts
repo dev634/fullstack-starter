@@ -121,13 +121,25 @@ describe("job function actions", () => {
     });
   });
 
-  it("saveFunctionConfig falls back to the permissive scope for an unrecognised value", async () => {
+  // A payload that is not what the editor sends is refused, never repaired:
+  // hiddenAreas -> [] un-hid every rubrique and an unknown scope -> "ALL"
+  // lifted the project restriction. Nothing is written.
+  it.each([
+    ["an unrecognised scope", config({ projectScope: "bogus" })],
+    ["a null config", null],
+    ["a missing hiddenAreas", { hiddenSections: ["tasks"], projectScope: "ALL" }],
+    ["a missing hiddenSections", { hiddenAreas: ["clients"], projectScope: "ALL" }],
+    ["a missing projectScope", { hiddenSections: ["tasks"], hiddenAreas: ["clients"] }],
+    ["a non-array hiddenAreas", { ...config(), hiddenAreas: "clients" }],
+    ["a non-string area key", { ...config(), hiddenAreas: [1] }],
+  ])("saveFunctionConfig refuses %s without writing", async (_label, payload) => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
     actor("ADMIN", "admin@example.com");
     findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: null });
     updateConfigMock.mockResolvedValue({} as never);
-    await saveFunctionConfig(5, config({ projectScope: "bogus" }));
-    expect(updateConfigMock).toHaveBeenCalledWith(5, expect.objectContaining({ projectScope: "ALL" }));
+    const res = await saveFunctionConfig(5, payload as never);
+    expect((res as { type: string }).type).toBe("error");
+    expect(updateConfigMock).not.toHaveBeenCalled();
   });
 
   it("saveFunctionConfig rejects an invalid id", async () => {

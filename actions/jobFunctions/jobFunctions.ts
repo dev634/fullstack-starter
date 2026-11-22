@@ -6,7 +6,7 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { auth } from "@/lib/auth";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
-import { createJobFunctionSchema } from "@/schemas/jobFunction";
+import { createJobFunctionSchema, functionConfigSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder, updateConfig } from "@/repository/jobFunctions";
 import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
 import { isProjectSectionKey } from "@/lib/projectSections";
@@ -144,8 +144,10 @@ export async function deleteJobFunction(id: number) {
  * failure left a half-applied configuration. Now every guard runs once, in
  * order, then ONE repository write.
  *
- * Incoming keys are filtered to known keys server-side (isProjectSectionKey,
- * normalizeHiddenAreas), so a tampered payload can't store arbitrary values.
+ * The payload is validated by functionConfigSchema (refused when a field is
+ * missing or malformed); the keys inside the arrays are then filtered to known
+ * keys server-side (isProjectSectionKey, normalizeHiddenAreas), so a tampered
+ * payload can't store arbitrary values.
  */
 export async function saveFunctionConfig(
   id: number,
@@ -159,6 +161,11 @@ export async function saveFunctionConfig(
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
+
+    // The payload comes from the client: validated before anything is read or
+    // written, and refused (not repaired) when it is not what the editor sends.
+    const parsed = functionConfigSchema.safeParse(config);
+    if (!parsed.success) return { type: "error" as const, message: t.errors.validationError };
 
     // An ADMIN whose OWN function hides some rubriques could otherwise lift
     // that restriction on themselves in a single call, with no SUPERADMIN
@@ -180,13 +187,9 @@ export async function saveFunctionConfig(
     const heldByAdmin = await refuseIfHeldByAdmin(id, t);
     if (heldByAdmin) return heldByAdmin;
 
-    const hiddenSections = Array.isArray(config.hiddenSections)
-      ? [...new Set(config.hiddenSections.filter(isProjectSectionKey))]
-      : [];
-    const hiddenAreas = Array.isArray(config.hiddenAreas) ? normalizeHiddenAreas(config.hiddenAreas) : [];
-    // Anything unrecognised falls back to the permissive default rather than
-    // silently locking people out of every chantier.
-    const projectScope = config.projectScope === "ASSIGNED" ? "ASSIGNED" : "ALL";
+    const hiddenSections = [...new Set(parsed.data.hiddenSections.filter(isProjectSectionKey))];
+    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
+    const projectScope = parsed.data.projectScope;
 
     await updateConfig(id, { hiddenSections, hiddenAreas, projectScope });
     revalidatePath("/admin/settings/fonctions");

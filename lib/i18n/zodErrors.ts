@@ -20,6 +20,8 @@ export function translateZodIssue(issue: z.core.$ZodIssue, t: Dictionary): strin
         if (i18nCode === "seriesTooLarge") return format(t.errors.seriesTooLarge, { max: MAX_SERIES_SIZE });
         if (i18nCode === "requiredQuantityMissing") return t.errors.requiredQuantityMissing;
         if (i18nCode === "invalidCharacters") return t.errors.invalidCharacters;
+        if (i18nCode === "invalidDate") return t.errors.invalidDate;
+        if (i18nCode === "endBeforeStart") return t.errors.endBeforeStart;
         return issue.message;
     }
 

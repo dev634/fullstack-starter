@@ -1,7 +1,7 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { PROJECT_CSV_COLUMNS, buildCsv, csvDelimiterForLocale } from "@/lib/csv";
+import { PROJECT_CSV_COLUMNS, csvResponse } from "@/lib/csv";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
@@ -42,27 +42,12 @@ export async function GET(request: Request) {
     return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
   };
 
-  const rows = projects.map((project) => {
-    const flat: Record<string, unknown> = {
-      ...project,
-      clientEmail: project.client.email,
-      startDate: toCsvDate(project.startDate),
-      endDate: toCsvDate(project.endDate),
-    };
-    return PROJECT_CSV_COLUMNS.map((c) => flat[c.key]);
-  });
+  const rows = projects.map((project) => ({
+    ...project,
+    clientEmail: project.client.email,
+    startDate: toCsvDate(project.startDate),
+    endDate: toCsvDate(project.endDate),
+  }));
 
-  // ";" for a French user (Excel FR), "," otherwise; BOM so Excel reads the accents.
-  const csv = buildCsv(
-    PROJECT_CSV_COLUMNS.map((c) => c.header),
-    rows,
-    csvDelimiterForLocale(await getLocale())
-  );
-
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="projects.csv"`,
-    },
-  });
+  return csvResponse(PROJECT_CSV_COLUMNS, rows, "projects.csv", await getLocale());
 }

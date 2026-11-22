@@ -122,7 +122,7 @@ export function isValidIsoInstant(value: string): boolean {
   return isRealCalendarDate(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-const INVALID_DATE = { message: "Date invalide" };
+const INVALID_DATE = { message: "Date invalide", params: { i18n: "invalidDate" } };
 
 /** Required "AAAA-MM-JJ" (an <input type="date"> value). */
 export const requiredDateField = z

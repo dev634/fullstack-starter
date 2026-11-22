@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, MAX_LINE_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH, optionalDateField } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_LINE_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH, optionalDateField, isValidIsoDate } from "@/schemas/fields";
 
 export const projectStatusSchema = z.enum([
     "ETUDE",
@@ -54,15 +54,23 @@ const createProjectFields = z.object({
 
 // start <= end, ONE rule for create, update and CSV import (the three go
 // through these two schemas). Posted on the write schema, error on endDate.
-// Both dates are already validated "AAAA-MM-JJ" strings (optionalDateField),
-// so a lexicographic comparison is a chronological one. An absent bound never
-// fails: a chantier may have only a start, or only an end.
+// Zod 4 runs an object-level refine even when a field of the object already
+// failed, with the raw (invalid) value in hand: the rule therefore applies
+// only when BOTH dates are valid (isValidIsoDate) — otherwise an invalid date
+// would be reported twice (on its own field and as an ordering error), and
+// lib/zod.ts, which keeps one message per field, would let the ordering
+// message overwrite "Date invalide" on endDate. Two valid "AAAA-MM-JJ" strings
+// compare lexicographically as chronologically. An absent bound never fails:
+// a chantier may have only a start, or only an end.
 function endNotBeforeStart(data: { startDate?: string; endDate?: string }): boolean {
-    return data.startDate === undefined || data.endDate === undefined || data.endDate >= data.startDate;
+    if (data.startDate === undefined || data.endDate === undefined) return true;
+    if (!isValidIsoDate(data.startDate) || !isValidIsoDate(data.endDate)) return true;
+    return data.endDate >= data.startDate;
 }
 const END_BEFORE_START = {
     message: "La date de fin ne peut pas précéder la date de début.",
     path: ["endDate"],
+    params: { i18n: "endBeforeStart" },
 };
 
 export const createProjectSchema = createProjectFields.refine(endNotBeforeStart, END_BEFORE_START);
