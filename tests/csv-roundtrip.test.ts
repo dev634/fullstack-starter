@@ -164,7 +164,10 @@ describe("clients: export -> Excel FR -> import", () => {
 });
 
 describe("projects: export -> Excel FR -> import", () => {
-  const client = { id: 5, email: "client@x.fr" };
+  // A real findByEmail row always carries deletedAt (null = live); the import
+  // reads it to refuse a company in the trash, and treats an absent value as
+  // trashed (refuse by default), so the fixture must state it.
+  const client = { id: 5, email: "client@x.fr", deletedAt: null };
   const base = {
     name: "Toiture Église; lot 2",
     businessNumber: "AFF-2026-1",
@@ -245,7 +248,7 @@ describe("contacts: export -> Excel FR -> import", () => {
     // The degenerate row: no role, e-mail or phone.
     const bare = { ...contact, firstName: "Vide", jobFunction: null, email: "", phone: null, isPrimary: false };
     vi.mocked(findAllWithClientEmail).mockResolvedValue([contact, atCeiling, bare] as never);
-    vi.mocked(findByEmail).mockResolvedValue({ id: 9, email: "acme@x.fr" } as never);
+    vi.mocked(findByEmail).mockResolvedValue({ id: 9, email: "acme@x.fr", deletedAt: null } as never);
     vi.mocked(findAllOptions).mockResolvedValue([{ id: 7, name: "Électricien" }] as never);
     vi.mocked(createContactRow).mockResolvedValue({ id: 1 } as never);
 
