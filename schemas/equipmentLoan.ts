@@ -1,26 +1,18 @@
 import z from "zod";
-import { MAX_NOTE_LENGTH } from "@/schemas/fields";
+import { MAX_NOTE_LENGTH, requiredDateField, optionalDateField } from "@/schemas/fields";
 
 // Same convention as schemas/project.ts's optionalDate / schemas/task.ts's:
 // built from an <input type="date"> ("YYYY-MM-DD"), kept as a string here —
 // the repository converts with `new Date(str)` (a UTC midnight), exactly
-// like Project.startDate / ProjectTask.dueDate. Only parseability is
-// enforced here; the >= lentAt ordering that matches the database's CHECK
+// like Project.startDate / ProjectTask.dueDate. Format, calendar
+// validity and year bounds are enforced by schemas/fields.ts; the >= lentAt ordering that matches the database's CHECK
 // (migration 20260918120000) is enforced below for create, where lentAt is
 // a sibling field in the SAME payload — editLoan/returnLoan don't carry
 // lentAt (it never changes after creation), so THAT comparison has to
 // happen in the action, against the value read back from the database (see
 // actions/equipmentLoans/equipmentLoans.ts).
-const requiredDate = z
-    .string()
-    .min(1, "La date est requise")
-    .refine((v) => !isNaN(Date.parse(v)), { message: "Date invalide" });
-
-const optionalDate = z
-    .string()
-    .optional()
-    .transform((v) => (v && v.trim() !== "" ? v : undefined))
-    .refine((v) => v === undefined || !isNaN(Date.parse(v)), { message: "Date invalide" });
+const requiredDate = requiredDateField;
+const optionalDate = optionalDateField;
 
 // Empty/whitespace-only means "no note" — mapped to `undefined` so the
 // repository stores NULL, the only representation EquipmentLoan_note_check

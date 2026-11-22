@@ -1,7 +1,8 @@
 import { findAllWithClientEmail } from "@/repository/contacts";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { CONTACT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { CONTACT_CSV_COLUMNS, buildCsv, csvDelimiterForLocale } from "@/lib/csv";
+import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
 /**
@@ -25,7 +26,6 @@ export async function GET() {
 
   const contacts = await findAllWithClientEmail(projectIdFilter(await getAccessContext()));
 
-  const header = CONTACT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
   const rows = contacts.map((contact) => {
     const row: Record<string, unknown> = {
       companyEmail: contact.client.email,
@@ -36,10 +36,14 @@ export async function GET() {
       phone: contact.phone,
       isPrimary: contact.isPrimary ? "true" : "false",
     };
-    return CONTACT_CSV_COLUMNS.map((c) => csvCell(row[c.key])).join(",");
+    return CONTACT_CSV_COLUMNS.map((c) => row[c.key]);
   });
-  // Prepend a BOM so Excel opens UTF-8 accents correctly.
-  const csv = "﻿" + [header, ...rows].join("\r\n");
+  // ";" for a French user (Excel FR), "," otherwise; BOM so Excel reads the accents.
+  const csv = buildCsv(
+    CONTACT_CSV_COLUMNS.map((c) => c.header),
+    rows,
+    csvDelimiterForLocale(await getLocale())
+  );
 
   return new Response(csv, {
     headers: {

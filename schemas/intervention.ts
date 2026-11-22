@@ -1,16 +1,13 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_NOTE_LENGTH, requiredDateTimeField } from "@/schemas/fields";
 
 export const interventionStatusSchema = z.enum(["PLANIFIEE", "FAITE", "ANNULEE"]);
 
 // The client sends a full ISO-8601 instant (see lib/datetimeLocal.ts) so the
-// stored time is timezone-unambiguous; guard against a non-parseable string
-// reaching the repository's `new Date(...)` rather than only relying on the
-// DB to reject an Invalid Date.
-const scheduledAtSchema = z
-    .string()
-    .min(1, "La date est requise")
-    .refine((v) => !isNaN(Date.parse(v)), { message: "Date invalide" });
+// stored time is timezone-unambiguous; requiredDateTimeField (schemas/fields.ts)
+// checks that shape, a real calendar date/time and the shared year bounds, so
+// an invalid value never reaches the repository's `new Date(...)`.
+const scheduledAtSchema = requiredDateTimeField;
 
 // Adversarial pass 2, point 5: description/technician had no upper bound.
 export const createInterventionSchema = z.object({

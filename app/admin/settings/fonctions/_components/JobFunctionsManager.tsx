@@ -28,9 +28,7 @@ import {
   addJobFunction,
   deleteJobFunction,
   reorderJobFunctions,
-  setFunctionSections,
-  setFunctionScope,
-  setFunctionAreas,
+  saveFunctionConfig,
 } from "@/actions/jobFunctions/jobFunctions";
 import { PROJECT_SECTION_KEYS, type ProjectSectionKey } from "@/lib/projectSections";
 import { projectSectionLabels } from "@/lib/projectSectionLabels";
@@ -226,15 +224,9 @@ export default function JobFunctionsManager({
     // every descendant of an unchecked parent, so re-checking the parent
     // could never tell which descendants were meant to stay unchecked.
     const hiddenAreas = APP_AREA_KEYS.filter((k) => !visibleAreas.has(k));
-    // Sections, scope, and areas are one decision for the admin, so a failure
-    // in any of them must leave the modal open rather than half-applying
-    // silently.
-    const [sectionsRes, scopeRes, areasRes] = await Promise.all([
-      setFunctionSections(configuring.id, hidden),
-      setFunctionScope(configuring.id, scope),
-      setFunctionAreas(configuring.id, hiddenAreas),
-    ]);
-    const res = [sectionsRes, scopeRes, areasRes].find((r) => r.type !== "success") ?? scopeRes;
+    // Sections, scope, and areas are one decision for the admin: one action,
+    // one write, so a failure can't leave a half-applied configuration.
+    const res = await saveFunctionConfig(configuring.id, { hiddenSections: hidden, projectScope: scope, hiddenAreas });
     if (res.type === "success") {
       setConfiguring(null);
       router.refresh();

@@ -1,7 +1,8 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { PROJECT_CSV_COLUMNS, buildCsv, csvDelimiterForLocale } from "@/lib/csv";
+import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
 const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
@@ -48,12 +49,15 @@ export async function GET(request: Request) {
       startDate: toCsvDate(project.startDate),
       endDate: toCsvDate(project.endDate),
     };
-    return PROJECT_CSV_COLUMNS.map((c) => csvCell(flat[c.key])).join(",");
+    return PROJECT_CSV_COLUMNS.map((c) => flat[c.key]);
   });
 
-  const header = PROJECT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
-  // Prepend a BOM so Excel opens UTF-8 accents correctly.
-  const csv = "﻿" + [header, ...rows].join("\r\n");
+  // ";" for a French user (Excel FR), "," otherwise; BOM so Excel reads the accents.
+  const csv = buildCsv(
+    PROJECT_CSV_COLUMNS.map((c) => c.header),
+    rows,
+    csvDelimiterForLocale(await getLocale())
+  );
 
   return new Response(csv, {
     headers: {

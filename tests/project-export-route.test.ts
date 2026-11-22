@@ -7,6 +7,7 @@ vi.mock("@/lib/accessContext", () => ({
   projectIdFilter: vi.fn(),
 }));
 vi.mock("@/repository/projects", () => ({ search: vi.fn() }));
+vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { GET } from "@/app/projects/export/route";
 import { requireAppUser } from "@/lib/requireAppUser";

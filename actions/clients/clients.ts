@@ -12,7 +12,7 @@ import { logActivity } from "@/repository/activity";
 import { CreateClientInput, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
-import { parseCsvRecords, CLIENT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
+import { parseCsvRecords, decodeCsvBytes, CLIENT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -453,8 +453,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
     return { type: "error", message: t.clients.messages.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
-  const text = await file.text();
-  const records = parseCsvRecords(text);
+  const records = parseCsvRecords(decodeCsvBytes(await file.arrayBuffer()));
   if (records.length === 0) {
     return { type: "error", message: t.clients.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
   }

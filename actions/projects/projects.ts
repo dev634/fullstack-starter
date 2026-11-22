@@ -14,7 +14,14 @@ import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
-import { parseCsvRecords, PROJECT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
+import {
+  parseCsvRecords,
+  decodeCsvBytes,
+  normalizeCsvDate,
+  normalizeCsvNumber,
+  PROJECT_CSV_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -246,6 +253,17 @@ export type ImportResult = {
 };
 
 /**
+ * Brings a spreadsheet-edited cell back to the shape the schema validates:
+ * dates JJ/MM/AAAA -> AAAA-MM-JJ, numbers with a decimal comma and thousands
+ * spaces -> plain digits. Done BEFORE the schema, which stays strict (F9).
+ */
+function normalizeImportedValue(field: string, value: string): string {
+  if (field === "startDate" || field === "endDate") return normalizeCsvDate(value);
+  if (field === "power" || field === "budget") return normalizeCsvNumber(value);
+  return value;
+}
+
+/**
  * Bulk-create projects from a CSV file (same column headers as
  * /projects/export). Each row is matched to an existing client by email —
  * a project can't exist without one, so an unknown email fails that row
@@ -267,8 +285,7 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     return { type: "error", message: t.projects.messages.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
-  const text = await file.text();
-  const records = parseCsvRecords(text);
+  const records = parseCsvRecords(decodeCsvBytes(await file.arrayBuffer()));
   if (records.length === 0) {
     return { type: "error", message: t.projects.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
   }
@@ -302,7 +319,7 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     for (const [header, value] of Object.entries(record)) {
       const field = HEADER_TO_FIELD[header];
       if (field && field !== "clientEmail" && !((field === "type" || field === "status") && value === "")) {
-        data[field] = value;
+        data[field] = normalizeImportedValue(field, value);
       }
     }
 

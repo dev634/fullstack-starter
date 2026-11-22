@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // requireRole is mocked (the tests below control it directly); hasMinRole is
-// kept REAL — setFunctionAreas' own self-lock guard (passe 3b, point 3) uses
+// kept REAL — saveFunctionConfig's own self-lock guard (passe 3b, point 3) uses
 // it to check the ACTOR's role is SUPERADMIN, a plain rank comparison with
 // no session/DB dependency worth mocking.
 vi.mock("@/lib/authz", async () => {
@@ -13,24 +13,24 @@ vi.mock("@/lib/accessContext", () => ({
   canReachProject: () => true,
   projectIdFilter: () => undefined,
 }));
-// Passe 3b, point 3: setFunctionAreas now also calls auth() directly (to
+// Passe 3b, point 3: saveFunctionConfig now also calls auth() directly (to
 // learn the ACTOR's own role, not the target's) and findAccountJobFunctionByEmail
 // (to learn the actor's own function id) — both must be mocked or the whole
 // file fails to load (auth() transitively pulls in next-auth, which errors
 // outside a request context in Vitest).
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/repository/users", () => ({ findAccountJobFunctionByEmail: vi.fn(), countPrivilegedHolders: vi.fn() }));
-vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateHiddenSections: vi.fn(), updateHiddenAreas: vi.fn(), updateProjectScope: vi.fn() }));
+vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateConfig: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { reorderJobFunctions, addJobFunction, setFunctionSections, setFunctionAreas, setFunctionScope, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
+import { reorderJobFunctions, addJobFunction, saveFunctionConfig, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
 import { getAccessContext } from "@/lib/accessContext";
 import { requireRole } from "@/lib/authz";
 import { auth } from "@/lib/auth";
 import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
-import { reorder, create, remove, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
+import { reorder, create, remove, updateConfig } from "@/repository/jobFunctions";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -39,13 +39,11 @@ const findAccountJobFunctionByEmailMock = vi.mocked(findAccountJobFunctionByEmai
 const reorderMock = vi.mocked(reorder);
 const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
-const updateHiddenSectionsMock = vi.mocked(updateHiddenSections);
-const updateHiddenAreasMock = vi.mocked(updateHiddenAreas);
-const updateProjectScopeMock = vi.mocked(updateProjectScope);
+const updateConfigMock = vi.mocked(updateConfig);
 const countPrivilegedHoldersMock = vi.mocked(countPrivilegedHolders);
 const getAccessContextMock = vi.mocked(getAccessContext);
 
-// setFunctionAreas' own self-lock guard (passe 3b, point 3) needs the
+// saveFunctionConfig's own self-lock guard (passe 3b, point 3) needs the
 // ACTOR's session role/email — separate from requireRoleMock above, which
 // only asserts "does this role meet the functions.manage threshold", not
 // which role it actually is.
@@ -57,6 +55,10 @@ function actor(role: string, email = "admin@example.com") {
 
 function setAccessContextRole(role: string, email: string) {
   getAccessContextMock.mockResolvedValue({ email, role, hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null });
+}
+
+function config(overrides: Partial<Parameters<typeof saveFunctionConfig>[1]> = {}) {
+  return { hiddenSections: ["tasks"], hiddenAreas: ["clients"], projectScope: "ALL", ...overrides };
 }
 
 describe("job function actions", () => {
@@ -91,53 +93,58 @@ describe("job function actions", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
-  it("setFunctionSections refuses a non-ADMIN", async () => {
+  it("saveFunctionConfig refuses a non-ADMIN", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);
-    const res = await setFunctionSections(1, ["tasks"]);
+    const res = await saveFunctionConfig(1, config());
     expect((res as { type: string }).type).toBe("error");
-    expect(updateHiddenSectionsMock).not.toHaveBeenCalled();
+    expect(updateConfigMock).not.toHaveBeenCalled();
   });
 
-  it("setFunctionSections keeps only known section keys, deduped", async () => {
+  it("saveFunctionConfig keeps only known section and area keys, deduped, in ONE write", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
-    updateHiddenSectionsMock.mockResolvedValue({} as never);
-    const res = await setFunctionSections(5, ["tasks", "tasks", "bogus", "reserves", "<script>"]);
-    expect((res as { type: string }).type).toBe("success");
-    expect(updateHiddenSectionsMock).toHaveBeenCalledWith(5, ["tasks", "reserves"]);
-  });
-
-  it("setFunctionSections rejects an invalid id", async () => {
-    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
-    const res = await setFunctionSections(0, ["tasks"]);
-    expect((res as { type: string }).type).toBe("error");
-    expect(updateHiddenSectionsMock).not.toHaveBeenCalled();
-  });
-
-  it("setFunctionAreas refuses a non-ADMIN", async () => {
-    requireRoleMock.mockResolvedValue({ error: { type: "error", message: "forbidden" } } as never);
-    const res = await setFunctionAreas(1, ["clients"]);
-    expect((res as { type: string }).type).toBe("error");
-    expect(updateHiddenAreasMock).not.toHaveBeenCalled();
-  });
-
-  it("setFunctionAreas keeps only known area keys, deduped", async () => {
-    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
-    // Self-lock guard below needs a real session + the caller's own function
-    // id resolved — give it one that isn't 5, the id under test, so it stays
-    // out of this deduping test's way.
+    // The self-lock guard needs a real session + the caller's own function id
+    // resolved — give it one that isn't 5, the id under test.
     actor("ADMIN", "admin@example.com");
     findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: null });
-    updateHiddenAreasMock.mockResolvedValue({} as never);
-    const res = await setFunctionAreas(5, ["clients", "clients", "bogus", "admin.users", "<script>"]);
+    updateConfigMock.mockResolvedValue({} as never);
+    const res = await saveFunctionConfig(5, {
+      hiddenSections: ["tasks", "tasks", "bogus", "reserves", "<script>"],
+      hiddenAreas: ["clients", "clients", "bogus", "admin.users", "<script>"],
+      projectScope: "ASSIGNED",
+    });
     expect((res as { type: string }).type).toBe("success");
-    expect(updateHiddenAreasMock).toHaveBeenCalledWith(5, ["clients", "admin.users"]);
+    expect(updateConfigMock).toHaveBeenCalledTimes(1);
+    expect(updateConfigMock).toHaveBeenCalledWith(5, {
+      hiddenSections: ["tasks", "reserves"],
+      hiddenAreas: ["clients", "admin.users"],
+      projectScope: "ASSIGNED",
+    });
   });
 
-  it("setFunctionAreas rejects an invalid id", async () => {
+  it("saveFunctionConfig falls back to the permissive scope for an unrecognised value", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
-    const res = await setFunctionAreas(0, ["clients"]);
+    actor("ADMIN", "admin@example.com");
+    findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: null });
+    updateConfigMock.mockResolvedValue({} as never);
+    await saveFunctionConfig(5, config({ projectScope: "bogus" }));
+    expect(updateConfigMock).toHaveBeenCalledWith(5, expect.objectContaining({ projectScope: "ALL" }));
+  });
+
+  it("saveFunctionConfig rejects an invalid id", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    const res = await saveFunctionConfig(0, config());
     expect((res as { type: string }).type).toBe("error");
-    expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+    expect(updateConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("saveFunctionConfig reports a repository failure", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    actor("ADMIN", "admin@example.com");
+    findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: null });
+    updateConfigMock.mockRejectedValue({ type: "repositoryError", message: "Database Error" });
+    const res = await saveFunctionConfig(5, config());
+    expect((res as { type: string }).type).toBe("error");
+    expect(updateConfigMock).toHaveBeenCalledTimes(1);
   });
 
   it("deleteJobFunction refuses a non-ADMIN", async () => {
@@ -160,7 +167,7 @@ describe("job function actions", () => {
   });
 
   // Passe 3b, point 3: proven during this pass — an ADMIN whose OWN function
-  // hides some rubriques could call setFunctionAreas(theirOwnFunctionId, [])
+  // hides some rubriques could call saveFunctionConfig(theirOwnFunctionId, { hiddenAreas: [] })
   // and lift the restriction on themselves in a single call, with no
   // SUPERADMIN involved.
   describe("self-lock guard (passe 3b, point 3)", () => {
@@ -168,24 +175,28 @@ describe("job function actions", () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
       findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
+      // The caller is themselves a holder of their own function: a real count of 1.
+      countPrivilegedHoldersMock.mockResolvedValue(1);
 
-      const res = await setFunctionAreas(5, []);
+      const res = await saveFunctionConfig(5, config({ hiddenAreas: [] }));
 
       expect(res.type).toBe("error");
       expect(res.message).toBe(fr.jobFunctions.messages.cannotEditOwnFunction);
-      expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+      expect(updateConfigMock).not.toHaveBeenCalled();
+      // Refused by the self-lock guard, BEFORE the holder count is consulted.
+      expect(countPrivilegedHoldersMock).not.toHaveBeenCalled();
     });
 
     it("an ADMIN can still edit a DIFFERENT function than their own", async () => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       actor("ADMIN", "admin@example.com");
       findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the ADMIN's own function is id 5
-      updateHiddenAreasMock.mockResolvedValue({} as never);
+      updateConfigMock.mockResolvedValue({} as never);
 
-      const res = await setFunctionAreas(9, ["clients"]);
+      const res = await saveFunctionConfig(9, config());
 
       expect(res.type).toBe("success");
-      expect(updateHiddenAreasMock).toHaveBeenCalledWith(9, ["clients"]);
+      expect(updateConfigMock).toHaveBeenCalledWith(9, { hiddenSections: ["tasks"], hiddenAreas: ["clients"], projectScope: "ALL" });
     });
 
     // The anti-lockout guarantee: SUPERADMIN must always retain the ability
@@ -195,12 +206,14 @@ describe("job function actions", () => {
       requireRoleMock.mockResolvedValue({ email: "boss@example.com" } as never);
       actor("SUPERADMIN", "boss@example.com");
       findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the SUPERADMIN's own function is id 5
-      updateHiddenAreasMock.mockResolvedValue({} as never);
+      updateConfigMock.mockResolvedValue({} as never);
+      // A real count: the SUPERADMIN holds the function, and may still edit it.
+      countPrivilegedHoldersMock.mockResolvedValue(1);
 
-      const res = await setFunctionAreas(5, []);
+      const res = await saveFunctionConfig(5, config({ hiddenAreas: [] }));
 
       expect(res.type).toBe("success");
-      expect(updateHiddenAreasMock).toHaveBeenCalledWith(5, []);
+      expect(updateConfigMock).toHaveBeenCalledWith(5, expect.objectContaining({ hiddenAreas: [] }));
       // The SUPERADMIN bypass never even needs to resolve the actor's own
       // function id — hasMinRole short-circuits it.
       expect(findAccountJobFunctionByEmailMock).not.toHaveBeenCalled();
@@ -215,11 +228,11 @@ describe("job function actions", () => {
       actor("ADMIN", "ghost@example.com");
       findAccountJobFunctionByEmailMock.mockResolvedValue(null);
 
-      const res = await setFunctionAreas(9, ["clients"]);
+      const res = await saveFunctionConfig(9, config());
 
       expect(res.type).toBe("error");
       expect(res.message).toBe(fr.errors.unauthorized);
-      expect(updateHiddenAreasMock).not.toHaveBeenCalled();
+      expect(updateConfigMock).not.toHaveBeenCalled();
     });
   });
 
@@ -256,7 +269,7 @@ describe("job function actions", () => {
 
     // The anti-lockout guarantee applies here too: SUPERADMIN must always
     // retain the ability to fix a misconfigured function, including deleting
-    // its own — same rule as setFunctionAreas above.
+    // its own — same rule as saveFunctionConfig above.
     it("a SUPERADMIN CAN delete the function assigned to their own account — the anti-lockout escape hatch", async () => {
       requireRoleMock.mockResolvedValue({ email: "boss@example.com" } as never);
       actor("SUPERADMIN", "boss@example.com");
@@ -273,7 +286,7 @@ describe("job function actions", () => {
     });
 
     // Same "no account refuses, no function does not" distinction as
-    // setFunctionAreas above.
+    // saveFunctionConfig above.
     it("refuses when the caller's own account can no longer be resolved", async () => {
       requireRoleMock.mockResolvedValue({ email: "ghost@example.com" } as never);
       actor("ADMIN", "ghost@example.com");
@@ -295,18 +308,14 @@ describe("job function actions", () => {
     const refused = fr.jobFunctions.messages.heldByAdminRequiresSuperadmin;
 
     const calls: [string, () => Promise<{ type: string; message?: string }>, () => void][] = [
-      ["setFunctionSections", () => setFunctionSections(9, ["tasks"]), () => expect(updateHiddenSectionsMock).not.toHaveBeenCalled()],
-      ["setFunctionAreas", () => setFunctionAreas(9, ["clients"]), () => expect(updateHiddenAreasMock).not.toHaveBeenCalled()],
-      ["setFunctionScope", () => setFunctionScope(9, "ASSIGNED"), () => expect(updateProjectScopeMock).not.toHaveBeenCalled()],
+      ["saveFunctionConfig", () => saveFunctionConfig(9, config({ projectScope: "ASSIGNED" })), () => expect(updateConfigMock).not.toHaveBeenCalled()],
       ["deleteJobFunction", () => deleteJobFunction(9), () => expect(removeMock).not.toHaveBeenCalled()],
     ];
 
     beforeEach(() => {
       requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
       findAccountJobFunctionByEmailMock.mockResolvedValue({ jobFunctionId: 5 }); // the caller's own function is not 9
-      updateHiddenSectionsMock.mockResolvedValue({} as never);
-      updateHiddenAreasMock.mockResolvedValue({} as never);
-      updateProjectScopeMock.mockResolvedValue({} as never);
+      updateConfigMock.mockResolvedValue({} as never);
       removeMock.mockResolvedValue({} as never);
     });
 

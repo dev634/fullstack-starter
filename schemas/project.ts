@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, MAX_LINE_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_LINE_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH, optionalDateField } from "@/schemas/fields";
 
 export const projectStatusSchema = z.enum([
     "ETUDE",
@@ -35,22 +35,9 @@ const optionalNumber = z
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
     .refine((v) => v === undefined || Number.isFinite(v), { message: "Must be a number", params: { i18n: "notANumber" } });
 
-// Same convention as optionalNumber: empty string means "not provided". A
-// non-empty value must still parse to a real date — an unparseable string
-// (or one Date.parse "succeeds" on but is out of range, e.g. year 275760+)
-// would otherwise reach the repository's `new Date(...)` unchecked, get
-// stored, and blow up as an uncaught RangeError the next time something
-// calls `.toISOString()` on it (see app/projects/export/route.ts). Same
-// guard as schemas/intervention.ts's scheduledAtSchema.
-const optionalDate = z
-    .string()
-    .optional()
-    .transform((v) => (v && v.trim() !== "" ? v : undefined))
-    .refine((v) => v === undefined || !isNaN(Date.parse(v)), { message: "Date invalide" });
-
 // Adversarial pass 2, point 5: none of the free-text fields below had an
 // upper bound before — see schemas/fields.ts for the tier constants.
-export const createProjectSchema = z.object({
+const createProjectFields = z.object({
     clientId: z.coerce.number().int().positive(),
     name: z.string().min(1, "Project name is required").max(MAX_NAME_LENGTH),
     businessNumber: z.string().max(MAX_CODE_LENGTH).optional(),
@@ -59,14 +46,30 @@ export const createProjectSchema = z.object({
     power: optionalNumber,
     budget: optionalNumber,
     address: z.string().max(MAX_LINE_LENGTH).optional(),
-    startDate: optionalDate,
-    endDate: optionalDate,
+    startDate: optionalDateField,
+    endDate: optionalDateField,
     notes: z.string().max(MAX_NOTE_LENGTH).optional(),
 });
 
-export const updateProjectSchema = createProjectSchema.extend({
-    id: z.coerce.number().int().positive(),
-});
+
+// start <= end, ONE rule for create, update and CSV import (the three go
+// through these two schemas). Posted on the write schema, error on endDate.
+// Both dates are already validated "AAAA-MM-JJ" strings (optionalDateField),
+// so a lexicographic comparison is a chronological one. An absent bound never
+// fails: a chantier may have only a start, or only an end.
+function endNotBeforeStart(data: { startDate?: string; endDate?: string }): boolean {
+    return data.startDate === undefined || data.endDate === undefined || data.endDate >= data.startDate;
+}
+const END_BEFORE_START = {
+    message: "La date de fin ne peut pas précéder la date de début.",
+    path: ["endDate"],
+};
+
+export const createProjectSchema = createProjectFields.refine(endNotBeforeStart, END_BEFORE_START);
+
+export const updateProjectSchema = createProjectFields
+    .extend({ id: z.coerce.number().int().positive() })
+    .refine(endNotBeforeStart, END_BEFORE_START);
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
