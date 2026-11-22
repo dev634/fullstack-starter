@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { type Client, Prisma } from "@/app/generated/prisma/client";
-import { GetClientsByOrder } from "@/service/clients";
 
 
 
@@ -200,22 +199,6 @@ export async function findTrashState(id: number): Promise<{ inTrash: boolean } |
     }
 }
 
-export async function findAll(orderBy: GetClientsByOrder) {
-    try {
-        const clients = await prisma.client.findMany({
-            where: { deletedAt: null },
-            orderBy: orderBy || { id: "asc" },
-        });
-        return clients;
-    } catch (error) {
-        console.log("Repository findAll error:", error);
-        throw {
-            type: "repositoryError",
-            message: "Database Error fetching clients."
-           }
-    }
-}
-
 /**
  * THE rule "a company entirely within the caller's project scope": at least
  * one LIVE project among `projectIds`, and NO project of the company outside
@@ -360,9 +343,11 @@ export async function update({ id, email, companyName, address, city, zipCode, c
 /** Move a client to the trash (reversible). */
 export async function softDelete(id: number) {
     try{
+    // `select`: no caller reads the row back (actions/clients/clients.ts).
     const client = await prisma.client.update({
         where: { id },
         data: { deletedAt: new Date() },
+        select: { id: true },
     });
     return client;
     }catch(error){
@@ -380,6 +365,7 @@ export async function restore(id: number) {
     const client = await prisma.client.update({
         where: { id },
         data: { deletedAt: null },
+        select: { id: true },
     });
     return client;
     }catch(error){
@@ -396,6 +382,7 @@ export async function permanentlyRemove(id: number) {
     try{
     const client = await prisma.client.delete({
         where: { id },
+        select: { id: true },
     });
     return client;
     }catch(error){

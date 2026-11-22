@@ -132,6 +132,35 @@ function collectImportedNames(source: ts.SourceFile, relFile: string, targetFile
   return names;
 }
 
+/**
+ * Whether `source` reaches lib/access.ts in a way that does not bind its exports by name:
+ * a namespace import (`import * as x`), a default import, a dynamic `import("…")`, a
+ * `require("…")`, or an `export … from` re-export. Named imports are what
+ * collectImportedNames sees; these are everything else.
+ */
+function reachesAccessLibWithoutNamedImport(source: ts.SourceFile, relFile: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && resolvesToModule(n.moduleSpecifier.text, relFile, ACCESS_LIB_FILE)) {
+      const clause = n.importClause;
+      if (clause?.name || (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings))) found = true;
+    }
+    if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && resolvesToModule(n.moduleSpecifier.text, relFile, ACCESS_LIB_FILE)) {
+      found = true;
+    }
+    if (ts.isCallExpression(n)) {
+      const [arg] = n.arguments;
+      const dynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const requireCall = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      if ((dynamicImport || requireCall) && arg && ts.isStringLiteralLike(arg) && resolvesToModule(arg.text, relFile, ACCESS_LIB_FILE)) found = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return found;
+}
+
 /** Local names bound to lib/areaAccess.ts's `exportName` export, aliased or not. */
 function collectAreaGuardNames(source: ts.SourceFile, relFile: string, exportName: string): Set<string> {
   return collectImportedNames(source, relFile, AREA_ACCESS_LIB_FILE, exportName);
@@ -191,6 +220,100 @@ function bodyCallsAnyOfWithFirstArg(node: ts.Node, guardNames: ReadonlySet<strin
   };
   visit(node);
   return found;
+}
+
+/**
+ * REFUSAL, not just a call. A scope guard (requireProjectAccess & co.) returns a
+ * result; it protects nothing unless the caller TESTS that result and leaves.
+ * `await requireProjectAccess(id);` on its own is "a call to the guard" and
+ * lets every refusal through — a call-only scan certifies it. The accepted form
+ * is the one the codebase uses everywhere:
+ *
+ *   const check = await guard(...);          // result bound to a plain variable
+ *   if (check.error) return ... / throw ...; // .error tested by an `if` that exits
+ *
+ * (`if (check.error !== null)` is accepted too.) Destructuring the result or
+ * testing it through anything else is NOT accepted: it is not a form this
+ * codebase uses, and an unrecognized form fails closed rather than passing.
+ */
+function unwrapExpression(e: ts.Expression): ts.Expression {
+  let cur = e;
+  while (ts.isParenthesizedExpression(cur) || ts.isAwaitExpression(cur)) cur = cur.expression;
+  return cur;
+}
+
+/** `name.error`, or `name.error !== null` / `!= null`. */
+function isErrorTest(cond: ts.Expression, name: string): boolean {
+  const c = unwrapExpression(cond);
+  if (ts.isPropertyAccessExpression(c)) {
+    return ts.isIdentifier(c.expression) && c.expression.text === name && c.name.text === "error";
+  }
+  if (
+    ts.isBinaryExpression(c) &&
+    (c.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+      c.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken)
+  ) {
+    return c.right.kind === ts.SyntaxKind.NullKeyword && isErrorTest(c.left, name);
+  }
+  return false;
+}
+
+/** A branch that leaves the function: a `return`/`throw`, bare or as a statement of its block. */
+function exitsFunction(stmt: ts.Statement): boolean {
+  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt)) return true;
+  return ts.isBlock(stmt) && stmt.statements.some((s) => ts.isReturnStatement(s) || ts.isThrowStatement(s));
+}
+
+type GuardCallSite = { exportName: string; line: number; refused: boolean };
+
+/**
+ * Every call to a guard (`guardNames`: local name -> the lib/access export it
+ * is bound to) inside `body`, each with whether its result is bound to a
+ * variable whose `.error` is tested, AFTER the call, by an `if` that exits.
+ */
+function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>): GuardCallSite[] {
+  const sites: GuardCallSite[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
+      const exportName = guardNames.get(n.expression.text)!;
+      const line = n.getSourceFile().getLineAndCharacterOfPosition(n.getStart()).line + 1;
+      // Climb through `await` and parentheses to the declaration that binds the result.
+      let parent: ts.Node = n.parent;
+      while (ts.isAwaitExpression(parent) || ts.isParenthesizedExpression(parent)) parent = parent.parent;
+      let refused = false;
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+        const varName = parent.name.text;
+        const after = n.end;
+        const find = (m: ts.Node) => {
+          if (refused) return;
+          if (
+            ts.isIfStatement(m) &&
+            m.pos >= after &&
+            isErrorTest(m.expression, varName) &&
+            exitsFunction(m.thenStatement)
+          ) {
+            refused = true;
+            return;
+          }
+          ts.forEachChild(m, find);
+        };
+        find(body);
+      }
+      sites.push({ exportName, line, refused });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return sites;
+}
+
+/** Local name -> lib/access export name, for the given exports, aliased or not. */
+function accessGuardBindings(source: ts.SourceFile, relFile: string, exportNames: readonly string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const exportName of exportNames) {
+    for (const local of collectImportedNames(source, relFile, ACCESS_LIB_FILE, exportName)) map.set(local, exportName);
+  }
+  return map;
 }
 
 type Action = { key: string; file: string; name: string; guarded: boolean };
@@ -728,16 +851,24 @@ describe("authorization coverage across server actions", () => {
    */
   const PROJECT_ACCESS_EXEMPT: Record<string, string> = {
     "actions/deliveryNoteScan/deliveryNoteScan.ts::scanDeliveryNote":
-      "reads one uploaded photo and returns a preview — no project id is resolved and nothing is read or " +
-      "written under a project (its write step, applyDeliveryNoteScan, is guarded). Disappears the day it " +
-      "takes or reads a project's data: it must then call requireProjectAccess and leave this list.",
+      "reads one uploaded photo and returns a preview. It does read a `projectId` from the form — " +
+      "unvalidated, not even sent by the UI today — but only to write it into logScanEvent, a console.log; " +
+      "that id is never resolved, and nothing is read or written under a project (its write step, " +
+      "applyDeliveryNoteScan, is guarded). Disappears the day it uses that id for anything else, or reads or " +
+      "writes a project's data: it must then call requireProjectAccess and leave this list.",
   };
 
   /**
    * How many actions of OWNED_BY_SECTION the test below looks at (exempt ones
-   * included), and how many it requires to call requireProjectAccess.
-   * Recounted by AST (pageFunctionsIn, exported only) on base commit 5c68150
-   * plus this change: 13 files, 47 exported actions, 1 exempt, 46 covered.
+   * included), and how many it requires to call requireProjectAccess AND
+   * refuse on its result.
+   * Recounted by AST (pageFunctionsIn, exported only — top-level `function`
+   * and `const f = () => {}` declarations, helpers that are not exported
+   * excluded) on the working tree above 3bff9d8, before any commit of this
+   * change: 13 files, 47 exported actions, 1 exempt, 46 covered. The commit
+   * that carries this line is not known when it is written — an earlier
+   * wording cited 5c68150 "plus this change", a base that is not the state
+   * counted; re-date it at the next recount.
    * An EXACT count, not a floor: a file dropped from OWNED_BY_SECTION, or an
    * action removed from one, must make this fail rather than shrink the
    * domain silently. Update it, with the method above, when an action is added.
@@ -745,24 +876,31 @@ describe("authorization coverage across server actions", () => {
   const OWNED_ACTIONS_EXPECTED = 47;
   const PROJECT_ACCESS_COVERED_EXPECTED = 46;
 
-  /** Every exported action of OWNED_BY_SECTION: key -> whether its body directly calls requireProjectAccess imported from @/lib/access. */
-  function ownedActionsCallingProjectAccess(): Map<string, boolean> {
-    const result = new Map<string, boolean>();
+  type GuardUse = { calls: boolean; unrefused: number[] };
+
+  /**
+   * Every exported action of OWNED_BY_SECTION: key -> whether its body calls
+   * requireProjectAccess imported from @/lib/access, and the lines of the
+   * calls whose result is not tested by an `if` that exits (guardCallSites).
+   */
+  function ownedActionsCallingProjectAccess(): Map<string, GuardUse> {
+    const result = new Map<string, GuardUse>();
     for (const file of OWNED_BY_SECTION) {
       const source = ts.createSourceFile(file, readFileSync(join(process.cwd(), file), "utf8"), ts.ScriptTarget.Latest, true);
-      const guardNames = collectImportedNames(source, file, ACCESS_LIB_FILE, "requireProjectAccess");
+      const bindings = accessGuardBindings(source, file, ["requireProjectAccess"]);
       for (const fn of pageFunctionsIn(source)) {
         if (!fn.exported) continue;
-        result.set(`${file}::${fn.name}`, bodyCallsAnyOf(fn.body, guardNames));
+        const sites = guardCallSites(fn.body, bindings);
+        result.set(`${file}::${fn.name}`, { calls: sites.length > 0, unrefused: sites.filter((s) => !s.refused).map((s) => s.line) });
       }
     }
     return result;
   }
 
-  it("every project-content action calls requireProjectAccess (imported from @/lib/access), so the trash freezes it", () => {
+  it("every project-content action calls requireProjectAccess (imported from @/lib/access) and REFUSES on its result, so the trash freezes it", () => {
     const actions = ownedActionsCallingProjectAccess();
 
-    const missing = [...actions].filter(([key, calls]) => !calls && !(key in PROJECT_ACCESS_EXEMPT)).map(([key]) => key);
+    const missing = [...actions].filter(([key, use]) => !use.calls && !(key in PROJECT_ACCESS_EXEMPT)).map(([key]) => key);
     expect(
       missing,
       missing.length
@@ -774,15 +912,282 @@ describe("authorization coverage across server actions", () => {
         : undefined
     ).toEqual([]);
 
+    // A call that does not refuse is a decoration: `await requireProjectAccess(id);` alone passes every
+    // refusal through. The result must be bound and its `.error` tested by an `if` that returns or throws.
+    const unrefused = [...actions].filter(([, use]) => use.unrefused.length > 0).map(([key, use]) => `${key} (line ${use.unrefused.join(", ")})`);
+    expect(
+      unrefused,
+      unrefused.length
+        ? `These actions call requireProjectAccess but never act on a refusal:\n` +
+          unrefused.map((k) => `  - ${k}`).join("\n") +
+          `\n\nBind the result (\`const scopeCheck = await requireProjectAccess(id)\`) and ` +
+          `\`if (scopeCheck.error) return ...\` (or throw): a call whose result is ignored refuses nothing.`
+        : undefined
+    ).toEqual([]);
+
     // Exemptions must stay true: an exempt action that exists and does NOT call it.
     for (const key of Object.keys(PROJECT_ACCESS_EXEMPT)) {
       expect(actions.has(key), `PROJECT_ACCESS_EXEMPT names ${key}, which no longer exists — drop the exemption.`).toBe(true);
-      expect(actions.get(key), `${key} now calls requireProjectAccess — drop its exemption.`).toBe(false);
+      expect(actions.get(key)?.calls, `${key} now calls requireProjectAccess — drop its exemption.`).toBe(false);
     }
 
     // The discovered domain has an exact size (see the constants above).
     expect(actions.size).toBe(OWNED_ACTIONS_EXPECTED);
     expect(actions.size - Object.keys(PROJECT_ACCESS_EXEMPT).length).toBe(PROJECT_ACCESS_COVERED_EXPECTED);
+  });
+
+  // ---------------------------------------------------------------------
+  // The freeze for the writes that are NOT project content: the project row
+  // itself (actions/projects), and the company, its contacts and its portal
+  // logins (actions/clients, actions/contacts, actions/portal) — guarded by
+  // requireProjectAccess / requireTrashedProjectAccess / requireClientAccess /
+  // requireFullClientAccess instead of the OWNED_BY_SECTION pair above.
+  // ---------------------------------------------------------------------
+
+  /** The scope guards of lib/access.ts that decide on the trash. */
+  const FREEZE_GUARD_EXPORTS = [
+    "requireProjectAccess",
+    "requireTrashedProjectAccess",
+    "requireClientAccess",
+    "requireClientAccessWithin",
+    "requireFullClientAccess",
+  ] as const;
+
+  /**
+   * Each exported action of the discovered files -> the guard(s) it must
+   * reach AND refuse on (any one of them). "Reach" includes a helper of the
+   * same file that does (actions/contacts/contacts.ts::findContactInScope).
+   * Update this table, not the test, when an action is added: an action that
+   * is in neither this table nor FREEZE_EXEMPT fails the test.
+   */
+  const FREEZE_EXPECTED: Record<string, readonly string[]> = {
+    "actions/projects/projects.ts::addProject": ["requireClientAccess"],
+    "actions/projects/projects.ts::updateProject": ["requireProjectAccess"],
+    "actions/projects/projects.ts::deleteProject": ["requireProjectAccess"],
+    "actions/projects/projects.ts::restoreProject": ["requireTrashedProjectAccess"],
+    "actions/projects/projects.ts::permanentlyDeleteProject": ["requireTrashedProjectAccess"],
+    "actions/projects/projects.ts::importProjects": ["requireClientAccessWithin"],
+    "actions/clients/clients.ts::updateClient": ["requireClientAccess"],
+    "actions/clients/clients.ts::deleteClient": ["requireFullClientAccess"],
+    "actions/clients/clients.ts::restoreClient": ["requireFullClientAccess"],
+    "actions/clients/clients.ts::permanentlyDeleteClient": ["requireFullClientAccess"],
+    "actions/contacts/contacts.ts::addContact": ["requireClientAccess"],
+    "actions/contacts/contacts.ts::editContact": ["requireClientAccess"],
+    "actions/contacts/contacts.ts::setPrimaryContact": ["requireClientAccess"],
+    "actions/contacts/contacts.ts::deleteContact": ["requireClientAccess"],
+    "actions/contacts/contacts.ts::importContacts": ["requireClientAccessWithin"],
+    "actions/portal/portal.ts::createPortalLogin": ["requireClientAccess"],
+  };
+
+  /**
+   * Exported actions of those files that need no freeze guard, each with its
+   * reason AND the condition of its disappearance. The test fails if an
+   * exempt action starts calling one of the guards (stale exemption) or no
+   * longer exists.
+   */
+  const FREEZE_EXEMPT: Record<string, string> = {
+    "actions/projects/projects.ts::getProjectsForClient":
+      "a read: nothing to freeze. Its listing already excludes trashed projects (repository/projects.ts::findByClient, " +
+      "deletedAt: null). Disappears the day it writes, or lists projects under a company in the trash.",
+    "actions/projects/projects.ts::getProject":
+      "a read: nothing to freeze. Its visibility rule is projectTrashState (lib/projectTrash.ts), the same formula " +
+      "requireProjectAccess reads, pinned by the 'visibility reads' test below. Disappears the day it writes.",
+    "actions/clients/clients.ts::addClient":
+      "creates a NEW company: no existing row is under a trash to respect. Disappears the day it updates an existing company.",
+    "actions/clients/clients.ts::importClients":
+      "creates new companies (an existing email is reported as a duplicate, never updated): no existing row is " +
+      "written. Disappears the day an import updates an existing company.",
+    "actions/clients/clients.ts::getClient":
+      "a read: nothing to freeze. It answers 'not found' for a company in the trash (client.deletedAt) and for one " +
+      "out of scope. Disappears the day it writes.",
+    "actions/clients/clients.ts::deleteClients":
+      "bulk TRASHING of companies: guarded by fullyAccessibleClientIds (a filter over the batch, not a refusal " +
+      "to test) and it skips a row already in the trash (existing.deletedAt) — it writes the company's own " +
+      "trash flag, nothing under a frozen company. Disappears the day it writes anything but that flag, or " +
+      "when the bulk path is folded into deleteClient.",
+  };
+
+  /** Every top-level function of a file with the guard call sites in its own body. */
+  type FreezeFn = { name: string; exported: boolean; sites: GuardCallSite[]; calls: Set<string> };
+
+  function freezeFunctions(rel: string): FreezeFn[] {
+    const source = ts.createSourceFile(rel, readFileSync(join(process.cwd(), rel), "utf8"), ts.ScriptTarget.Latest, true);
+    const bindings = accessGuardBindings(source, rel, FREEZE_GUARD_EXPORTS);
+    const callNames = new Map(functionsIn(source).map((f) => [f.name, f.calls]));
+    return pageFunctionsIn(source).map((fn) => ({
+      name: fn.name,
+      exported: fn.exported,
+      sites: guardCallSites(fn.body, bindings),
+      calls: callNames.get(fn.name) ?? new Set<string>(),
+    }));
+  }
+
+  /**
+   * The freeze guards a function reaches AND refuses on — directly, or through
+   * a function of the same file it calls (transitively, cycle-safe).
+   */
+  function refusedGuards(fns: FreezeFn[], name: string, seen: Set<string> = new Set()): Set<string> {
+    const out = new Set<string>();
+    if (seen.has(name)) return out;
+    seen.add(name);
+    const fn = fns.find((f) => f.name === name);
+    if (!fn) return out;
+    for (const s of fn.sites) if (s.refused) out.add(s.exportName);
+    for (const callee of fn.calls) for (const g of refusedGuards(fns, callee, seen)) out.add(g);
+    return out;
+  }
+
+  /**
+   * Discovered, not listed: every file under actions/ that imports one of the
+   * freeze guards from lib/access, minus OWNED_BY_SECTION (checked by the
+   * test above). A file that imports none of them is invisible here — that
+   * gap is what AREA_BY_FILE and the "clients/projects/contacts" area test
+   * close from the other side.
+   */
+  function freezeFiles(): string[] {
+    const files: string[] = [];
+    for (const file of sourceFilesIn(ACTIONS_DIR, [".ts"])) {
+      const rel = relative(process.cwd(), file).split(sep).join("/");
+      if (OWNED_BY_SECTION.includes(rel)) continue;
+      const source = ts.createSourceFile(rel, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+      if (accessGuardBindings(source, rel, FREEZE_GUARD_EXPORTS).size > 0) files.push(rel);
+    }
+    return files.sort();
+  }
+
+  /**
+   * Exact sizes of the domain above, recounted by AST (top-level exported
+   * functions of the discovered files) on the working tree above 3bff9d8,
+   * before any commit of this change: 4 files, 22 exported actions, 6 exempt,
+   * 16 covered. An EXACT count: a file leaving the discovery (its guard import
+   * removed) or an action disappearing must fail here, not shrink the domain.
+   */
+  const FREEZE_FILES_EXPECTED = 4;
+  const FREEZE_ACTIONS_EXPECTED = 22;
+
+  it("every write outside OWNED_BY_SECTION (project row, company, contacts, portal) reaches a trash-aware scope guard and REFUSES on its result", () => {
+    const files = freezeFiles();
+    expect(files, "the discovered files changed — recount, then update FREEZE_FILES_EXPECTED").toHaveLength(FREEZE_FILES_EXPECTED);
+
+    const actions: string[] = [];
+    const problems: string[] = [];
+    for (const rel of files) {
+      const fns = freezeFunctions(rel);
+      // No guard call anywhere in these files may ignore its result.
+      for (const fn of fns) {
+        for (const s of fn.sites) {
+          if (!s.refused) problems.push(`${rel}::${fn.name} (line ${s.line}): ${s.exportName} result is not tested by an if that returns or throws`);
+        }
+      }
+      for (const fn of fns.filter((f) => f.exported)) {
+        const key = `${rel}::${fn.name}`;
+        actions.push(key);
+        const reached = refusedGuards(fns, fn.name);
+        if (key in FREEZE_EXEMPT) {
+          if (reached.size > 0) problems.push(`${key} is exempt but now reaches ${[...reached].join(", ")} — drop its exemption`);
+          continue;
+        }
+        const expected = FREEZE_EXPECTED[key];
+        if (!expected) {
+          problems.push(`${key} is in neither FREEZE_EXPECTED nor FREEZE_EXEMPT — classify it`);
+          continue;
+        }
+        if (!expected.some((g) => reached.has(g))) {
+          problems.push(`${key} must reach and refuse on ${expected.join(" or ")}, but reaches: ${[...reached].join(", ") || "nothing"}`);
+        }
+      }
+    }
+    // Both tables must name only actions that exist.
+    for (const key of [...Object.keys(FREEZE_EXPECTED), ...Object.keys(FREEZE_EXEMPT)]) {
+      if (!actions.includes(key)) problems.push(`${key} is named in a table but no longer exists — drop it`);
+    }
+
+    expect(problems, problems.join("\n")).toEqual([]);
+    expect(actions).toHaveLength(FREEZE_ACTIONS_EXPECTED);
+    expect(actions.length - Object.keys(FREEZE_EXEMPT).length).toBe(Object.keys(FREEZE_EXPECTED).length);
+  });
+
+  // ---------------------------------------------------------------------
+  // Visibility reads. The write guard freezes a project whose company is in the
+  // trash; every READ that decides whether a project exists for the caller must
+  // use the same formula (lib/projectTrash.ts::projectTrashState), or the page
+  // renders and every button on it is refused.
+  // ---------------------------------------------------------------------
+
+  it("every read that resolves a project for display decides its trash state through projectTrashState, never a bare deletedAt", () => {
+    const PROJECT_READERS = new Set(["findById", "findByIdForPortal"]);
+    const offenders: string[] = [];
+    const readers: string[] = [];
+    for (const dir of ["app", "actions", "lib"]) {
+      for (const file of sourceFilesIn(join(process.cwd(), dir), [".ts", ".tsx"])) {
+        const rel = relative(process.cwd(), file).split(sep).join("/");
+        const source = ts.createSourceFile(rel, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+        // Local names bound to the project repository's findById / findByIdForPortal.
+        const names = new Set<string>();
+        for (const stmt of source.statements) {
+          if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+          if (stmt.moduleSpecifier.text !== "@/repository/projects") continue;
+          const b = stmt.importClause?.namedBindings;
+          if (!b || !ts.isNamedImports(b)) continue;
+          for (const el of b.elements) if (PROJECT_READERS.has((el.propertyName ?? el.name).text)) names.add(el.name.text);
+        }
+        if (names.size === 0) continue;
+        // Every function that CALLS the reader. In app/ and lib/ it must judge the trash state through the
+        // formula; in actions/ the callers are pinned by the exact list below.
+        const trashNames = new Set<string>();
+        for (const stmt of source.statements) {
+          if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+          if (stmt.moduleSpecifier.text !== "@/lib/projectTrash") continue;
+          const b = stmt.importClause?.namedBindings;
+          if (!b || !ts.isNamedImports(b)) continue;
+          for (const el of b.elements) if ((el.propertyName ?? el.name).text === "projectTrashState") trashNames.add(el.name.text);
+        }
+        for (const fn of pageFunctionsIn(source)) {
+          if (!bodyCallsAnyOf(fn.body, names)) continue;
+          const usesDeletedAt = (() => {
+            let found = false;
+            const visit = (n: ts.Node) => {
+              if (found) return;
+              if (ts.isPropertyAccessExpression(n) && n.name.text === "deletedAt") { found = true; return; }
+              ts.forEachChild(n, visit);
+            };
+            visit(fn.body);
+            return found;
+          })();
+          const usesFormula = bodyCallsAnyOf(fn.body, trashNames);
+          readers.push(`${rel}::${fn.name}`);
+          if (usesDeletedAt) offenders.push(`${rel}::${fn.name} reads a bare .deletedAt to decide visibility`);
+          // A page or a route that fetches a project must judge its trash state through the formula: it has no
+          // other reason to read the row. (An action may fetch it for a log line — see above — so actions are
+          // pinned by the exact list below instead.)
+          if (!usesFormula && (rel.startsWith("app/") || rel.startsWith("lib/"))) {
+            offenders.push(`${rel}::${fn.name} fetches a project without projectTrashState`);
+          }
+        }
+      }
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+    // Every caller of the two project readers, 13 on the working tree above 3bff9d8: ten visibility reads
+    // (getProject, the guarded asset route, the six dashboard report routes, the reserves report route, the
+    // portal page) and three ACTIONS that fetch the row for something other than visibility —
+    // deleteProject / permanentlyDeleteProject for the activity-log name, applyDeliveryNoteScan for the
+    // clientId to revalidate — each behind its own guard (the freeze test above). Exact: a reader added
+    // anywhere changes this list; in app/ and lib/ it also has to use the formula (offenders above).
+    expect(readers.sort()).toEqual([
+      "actions/deliveryNoteScan/deliveryNoteScan.ts::applyDeliveryNoteScan",
+      "actions/projects/projects.ts::deleteProject",
+      "actions/projects/projects.ts::getProject",
+      "actions/projects/projects.ts::permanentlyDeleteProject",
+      "app/api/assets/[kind]/[id]/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/companies/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/interims/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/materials/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/tasks/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/dashboard/report/workers/route.ts::GET",
+      "app/clients/[id]/projects/[projectId]/reserves/report/route.ts::GET",
+      "app/portail/projets/[projectId]/page.tsx::PortalProjectPage",
+    ]);
   });
 
   it("requireTrashedProjectAccess is called by restoreProject and permanentlyDeleteProject, and by nothing else", () => {
@@ -800,6 +1205,11 @@ describe("authorization coverage across server actions", () => {
         const rel = relative(process.cwd(), file).split(sep).join("/");
         if (rel === "lib/access.ts") continue; // the definition
         const source = ts.createSourceFile(rel, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+        // Every way of reaching lib/access that does NOT bind the export by name defeats the scan below
+        // (`import * as access from "@/lib/access"; access.requireTrashedProjectAccess(...)`, a dynamic
+        // import, a require, a re-export through a barrel). None is used today: refuse them all, so the
+        // set of callers cannot be widened through a door this test does not look at.
+        if (reachesAccessLibWithoutNamedImport(source, rel)) callers.add(`${rel}::<indirect access to @/lib/access>`);
         const names = collectImportedNames(source, rel, ACCESS_LIB_FILE, "requireTrashedProjectAccess");
         if (names.size === 0) continue;
         const named = pageFunctionsIn(source).filter((fn) => bodyCallsAnyOf(fn.body, names));

@@ -451,23 +451,48 @@ export async function updatePassword(userId: number, hashedPassword: string) {
 }
 
 /**
- * Set which projects a user is assigned to.
+ * Set which projects a user is assigned to — touching ONLY the assignments
+ * this screen is entitled to edit.
  *
- * Ids are re-read from the database rather than trusted: a tampered payload
- * must not be able to link a trashed project, or an id that doesn't exist.
+ * The editable set is read from the database, never trusted from the payload:
+ * the projects that are live AND whose company is live (the ones the
+ * assignment screen offers). The resulting assignments are
+ *
+ *   (existing assignments OUTSIDE the editable set)  U  (submitted ids INSIDE it)
+ *
+ * so a tampered payload still cannot link a trashed project or an id that
+ * does not exist — and saving no longer erases an assignment the screen never
+ * displayed: a project in the trash (or under a company in the trash) keeps
+ * its assignees, so restoring it gives the user their access back. Same rule
+ * as setContactProjects, which this mirrors.
  * Only consulted when the user's job function scope is ASSIGNED, but stored
  * regardless so switching the function on doesn't lose the assignments.
  */
 export async function setUserProjects(userId: number, projectIds: number[]) {
     try {
-        const valid = await prisma.project.findMany({
-            where: { id: { in: projectIds }, deletedAt: null },
-            select: { id: true },
-        });
-        return await prisma.user.update({
-            where: { id: userId },
-            data: { assignedProjects: { set: valid.map((p) => ({ id: p.id })) } },
-            select: { id: true },
+        return await prisma.$transaction(async (tx) => {
+            const user = await tx.user.findUniqueOrThrow({
+                where: { id: userId },
+                select: { assignedProjects: { select: { id: true } } },
+            });
+            const existingIds = user.assignedProjects.map((p) => p.id);
+            const editable = await tx.project.findMany({
+                where: {
+                    id: { in: [...new Set([...existingIds, ...projectIds])] },
+                    deletedAt: null,
+                    client: { deletedAt: null },
+                },
+                select: { id: true },
+            });
+            const editableIds = new Set(editable.map((p) => p.id));
+            const kept = existingIds.filter((id) => !editableIds.has(id));
+            const submitted = projectIds.filter((id) => editableIds.has(id));
+            const finalIds = [...new Set([...kept, ...submitted])];
+            return tx.user.update({
+                where: { id: userId },
+                data: { assignedProjects: { set: finalIds.map((id) => ({ id })) } },
+                select: { id: true },
+            });
         });
     } catch (error) {
         console.log("Repository setUserProjects error:", error);

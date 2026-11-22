@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createFolderSchema } from "@/schemas/projectFile";
@@ -177,7 +178,7 @@ export async function deleteFile(id: number, clientId: number, projectId: number
     // are resolved from the database, so a distinct "forbidden" response
     // would let a restricted EDITOR enumerate ids across the whole company
     // (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.files.messages.fileNotFound };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.files.messages.fileNotFound) };
     await destroyProjectFile(file.publicId, { deliveryType: file.deliveryType, resourceType: file.resourceType });
     await removeFile(id);
     revalidateFiles(clientId, projectId);
@@ -207,7 +208,7 @@ export async function deleteFolder(id: number, clientId: number, projectId: numb
     if (!folder) throw { type: "error", message: t.files.messages.invalidFolderId };
     const scopeCheck = await requireProjectAccess(folder.projectId);
     // Passe 3b, point 2 — see deleteFile's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.files.messages.invalidFolderId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.files.messages.invalidFolderId) };
     const files = await collectDescendantFilePublicIds(folder.projectId, id);
     await Promise.all(
       files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))

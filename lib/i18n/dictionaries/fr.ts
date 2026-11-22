@@ -52,6 +52,7 @@ const fr = {
         forbiddenSection: "Accès refusé. Cette section n'est pas accessible avec ta fonction.",
         invalidId: "Identifiant invalide.",
         inTrash: "Cet élément est à la corbeille : restaure-le pour le modifier.",
+        parentInTrash: "L'entreprise de ce chantier est à la corbeille : restaure-la d'abord.",
         serverError: "Erreur serveur. Réessaie plus tard.",
     },
     nav: {

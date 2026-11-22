@@ -71,7 +71,7 @@ describe("GET /api/assets/[kind]/[id]", () => {
       projectIds: null,
     } as never);
     canReachProjectMock.mockReturnValue(true);
-    findProjectByIdMock.mockResolvedValue({ id: 5, deletedAt: null } as never);
+    findProjectByIdMock.mockResolvedValue({ id: 5, deletedAt: null, client: { deletedAt: null } } as never);
     buildDeliveryUrlMock.mockReturnValue(DELIVERY_URL);
 
     findProjectFileByIdMock.mockResolvedValue({
@@ -183,7 +183,16 @@ describe("GET /api/assets/[kind]/[id]", () => {
   });
 
   it("404s when the row's project is soft-deleted", async () => {
-    findProjectByIdMock.mockResolvedValue({ id: 5, deletedAt: new Date() } as never);
+    findProjectByIdMock.mockResolvedValue({ id: 5, deletedAt: new Date(), client: { deletedAt: null } } as never);
+    const res = await callGet("project-files", "1");
+    expect(res.status).toBe(404);
+  });
+
+  // Same definition of "in the trash" as requireProjectAccess (lib/projectTrash.ts):
+  // trashing a company does not cascade to its projects, and a live project
+  // under a trashed company is frozen for writes — so it is not served either.
+  it("404s when the row's project is live but its COMPANY is in the trash", async () => {
+    findProjectByIdMock.mockResolvedValue({ id: 5, deletedAt: null, client: { deletedAt: new Date() } } as never);
     const res = await callGet("project-files", "1");
     expect(res.status).toBe(404);
   });

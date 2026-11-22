@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { findTrashState as findProjectTrashState } from "@/repository/projects";
+import {
+  findTrashState as findProjectTrashState,
+  findById as findProjectById,
+  findByIdForPortal as findProjectByIdForPortal,
+  findByIds as findProjectsByIds,
+} from "@/repository/projects";
+import { projectTrashState } from "@/lib/projectTrash";
 import {
   findTrashState as findClientTrashState,
   findReachableOptions,
@@ -50,20 +56,61 @@ describe("findTrashState (project) — behind requireProjectAccess / requireTras
   it("a live project of a live company is not in the trash", async () => {
     const co = await makeCompany();
     const p = await makeProject(co.id, "Live");
-    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: false, inTrash: false });
+    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: false, parentTrashed: false, inTrash: false });
   });
 
   it("a trashed project is selfTrashed and inTrash", async () => {
     const co = await makeCompany();
     const p = await makeProject(co.id, "Trashed", new Date());
-    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: true, inTrash: true });
+    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: true, parentTrashed: false, inTrash: true });
   });
 
   it("a LIVE project under a trashed company is inTrash but NOT selfTrashed (the trash does not cascade)", async () => {
     const co = await makeCompany();
     const p = await makeProject(co.id, "Live under trashed co");
     await prisma.client.update({ where: { id: co.id }, data: { deletedAt: new Date() } });
-    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: false, inTrash: true });
+    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: false, parentTrashed: true, inTrash: true });
+  });
+
+  it("a trashed project under a trashed company is both — restoring it alone must be refused", async () => {
+    const co = await makeCompany();
+    const p = await makeProject(co.id, "Both", new Date());
+    await prisma.client.update({ where: { id: co.id }, data: { deletedAt: new Date() } });
+    expect(await findProjectTrashState(p.id)).toEqual({ selfTrashed: true, parentTrashed: true, inTrash: true });
+  });
+});
+
+// The reads that decide whether a project is VISIBLE feed projectTrashState
+// (lib/projectTrash.ts) from the same two dates findTrashState reads: the row
+// they return must carry the company's deletedAt, or a project under a trashed
+// company would stay visible while every write on it is refused.
+describe("project reads carry the company's trash date — one formula for guards and reads", () => {
+  it("findById and findByIdForPortal agree with findTrashState on a live project under a trashed company", async () => {
+    const co = await makeCompany();
+    const p = await makeProject(co.id, "Live under trashed co");
+    await prisma.client.update({ where: { id: co.id }, data: { deletedAt: new Date() } });
+    const state = await findProjectTrashState(p.id);
+    const full = await findProjectById(p.id);
+    const portal = await findProjectByIdForPortal(p.id);
+    expect(full && projectTrashState(full)).toEqual(state);
+    expect(portal && projectTrashState(portal)).toEqual(state);
+  });
+
+  it("a live project of a live company reads as not in the trash on every path", async () => {
+    const co = await makeCompany();
+    const p = await makeProject(co.id, "Live");
+    const full = await findProjectById(p.id);
+    const portal = await findProjectByIdForPortal(p.id);
+    expect(full && projectTrashState(full).inTrash).toBe(false);
+    expect(portal && projectTrashState(portal).inTrash).toBe(false);
+  });
+
+  it("the portal list leaves out a project under a trashed company, like its detail page", async () => {
+    const co = await makeCompany();
+    const live = await makeProject(co.id, "Live");
+    expect((await findProjectsByIds([live.id])).map((r) => r.id)).toEqual([live.id]);
+    await prisma.client.update({ where: { id: co.id }, data: { deletedAt: new Date() } });
+    expect(await findProjectsByIds([live.id])).toEqual([]);
   });
 });
 
@@ -177,21 +224,103 @@ describe("findLinkedProjectIds + canRemoveContact — deleteContact for a restri
     const contact = await prisma.contact.create({ data: { clientId: co.id, firstName: "A", lastName: "B" } });
     const link = (ids: number[]) =>
       prisma.contact.update({ where: { id: contact.id }, data: { projects: { set: ids.map((id) => ({ id })) } } });
-    const sorted = async () => (await findLinkedProjectIds(contact.id)).sort((x, y) => x - y);
+    const sorted = async () => ((await findLinkedProjectIds(contact.id)) ?? []).sort((x, y) => x - y);
 
-    // Degenerate row: a contact with no link, and a contact that does not exist.
+    // Degenerate row: a contact with no link ([] — nothing to lose, allowed),
+    // and a contact that does not exist (null — NOT [], which would authorize).
     expect(await sorted()).toEqual([]);
-    expect(canRemoveContact(await sorted(), [a.id])).toBe(true);
-    expect(await findLinkedProjectIds(2_147_000_000)).toEqual([]);
+    expect(canRemoveContact(await sorted(), new Set([a.id]))).toBe(true);
+    expect(await findLinkedProjectIds(2_147_000_000)).toBeNull();
 
     await link([a.id]);
-    expect(canRemoveContact(await sorted(), [a.id])).toBe(true);
+    expect(canRemoveContact(await sorted(), new Set([a.id]))).toBe(true);
     await link([a.id, b.id]);
-    expect(canRemoveContact(await sorted(), [a.id])).toBe(false);
+    expect(canRemoveContact(await sorted(), new Set([a.id]))).toBe(false);
     await link([a.id, t.id]);
     expect(await sorted()).toEqual([a.id, t.id].sort((x, y) => x - y));
-    expect(canRemoveContact(await sorted(), [a.id])).toBe(false);
-    expect(canRemoveContact(await sorted(), [a.id, t.id])).toBe(true);
+    expect(canRemoveContact(await sorted(), new Set([a.id]))).toBe(false);
+    expect(canRemoveContact(await sorted(), new Set([a.id, t.id]))).toBe(true);
+  });
+});
+
+// A link to a project in the trash is KEPT everywhere (decision: restoring the
+// project must give the access back). setUserProjects used to filter
+// deletedAt: null and then `set`, which silently erased those assignments.
+describe("setUserProjects keeps the assignments it cannot edit (trashed project, trashed company)", () => {
+  async function makeUser() {
+    return prisma.user.create({ data: { email: uniqueEmail("assign"), password: "x", role: "EDITOR" } });
+  }
+  const assigned = async (userId: number) =>
+    (await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { assignedProjects: { select: { id: true } } } }))
+      .assignedProjects.map((p) => p.id)
+      .sort((a, b) => a - b);
+  const link = (userId: number, ids: number[]) =>
+    prisma.user.update({ where: { id: userId }, data: { assignedProjects: { set: ids.map((id) => ({ id })) } } });
+
+  it("a save from the assignment screen leaves a trashed project's assignment alone", async () => {
+    const co = await makeCompany();
+    const live = await makeProject(co.id, "Live");
+    const other = await makeProject(co.id, "Other live");
+    const trashed = await makeProject(co.id, "Trashed", new Date());
+    const user = await makeUser();
+    await link(user.id, [live.id, trashed.id]);
+
+    // The screen only offers live projects: it submits [other], dropping "live" on purpose.
+    await setUserProjects(user.id, [other.id]);
+
+    expect(await assigned(user.id)).toEqual([other.id, trashed.id].sort((a, b) => a - b));
+  });
+
+  it("keeps an assignment to a project under a trashed company too", async () => {
+    const trashedCo = await makeCompany("Trashed co");
+    const underTrashedCo = await makeProject(trashedCo.id, "Under trashed co");
+    await prisma.client.update({ where: { id: trashedCo.id }, data: { deletedAt: new Date() } });
+    const liveCo = await makeCompany("Live co");
+    const live = await makeProject(liveCo.id, "Live");
+    const user = await makeUser();
+    await link(user.id, [underTrashedCo.id]);
+
+    await setUserProjects(user.id, [live.id]);
+
+    expect(await assigned(user.id)).toEqual([live.id, underTrashedCo.id].sort((a, b) => a - b));
+  });
+
+  it("still refuses to LINK a trashed project, a project under a trashed company, or an id that does not exist", async () => {
+    const co = await makeCompany();
+    const trashed = await makeProject(co.id, "Trashed", new Date());
+    const trashedCo = await makeCompany("Trashed co");
+    const underTrashedCo = await makeProject(trashedCo.id, "Under trashed co");
+    await prisma.client.update({ where: { id: trashedCo.id }, data: { deletedAt: new Date() } });
+    const user = await makeUser();
+
+    await setUserProjects(user.id, [trashed.id, underTrashedCo.id, 2_147_000_000]);
+
+    expect(await assigned(user.id)).toEqual([]);
+  });
+
+  it("degenerate row: no assignment at all, and an empty submission, change nothing and error nowhere", async () => {
+    const co = await makeCompany();
+    const trashed = await makeProject(co.id, "Trashed", new Date());
+    const user = await makeUser();
+
+    await setUserProjects(user.id, []);
+    expect(await assigned(user.id)).toEqual([]);
+
+    await link(user.id, [trashed.id]);
+    await setUserProjects(user.id, []); // a screen with nothing ticked
+    expect(await assigned(user.id)).toEqual([trashed.id]);
+  });
+
+  it("unassigning a LIVE project still works: an empty submission clears the editable ones only", async () => {
+    const co = await makeCompany();
+    const live = await makeProject(co.id, "Live");
+    const trashed = await makeProject(co.id, "Trashed", new Date());
+    const user = await makeUser();
+    await link(user.id, [live.id, trashed.id]);
+
+    await setUserProjects(user.id, []);
+
+    expect(await assigned(user.id)).toEqual([trashed.id]);
   });
 });
 

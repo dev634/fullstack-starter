@@ -12,6 +12,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { requirePortalContext } from "@/lib/portal";
 import { findByIdForPortal } from "@/repository/projects";
+import { projectTrashState } from "@/lib/projectTrash";
 import { findByProject as findTasksByProject } from "@/repository/tasks";
 import { findByProject as findTaskGroupsByProject } from "@/repository/taskGroups";
 import { findByProject as findReservePlansByProject } from "@/repository/reservePlans";
@@ -42,7 +43,7 @@ export default async function PortalProjectPage({
   }
 
   const project = await findByIdForPortal(pid);
-  if (!project || project.deletedAt || project.clientId !== ctx.clientId) {
+  if (!project || projectTrashState(project).inTrash || project.clientId !== ctx.clientId) {
     notFound();
   }
 

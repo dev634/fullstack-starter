@@ -244,15 +244,15 @@ export async function deleteClient(id: number) {
     // invalidId instead of failing inside softDelete.
     if (!existing) return { type: "error", message: t.errors.invalidId };
     if (existing.deletedAt) return { type: "error", message: t.errors.inTrash };
-    const client = await softDelete(id);
+    await softDelete(id);
     await logActivity({
       action: "DELETED",
       clientId: id,
-      clientName: existing?.companyName ?? `#${id}`,
+      clientName: existing.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
-    return client;
+    return { type: "success" as const, message: format(t.clients.messages.deletedBulk, { count: 1 }) };
   } catch (error) {
     console.log("Action deleteClient error:", error);
     return {
@@ -351,16 +351,16 @@ export async function restoreClient(id: number) {
     if (!existing || !existing.deletedAt) {
       return { type: "error" as const, message: t.errors.invalidId };
     }
-    const client = await restore(id);
+    await restore(id);
     await logActivity({
       action: "RESTORED",
       clientId: id,
-      clientName: client.companyName,
+      clientName: existing.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
     revalidatePath("/clients/trash");
-    return { type: "success" as const, message: t.clients.messages.restored, data: client };
+    return { type: "success" as const, message: t.clients.messages.restored };
   } catch (error) {
     console.log("Action restoreClient error:", error);
     return {
@@ -398,7 +398,7 @@ export async function permanentlyDeleteClient(id: number) {
     // through projects to files, so afterwards the rows (and their publicIds)
     // are gone and the Cloudinary blobs would be orphaned.
     const projectFiles = await findPublicIdsByClient(id);
-    const client = await permanentlyRemove(id);
+    await permanentlyRemove(id);
     await destroyClientPhoto(existing.photoUrl);
     await Promise.all(
       projectFiles.map((f) =>
@@ -412,7 +412,7 @@ export async function permanentlyDeleteClient(id: number) {
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients/trash");
-    return { type: "success" as const, message: t.clients.messages.permanentlyDeleted, data: client };
+    return { type: "success" as const, message: t.clients.messages.permanentlyDeleted };
   } catch (error) {
     console.log("Action permanentlyDeleteClient error:", error);
     return {

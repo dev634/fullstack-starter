@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskSchema, createTaskSeriesSchema, updateTaskSchema, updateTaskQuantitySchema } from "@/schemas/task";
@@ -190,7 +191,7 @@ export async function toggleTask(
     // cases are resolved from the database, so a distinct "forbidden"
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const task = await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
@@ -232,7 +233,7 @@ export async function editTask(
     if (realProjectId === null) return { ...prevState, type: "error", message: t.errors.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
-    if (scopeCheck.error) return { ...prevState, type: "error", message: t.errors.invalidId };
+    if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.errors.invalidId) };
     const task = await update(parsed.data.id, {
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
@@ -283,7 +284,7 @@ export async function updateTaskQuantity(
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const task = await updateQuantity(parsed.data.id, parsed.data.quantityDone);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
@@ -324,7 +325,7 @@ export async function setTaskCategory(
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     // Same cross-check as addTask/addTaskSeries: the category <select> only
     // ever lists this project's own categories.
     if (categoryId != null && (await findTaskCategoryProjectId(categoryId)) !== realProjectId) {
@@ -364,7 +365,7 @@ export async function deleteTask(
     if (realProjectId === null) return { type: "error" as const, message: t.tasks.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const task = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);

@@ -1,6 +1,7 @@
 "use server";
 import { getErrorMessage } from "@/lib/helpers";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { parseAssignee, ASSIGNEE_TARGET_KINDS, type AssigneeTargetKind } from "@/schemas/taskAssignee";
@@ -59,7 +60,7 @@ export async function setAssignee(
     // both are resolved from the database, so a distinct "forbidden"
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.errors.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.errors.invalidId) };
 
     const parsed = parseAssignee(assignee);
 

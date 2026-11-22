@@ -3,6 +3,7 @@ import { canAccessSection } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { findById as findProjectById } from "@/repository/projects";
+import { projectTrashState } from "@/lib/projectTrash";
 import { computeProgressByWorker } from "@/repository/tasks";
 import { workerDisplayName } from "@/lib/workerDisplayName";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -54,7 +55,7 @@ export async function GET(
     const access = await getAccessContext();
     if (
       !project ||
-      project.deletedAt ||
+      projectTrashState(project).inTrash ||
       project.clientId !== clientId ||
       !canReachProject(access, project.id)
     ) {

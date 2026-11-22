@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createMaterialSchema, updateMaterialSchema } from "@/schemas/projectMaterial";
@@ -150,7 +151,7 @@ export async function editMaterial(
     // both are resolved from the database, so a distinct "forbidden"
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { ...prevState, type: "error", message: t.materials.messages.invalidId };
+    if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
 
     // Passe 3b (C2), point 1: see linkTargetInProject's own comment above —
     // the material's real project (realProjectId), not the client-submitted
@@ -212,7 +213,7 @@ export async function deleteMaterial(id: number, clientId: number, projectId: nu
     if (realProjectId === null) return { type: "error" as const, message: t.materials.messages.invalidId };
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see editMaterial's comment above.
-    if (scopeCheck.error) return { type: "error" as const, message: t.materials.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
     const material = await remove(id);
     revalidateMaterials(clientId, projectId);
     return { type: "success" as const, message: t.materials.messages.deleted, data: material };

@@ -106,8 +106,11 @@ export default async function ClientPage({ params }: PageProps) {
     : [];
   const contacts = showContacts ? await findContactsByClient(clientId) : [];
   // Managed job functions offered in the contact add/edit dropdowns.
-  // Same scope the deleteContact action applies (null = unrestricted).
-  const contactScope = accessContext.projectIds === null ? null : [...accessContext.projectIds];
+  // The links a caller may EDIT are the live projects of this company inside
+  // its scope — the same set `projects` is, and the one setContactProjects
+  // recomputes server-side. Any other link (out of scope, or in the trash) is
+  // never sent to the browser.
+  const editableProjectIds = new Set(projects.map((p) => p.id));
   const jobFunctions = showContacts && canEdit ? await findJobFunctions() : [];
 
   return (
@@ -209,7 +212,32 @@ export default async function ClientPage({ params }: PageProps) {
         {contacts.length ? (
           <ul className="divide-y divide-gray-300 dark:divide-gray-700">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} clientId={clientId} canEdit={canEdit} canDelete={canEdit && canRemoveContact(contact.projects.map((p) => p.id), contactScope)} canCreatePortalLogin={canCreatePortalLogin} functions={jobFunctions} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
+              <ContactRow
+                key={contact.id}
+                // A literal on purpose: only an object LITERAL gets the
+                // excess-property check, so a field added to the query above
+                // cannot silently ride along to the browser.
+                contact={{
+                  id: contact.id,
+                  firstName: contact.firstName,
+                  lastName: contact.lastName,
+                  email: contact.email,
+                  phone: contact.phone,
+                  isPrimary: contact.isPrimary,
+                  jobFunctionId: contact.jobFunctionId,
+                  jobFunctionName: contact.jobFunction?.name ?? null,
+                  linkedProjectIds: contact.projects.map((p) => p.id).filter((id) => editableProjectIds.has(id)),
+                  hasLogin: contact.userId !== null,
+                }}
+                clientId={clientId}
+                canEdit={canEdit}
+                // Decided here, on ALL the links (trash and out-of-scope included),
+                // by the same rule deleteContact applies.
+                canDelete={canEdit && canRemoveContact(contact.projects.map((p) => p.id), accessContext.projectIds)}
+                canCreatePortalLogin={canCreatePortalLogin}
+                functions={jobFunctions}
+                projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+              />
             ))}
           </ul>
         ) : (

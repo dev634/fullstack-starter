@@ -50,6 +50,7 @@ const en: Dictionary = {
         forbiddenSection: "Forbidden. This section is not available with your job function.",
         invalidId: "Invalid ID.",
         inTrash: "This item is in the trash: restore it to edit it.",
+        parentInTrash: "This project's company is in the trash: restore it first.",
         serverError: "Server error. Please try again later.",
     },
     nav: {

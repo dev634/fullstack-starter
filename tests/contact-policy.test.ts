@@ -12,6 +12,8 @@ describe("canRemoveContact", () => {
     ["empty scope, a link", [10], [], false],
     ["empty scope, no link", [], [], true],
   ] as const)("%s", (_label, linked, scope, expected) => {
-    expect(canRemoveContact(linked, scope)).toBe(expected);
+    // The scope is passed the way AccessContext carries it (a Set, or null for
+    // "unrestricted") — the one convention, no array conversion at the caller.
+    expect(canRemoveContact(linked, scope === null ? null : new Set(scope))).toBe(expected);
   });
 });

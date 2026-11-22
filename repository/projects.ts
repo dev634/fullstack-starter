@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
+import { projectTrashState, type ProjectTrashState } from "@/lib/projectTrash";
 
 export type ProjectSortField = "name" | "status" | "createdAt";
 
 /**
- * The (non-trashed) projects with the given ids — used by the client portal,
+ * The (non-trashed, company not in the trash) projects with the given ids — used by the client portal,
  * which passes exactly the ids the logged-in contact is linked to. An empty
  * list yields no rows.
  */
@@ -12,7 +13,9 @@ export async function findByIds(ids: number[]) {
     try {
         if (ids.length === 0) return [];
         return await prisma.project.findMany({
-            where: { id: { in: ids }, deletedAt: null },
+            // Same visibility as the portal detail page (lib/projectTrash.ts): a
+            // project under a trashed company is not listed either.
+            where: { id: { in: ids }, deletedAt: null, client: { deletedAt: null } },
             orderBy: [{ createdAt: "desc" }],
             select: {
                 id: true,
@@ -171,7 +174,10 @@ export async function findById(id: number) {
             // la prop ne protege rien (le typage structurel accepte une valeur
             // plus large), seule l absence de la donnee la rend impossible a
             // fuir.
-            include: { client: { select: { companyName: true } } },
+            // deletedAt: lu seulement par projectTrashState (lib/projectTrash.ts),
+            // la definition unique de "a la corbeille" que partagent les gardes
+            // et les lectures de visibilite d un chantier.
+            include: { client: { select: { companyName: true, deletedAt: true } } },
         });
     } catch (error) {
         console.log("Repository findById (project) error:", error);
@@ -212,6 +218,10 @@ export async function findByIdForPortal(id: number) {
                 startDate: true,
                 endDate: true,
                 deletedAt: true,
+                // Same definition of "in the trash" as every other read
+                // (lib/projectTrash.ts): a live project under a trashed company
+                // is not visible to the company's own portal login either.
+                client: { select: { deletedAt: true } },
                 // Not sensitive (unlike budget/notes, deliberately excluded
                 // above) — the portal's own réserves view needs these to
                 // render the exact same status labels/colours as the
@@ -273,15 +283,14 @@ export async function hasProjectAmong(clientId: number, projectIds: number[]): P
  */
 export async function findTrashState(
     id: number
-): Promise<{ selfTrashed: boolean; inTrash: boolean } | null> {
+): Promise<ProjectTrashState | null> {
     try {
         const row = await prisma.project.findUnique({
             where: { id },
             select: { deletedAt: true, client: { select: { deletedAt: true } } },
         });
         if (!row) return null;
-        const selfTrashed = row.deletedAt !== null;
-        return { selfTrashed, inTrash: selfTrashed || row.client.deletedAt !== null };
+        return projectTrashState(row);
     } catch (error) {
         console.log("Repository findTrashState (project) error:", error);
         throw { type: "repositoryError", message: "Database Error checking project state." };

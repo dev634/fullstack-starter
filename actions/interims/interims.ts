@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createInterimSchema } from "@/schemas/interim";
@@ -82,7 +83,7 @@ export async function deleteInterim(id: number, clientId: number, projectId: num
     // exist — both are resolved from the database, so a distinct
     // "forbidden" response would let a restricted EDITOR enumerate ids
     // across the whole company (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.interims.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.interims.messages.invalidId) };
     const interim = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);

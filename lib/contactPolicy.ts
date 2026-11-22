@@ -9,15 +9,15 @@
  * project the contact is linked to. So a restricted caller may only do it when
  * ALL the links — trashed projects included — are inside its own scope.
  *
- * `scopeProjectIds` is the caller's project scope: `null` = unrestricted
- * (always allowed). A contact with no link at all is allowed. An empty scope
- * allows only a contact with no link.
+ * `scope` is the caller's project scope exactly as AccessContext carries it
+ * (`ctx.projectIds`): `null` = unrestricted (always allowed) — the one
+ * convention for "no restriction" in this codebase. A contact with no link at
+ * all is allowed. An empty scope allows only a contact with no link.
  */
 export function canRemoveContact(
   linkedProjectIds: readonly number[],
-  scopeProjectIds: readonly number[] | null
+  scope: ReadonlySet<number> | null
 ): boolean {
-  if (scopeProjectIds === null) return true;
-  const scope = new Set(scopeProjectIds);
+  if (scope === null) return true;
   return linkedProjectIds.every((id) => scope.has(id));
 }

@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { createTaskCategorySchema } from "@/schemas/taskCategory";
@@ -82,7 +83,7 @@ export async function deleteTaskCategory(id: number, clientId: number, projectId
     // both are resolved from the database, so a distinct "forbidden"
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
-    if (scopeCheck.error) return { type: "error" as const, message: t.tasks.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
     const category = await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);

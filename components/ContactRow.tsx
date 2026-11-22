@@ -6,14 +6,25 @@ import { useRowAction } from "@/lib/useRowAction";
 import { deleteContact, setPrimaryContact } from "@/actions/contacts/contacts";
 import EditContactForm from "@/forms/EditContactForm";
 import type { JobFunctionOption } from "@/forms/ContactFields";
-import type { Contact } from "@/app/generated/prisma/client";
 
-// The contact list joins in the job function name, the ids of its linked
-// (portal-visible) projects, and its portal login if any.
-type ContactWithFunction = Contact & {
-  jobFunction: { name: string } | null;
-  projects: { id: number }[];
-  user: { id: number; email: string; role: string } | null;
+// Exactly what this row and its edit form read — nothing more. This type is a
+// documentation of the contract, not the protection: TypeScript is structural,
+// so a wider object still satisfies it. What keeps `userId`, the portal
+// login's email/role and the links to projects the caller cannot reach out of
+// the page payload is that the page builds this prop as a literal from a
+// `select`-ed query (app/clients/[id]/page.tsx).
+type ContactRowData = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  isPrimary: boolean;
+  jobFunctionId: number | null;
+  jobFunctionName: string | null;
+  /** Only the links the caller may EDIT (live projects of this company inside its scope). */
+  linkedProjectIds: number[];
+  hasLogin: boolean;
 };
 
 export default function ContactRow({
@@ -25,7 +36,7 @@ export default function ContactRow({
   functions,
   projects,
 }: {
-  contact: ContactWithFunction;
+  contact: ContactRowData;
   clientId: number;
   canEdit: boolean;
   // Refused server-side to a restricted caller when the contact is linked
@@ -39,7 +50,7 @@ export default function ContactRow({
   const { pending, run } = useRowAction();
 
   const fullName = `${contact.firstName} ${contact.lastName}`.trim();
-  const secondary = [contact.jobFunction?.name, contact.email, contact.phone].filter(Boolean).join(" · ");
+  const secondary = [contact.jobFunctionName, contact.email, contact.phone].filter(Boolean).join(" · ");
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
@@ -76,8 +87,8 @@ export default function ContactRow({
               email: contact.email,
               phone: contact.phone,
               jobFunctionId: contact.jobFunctionId,
-              linkedProjectIds: contact.projects.map((p) => p.id),
-              hasLogin: contact.user != null,
+              linkedProjectIds: contact.linkedProjectIds,
+              hasLogin: contact.hasLogin,
             }}
             clientId={clientId}
             canCreatePortalLogin={canCreatePortalLogin}

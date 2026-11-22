@@ -2,9 +2,11 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
-import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess } from "@/lib/access";
+import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
+import { projectTrashState } from "@/lib/projectTrash";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, findByClient, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
@@ -171,7 +173,7 @@ export async function restoreProject(id: number) {
     }
     // Only a project that IS in the trash can be restored; a live or unknown
     // one gets the same answer (requireTrashedProjectAccess).
-    const scopeCheck = await requireTrashedProjectAccess(id);
+    const scopeCheck = await requireTrashedProjectAccess(id, "restore");
     if (scopeCheck.error) return scopeCheck.error;
     const project = await restore(id);
     await logActivity({
@@ -208,7 +210,7 @@ export async function permanentlyDeleteProject(id: number) {
     // Irreversible: only a project that is already in the trash may go (a
     // LIVE one used to be destroyed outright, files included). Live and
     // unknown answer the same — the guard owns that rule.
-    const scopeCheck = await requireTrashedProjectAccess(id);
+    const scopeCheck = await requireTrashedProjectAccess(id, "destroy");
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
     // Clean up the Cloudinary blobs before the DB rows cascade-delete —
@@ -272,7 +274,8 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
   }
   // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7. This is
   // the heaviest of the three importers (up to three sequential repository
-  // calls per row: findByEmail, requireClientAccess, create).
+  // calls per row: findByEmail, then — for a caller restricted to some
+  // projects only — hasProjectAmong, then create).
   if (records.length > MAX_IMPORT_ROWS) {
     return {
       type: "error",
@@ -285,6 +288,10 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
 
   let created = 0;
   const errors: ImportRowError[] = [];
+  // The caller's access context, read ONCE for the whole file: it cannot
+  // change between two rows, and re-reading it per row (session + account
+  // lookup) multiplied the cost by the row count.
+  const ctx = await getAccessContext();
 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
@@ -304,12 +311,15 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
       if (!client) {
         throw new Error(t.projects.messages.unknownClientEmail);
       }
-      // A company the caller cannot reach (or that sits in the trash) reads
-      // exactly like an unknown email: a distinct refusal would let a CSV
-      // probe which addresses are companies.
-      const scopeCheck = await requireClientAccess(client.id);
+      // A company the caller cannot reach reads exactly like an unknown
+      // email: a distinct refusal would let a CSV probe which addresses are
+      // companies. One in the trash that the caller DOES reach says so — the
+      // actionable answer (restore it) — and tells a caller inside the scope
+      // nothing new. findByEmail already returned the row (and its
+      // deletedAt), so nothing is read again here.
+      const scopeCheck = await requireClientAccessWithin(ctx, client);
       if (scopeCheck.error) {
-        throw new Error(t.projects.messages.unknownClientEmail);
+        throw new Error(scopeRefusalMessage(scopeCheck, t.projects.messages.unknownClientEmail));
       }
       const parsed = createProjectSchema.safeParse({ ...data, clientId: client.id });
       if (!parsed.success) {
@@ -384,12 +394,14 @@ export async function getProject(id: number) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
     const project = await findById(id);
-    // A trashed project is invisible to the normal detail page (looks like
-    // "not found"); the trash page reads the repository directly instead. A
+    // A trashed project — or one whose company is trashed, the same rule
+    // requireProjectAccess freezes its content on — is invisible to the
+    // normal detail page (looks like "not found"); the trash page reads the
+    // repository directly instead. A
     // project outside the caller's scope reads the same way — a distinct
     // response would confirm it exists to someone who shouldn't know that.
     const access = await getAccessContext();
-    const visible = project && !project.deletedAt && canReachProject(access, project.id);
+    const visible = project && !projectTrashState(project).inTrash && canReachProject(access, project.id);
     return { type: "success" as const, data: visible ? project : null };
   } catch (error) {
     return {

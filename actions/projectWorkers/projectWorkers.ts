@@ -2,6 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireProjectAccess } from "@/lib/access";
+import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { attachWorkerSchema } from "@/schemas/projectWorker";
@@ -98,7 +99,7 @@ export async function detachWorker(id: number, clientId: number, projectId: numb
     // Same anti-enumeration rule as actions/interims/interims.ts::deleteInterim:
     // a travailleur that exists but sits outside the caller's scope must read
     // exactly like one that doesn't exist at all.
-    if (scopeCheck.error) return { type: "error" as const, message: t.workers.messages.invalidId };
+    if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.workers.messages.invalidId) };
     const worker = await detach(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);

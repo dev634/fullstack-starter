@@ -31,6 +31,7 @@ import { addContact, editContact, setPrimaryContact, deleteContact } from "@/act
 import { requireRole } from "@/lib/authz";
 import { create, update, setPrimary, remove, findLinkedProjectIds, setContactProjects, findById as findContactById } from "@/repository/contacts";
 import { hasProjectAmong } from "@/repository/projects";
+import { findTrashState } from "@/repository/clients";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -114,8 +115,9 @@ describe("contact actions", () => {
     expect(res.type).toBe("success");
   });
 
-  // F11: a contact of a company the caller cannot reach (or that is in the
-  // trash) answers like an absent contact — never "forbidden".
+  // F11: a contact of a company the caller cannot reach answers like an
+  // absent contact — never "forbidden". A company IN THE TRASH, for a caller
+  // who does reach it, says so (see "trashed company" below).
   describe("existence is not an oracle (F11)", () => {
     const edited = () => formOf({ id: "1", clientId: "1", firstName: "Jean", lastName: "Dupont" });
     afterEach(() => {
@@ -138,6 +140,32 @@ describe("contact actions", () => {
       }
       expect(updateMock).not.toHaveBeenCalled();
       expect(setPrimaryMock).not.toHaveBeenCalled();
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    // The refusal tells a caller who is INSIDE the scope that the company is in
+    // the trash (the actionable answer: restore it) instead of "invalid id",
+    // which would send them looking for a typo. Out of scope stays masked
+    // (previous test). This used to be asserted as invalidId.
+    it("trashed company: editContact, setPrimaryContact and deleteContact say it is in the trash", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
+      vi.mocked(findTrashState).mockResolvedValue({ inTrash: true });
+      const res = [await editContact(initial, edited()), await setPrimaryContact(5, 1), await deleteContact(5, 1)];
+      vi.mocked(findTrashState).mockResolvedValue({ inTrash: false });
+      for (const r of res) expect(r.message).toBe(fr.errors.inTrash);
+      expect(updateMock).not.toHaveBeenCalled();
+      expect(setPrimaryMock).not.toHaveBeenCalled();
+      expect(removeMock).not.toHaveBeenCalled();
+    });
+
+    // A contact that vanished between the two reads has NO links, which is not
+    // "no links to lose": null must refuse, not authorize.
+    it("deleteContact refuses a contact whose links cannot be read (gone since it was resolved)", async () => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
+      vi.mocked(getAccessContext).mockResolvedValue({ email: "t@example.com", role: "EDITOR", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: new Set([10]) } as never);
+      findLinkedMock.mockResolvedValue(null);
+      const res = await deleteContact(5, 1);
+      expect(res).toEqual({ type: "error", message: fr.contacts.messages.invalidId });
       expect(removeMock).not.toHaveBeenCalled();
     });
 
