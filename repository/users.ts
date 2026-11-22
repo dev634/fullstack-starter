@@ -265,12 +265,15 @@ export async function create(data: {
 
 export async function updateProfile(
     id: number,
-    data: { name: string | null; role: Role; jobFunctionId?: number | null }
+    // jobFunctionId is REQUIRED (number = set, null = clear): an optional one
+    // collapsed to NULL here, so a caller that merely omitted it erased the
+    // function. The caller resolves "omitted" to the current value first.
+    data: { name: string | null; role: Role; jobFunctionId: number | null }
 ) {
     try {
         return await prisma.user.update({
             where: { id },
-            data: { ...data, jobFunctionId: data.jobFunctionId ?? null },
+            data,
             select: {
                 id: true,
                 email: true,

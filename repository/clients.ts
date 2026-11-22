@@ -181,7 +181,11 @@ export async function findAll(orderBy: GetClientsByOrder) {
  * `search`'s `projects: { some: { ... } }` clause and the `hasProjectAmong`
  * check that already gates restore/permanent-delete — a restricted caller
  * only sees a trashed company here if it still owns a *live* project among
- * their assigned ids. Trashing a company doesn't cascade to its projects, so
+ * their assigned ids — AND every one of its projects (trashed ones included)
+ * is among them: same rule as requireFullClientAccess (lib/access.ts), since
+ * this listing surfaces the restore / permanent-delete buttons and a row
+ * shown here that the action then refuses would be a dead control.
+ * Trashing a company doesn't cascade to its projects, so
  * that project can still exist (deletedAt: null) even though its owner is
  * now in the trash; a restricted user assigned to that project keeps the
  * same "can reach this company" relationship the mutations already grant
@@ -198,7 +202,12 @@ export async function findTrashed(projectIds?: number[]) {
             where: {
                 deletedAt: { not: null },
                 ...(projectIds !== undefined
-                    ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+                    ? {
+                          projects: {
+                              some: { id: { in: projectIds }, deletedAt: null },
+                              none: { id: { notIn: projectIds } },
+                          },
+                      }
                     : {}),
             },
             orderBy: { deletedAt: "desc" },

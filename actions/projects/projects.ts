@@ -206,6 +206,12 @@ export async function permanentlyDeleteProject(id: number) {
     const scopeCheck = await requireProjectAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
+    // Irreversible: only a project that is already in the trash may go (a
+    // LIVE one used to be destroyed outright, files included). Live and
+    // unknown answer the same.
+    if (!existing || !existing.deletedAt) {
+      return { type: "error" as const, message: t.projects.messages.invalidId };
+    }
     // Clean up the Cloudinary blobs before the DB rows cascade-delete —
     // otherwise the files are orphaned in Cloudinary forever.
     const files = await findPublicIdsByProject(id);

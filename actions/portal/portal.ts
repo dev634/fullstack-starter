@@ -1,7 +1,8 @@
 "use server";
 import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
-import { requireCapability } from "@/lib/access";
+import { requireCapability, requireClientAccess } from "@/lib/access";
+import { requireAreaAccess } from "@/lib/areaAccess";
 import { getErrorMessage } from "@/lib/helpers";
 import { findById as findContactById, attachLogin } from "@/repository/contacts";
 import { create as createUser, createResetToken } from "@/repository/users";
@@ -23,12 +24,21 @@ const FIRST_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000;
 export async function createPortalLogin(contactId: number): Promise<PortalLoginResult> {
   const roleCheck = await requireCapability("users.manage");
   if (roleCheck.error) return { ok: false, message: roleCheck.error.message };
+  // We create an account (admin.users), from the contacts screen
+  // (clients.contacts): both rubriques must be visible to the caller.
+  const usersArea = await requireAreaAccess("admin.users");
+  if (usersArea.error) return { ok: false, message: usersArea.error.message };
+  const contactsArea = await requireAreaAccess("clients.contacts");
+  if (contactsArea.error) return { ok: false, message: contactsArea.error.message };
 
   const t = getDictionary(await getLocale());
   try {
     if (!Number.isInteger(contactId) || contactId <= 0) return { ok: false, message: t.errors.invalidId };
     const contact = await findContactById(contactId);
     if (!contact) return { ok: false, message: t.errors.invalidId };
+    // Out of scope answers exactly like "not found" (no existence oracle).
+    const scopeCheck = await requireClientAccess(contact.clientId);
+    if (scopeCheck.error) return { ok: false, message: t.errors.invalidId };
     if (!contact.email) return { ok: false, message: t.portal.admin.emailRequired };
     if (contact.userId) return { ok: false, message: t.portal.admin.alreadyHasLogin };
 

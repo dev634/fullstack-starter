@@ -4,7 +4,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireRole } from "@/lib/authz";
-import { requireCapability, requireClientAccess } from "@/lib/access";
+import { requireCapability, requireClientAccess, requireFullClientAccess } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
@@ -234,7 +234,9 @@ export async function deleteClient(id: number) {
         message: t.errors.invalidId,
       };
     }
-    const scopeCheck = await requireClientAccess(id);
+    // Trashing a company takes ALL its projects out of circulation with it:
+    // reaching ONE of them is not enough (requireFullClientAccess).
+    const scopeCheck = await requireFullClientAccess(id);
     if (scopeCheck.error) return { type: "error", message: scopeCheck.error.message };
     const existing = await findById(id);
     const client = await softDelete(id);
@@ -278,12 +280,17 @@ export async function deleteClients(ids: number[]) {
       };
     }
     let deleted = 0;
+    let skipped = 0;
     for (const id of valid) {
-      // A client outside the caller's scope is silently skipped, not
-      // errored — a restricted actor selecting a mixed batch must not be
-      // able to tell which ids in it belonged to companies they can't reach.
-      const scopeCheck = await requireClientAccess(id);
-      if (scopeCheck.error) continue;
+      // A client outside the caller's scope is skipped, not errored — a
+      // restricted actor selecting a mixed batch must not be able to tell
+      // which ids in it belonged to companies they can't reach. The success
+      // message reports HOW MANY were skipped, so the refusal is not invisible.
+      const scopeCheck = await requireFullClientAccess(id);
+      if (scopeCheck.error) {
+        skipped++;
+        continue;
+      }
       const existing = await findById(id);
       await softDelete(id);
       await logActivity({
@@ -295,6 +302,12 @@ export async function deleteClients(ids: number[]) {
       deleted++;
     }
     revalidatePath("/clients");
+    if (skipped > 0) {
+      return {
+        type: "success" as const,
+        message: format(t.clients.messages.deletedBulkSkipped, { count: deleted, skipped }),
+      };
+    }
     return { type: "success" as const, message: format(t.clients.messages.deletedBulk, { count: deleted }) };
   } catch (error) {
     console.log("Action deleteClients error:", error);
@@ -317,8 +330,14 @@ export async function restoreClient(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.errors.invalidId };
     }
-    const scopeCheck = await requireClientAccess(id);
+    const scopeCheck = await requireFullClientAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
+    // Only a company that IS in the trash can be restored; a live or unknown
+    // one gets the same answer (no existence oracle).
+    const existing = await findById(id);
+    if (!existing || !existing.deletedAt) {
+      return { type: "error" as const, message: t.errors.invalidId };
+    }
     const client = await restore(id);
     await logActivity({
       action: "RESTORED",
@@ -353,9 +372,15 @@ export async function permanentlyDeleteClient(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.errors.invalidId };
     }
-    const scopeCheck = await requireClientAccess(id);
+    const scopeCheck = await requireFullClientAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
+    // Irreversible, and it cascades through every project: only a company
+    // that is already in the trash may go — a LIVE one used to be destroyed
+    // outright. Live and unknown answer the same.
+    if (!existing || !existing.deletedAt) {
+      return { type: "error" as const, message: t.errors.invalidId };
+    }
     // Collect the project files BEFORE deleting the client — deleting cascades
     // through projects to files, so afterwards the rows (and their publicIds)
     // are gone and the Cloudinary blobs would be orphaned.

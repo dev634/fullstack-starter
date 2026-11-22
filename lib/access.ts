@@ -2,7 +2,7 @@ import { getAppSettings } from "@/lib/appSettings";
 import { requireRole, hasMinRole, type RoleCheckResult } from "@/lib/authz";
 import { resolveAccessConfig, type Capability, type Role } from "@/lib/capabilities";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
-import { hasProjectAmong } from "@/repository/projects";
+import { hasProjectAmong, countProjectsOutside } from "@/repository/projects";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
@@ -71,6 +71,32 @@ export async function requireClientAccess(clientId: number): Promise<ScopeCheckR
   if (ctx.projectIds === null) return { error: null };
   const reachable = await hasProjectAmong(clientId, [...ctx.projectIds]);
   if (reachable) return { error: null };
+  const t = getDictionary(await getLocale());
+  return { error: { type: "error", message: t.errors.forbidden } };
+}
+
+/**
+ * Non-throwing core of requireFullClientAccess, also what the interface asks
+ * before offering a whole-company action (trash, restore, permanent delete).
+ *
+ * requireClientAccess answers "may I reach this company" (at least one live
+ * project in scope). An action that acts on the company ENTIRELY takes ALL
+ * its projects with it — trashed ones included — so it needs a stronger
+ * answer: every project of the company is in the caller's scope. An
+ * unrestricted caller passes; a restricted one must also still reach the
+ * company (a company with no project at all stays unreachable, as before).
+ */
+export async function canFullyAccessClient(clientId: number): Promise<boolean> {
+  const ctx = await getAccessContext();
+  if (ctx.projectIds === null) return true;
+  const ids = [...ctx.projectIds];
+  if (!(await hasProjectAmong(clientId, ids))) return false;
+  return (await countProjectsOutside(clientId, ids)) === 0;
+}
+
+/** Guard an action that takes the WHOLE company (every project) with it. Same refusal message as requireClientAccess. */
+export async function requireFullClientAccess(clientId: number): Promise<ScopeCheckResult> {
+  if (await canFullyAccessClient(clientId)) return { error: null };
   const t = getDictionary(await getLocale());
   return { error: { type: "error", message: t.errors.forbidden } };
 }

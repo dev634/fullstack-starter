@@ -4,6 +4,7 @@ import {
   search as searchProjects,
   findByClient,
   hasProjectAmong,
+  countProjectsOutside,
   findClientIdsAmong,
   findTrashed as findTrashedProjects,
 } from "@/repository/projects";
@@ -181,6 +182,28 @@ describe("project scoping by job function", () => {
   });
 });
 
+describe("countProjectsOutside (requireFullClientAccess, lot 1 F1)", () => {
+  it("counts the projects of the company that are not in the list", async () => {
+    const { client, projects } = await makeCompanyWithProjects("ZzyxOutside SARL", ["A", "B", "C"]);
+    await expect(countProjectsOutside(client.id, [projects[0].id])).resolves.toBe(2);
+    await expect(countProjectsOutside(client.id, projects.map((p) => p.id))).resolves.toBe(0);
+  });
+
+  it("counts TRASHED projects too — a permanent delete cascades through them", async () => {
+    const { client, projects } = await makeCompanyWithProjects("ZzyxOutsideTrash SARL", ["Live", "Trashed"]);
+    await prisma.project.update({ where: { id: projects[1].id }, data: { deletedAt: new Date() } });
+    await expect(countProjectsOutside(client.id, [projects[0].id])).resolves.toBe(1);
+  });
+
+  it("an empty list leaves every project outside, and another company's projects never count", async () => {
+    const a = await makeCompanyWithProjects("ZzyxOutsideA SARL", ["A1", "A2"]);
+    const b = await makeCompanyWithProjects("ZzyxOutsideB SARL", ["B1"]);
+    await expect(countProjectsOutside(a.client.id, [])).resolves.toBe(2);
+    await expect(countProjectsOutside(a.client.id, [b.projects[0].id])).resolves.toBe(2);
+    await expect(countProjectsOutside(a.client.id, a.projects.map((p) => p.id))).resolves.toBe(0);
+  });
+});
+
 describe("trash listings are scoped like the live ones (adversarial pass 1, #2)", () => {
   it("findTrashed (projects) only returns the allowlisted ids", async () => {
     const { projects } = await makeCompanyWithProjects("ZzyxTrashScope SARL", ["Chantier visible", "Chantier caché"]);
@@ -213,6 +236,37 @@ describe("trash listings are scoped like the live ones (adversarial pass 1, #2)"
 
     const empty = await findTrashedClients([]);
     expect(empty.some((c) => c.id === client.id)).toBe(false);
+  });
+
+  // Lot 1, F1: this listing feeds the restore / permanent-delete buttons, and
+  // those actions need EVERY project of the company in scope. A row listed
+  // for a partly-reachable company would be a dead control.
+  it("findTrashed (clients) hides a trashed company that has a project outside the scope, trashed ones included", async () => {
+    const partial = await makeCompanyWithProjects("ZzyxTrashPartial SARL", ["Dans le périmètre", "Hors périmètre"]);
+    await prisma.client.update({ where: { id: partial.client.id }, data: { deletedAt: new Date() } });
+    const whole = await makeCompanyWithProjects("ZzyxTrashWhole SARL", ["Mien", "Mien aussi, en corbeille"]);
+    await prisma.client.update({ where: { id: whole.client.id }, data: { deletedAt: new Date() } });
+    await prisma.project.update({ where: { id: whole.projects[1].id }, data: { deletedAt: new Date() } });
+    const hiddenTrash = await makeCompanyWithProjects("ZzyxTrashHiddenBin SARL", ["Mien", "Pas à moi, en corbeille"]);
+    await prisma.client.update({ where: { id: hiddenTrash.client.id }, data: { deletedAt: new Date() } });
+    await prisma.project.update({ where: { id: hiddenTrash.projects[1].id }, data: { deletedAt: new Date() } });
+
+    const scoped = await findTrashedClients([
+      partial.projects[0].id,
+      whole.projects[0].id,
+      whole.projects[1].id,
+      hiddenTrash.projects[0].id,
+    ]);
+
+    expect(scoped.some((c) => c.id === partial.client.id)).toBe(false);
+    expect(scoped.some((c) => c.id === hiddenTrash.client.id)).toBe(false);
+    expect(scoped.some((c) => c.id === whole.client.id)).toBe(true);
+  });
+
+  it("findTrashed (clients) without a scope (undefined) still lists every trashed company", async () => {
+    const { client } = await makeCompanyWithProjects("ZzyxTrashUnscoped SARL", ["P"]);
+    await prisma.client.update({ where: { id: client.id }, data: { deletedAt: new Date() } });
+    expect((await findTrashedClients()).some((c) => c.id === client.id)).toBe(true);
   });
 });
 

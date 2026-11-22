@@ -18,7 +18,7 @@ vi.mock("@/lib/cloudinary", () => ({
 }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
 vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
-vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), countProjectsOutside: vi.fn() }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -30,14 +30,16 @@ import { createClient } from "@/service/clients";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { findAccessScopeByEmail } from "@/repository/users";
-import { hasProjectAmong } from "@/repository/projects";
+import { hasProjectAmong, countProjectsOutside } from "@/repository/projects";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
 const hasProjectAmongMock = vi.mocked(hasProjectAmong);
+const countProjectsOutsideMock = vi.mocked(countProjectsOutside);
 const createClientMock = vi.mocked(createClient);
 const findByIdMock = vi.mocked(findById);
 const softDeleteMock = vi.mocked(softDelete);
@@ -185,6 +187,7 @@ describe("client action auth guard + delegation", () => {
 
   it("restoreClient restores the client when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), companyName: "Sunrise Corporation" } as never);
     restoreMock.mockResolvedValue({ id: 1, deletedAt: null, companyName: "Sunrise Corporation" } as never);
     const res = await restoreClient(1);
     expect(restoreMock).toHaveBeenCalledWith(1);
@@ -205,6 +208,7 @@ describe("client action auth guard + delegation", () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
     findByIdMock.mockResolvedValue({
       id: 1,
+      deletedAt: new Date(),
       photoUrl: "https://example.com/x.png",
       firstName: "Alice",
       lastName: "Smith",
@@ -227,7 +231,7 @@ describe("client action auth guard + delegation", () => {
   // deliveryType/resourceType and pass them through.
   it("permanentlyDeleteClient destroys its projects' Cloudinary files with their stored guarded type", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
-    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null, firstName: "Alice", lastName: "Smith" } as never);
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), photoUrl: null, firstName: "Alice", lastName: "Smith" } as never);
     permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
     findPublicIdsByClientMock.mockResolvedValue([
       { publicId: "projects/9/devis", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
@@ -278,6 +282,109 @@ describe("client action auth guard + delegation", () => {
 
       expect((res as { type: string }).type).toBe("error");
       expect(softDeleteMock).not.toHaveBeenCalled();
+    });
+
+    // Lot 1, F1: requireClientAccess only asks for ONE live project in scope,
+    // yet trashing / restoring / destroying a company takes ALL its projects
+    // along. These act on the whole company, so they need ALL of them in scope.
+    describe("whole-company actions need EVERY project in scope (lot 1, F1)", () => {
+      const asAssigned = () => {
+        authMock.mockResolvedValue(scopedEditor as never);
+        findAccessScopeByEmailMock.mockResolvedValue({
+          hiddenSections: [],
+          hiddenAreas: [],
+          projectScope: "ASSIGNED",
+          assignedProjectIds: [202],
+        });
+      };
+      const trashed = { id: 7, deletedAt: new Date(), companyName: "Acme", photoUrl: null };
+
+      it("refuses to trash / restore / destroy a company with a project outside the scope", async () => {
+        asAssigned();
+        hasProjectAmongMock.mockResolvedValue(true); // reachable through 202...
+        countProjectsOutsideMock.mockResolvedValue(1); // ...but one project is not ours
+        findByIdMock.mockResolvedValue(trashed as never);
+
+        const del = await deleteClient(7);
+        const many = await deleteClients([7]);
+        const rest = await restoreClient(7);
+        const perm = await permanentlyDeleteClient(7);
+
+        expect((del as { type: string }).type).toBe("error");
+        expect(many.type).toBe("success"); // skipped, not errored (the count is reported, see below)
+        expect(rest.type).toBe("error");
+        expect(perm.type).toBe("error");
+        expect(countProjectsOutsideMock).toHaveBeenCalledWith(7, [202]);
+        expect(softDeleteMock).not.toHaveBeenCalled();
+        expect(restoreMock).not.toHaveBeenCalled();
+        expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+      });
+
+      it("a company partly out of scope is refused with the same text as an unreachable one", async () => {
+        asAssigned();
+        hasProjectAmongMock.mockResolvedValue(true);
+        countProjectsOutsideMock.mockResolvedValue(2);
+        const partial = await restoreClient(7);
+        hasProjectAmongMock.mockResolvedValue(false);
+        const unreachable = await restoreClient(7);
+        expect(partial.message).toBe(unreachable.message);
+      });
+
+      it("deleteClients reports how many ids it skipped", async () => {
+        asAssigned();
+        hasProjectAmongMock.mockResolvedValue(true);
+        countProjectsOutsideMock.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+        findByIdMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+        softDeleteMock.mockResolvedValue({ id: 1 } as never);
+
+        const res = await deleteClients([1, 2]);
+
+        expect(res.type).toBe("success");
+        expect(softDeleteMock).toHaveBeenCalledTimes(1);
+        expect(res.message).toBe(
+          fr.clients.messages.deletedBulkSkipped.replace("{count}", "1").replace("{skipped}", "1")
+        );
+      });
+
+      it("a company ENTIRELY in scope is trashed, restored and destroyed", async () => {
+        asAssigned();
+        hasProjectAmongMock.mockResolvedValue(true);
+        countProjectsOutsideMock.mockResolvedValue(0);
+        findByIdMock.mockResolvedValue(trashed as never);
+        softDeleteMock.mockResolvedValue({ id: 7 } as never);
+        restoreMock.mockResolvedValue({ id: 7, companyName: "Acme" } as never);
+        permanentlyRemoveMock.mockResolvedValue({ id: 7 } as never);
+        findPublicIdsByClientMock.mockResolvedValue([]);
+
+        expect(((await deleteClient(7)) as { id?: number }).id).toBe(7);
+        expect((await restoreClient(7)).type).toBe("success");
+        expect((await permanentlyDeleteClient(7)).type).toBe("success");
+      });
+
+      it("an unrestricted ADMIN never needs the outside count", async () => {
+        authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+        findByIdMock.mockResolvedValue(trashed as never);
+        permanentlyRemoveMock.mockResolvedValue({ id: 7 } as never);
+        findPublicIdsByClientMock.mockResolvedValue([]);
+        expect((await permanentlyDeleteClient(7)).type).toBe("success");
+        expect(countProjectsOutsideMock).not.toHaveBeenCalled();
+      });
+
+      it("a LIVE company cannot be destroyed or restored, and answers like an unknown one", async () => {
+        authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+        findByIdMock.mockResolvedValue({ id: 7, deletedAt: null, companyName: "Acme" } as never);
+        const live = await permanentlyDeleteClient(7);
+        const liveRestore = await restoreClient(7);
+        findByIdMock.mockResolvedValue(null as never);
+        const unknown = await permanentlyDeleteClient(7);
+
+        expect(live.type).toBe("error");
+        expect(live.message).toBe(unknown.message);
+        expect(liveRestore.message).toBe(unknown.message);
+        expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+        expect(restoreMock).not.toHaveBeenCalled();
+        expect(findPublicIdsByClientMock).not.toHaveBeenCalled();
+      });
     });
 
     it("getClient still resolves the client once one of its projects IS in scope", async () => {
