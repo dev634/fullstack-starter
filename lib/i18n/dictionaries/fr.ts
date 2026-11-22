@@ -967,6 +967,8 @@ const fr = {
             cannotEditOwnFunction: "Vous ne pouvez pas modifier l'accès de votre propre fonction. Demandez à un super admin.",
             cannotDeleteOwnFunction: "Vous ne pouvez pas supprimer votre propre fonction. Demandez à un super admin.",
             heldByAdminRequiresSuperadmin: "Cette fonction est portée par un compte administrateur : seul un super admin peut la modifier ou la supprimer.",
+            restrictedCannotLiftHeld: "Votre propre fonction masque des rubriques : une fonction portée par des comptes doit continuer à masquer au moins les mêmes. Demandez à un super admin.",
+            restrictedCannotDeleteHeld: "Votre propre fonction masque des rubriques : vous ne pouvez pas supprimer une fonction portée par des comptes. Demandez à un super admin.",
         },
     },
     users: {
@@ -1009,6 +1011,7 @@ const fr = {
             cannotAssignHigher: "Vous ne pouvez pas attribuer un rôle supérieur au vôtre.",
             cannotManageHigher: "Vous ne pouvez pas gérer un utilisateur d'un rôle supérieur au vôtre.",
             adminRequiresSuperadmin: "Seul un super admin peut créer ou modifier un compte administrateur.",
+            restrictedAdminAccount: "Votre propre fonction masque des rubriques : vous ne pouvez gérer que des comptes dont la fonction masque au moins les mêmes. Demandez à un super admin.",
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",

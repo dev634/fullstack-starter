@@ -49,6 +49,9 @@ export default function UsersManager({
   actorEmail: string;
   functions: JobFunctionOption[];
   projects: AssignableProject[];
+  // Optional FOR NOW (lot 5a, server side): wired by the integrateur, who makes
+  // it required. Set for a restricted ADMIN only — see app/.../utilisateurs/page.tsx.
+  restriction?: { assignableFunctionIds: number[]; unmanageableUserIds: number[] } | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();

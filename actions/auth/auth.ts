@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { AuthError } from "next-auth";
 import { signIn, signOut } from "@/lib/auth";
 import { formDataToObject } from "@/lib/helpers";
+import { normalizeEmail } from "@/lib/normalizeEmail";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { isLoginRateLimited } from "@/lib/loginRateLimit";
@@ -129,7 +130,7 @@ export async function requestPasswordReset(
     };
   }
 
-  const email = parsed.data.email.toLowerCase();
+  const email = normalizeEmail(parsed.data.email);
   const rlKey = `reset:${email}`;
   const ipKey = `reset-ip:${await getClientIp()}`;
   const [rl, rlIp] = await Promise.all([

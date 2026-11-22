@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
+import { normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
 
 /** All job functions, in their manual (drag-and-drop) display order. */
 export async function findAll() {
@@ -87,5 +88,27 @@ export async function reorder(orderedIds: number[]) {
     } catch (error) {
         console.log("Repository reorder (jobFunction) error:", error);
         throw { type: "repositoryError", message: "Database Error reordering functions." };
+    }
+}
+
+/** What a function hides, for the account policy (lib/accountPolicy.ts): normalized keys only. */
+export async function findHiddenAreasById(id: number): Promise<AppAreaKey[]> {
+    try {
+        const row = await prisma.jobFunction.findUnique({ where: { id }, select: { hiddenAreas: true } });
+        return normalizeHiddenAreas(row?.hiddenAreas);
+    } catch (error) {
+        console.log("Repository findHiddenAreasById (jobFunction) error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching function." };
+    }
+}
+
+/** id + hiddenAreas of every function, in one query — server-side input of the screen's policy computations, never sent as is. */
+export async function findAllHiddenAreas(): Promise<{ id: number; hiddenAreas: AppAreaKey[] }[]> {
+    try {
+        const rows = await prisma.jobFunction.findMany({ select: { id: true, hiddenAreas: true } });
+        return rows.map((r) => ({ id: r.id, hiddenAreas: normalizeHiddenAreas(r.hiddenAreas) }));
+    } catch (error) {
+        console.log("Repository findAllHiddenAreas (jobFunction) error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching functions." };
     }
 }

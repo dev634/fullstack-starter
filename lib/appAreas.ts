@@ -137,3 +137,26 @@ export function resolveAreaLanding(
   }
   return null;
 }
+
+/**
+ * Does `target` hide AT LEAST everything `actor` hides? For each key of
+ * `actor`, `target` must contain it OR one of its ancestors — a hidden parent
+ * already hides its sub-parts (canAccessArea's rule), so it covers them; the
+ * reverse does not hold (hiding one child does not hide its parent). An empty
+ * `target` (a function that hides nothing, or NO function at all) covers
+ * nothing, and an empty `actor` is covered by anything.
+ *
+ * The comparison account policy needs: an ADMIN restricted by their function
+ * may only hand out / keep functions that restrict at least as much as theirs
+ * (lib/accountPolicy.ts) — otherwise the account is a relay that sees what
+ * they cannot.
+ */
+export function coversHiddenAreas(target: Iterable<AppAreaKey>, actor: Iterable<AppAreaKey>): boolean {
+  const hidden = new Set(target);
+  for (const key of actor) {
+    if (hidden.has(key)) continue;
+    if (getAreaAncestors(key).some((ancestor) => hidden.has(ancestor))) continue;
+    return false;
+  }
+  return true;
+}

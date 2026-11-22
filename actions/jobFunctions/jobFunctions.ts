@@ -8,9 +8,10 @@ import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
 import { createJobFunctionSchema, functionConfigSchema } from "@/schemas/jobFunction";
 import { create, remove, reorder, updateConfig } from "@/repository/jobFunctions";
-import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
+import { findAccountJobFunctionByEmail, countPrivilegedHolders, countHolders } from "@/repository/users";
+import { mayChangeHeldFunction, isRestrictedAdmin } from "@/lib/accountPolicy";
 import { isProjectSectionKey } from "@/lib/projectSections";
-import { normalizeHiddenAreas } from "@/lib/appAreas";
+import { normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -33,15 +34,33 @@ import type { JobFunctionActionState } from "@/types/jobFunction";
  * The refusal can be explicit: it does depend on rows (who holds the function),
  * but the caller already reads that whole domain — the functions page lists
  * every function and marks the ones held by an administrator.
+ *
+ * Second rule, same guard (the one every writer of a function calls): a
+ * RESTRICTED ADMIN (their own function hides rubriques) may not turn a function
+ * held by ANY account — an EDITOR included, who an ADMIN-only check missed —
+ * into one that hides less than theirs, nor delete it (SetNull would free its
+ * holders): they would then log in as the holder and see what they cannot.
+ * `next` is the hiddenAreas the function will have after the call, `null` for
+ * a deletion. A function nobody holds stays free
+ * (lib/accountPolicy.ts::mayChangeHeldFunction).
  */
-async function refuseIfHeldByAdmin(id: number, t: Dictionary) {
+async function refuseIfHeldByAdmin(id: number, next: readonly AppAreaKey[] | null, t: Dictionary) {
   // The role comes from getAccessContext (a session reader already probed for
   // the no-session case) rather than a second auth() read: no session means no
   // role, so the check applies and the call is refused.
   const ctx = await getAccessContext();
   if (hasMinRole(ctx.role, "SUPERADMIN")) return null;
-  if ((await countPrivilegedHolders(id)) === 0) return null;
-  return { type: "error" as const, message: t.jobFunctions.messages.heldByAdminRequiresSuperadmin };
+  if ((await countPrivilegedHolders(id)) > 0) {
+    return { type: "error" as const, message: t.jobFunctions.messages.heldByAdminRequiresSuperadmin };
+  }
+  const actor = { role: ctx.role, hiddenAreas: ctx.hiddenAreas };
+  if (isRestrictedAdmin(actor) && (await countHolders(id)) > 0 && !mayChangeHeldFunction(actor, next)) {
+    return {
+      type: "error" as const,
+      message: next === null ? t.jobFunctions.messages.restrictedCannotDeleteHeld : t.jobFunctions.messages.restrictedCannotLiftHeld,
+    };
+  }
+  return null;
 }
 
 /** Add a job function (ADMIN+). */
@@ -125,7 +144,7 @@ export async function deleteJobFunction(id: number) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotDeleteOwnFunction };
       }
     }
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    const heldByAdmin = await refuseIfHeldByAdmin(id, null, t);
     if (heldByAdmin) return heldByAdmin;
 
     const deleted = await remove(id);
@@ -184,11 +203,11 @@ export async function saveFunctionConfig(
         return { type: "error" as const, message: t.jobFunctions.messages.cannotEditOwnFunction };
       }
     }
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
+    const heldByAdmin = await refuseIfHeldByAdmin(id, hiddenAreas, t);
     if (heldByAdmin) return heldByAdmin;
 
     const hiddenSections = [...new Set(parsed.data.hiddenSections.filter(isProjectSectionKey))];
-    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
     const projectScope = parsed.data.projectScope;
 
     await updateConfig(id, { hiddenSections, hiddenAreas, projectScope });

@@ -1,4 +1,5 @@
 import { ROLES, ROLE_RANK, meetsRole, type Role } from "@/lib/capabilities";
+import { coversHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
 
 /**
  * Who may touch which ACCOUNT — one pure source of truth, read by the server
@@ -69,4 +70,77 @@ export function canManageAccount(actorRole: Role, targetRole: Role, isSelf: bool
  */
 export function isOwnAccountLocked(actorRole: Role, isSelf: boolean): boolean {
   return isSelf && actorRole !== "SUPERADMIN";
+}
+
+/**
+ * The actor, as far as the job-function restriction is concerned: their role and
+ * the rubriques their OWN function hides (AccessContext.hiddenAreas).
+ */
+export type AccountActor = { role: string | undefined; hiddenAreas: ReadonlySet<AppAreaKey> };
+
+/**
+ * An ADMIN whose function hides at least one rubrique. The only axis an ADMIN
+ * is subject to (hiddenSections and the project scope bypass ADMIN) — and the
+ * only actor the relay rules below apply to. SUPERADMIN is the escape hatch;
+ * an ADMIN whose function hides nothing has nothing to be relayed around.
+ */
+export function isRestrictedAdmin(actor: AccountActor): boolean {
+  return actor.role === "ADMIN" && actor.hiddenAreas.size > 0;
+}
+
+/**
+ * "Compte relais": a restricted ADMIN who creates or takes over an account
+ * whose function hides LESS than theirs (or has none) can then sign in as it
+ * and see what their own function hides. So a restricted actor manages an
+ * account only if the function it holds covers what the actor's hides
+ * (`coversHiddenAreas`) — checked BEFORE the operation (the account as it
+ * stands: you do not take over one that already sees more) and, for a creation
+ * or a change, AFTER (the function it would end up with).
+ *
+ * `functionHiddenAreas` is the hiddenAreas of the account's function, `[]` for
+ * an account with no function. Everyone but a restricted ADMIN: always true.
+ */
+export function mayManageAccountWithFunction(actor: AccountActor, functionHiddenAreas: readonly AppAreaKey[]): boolean {
+  return !isRestrictedAdmin(actor) || coversHiddenAreas(functionHiddenAreas, actor.hiddenAreas);
+}
+
+/**
+ * Same lever, from the function's side. A function nobody holds constrains
+ * nobody: free (assigning it goes through mayManageAccountWithFunction). A HELD
+ * function, for a restricted ADMIN, may only be reconfigured so that it still
+ * covers their rubriques (`resultingHiddenAreas`), and may not be deleted at
+ * all (`null`): deleting it detaches every holder (onDelete: SetNull) and
+ * leaves them with no restriction.
+ */
+export function mayChangeHeldFunction(actor: AccountActor, resultingHiddenAreas: readonly AppAreaKey[] | null): boolean {
+  if (!isRestrictedAdmin(actor)) return true;
+  return resultingHiddenAreas !== null && coversHiddenAreas(resultingHiddenAreas, actor.hiddenAreas);
+}
+
+/**
+ * The job functions this actor may ASSIGN to an account (creation / change):
+ * all of them, unless the actor is a restricted ADMIN — then only those that
+ * cover their rubriques. The "no function" option is never offered to a
+ * restricted actor (see `mayManageAccountWithFunction`, `[]`).
+ */
+export function assignableFunctionIds(
+  actor: AccountActor,
+  functions: readonly { id: number; hiddenAreas: readonly AppAreaKey[] }[]
+): number[] {
+  return functions.filter((f) => mayManageAccountWithFunction(actor, f.hiddenAreas)).map((f) => f.id);
+}
+
+/**
+ * The accounts this actor may NOT manage (edit, delete, assign projects),
+ * given each account's function id and the hiddenAreas of every function.
+ */
+export function unmanageableAccountIds(
+  actor: AccountActor,
+  accounts: readonly { id: number; jobFunctionId: number | null }[],
+  functions: readonly { id: number; hiddenAreas: readonly AppAreaKey[] }[]
+): number[] {
+  const hiddenById = new Map(functions.map((f) => [f.id, f.hiddenAreas]));
+  return accounts
+    .filter((a) => !mayManageAccountWithFunction(actor, (a.jobFunctionId === null ? undefined : hiddenById.get(a.jobFunctionId)) ?? []))
+    .map((a) => a.id);
 }

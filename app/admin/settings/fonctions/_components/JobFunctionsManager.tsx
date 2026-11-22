@@ -146,6 +146,9 @@ export default function JobFunctionsManager({
   functions: JobFunction[];
   // Required, no permissive default: the functions this caller may not touch.
   lockedFunctionIds: number[];
+  // Optional FOR NOW (lot 5a, server side): wired by the integrateur, who makes
+  // it required. Set for a restricted ADMIN only — see app/.../fonctions/page.tsx.
+  restriction?: { actorHiddenAreas: string[]; heldFunctionIds: number[] } | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();

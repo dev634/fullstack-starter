@@ -946,6 +946,8 @@ const en: Dictionary = {
             cannotEditOwnFunction: "You can't edit your own function's access. Ask a super admin.",
             cannotDeleteOwnFunction: "You can't delete your own function. Ask a super admin.",
             heldByAdminRequiresSuperadmin: "This function is held by an administrator account: only a super admin can change or delete it.",
+            restrictedCannotLiftHeld: "Your own function hides rubriques: a function held by accounts must keep hiding at least the same ones. Ask a super admin.",
+            restrictedCannotDeleteHeld: "Your own function hides rubriques: you can't delete a function that accounts hold. Ask a super admin.",
         },
     },
     users: {
@@ -988,6 +990,7 @@ const en: Dictionary = {
             cannotAssignHigher: "You can't grant a role higher than your own.",
             cannotManageHigher: "You can't manage a user with a role higher than yours.",
             adminRequiresSuperadmin: "Only a super admin can create or change an administrator account.",
+            restrictedAdminAccount: "Your own function hides rubriques: you can only manage accounts whose function hides at least the same ones. Ask a super admin.",
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",

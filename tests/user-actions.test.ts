@@ -182,7 +182,7 @@ describe("user management actions", () => {
   });
 
   // Passe 3b, point 3: proven during this pass — the second lever (besides
-  // setFunctionAreas) that let an ADMIN lift every restriction their own
+  // saveFunctionConfig) that let an ADMIN lift every restriction their own
   // function imposes on them, in one call: repoint their OWN account at a
   // different (or no) function via this very action.
   describe("self-lock guard (passe 3b, point 3)", () => {
@@ -220,7 +220,7 @@ describe("user management actions", () => {
     });
 
     // The anti-lockout guarantee: SUPERADMIN must always retain the ability
-    // to repoint its own account, same as setFunctionAreas' own escape
+    // to repoint its own account, same as saveFunctionConfig's own escape
     // hatch — it bypasses hiddenAreas unconditionally anyway
     // (lib/accessContext.ts), so this changes nothing it can't already do.
     it("a SUPERADMIN CAN change their own jobFunctionId — the anti-lockout escape hatch", async () => {

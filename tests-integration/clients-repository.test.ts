@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { create, search, findById, softDelete, restore, permanentlyRemove, findTrashed } from "@/repository/clients";
-import { create as createContact } from "@/repository/contacts";
+import { create as createContact, attachLogin } from "@/repository/contacts";
 
 // A distinctive domain so cleanup can never touch real/seeded data.
 const TEST_DOMAIN = "@integration-test.local";
@@ -28,6 +28,7 @@ function basePayload(email: string, overrides: Partial<Parameters<typeof create>
 
 afterEach(async () => {
   await prisma.client.deleteMany({ where: { email: { endsWith: TEST_DOMAIN } } });
+  await prisma.user.deleteMany({ where: { email: { endsWith: TEST_DOMAIN } } });
 });
 
 describe("clients repository against a real Postgres", () => {
@@ -91,5 +92,32 @@ describe("clients repository against a real Postgres", () => {
 
     await permanentlyRemove(created.id);
     expect(await findById(created.id)).toBeNull();
+  });
+
+  // Lot 5a: the contacts go by cascade, their CLIENT logins did not — a login
+  // outliving its company kept a valid password and sessions.
+  it("permanentlyRemove deletes the CLIENT logins of the company's contacts, and only those", async () => {
+    const org = await create(basePayload(uniqueEmail("org")));
+    const other = await create(basePayload(uniqueEmail("other-org")));
+    const withLogin = await createContact({ clientId: org.id, firstName: "A", lastName: "A" });
+    const noLogin = await createContact({ clientId: org.id, firstName: "B", lastName: "B" });
+    const promoted = await createContact({ clientId: org.id, firstName: "C", lastName: "C" });
+    const elsewhere = await createContact({ clientId: other.id, firstName: "D", lastName: "D" });
+    const mk = (tag: string, role: "CLIENT" | "EDITOR") =>
+      prisma.user.create({ data: { email: uniqueEmail(tag), password: "x", role } });
+    const clientLogin = await mk("login", "CLIENT");
+    const promotedUser = await mk("promoted", "EDITOR");
+    const otherLogin = await mk("other-login", "CLIENT");
+    await attachLogin(withLogin.id, clientLogin.id);
+    await attachLogin(promoted.id, promotedUser.id);
+    await attachLogin(elsewhere.id, otherLogin.id);
+
+    await permanentlyRemove(org.id);
+
+    expect(await findById(org.id)).toBeNull();
+    expect(await prisma.contact.findUnique({ where: { id: noLogin.id } })).toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: clientLogin.id } })).toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: promotedUser.id } })).toMatchObject({ role: "EDITOR" });
+    expect(await prisma.user.findUnique({ where: { id: otherLogin.id } })).toMatchObject({ role: "CLIENT" });
   });
 });

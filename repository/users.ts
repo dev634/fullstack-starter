@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
+import { normalizeEmail } from "@/lib/normalizeEmail";
 
 /**
  * THE filter every "who IS the caller" resolution applies to `User` — today,
@@ -18,6 +19,9 @@ import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
  * `Prisma.UserWhereInput` (a nested relation filter, e.g.
  * `where: { user: sessionAccountWhere(email) }`).
  *
+ * The e-mail is normalized here (lib/normalizeEmail.ts), as in `create` and
+ * `findByEmail`: one canonical form on every write and every lookup.
+ *
  * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
  * (verifyCredentials) and password reset, a call this pass does not make, so
  * both keep finding a deactivated row. What that does, once the column
@@ -29,7 +33,7 @@ import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
  * the reason would be a product decision, not made here.
  */
 export function sessionAccountWhere(email: string) {
-    return { email } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;
+    return { email: normalizeEmail(email) } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;
 }
 
 /** App users for the management screen (without password hashes). Excludes
@@ -215,12 +219,12 @@ export async function findById(id: number) {
  * The raw jobFunctionId currently assigned to a user, by email — distinct
  * from findAccessScopeByEmail above, which returns what that function
  * RESOLVES to (hiddenSections/hiddenAreas/projectScope), not the id itself.
- * Passe 3b, point 3: setFunctionAreas (actions/jobFunctions/jobFunctions.ts)
+ * Passe 3b, point 3: saveFunctionConfig (actions/jobFunctions/jobFunctions.ts)
  * needs the caller's OWN function id to refuse editing it.
  *
  * `null` means "no account" (sessionAccountWhere found no row); `{
  * jobFunctionId: null }` means "account, no function". Collapsing the two —
- * the bug this rename closes — let deleteJobFunction/setFunctionAreas treat
+ * the bug this rename closes — let deleteJobFunction/saveFunctionConfig treat
  * a caller whose account just vanished as merely "has no function", i.e.
  * nothing stops it: `ownFunctionId === id` is `null === id`, always false,
  * so the self-lock guard silently let the call through instead of refusing
@@ -279,7 +283,7 @@ export async function create(data: {
 }) {
     try {
         return await prisma.user.create({
-            data: { ...data, jobFunctionId: data.jobFunctionId ?? null },
+            data: { ...data, email: normalizeEmail(data.email), jobFunctionId: data.jobFunctionId ?? null },
             select: {
                 id: true,
                 email: true,
@@ -363,7 +367,7 @@ export async function countSuperadmins() {
 export async function findByEmail(email: string) {
     try {
         const user = await prisma.user.findUnique({
-            where: { email },
+            where: { email: normalizeEmail(email) },
         });
         return user;
     } catch (error) {
@@ -497,5 +501,30 @@ export async function setUserProjects(userId: number, projectIds: number[]) {
     } catch (error) {
         console.log("Repository setUserProjects error:", error);
         throw { type: "repositoryError", message: "Database Error assigning projects." };
+    }
+}
+
+/** How many accounts hold this job function (any role). */
+export async function countHolders(jobFunctionId: number): Promise<number> {
+    try {
+        return await prisma.user.count({ where: { jobFunctionId } });
+    } catch (error) {
+        console.log("Repository countHolders error:", error);
+        throw { type: "repositoryError", message: "Database Error counting function holders." };
+    }
+}
+
+/** The ids of the job functions held by at least one account — one query, for the functions screen. */
+export async function findHeldFunctionIds(): Promise<number[]> {
+    try {
+        const rows = await prisma.user.findMany({
+            where: { jobFunctionId: { not: null } },
+            select: { jobFunctionId: true },
+            distinct: ["jobFunctionId"],
+        });
+        return rows.flatMap((r) => (r.jobFunctionId === null ? [] : [r.jobFunctionId]));
+    } catch (error) {
+        console.log("Repository findHeldFunctionIds error:", error);
+        throw { type: "repositoryError", message: "Database Error listing function holders." };
     }
 }
