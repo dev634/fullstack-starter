@@ -5,8 +5,8 @@ import { Prisma, type Role } from "@/app/generated/prisma/client";
 /**
  * THE filter every "who IS the caller" resolution applies to `User` — today,
  * by email alone. Not a convenience copy of `{ email }`: this is the single
- * place that question is answered, so the pointage module's `User.deactivatedAt`
- * plugs in here once (`deactivatedAt: null`) instead of a second copy of the
+ * place that question is answered, so a future deactivation field
+ * (`User.deactivatedAt`, say) would plug in here once (`deactivatedAt: null`) instead of a second copy of the
  * rule drifting from this one. A deactivated account would then read as
  * "introuvable" wherever a session resolves to a row, exactly like a deleted
  * one — and every caller below (and lib/sessionGate.ts) inherits that for
@@ -25,7 +25,7 @@ import { Prisma, type Role } from "@/app/generated/prisma/client";
  * (lib/sessionGate.ts) voids its token, so it lands back on /login. What it
  * does NOT do is tell the account why — nothing in this design produces a
  * message, a refusal at sign-in, or a "deactivated" state anywhere. Surfacing
- * the reason is the pointage branch's decision, not made here.
+ * the reason would be a product decision, not made here.
  */
 export function sessionAccountWhere(email: string) {
     return { email } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;

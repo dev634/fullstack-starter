@@ -101,7 +101,7 @@ coup. Une phrase par écart, pas un récit : le détail vit dans la PR citée.
 |---|---|---|
 | Algorithme et signature vérifiés | délégué à Auth.js v5 | ⚠️ à confirmer explicitement |
 | Durée de vie et rotation | valeurs par défaut Auth.js — jamais examinées | ⬜ |
-| Révocation | un JWT reste valide jusqu'à expiration : quel impact si un compte est désactivé ? | ⬜ |
+| Révocation | **Suppression d'un compte** : la session est annulée dès la requête suivante — `lib/sessionGate.ts` ré-interroge la ligne `User` à chaque relecture du jeton et, si elle n'existe plus, l'annule (échec fermé). Couvert par `tests/session-gate.test.ts`, `tests/session-reader-refusal.test.ts` (sonde par lecteur de session) et `tests-integration/session-gate.test.ts`. Fenêtre résiduelle : une suppression survenue pendant une requête déjà en cours ; un SUPERADMIN supprimé termine la sienne. **Changement de rôle** : le rôle du jeton n'est jamais relu — ouvert (H1, PR à part). **Changement de mot de passe** : ne coupe pas les sessions ouvertes — ouvert. **Désactivation** : n'existe pas dans l'application. À confirmer par la passe adverse en cours (2026-11-22) | ⚠️ |
 
 ## V11 — Cryptographie · V12 — Communications · V13 — Configuration
 
