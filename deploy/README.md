@@ -27,6 +27,9 @@ sudo tee /opt/fullstack-starter/deploy-pull.sh > /dev/null <<'SH'
 set -euo pipefail
 COMPOSE="/opt/fullstack-starter/docker-compose.prod.yml"
 cd /opt/fullstack-starter
+# un seul déploiement à la fois (webhook et timer ne doivent pas se chevaucher)
+exec 9>/opt/fullstack-starter/.deploy-pull.lock
+flock -w 900 9 || { echo "[deploy-pull] verrou toujours pris après 15 min" >&2; exit 1; }
 echo "[deploy-pull] $(date -Is) pulling latest web image…"
 docker compose -f "$COMPOSE" pull web
 docker compose -f "$COMPOSE" up -d
@@ -153,7 +156,20 @@ systemctl status fullstack-deploy.timer      # active (waiting)
 # ce qu'a fait le dernier déploiement :
 journalctl -u fullstack-deploy.service -n 40 --no-pager
 journalctl -u deploy-webhook.service -n 40 --no-pager
+
+# le script installé porte le verrou, et le timer tourne bien toutes les 15 min :
+grep -c flock /opt/fullstack-starter/deploy-pull.sh           # ≥ 1
+systemctl cat fullstack-deploy.timer | grep OnUnitActiveSec    # 15min
+# le conteneur porte son nom final (un préfixe « <id>_ » = remplacement interrompu) :
+docker ps --format '{{.Names}}'                                # fullstack_starter_web
 ```
+
+⚠️ Le 2026-11-22, le serveur avait dérivé du dépôt sur ces deux points : script
+sans verrou, et timer à **3 min** au lieu de 15. Le webhook et le timer se sont
+chevauchés, et le nouveau conteneur est resté sous son nom provisoire
+`3ed5f5066bf0_fullstack_starter_web` (réparé par `docker rename`, sans
+redémarrage). Le webhook appelle `deploy-pull.sh` **directement**, hors de
+l'unité systemd `oneshot` : seul le verrou du script les sérialise.
 
 ## Sécurité
 
