@@ -6,6 +6,7 @@ vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
 import { getAccessContext } from "@/lib/accessContext";
 import { auth } from "@/lib/auth";
 import { findAccessScopeByEmail, type AccessScope } from "@/repository/users";
+import { accountWithoutFunction, expectDenied } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const scopeMock = vi.mocked(findAccessScopeByEmail);
@@ -32,10 +33,16 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
     expect(scopeMock).not.toHaveBeenCalled();
   });
 
-  it("an anonymous caller (no session) is unrestricted, same as before", async () => {
+  // Was "an anonymous caller (no session) is unrestricted, same as before" —
+  // that assertion WAS the defect this pass closes: an absent/invalid
+  // session used to read as "unrestricted", which is how a deleted EDITOR's
+  // stale cookie could see a project, a masked section and the CSV export of
+  // every project it no longer had any right to. An anonymous caller is now
+  // DENIED on every axis, with no scope lookup (there is no email to look up).
+  it("an anonymous caller (no session) is DENIED on every axis, without querying the scope", async () => {
     authMock.mockResolvedValue(null as never);
     const ctx = await getAccessContext();
-    expect(ctx.hiddenAreas.size).toBe(0);
+    expectDenied(ctx);
     expect(scopeMock).not.toHaveBeenCalled();
   });
 
@@ -55,11 +62,36 @@ describe("getAccessContext — hiddenAreas bypass rule", () => {
     expect([...ctx.hiddenAreas]).toEqual(["admin.settings"]);
   });
 
+  // Was simulated with `scopeMock.mockResolvedValue(null)` — that is "no
+  // account", not "account with no function". A real "no function" scope is
+  // a present row whose hiddenSections/hiddenAreas are empty; this is what
+  // the fixture now sets up.
   it("an ADMIN with no job function has empty hiddenAreas (no restriction by default)", async () => {
     authMock.mockResolvedValue(session("ADMIN"));
-    scopeMock.mockResolvedValue(null);
+    scopeMock.mockResolvedValue(accountWithoutFunction());
     const ctx = await getAccessContext();
     expect(ctx.hiddenAreas.size).toBe(0);
+  });
+
+  // New: the session is valid (it has the role and the email), but the row is
+  // gone — the one window lib/sessionGate.ts cannot close: the row deleted
+  // DURING the request, after the gate passed the token and before this
+  // lookup ran. (A row deleted BEFORE the request is voided by the gate and
+  // reaches getAccessContext as no session at all — the anonymous case
+  // above.) DENIED, same as every role below it: the scope lookup runs
+  // before the ADMIN branch precisely so this can't fall through to
+  // "ADMIN's own job, unrestricted".
+  it("an ADMIN whose account no longer resolves (row deleted) is DENIED, not unrestricted", async () => {
+    authMock.mockResolvedValue(session("ADMIN"));
+    scopeMock.mockResolvedValue(null);
+    expectDenied(await getAccessContext());
+  });
+
+  // New: same window, a role below ADMIN.
+  it("an EDITOR whose account no longer resolves (row deleted) is DENIED", async () => {
+    authMock.mockResolvedValue(session("EDITOR"));
+    scopeMock.mockResolvedValue(null);
+    expectDenied(await getAccessContext());
   });
 
   it("a regular role (EDITOR) resolves hiddenAreas from its function, same as hiddenSections/projectIds", async () => {

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { sessionAccountWhere } from "@/repository/users";
 
 /** Contacts of a client — primary first, then oldest first. Includes each
  * contact's job function (name), its linked project ids, and its portal login
@@ -28,7 +29,7 @@ export async function findByClient(clientId: number) {
 export async function findByUserEmail(email: string) {
     try {
         return await prisma.contact.findFirst({
-            where: { user: { email } },
+            where: { user: sessionAccountWhere(email) },
             include: {
                 projects: { select: { id: true } },
                 client: { select: { id: true, companyName: true } },

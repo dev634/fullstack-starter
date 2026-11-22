@@ -33,6 +33,7 @@ import { findAccessScopeByEmail } from "@/repository/users";
 import { hasProjectAmong } from "@/repository/projects";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
+import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
@@ -65,7 +66,15 @@ const VALID_UPDATE_FIELDS = {
 };
 
 describe("client action auth guard + delegation", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // getAccessContext now resolves "account not found" (an unconfigured
+    // mock resolves `undefined`) to DENIED rather than "unrestricted" — give
+    // every ADMIN/EDITOR fixture here the scope of a real, existing account
+    // with no job function (the legitimate default) unless a test below sets
+    // its own scope.
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
+  });
 
   it("addClient refuses without a session", async () => {
     authMock.mockResolvedValue(null as never);
