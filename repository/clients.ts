@@ -15,14 +15,31 @@ import { GetClientsByOrder } from "@/service/clients";
  * is explicit on `recent` (not the full row) since Client carries an email —
  * project convention for any model with a sensitive-ish field.
  */
+/**
+ * THE rule "a live company the caller may reach": not trashed, and — for a
+ * restricted caller — holding at least one LIVE project among `projectIds`
+ * (`undefined` = unrestricted, as everywhere; pass `projectIdFilter(await
+ * getAccessContext())`). An EMPTY allowlist must yield no company at all, hence
+ * a presence check on the parameter, never a truthiness one.
+ *
+ * Written once: the company list, the dashboard counters and the add-project
+ * picker (findReachableOptions) all read it, and it is the same rule
+ * requireClientAccess applies (lib/access.ts, via
+ * repository/projects.ts::hasProjectAmong) — so a company offered is a company
+ * the action then accepts.
+ */
+export function reachableClientWhere(projectIds?: number[]): Prisma.ClientWhereInput {
+    return {
+        deletedAt: null,
+        ...(projectIds !== undefined
+            ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
+            : {}),
+    };
+}
+
 export async function getDashboardStats(projectIds?: number[]) {
     try {
-        const where: Prisma.ClientWhereInput = {
-            deletedAt: null,
-            ...(projectIds !== undefined
-                ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
-                : {}),
-        };
+        const where = reachableClientWhere(projectIds);
         const [total, grouped, recent] = await Promise.all([
             prisma.client.count({ where }),
             prisma.client.groupBy({ by: ["status"], where, _count: { _all: true } }),
@@ -106,13 +123,7 @@ export async function search({
   const term = q.trim();
   const insensitive = Prisma.QueryMode.insensitive;
   const where: Prisma.ClientWhereInput = {
-    deletedAt: null,
-    // A restricted user reaches a company only through a project they hold, so
-    // an EMPTY allowlist must yield no company at all. Hence a presence check
-    // on the parameter, never a truthiness one.
-    ...(projectIds !== undefined
-      ? { projects: { some: { id: { in: projectIds }, deletedAt: null } } }
-      : {}),
+    ...reachableClientWhere(projectIds),
     ...(term
       ? {
           OR: [
@@ -153,6 +164,40 @@ export async function search({
       message: "Database Error searching clients.",
     };
   }
+}
+
+/**
+ * The companies a caller may start a project under, as `{id, companyName}`
+ * options for a <select> — projected, never the full row (email, phone,
+ * address stay on the server). Same predicate as the action that consumes the
+ * choice (reachableClientWhere): the list that feeds a write carries the same
+ * guard as the write.
+ */
+export async function findReachableOptions(projectIds?: number[]) {
+    try {
+        return await prisma.client.findMany({
+            where: reachableClientWhere(projectIds),
+            orderBy: { companyName: "asc" },
+            select: { id: true, companyName: true },
+        });
+    } catch (error) {
+        console.log("Repository findReachableOptions error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching clients." };
+    }
+}
+
+/**
+ * Whether the company exists and whether it is in the trash — the one read
+ * behind requireClientAccess (lib/access.ts). `null` = no such company.
+ */
+export async function findTrashState(id: number): Promise<{ inTrash: boolean } | null> {
+    try {
+        const row = await prisma.client.findUnique({ where: { id }, select: { deletedAt: true } });
+        return row ? { inTrash: row.deletedAt !== null } : null;
+    } catch (error) {
+        console.log("Repository findTrashState (client) error:", error);
+        throw { type: "repositoryError", message: "Database Error checking client state." };
+    }
 }
 
 export async function findAll(orderBy: GetClientsByOrder) {

@@ -51,6 +51,25 @@ export async function findById(id: number) {
     }
 }
 
+/**
+ * Is this contact linked to at least one project (trashed ones included)
+ * OUTSIDE `scopeProjectIds`? Deleting a contact also deletes its portal login
+ * (see remove), which cuts the client's access to EVERY linked project — so a
+ * restricted caller may only do it when all the links are inside its own scope.
+ * One query. A contact with no link at all is never "outside".
+ */
+export async function hasLinkOutside(contactId: number, scopeProjectIds: number[]): Promise<boolean> {
+    try {
+        const count = await prisma.contact.count({
+            where: { id: contactId, projects: { some: { id: { notIn: scopeProjectIds } } } },
+        });
+        return count > 0;
+    } catch (error) {
+        console.log("Repository hasLinkOutside (contact) error:", error);
+        throw { type: "repositoryError", message: "Database Error checking contact links." };
+    }
+}
+
 /** Attach a portal login (User id) to a contact. */
 export async function attachLogin(contactId: number, userId: number) {
     try {
@@ -62,24 +81,49 @@ export async function attachLogin(contactId: number, userId: number) {
 }
 
 /**
- * Set which of the contact's own company projects its portal login may see.
- * `projectIds` is filtered to projects that actually belong to the contact's
- * client, so a tampered payload can't link a project from another company.
+ * Set which of the contact's own company projects its portal login may see —
+ * touching ONLY the links the caller is entitled to edit.
+ *
+ * The editable set is computed here, from the database, never read from the
+ * form: the LIVE projects of the contact's own company that sit inside the
+ * caller's scope (`scopeProjectIds`: `projectIdFilter(await
+ * getAccessContext())`, `undefined` = unrestricted). The resulting links are
+ *
+ *   (existing links OUTSIDE the editable set)  U  (submitted ids INSIDE it)
+ *
+ * so a restricted caller's save cannot erase a link to a project it never saw
+ * (outside its scope, or in the trash — the form only lists its own live
+ * projects), nor create one to a project it cannot reach or to another
+ * company's. The parameter is required on purpose (no default): a caller must
+ * say which scope it writes under.
  */
-export async function setContactProjects(contactId: number, projectIds: number[]) {
+export async function setContactProjects(
+    contactId: number,
+    projectIds: number[],
+    scopeProjectIds: number[] | undefined
+) {
     try {
         return await prisma.$transaction(async (tx) => {
             const contact = await tx.contact.findUniqueOrThrow({
                 where: { id: contactId },
-                select: { clientId: true },
+                select: { clientId: true, projects: { select: { id: true } } },
             });
-            const valid = await tx.project.findMany({
-                where: { id: { in: projectIds }, clientId: contact.clientId, deletedAt: null },
+            const editable = await tx.project.findMany({
+                where: {
+                    clientId: contact.clientId,
+                    deletedAt: null,
+                    ...(scopeProjectIds !== undefined ? { id: { in: scopeProjectIds } } : {}),
+                },
                 select: { id: true },
             });
+            const editableIds = new Set(editable.map((p) => p.id));
+            const kept = contact.projects.map((p) => p.id).filter((id) => !editableIds.has(id));
+            const submitted = projectIds.filter((id) => editableIds.has(id));
+            const finalIds = [...new Set([...kept, ...submitted])];
             return tx.contact.update({
                 where: { id: contactId },
-                data: { projects: { set: valid.map((p) => ({ id: p.id })) } },
+                data: { projects: { set: finalIds.map((id) => ({ id })) } },
+                select: { id: true },
             });
         });
     } catch (error) {

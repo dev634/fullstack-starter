@@ -57,10 +57,14 @@ export async function attachWorker(
     // (migration 20260920100000_project_workers, "WHAT THIS MIGRATION
     // DELIBERATELY DOES NOT ENFORCE" §1 — a FK proves the row exists, not
     // what kind of row it is).
+    //
+    // An absent account and a CLIENT login answer the SAME invalidId: a
+    // distinct message for the second would let a forged userId tell which
+    // ids are portal accounts (same rule as
+    // actions/equipmentLoans/equipmentLoans.ts and actions/portal/portal.ts).
     const user = await findUserById(parsed.data.userId);
-    if (!user) return { ...prevState, type: "error", message: t.workers.messages.invalidId };
-    if (user.role === "CLIENT") {
-      return { ...prevState, type: "error", message: t.workers.messages.clientNotAllowed };
+    if (!user || user.role === "CLIENT") {
+      return { ...prevState, type: "error", message: t.workers.messages.invalidId };
     }
 
     const worker = await attach(parsed.data.projectId, parsed.data.userId);

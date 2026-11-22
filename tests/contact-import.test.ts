@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/repository/contacts", () => ({ create: vi.fn() }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/jobFunctions", () => ({ findAllOptions: vi.fn() }));
 // requireAreaAccess("clients.contacts") (via getAccessContext) now resolves
 // "no account" to DENIED rather than "unrestricted" — this file's ADMIN
@@ -17,7 +17,8 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { importContacts } from "@/actions/contacts/contacts";
 import { auth } from "@/lib/auth";
 import { create } from "@/repository/contacts";
-import { findByEmail } from "@/repository/clients";
+import { findByEmail, findTrashState } from "@/repository/clients";
+import fr from "@/lib/i18n/dictionaries/fr";
 import { findAllOptions as findJobFunctions } from "@/repository/jobFunctions";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS } from "@/lib/csv";
@@ -77,6 +78,23 @@ describe("importContacts", () => {
     expect(res.type).toBe("error");
     expect(res.total).toBe(MAX_IMPORT_ROWS + 1);
     expect(res.created).toBe(0);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // F11: a company in the trash (like one out of the caller's scope) reads
+  // exactly like an unknown email.
+  it("answers a TRASHED company's email exactly like an unknown email", async () => {
+    authMock.mockResolvedValue(adminSession());
+    findJobFunctionsMock.mockResolvedValue([] as never);
+    const row = ['"acme@x.com","Alice","Smith","","","",""'];
+    findByEmailMock.mockResolvedValue(null);
+    const unknown = await importContacts(csvFile(row));
+    findByEmailMock.mockResolvedValue({ id: 7 } as never);
+    vi.mocked(findTrashState).mockResolvedValue({ inTrash: true });
+    const trashed = await importContacts(csvFile(row));
+    vi.mocked(findTrashState).mockResolvedValue({ inTrash: false });
+    expect(trashed.errors).toEqual(unknown.errors);
+    expect(trashed.errors[0].message).toBe(fr.contacts.import.unknownCompanyEmail);
     expect(createMock).not.toHaveBeenCalled();
   });
 

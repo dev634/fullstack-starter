@@ -13,7 +13,13 @@ vi.mock("@/repository/users", () => ({
   findAccessScopeByEmail: vi.fn(),
 }));
 vi.mock("@/repository/contacts", () => ({ findById: vi.fn(), attachLogin: vi.fn() }));
-vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
+// requireClientAccess now also reads the company's trash state (lib/access.ts):
+// a live company, everything else real.
+vi.mock("@/repository/clients", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/repository/clients")>()),
+  findTrashState: vi.fn().mockResolvedValue({ inTrash: false }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));

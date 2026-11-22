@@ -239,6 +239,11 @@ export async function deleteClient(id: number) {
     const scopeCheck = await requireFullClientAccess(id);
     if (scopeCheck.error) return { type: "error", message: scopeCheck.error.message };
     const existing = await findById(id);
+    // Already in the trash: trashing it again would re-date deletedAt (the
+    // trash is ordered by it) and journal a second DELETED. Absent answers
+    // invalidId instead of failing inside softDelete.
+    if (!existing) return { type: "error", message: t.errors.invalidId };
+    if (existing.deletedAt) return { type: "error", message: t.errors.inTrash };
     const client = await softDelete(id);
     await logActivity({
       action: "DELETED",
@@ -294,11 +299,17 @@ export async function deleteClients(ids: number[]) {
         continue;
       }
       const existing = await findById(id);
+      // Already in the trash (or gone since the batch check): skipped, like
+      // any company the caller cannot act on, and counted with them.
+      if (!existing || existing.deletedAt) {
+        skipped++;
+        continue;
+      }
       await softDelete(id);
       await logActivity({
         action: "DELETED",
         clientId: id,
-        clientName: existing?.companyName ?? `#${id}`,
+        clientName: existing.companyName,
         actorEmail: roleCheck.email,
       });
       deleted++;

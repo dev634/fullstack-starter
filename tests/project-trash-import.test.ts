@@ -17,8 +17,9 @@ vi.mock("@/repository/projects", () => ({
   restore: vi.fn(),
   findByClient: vi.fn(),
   findById: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
 }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByProject: vi.fn() }));
 vi.mock("@/lib/cloudinary", () => ({ destroyProjectFile: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
@@ -32,8 +33,9 @@ import {
   importProjects,
 } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
-import { create, remove, restore, findById } from "@/repository/projects";
-import { findByEmail } from "@/repository/clients";
+import { create, remove, restore, findById, findTrashState } from "@/repository/projects";
+import fr from "@/lib/i18n/dictionaries/fr";
+import { findByEmail, findTrashState as findClientTrashState } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
@@ -44,6 +46,10 @@ const createMock = vi.mocked(create);
 const removeMock = vi.mocked(remove);
 const restoreMock = vi.mocked(restore);
 const findByIdMock = vi.mocked(findById);
+const findTrashStateMock = vi.mocked(findTrashState);
+// requireTrashedProjectAccess reads the project's OWN trash state.
+const TRASHED = { selfTrashed: true, inTrash: true };
+const LIVE = { selfTrashed: false, inTrash: false };
 const findByEmailMock = vi.mocked(findByEmail);
 const findPublicIdsByProjectMock = vi.mocked(findPublicIdsByProject);
 const destroyProjectFileMock = vi.mocked(destroyProjectFile);
@@ -71,6 +77,7 @@ describe("restoreProject", () => {
 
   it("restores the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     restoreMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
     const res = await restoreProject(1);
     expect(restoreMock).toHaveBeenCalledWith(1);
@@ -78,6 +85,31 @@ describe("restoreProject", () => {
       expect.objectContaining({ action: "RESTORED", projectId: 1 })
     );
     expect(res.type).toBe("success");
+  });
+
+  // A project that is not in the trash has nothing to restore: a live one
+  // used to be "restored" (re-journalled RESTORED) and an unknown one failed
+  // inside the repository. Both now answer the same way.
+  it("refuses a LIVE project, with the same answer as an unknown one", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(LIVE);
+    const live = await restoreProject(1);
+    findTrashStateMock.mockResolvedValue(null);
+    const unknown = await restoreProject(1);
+    expect(live.type).toBe("error");
+    expect(live.message).toBe(unknown.message);
+    expect(live.message).toBe(fr.projects.messages.invalidId);
+    expect(restoreMock).not.toHaveBeenCalled();
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
+
+  // A live project under a company in the trash is not itself trashed.
+  it("refuses a live project whose company is in the trash (nothing to restore on the project)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue({ selfTrashed: false, inTrash: true });
+    const res = await restoreProject(1);
+    expect(res.message).toBe(fr.projects.messages.invalidId);
+    expect(restoreMock).not.toHaveBeenCalled();
   });
 });
 
@@ -93,6 +125,7 @@ describe("permanentlyDeleteProject", () => {
 
   it("permanently removes the project and logs the activity when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([]);
     removeMock.mockResolvedValue({ id: 1 } as never);
@@ -109,9 +142,9 @@ describe("permanentlyDeleteProject", () => {
   // answers like an unknown one.
   it("refuses a LIVE project, with the same answer as an unknown one", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: null } as never);
+    findTrashStateMock.mockResolvedValue(LIVE);
     const live = await permanentlyDeleteProject(1);
-    findByIdMock.mockResolvedValue(null as never);
+    findTrashStateMock.mockResolvedValue(null);
     const unknown = await permanentlyDeleteProject(1);
     expect(live.type).toBe("error");
     expect(live.message).toBe(unknown.message);
@@ -126,6 +159,7 @@ describe("permanentlyDeleteProject", () => {
   // must read the stored deliveryType/resourceType and pass them through.
   it("destroys the project's Cloudinary files, with their stored guarded type, before deleting", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
     findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
     findPublicIdsByProjectMock.mockResolvedValue([
       { publicId: "projects/1/plan", deliveryType: "AUTHENTICATED", resourceType: "RAW" },
@@ -193,6 +227,23 @@ describe("importProjects", () => {
     );
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // A company in the trash (like one out of the caller's scope) must read
+  // exactly like an unknown email: a distinct refusal would let a CSV probe
+  // which addresses are companies.
+  it("answers a TRASHED company's email exactly like an unknown email", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const row = ['"Toiture","alice@x.com","AUTRE","ETUDE","","","","","",""'];
+    findByEmailMock.mockResolvedValue(null);
+    const unknown = await importProjects(csvFile(row));
+    findByEmailMock.mockResolvedValue({ id: 42, email: "alice@x.com" } as never);
+    vi.mocked(findClientTrashState).mockResolvedValue({ inTrash: true });
+    const trashed = await importProjects(csvFile(row));
+    vi.mocked(findClientTrashState).mockResolvedValue({ inTrash: false });
+    expect(trashed.errors).toEqual(unknown.errors);
+    expect(trashed.errors[0].message).toBe(fr.projects.messages.unknownClientEmail);
     expect(createMock).not.toHaveBeenCalled();
   });
 

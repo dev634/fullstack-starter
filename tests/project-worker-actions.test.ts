@@ -20,6 +20,12 @@ vi.mock("@/repository/projectWorkers", () => ({
 vi.mock("@/repository/users", () => ({
   findById: vi.fn().mockResolvedValue({ id: 5, email: "u@example.com", role: "EDITOR", jobFunctionId: null }),
 }));
+// requireProjectAccess now also reads the project's trash state (lib/access.ts):
+// a live project, everything else real.
+vi.mock("@/repository/projects", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/repository/projects")>()),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -74,13 +80,19 @@ describe("attachWorker", () => {
   // The role that authorizes the attachment is resolved from the database,
   // never trusted from the submitted form — a tampered/stale userId must be
   // refused even though the picker itself only ever lists non-CLIENT users.
-  it("refuses a CLIENT-role user, resolved from the database", async () => {
+  // Same answer as an absent account (F11): a distinct message would let a
+  // forged userId tell which ids are portal logins.
+  it("refuses a CLIENT-role user, resolved from the database, exactly like an absent one", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     findUserByIdMock.mockResolvedValue({ id: 9, email: "portal@example.com", role: "CLIENT", jobFunctionId: null } as never);
     const res = await attachWorker(initial, formOf({ clientId: "1", projectId: "2", userId: "9" }));
     expect(res.type).toBe("error");
-    expect((res as { message: string }).message).toBe(fr.workers.messages.clientNotAllowed);
+    expect((res as { message: string }).message).toBe(fr.workers.messages.invalidId);
     expect(attachMock).not.toHaveBeenCalled();
+
+    findUserByIdMock.mockResolvedValue(null);
+    const absent = await attachWorker(initial, formOf({ clientId: "1", projectId: "2", userId: "999" }));
+    expect((absent as { message: string }).message).toBe((res as { message: string }).message);
   });
 
   it("rejects a userId that doesn't resolve to any user", async () => {

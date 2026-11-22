@@ -2,8 +2,8 @@ import { getAppSettings } from "@/lib/appSettings";
 import { requireRole, hasMinRole, type RoleCheckResult } from "@/lib/authz";
 import { resolveAccessConfig, type Capability, type Role } from "@/lib/capabilities";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
-import { hasProjectAmong } from "@/repository/projects";
-import { isFullyInScope, findFullyInScopeIds } from "@/repository/clients";
+import { hasProjectAmong, findTrashState as findProjectTrashState } from "@/repository/projects";
+import { isFullyInScope, findFullyInScopeIds, findTrashState as findClientTrashState } from "@/repository/clients";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 
@@ -32,6 +32,15 @@ export async function can(role: string | undefined, cap: Capability): Promise<bo
 export type ScopeCheckResult = { error: { type: "error"; message: string } | null };
 
 /**
+ * A scope refusal, with its message read lazily: the dictionary (and the
+ * locale behind it) is only resolved on the refusing path, as it always was.
+ */
+async function refuse(pick: (t: ReturnType<typeof getDictionary>) => string): Promise<ScopeCheckResult> {
+  const t = getDictionary(await getLocale());
+  return { error: { type: "error", message: pick(t) } };
+}
+
+/**
  * Guard a server action behind the caller's project scope (the DATA axis —
  * see lib/accessContext.ts). This is the third, separate question from role
  * (requireCapability) and section (requireSectionAccess): may this caller
@@ -54,9 +63,34 @@ export type ScopeCheckResult = { error: { type: "error"; message: string } | nul
  */
 export async function requireProjectAccess(projectId: number): Promise<ScopeCheckResult> {
   const ctx = await getAccessContext();
-  if (canReachProject(ctx, projectId)) return { error: null };
-  const t = getDictionary(await getLocale());
-  return { error: { type: "error", message: t.errors.forbidden } };
+  if (!canReachProject(ctx, projectId)) return refuse((t) => t.errors.forbidden);
+  // Scope alone says "this caller may touch this project", not "this project
+  // is still there to be edited". The content of a project in the trash — or
+  // of a live project under a company in the trash (trashing a company does
+  // not cascade to its projects) — stays frozen until it is restored. This
+  // name keeps the safe meaning: an action that calls it refuses the trash
+  // without having to think about it. The one pair that must act ON a trashed
+  // project (restore, permanent delete) calls requireTrashedProjectAccess.
+  const state = await findProjectTrashState(projectId);
+  if (!state) return refuse((t) => t.errors.invalidId);
+  if (state.inTrash) return refuse((t) => t.errors.inTrash);
+  return { error: null };
+}
+
+/**
+ * The inverse of requireProjectAccess, for the two actions that act ON a
+ * trashed project: restoreProject and permanentlyDeleteProject (and nothing
+ * else — tests/authz-coverage.test.ts pins it). Scope first, then the project
+ * must exist AND be in the trash itself. A live project and an unknown one
+ * answer the same (the project-scoped invalidId), so the response says nothing
+ * about which of the two an id was.
+ */
+export async function requireTrashedProjectAccess(projectId: number): Promise<ScopeCheckResult> {
+  const ctx = await getAccessContext();
+  if (!canReachProject(ctx, projectId)) return refuse((t) => t.errors.forbidden);
+  const state = await findProjectTrashState(projectId);
+  if (!state || !state.selfTrashed) return refuse((t) => t.projects.messages.invalidId);
+  return { error: null };
 }
 
 /**
@@ -65,15 +99,23 @@ export async function requireProjectAccess(projectId: number): Promise<ScopeChec
  * creating a new project under it). A client is reachable when the caller is
  * unrestricted, or holds at least one non-trashed project under it — the
  * same reachability rule already used to filter the client list/export
- * (repository/clients.ts::search).
+ * (repository/clients.ts::search) — and, on top of reachability, a company in
+ * the trash is refused (inTrash): it must be restored to be edited.
  */
 export async function requireClientAccess(clientId: number): Promise<ScopeCheckResult> {
   const ctx = await getAccessContext();
-  if (ctx.projectIds === null) return { error: null };
-  const reachable = await hasProjectAmong(clientId, [...ctx.projectIds]);
-  if (reachable) return { error: null };
-  const t = getDictionary(await getLocale());
-  return { error: { type: "error", message: t.errors.forbidden } };
+  if (ctx.projectIds !== null && !(await hasProjectAmong(clientId, [...ctx.projectIds]))) {
+    return refuse((t) => t.errors.forbidden);
+  }
+  // Reachable is not enough: the company must also exist and be live. Every
+  // action behind this guard WRITES to the company or under it (edit, contacts,
+  // portal login, new project, imports); none of them has a reason to act on
+  // one in the trash. The whole-company actions that do (trash, restore,
+  // permanent delete) go through requireFullClientAccess below instead.
+  const state = await findClientTrashState(clientId);
+  if (!state) return refuse((t) => t.errors.invalidId);
+  if (state.inTrash) return refuse((t) => t.errors.inTrash);
+  return { error: null };
 }
 
 /**

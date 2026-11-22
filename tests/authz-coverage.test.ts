@@ -105,22 +105,24 @@ const AREA_ACCESS_LIB_FILE = resolve(ROOT, "lib", "areaAccess.ts").toLowerCase()
 const AREA_GUARD_EXPORT_NAME = "requireAreaOrRedirect";
 const AREA_CAN_ACCESS_EXPORT_NAME = "canAccessArea";
 
-/** Whether import specifier `spec`, written in file `fromRelFile`, resolves to lib/areaAccess.ts. */
-function resolvesToAreaAccessLib(spec: string, fromRelFile: string): boolean {
+const ACCESS_LIB_FILE = resolve(ROOT, "lib", "access.ts").toLowerCase();
+
+/** Whether import specifier `spec`, written in file `fromRelFile`, resolves to the module at `targetFileLower` (absolute, lower-cased). */
+function resolvesToModule(spec: string, fromRelFile: string, targetFileLower: string): boolean {
   let base: string | undefined;
   if (spec.startsWith("@/")) base = resolve(ROOT, spec.slice(2));
   else if (spec.startsWith(".")) base = resolve(dirname(fromRelFile), spec);
   if (!base) return false; // a bare package specifier is never this local module
   const candidates = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")];
-  return candidates.some((c) => c.toLowerCase() === AREA_ACCESS_LIB_FILE);
+  return candidates.some((c) => c.toLowerCase() === targetFileLower);
 }
 
-/** Local names bound to lib/areaAccess.ts's `exportName` export, aliased or not. */
-function collectAreaGuardNames(source: ts.SourceFile, relFile: string, exportName: string): Set<string> {
+/** Local names bound to the `exportName` export of the module at `targetFileLower`, aliased or not. */
+function collectImportedNames(source: ts.SourceFile, relFile: string, targetFileLower: string, exportName: string): Set<string> {
   const names = new Set<string>();
   for (const stmt of source.statements) {
     if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-    if (!resolvesToAreaAccessLib(stmt.moduleSpecifier.text, relFile)) continue;
+    if (!resolvesToModule(stmt.moduleSpecifier.text, relFile, targetFileLower)) continue;
     const bindings = stmt.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
     for (const el of bindings.elements) {
@@ -128,6 +130,11 @@ function collectAreaGuardNames(source: ts.SourceFile, relFile: string, exportNam
     }
   }
   return names;
+}
+
+/** Local names bound to lib/areaAccess.ts's `exportName` export, aliased or not. */
+function collectAreaGuardNames(source: ts.SourceFile, relFile: string, exportName: string): Set<string> {
+  return collectImportedNames(source, relFile, AREA_ACCESS_LIB_FILE, exportName);
 }
 
 type PageFn = { name: string; exported: boolean; body: ts.Node };
@@ -704,5 +711,103 @@ describe("authorization coverage across server actions", () => {
       bodyCallsAnyOf(pageFn!.body, guardNames),
       `${file} never resolves access through requireAreaOrRedirect("dashboard"), imported from @/lib/areaAccess.`
     ).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------
+  // F10 — the content of a project in the trash (or under a company in the
+  // trash) is frozen. lib/access.ts::requireProjectAccess now reads the trash
+  // state; these two tests make sure every project-content action actually
+  // goes through it, and that its inverse stays confined to restore/destroy.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Exported OWNED_BY_SECTION actions that write nothing under a project, so
+   * have no trash state to check. Each carries its reason AND the condition of
+   * its disappearance; the test below fails if an exempt action starts calling
+   * requireProjectAccess (stale exemption) or disappears.
+   */
+  const PROJECT_ACCESS_EXEMPT: Record<string, string> = {
+    "actions/deliveryNoteScan/deliveryNoteScan.ts::scanDeliveryNote":
+      "reads one uploaded photo and returns a preview — no project id is resolved and nothing is read or " +
+      "written under a project (its write step, applyDeliveryNoteScan, is guarded). Disappears the day it " +
+      "takes or reads a project's data: it must then call requireProjectAccess and leave this list.",
+  };
+
+  /**
+   * How many actions of OWNED_BY_SECTION the test below looks at (exempt ones
+   * included), and how many it requires to call requireProjectAccess.
+   * Recounted by AST (pageFunctionsIn, exported only) on base commit 5c68150
+   * plus this change: 13 files, 47 exported actions, 1 exempt, 46 covered.
+   * An EXACT count, not a floor: a file dropped from OWNED_BY_SECTION, or an
+   * action removed from one, must make this fail rather than shrink the
+   * domain silently. Update it, with the method above, when an action is added.
+   */
+  const OWNED_ACTIONS_EXPECTED = 47;
+  const PROJECT_ACCESS_COVERED_EXPECTED = 46;
+
+  /** Every exported action of OWNED_BY_SECTION: key -> whether its body directly calls requireProjectAccess imported from @/lib/access. */
+  function ownedActionsCallingProjectAccess(): Map<string, boolean> {
+    const result = new Map<string, boolean>();
+    for (const file of OWNED_BY_SECTION) {
+      const source = ts.createSourceFile(file, readFileSync(join(process.cwd(), file), "utf8"), ts.ScriptTarget.Latest, true);
+      const guardNames = collectImportedNames(source, file, ACCESS_LIB_FILE, "requireProjectAccess");
+      for (const fn of pageFunctionsIn(source)) {
+        if (!fn.exported) continue;
+        result.set(`${file}::${fn.name}`, bodyCallsAnyOf(fn.body, guardNames));
+      }
+    }
+    return result;
+  }
+
+  it("every project-content action calls requireProjectAccess (imported from @/lib/access), so the trash freezes it", () => {
+    const actions = ownedActionsCallingProjectAccess();
+
+    const missing = [...actions].filter(([key, calls]) => !calls && !(key in PROJECT_ACCESS_EXEMPT)).map(([key]) => key);
+    expect(
+      missing,
+      missing.length
+        ? `These project-content actions never call requireProjectAccess directly:\n` +
+          missing.map((k) => `  - ${k}`).join("\n") +
+          `\n\nCall it with the project id RESOLVED FROM THE DATABASE (imported from @/lib/access — an alias ` +
+          `of another module or a call through an intermediate variable does not count). ` +
+          `Without it the action still writes under a project in the trash.`
+        : undefined
+    ).toEqual([]);
+
+    // Exemptions must stay true: an exempt action that exists and does NOT call it.
+    for (const key of Object.keys(PROJECT_ACCESS_EXEMPT)) {
+      expect(actions.has(key), `PROJECT_ACCESS_EXEMPT names ${key}, which no longer exists — drop the exemption.`).toBe(true);
+      expect(actions.get(key), `${key} now calls requireProjectAccess — drop its exemption.`).toBe(false);
+    }
+
+    // The discovered domain has an exact size (see the constants above).
+    expect(actions.size).toBe(OWNED_ACTIONS_EXPECTED);
+    expect(actions.size - Object.keys(PROJECT_ACCESS_EXEMPT).length).toBe(PROJECT_ACCESS_COVERED_EXPECTED);
+  });
+
+  it("requireTrashedProjectAccess is called by restoreProject and permanentlyDeleteProject, and by nothing else", () => {
+    // The inverse guard (the project must BE in the trash) is the one place
+    // where acting on a trashed project is legitimate. Any other caller
+    // reopens the freeze, so the set is pinned. Domain: every source file of
+    // the app, not a list — a new caller anywhere must show up here.
+    const allowed = [
+      "actions/projects/projects.ts::permanentlyDeleteProject",
+      "actions/projects/projects.ts::restoreProject",
+    ];
+    const callers = new Set<string>();
+    for (const dir of ["actions", "app", "lib", "service", "repository", "components", "forms"]) {
+      for (const file of sourceFilesIn(join(process.cwd(), dir), [".ts", ".tsx"])) {
+        const rel = relative(process.cwd(), file).split(sep).join("/");
+        if (rel === "lib/access.ts") continue; // the definition
+        const source = ts.createSourceFile(rel, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+        const names = collectImportedNames(source, rel, ACCESS_LIB_FILE, "requireTrashedProjectAccess");
+        if (names.size === 0) continue;
+        const named = pageFunctionsIn(source).filter((fn) => bodyCallsAnyOf(fn.body, names));
+        for (const fn of named) callers.add(`${rel}::${fn.name}`);
+        // Imported but not called from any top-level function: still a caller to refuse.
+        if (named.length === 0) callers.add(`${rel}::<outside a top-level function>`);
+      }
+    }
+    expect([...callers].sort()).toEqual(allowed);
   });
 });

@@ -2,7 +2,7 @@
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireRole } from "@/lib/authz";
-import { requireCapability, requireProjectAccess, requireClientAccess } from "@/lib/access";
+import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject, projectIdFilter } from "@/lib/accessContext";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
@@ -169,7 +169,9 @@ export async function restoreProject(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
-    const scopeCheck = await requireProjectAccess(id);
+    // Only a project that IS in the trash can be restored; a live or unknown
+    // one gets the same answer (requireTrashedProjectAccess).
+    const scopeCheck = await requireTrashedProjectAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
     const project = await restore(id);
     await logActivity({
@@ -203,15 +205,12 @@ export async function permanentlyDeleteProject(id: number) {
     if (isNaN(id)) {
       throw { type: "error", message: t.projects.messages.invalidId };
     }
-    const scopeCheck = await requireProjectAccess(id);
-    if (scopeCheck.error) return scopeCheck.error;
-    const existing = await findById(id);
     // Irreversible: only a project that is already in the trash may go (a
     // LIVE one used to be destroyed outright, files included). Live and
-    // unknown answer the same.
-    if (!existing || !existing.deletedAt) {
-      return { type: "error" as const, message: t.projects.messages.invalidId };
-    }
+    // unknown answer the same — the guard owns that rule.
+    const scopeCheck = await requireTrashedProjectAccess(id);
+    if (scopeCheck.error) return scopeCheck.error;
+    const existing = await findById(id);
     // Clean up the Cloudinary blobs before the DB rows cascade-delete —
     // otherwise the files are orphaned in Cloudinary forever.
     const files = await findPublicIdsByProject(id);
@@ -222,7 +221,7 @@ export async function permanentlyDeleteProject(id: number) {
     await logActivity({
       action: "PERMANENTLY_DELETED",
       projectId: id,
-      projectName: existing.name,
+      projectName: existing?.name ?? `#${id}`,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/projects/trash");
@@ -305,9 +304,12 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
       if (!client) {
         throw new Error(t.projects.messages.unknownClientEmail);
       }
+      // A company the caller cannot reach (or that sits in the trash) reads
+      // exactly like an unknown email: a distinct refusal would let a CSV
+      // probe which addresses are companies.
       const scopeCheck = await requireClientAccess(client.id);
       if (scopeCheck.error) {
-        throw new Error(scopeCheck.error.message);
+        throw new Error(t.projects.messages.unknownClientEmail);
       }
       const parsed = createProjectSchema.safeParse({ ...data, clientId: client.id });
       if (!parsed.success) {

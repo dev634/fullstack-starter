@@ -55,7 +55,7 @@ vi.mock("@/repository/projectMaterials", () => ({
 }));
 vi.mock("@/repository/projectFiles", () => ({ create: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
-vi.mock("@/repository/projects", () => ({ findById: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ findById: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
 vi.mock("@/lib/cloudinary", () => ({ uploadProjectFile: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
   isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),

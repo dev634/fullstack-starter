@@ -51,6 +51,7 @@ const fr = {
         forbiddenArea: "Accès refusé. Cette rubrique n'est pas accessible avec ta fonction.",
         forbiddenSection: "Accès refusé. Cette section n'est pas accessible avec ta fonction.",
         invalidId: "Identifiant invalide.",
+        inTrash: "Cet élément est à la corbeille : restaure-le pour le modifier.",
         serverError: "Erreur serveur. Réessaie plus tard.",
     },
     nav: {
@@ -644,7 +645,6 @@ const fr = {
             removed: "Travailleur détaché.",
             invalidId: "Identifiant de travailleur invalide.",
             alreadyAttached: "Ce salarié est déjà rattaché à ce projet.",
-            clientNotAllowed: "Un compte client ne peut pas être rattaché comme travailleur.",
         },
     },
     assignees: {

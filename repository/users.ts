@@ -339,7 +339,10 @@ export async function remove(id: number) {
     try {
         return await prisma.$transaction(async (tx) => {
             await tx.equipmentLoan.deleteMany({ where: { borrowerId: id, returnedAt: { not: null } } });
-            return await tx.user.delete({ where: { id } });
+            // Explicit select: the bare row carries the password hash, and the
+            // caller (actions/users/users.ts::deleteUser) only needs to know it
+            // succeeded.
+            return await tx.user.delete({ where: { id }, select: { id: true } });
         });
     } catch (error) {
         console.log("Repository remove (user) error:", error);
@@ -382,6 +385,8 @@ export async function createResetToken(userId: number, token: string, expiresAt:
         // Store only the hash — the raw token lives solely in the emailed URL.
         return await prisma.passwordResetToken.create({
             data: { userId, token: hashResetToken(token), expiresAt },
+            // No caller reads the row; never hand back the stored token hash.
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository createResetToken error:", error);
@@ -417,6 +422,7 @@ export async function markResetTokenUsed(id: number) {
         return await prisma.passwordResetToken.update({
             where: { id },
             data: { usedAt: new Date() },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository markResetTokenUsed error:", error);
@@ -432,6 +438,8 @@ export async function updatePassword(userId: number, hashedPassword: string) {
         return await prisma.user.update({
             where: { id: userId },
             data: { password: hashedPassword },
+            // No caller reads the row; never hand back the password hash.
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository updatePassword error:", error);
@@ -459,6 +467,7 @@ export async function setUserProjects(userId: number, projectIds: number[]) {
         return await prisma.user.update({
             where: { id: userId },
             data: { assignedProjects: { set: valid.map((p) => ({ id: p.id })) } },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository setUserProjects error:", error);

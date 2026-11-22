@@ -27,6 +27,12 @@ vi.mock("@/lib/cloudinary", () => ({
   uploadProjectFile: vi.fn(),
   destroyProjectFile: vi.fn(),
 }));
+// requireProjectAccess now also reads the project's trash state (lib/access.ts):
+// a live project, everything else real.
+vi.mock("@/repository/projects", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/repository/projects")>()),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));

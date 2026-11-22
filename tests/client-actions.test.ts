@@ -12,6 +12,7 @@ vi.mock("@/repository/clients", () => ({
   update: vi.fn(),
   isFullyInScope: vi.fn(),
   findFullyInScopeIds: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ inTrash: false }),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadClientPhoto: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("@/lib/cloudinary", () => ({
 }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
 vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
-vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn() }));
+vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -150,6 +151,30 @@ describe("client action auth guard + delegation", () => {
     expect(softDeleteMock).toHaveBeenCalledWith(1);
     expect(logActivityMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: "DELETED", clientId: 1, clientName: "Sunrise Corporation" })
+    );
+  });
+
+  // F10: trashing a company already in the trash would re-date deletedAt (the
+  // trash is ordered by it) and journal a second DELETED.
+  it("deleteClient refuses a company already in the trash (no re-date, no second DELETED)", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, companyName: "Acme", deletedAt: new Date() } as never);
+    const res = await deleteClient(1);
+    expect(res).toEqual({ type: "error", message: fr.errors.inTrash });
+    expect(softDeleteMock).not.toHaveBeenCalled();
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
+
+  it("deleteClients skips a company already in the trash, counting it among the ignored", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockImplementation((async (id: number) =>
+      id === 1 ? { id, companyName: "Live", deletedAt: null } : { id, companyName: "Gone", deletedAt: new Date() }) as never);
+    softDeleteMock.mockResolvedValue({ id: 1 } as never);
+    const res = await deleteClients([1, 2]);
+    expect(softDeleteMock).toHaveBeenCalledTimes(1);
+    expect(softDeleteMock).toHaveBeenCalledWith(1);
+    expect(res.message).toBe(
+      fr.clients.messages.deletedBulkSkipped.replace("{count}", "1").replace("{skipped}", "1")
     );
   });
 
@@ -366,8 +391,12 @@ describe("client action auth guard + delegation", () => {
         permanentlyRemoveMock.mockResolvedValue({ id: 7 } as never);
         findPublicIdsByClientMock.mockResolvedValue([]);
 
+        // Trashing needs a LIVE company (a trashed one is refused, see below);
+        // restoring and destroying need the trashed one.
+        findByIdMock.mockResolvedValue({ ...trashed, deletedAt: null } as never);
         await deleteClient(7);
         expect(softDeleteMock).toHaveBeenCalledWith(7);
+        findByIdMock.mockResolvedValue(trashed as never);
         expect((await restoreClient(7)).type).toBe("success");
         expect((await permanentlyDeleteClient(7)).type).toBe("success");
       });

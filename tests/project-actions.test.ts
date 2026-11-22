@@ -16,8 +16,9 @@ vi.mock("@/repository/projects", () => ({
   restore: vi.fn(),
   findByClient: vi.fn(),
   findById: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
 }));
-vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn() }));
+vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/projectFolders", () => ({ createDefaults: vi.fn() }));
 vi.mock("@/repository/projectActivity", () => ({ logActivity: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -27,7 +28,9 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addProject, updateProject, deleteProject, getProject, getProjectsForClient } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
-import { create, update, remove, softDelete, findByClient, findById } from "@/repository/projects";
+import { create, update, remove, softDelete, findByClient, findById, findTrashState } from "@/repository/projects";
+import { logActivity } from "@/repository/projectActivity";
+import fr from "@/lib/i18n/dictionaries/fr";
 import { createDefaults } from "@/repository/projectFolders";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -136,6 +139,18 @@ describe("project actions", () => {
     expect(softDeleteMock).toHaveBeenCalledWith(1);
     expect(removeMock).not.toHaveBeenCalled();
     expect(res.type).toBe("success");
+  });
+
+  // F10: scope alone no longer opens a project. Trashing it again would
+  // re-date deletedAt and journal a second DELETED.
+  it("deleteProject refuses a project already in the trash (no second DELETED)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    vi.mocked(findTrashState).mockResolvedValue({ selfTrashed: true, inTrash: true });
+    const res = await deleteProject(1, 2);
+    vi.mocked(findTrashState).mockResolvedValue({ selfTrashed: false, inTrash: false });
+    expect(res).toEqual({ type: "error", message: fr.errors.inTrash });
+    expect(softDeleteMock).not.toHaveBeenCalled();
+    expect(vi.mocked(logActivity)).not.toHaveBeenCalled();
   });
 
   it("getProjectsForClient refuses a session below VIEWER", async () => {

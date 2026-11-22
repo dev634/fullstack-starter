@@ -27,6 +27,7 @@ vi.mock("@/repository/reservePhotos", () => ({
 }));
 vi.mock("@/repository/projects", () => ({
   updateReserveStatusStyle: vi.fn(),
+  findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadReservePlan: vi.fn(),

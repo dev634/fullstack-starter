@@ -258,6 +258,37 @@ export async function hasProjectAmong(clientId: number, projectIds: number[]): P
 }
 
 /**
+ * Where a project stands relative to the trash — the ONE read behind
+ * requireProjectAccess / requireTrashedProjectAccess (lib/access.ts). `null`
+ * when the project does not exist. Minimal `select`: two dates, nothing the
+ * project carries that a guard has no business reading (budget, notes).
+ *
+ * `inTrash` is true when the project ITSELF is trashed OR its company is:
+ * trashing a company does not cascade to its projects
+ * (repository/clients.ts::softDelete), so a live project under a trashed
+ * company must read as "in the trash" too, or its content stays editable.
+ * `selfTrashed` is the project's own state alone, which is what restoring or
+ * permanently deleting it must look at (a live project under a trashed
+ * company is not a trashed project: it has nothing to restore).
+ */
+export async function findTrashState(
+    id: number
+): Promise<{ selfTrashed: boolean; inTrash: boolean } | null> {
+    try {
+        const row = await prisma.project.findUnique({
+            where: { id },
+            select: { deletedAt: true, client: { select: { deletedAt: true } } },
+        });
+        if (!row) return null;
+        const selfTrashed = row.deletedAt !== null;
+        return { selfTrashed, inTrash: selfTrashed || row.client.deletedAt !== null };
+    } catch (error) {
+        console.log("Repository findTrashState (project) error:", error);
+        throw { type: "repositoryError", message: "Database Error checking project state." };
+    }
+}
+
+/**
  * Distinct client ids owning any of the given project ids — used to scope
  * the client activity log (repository/activity.ts) to a restricted caller.
  * ActivityLog has no relation to Client (its `clientId` is a plain field so
