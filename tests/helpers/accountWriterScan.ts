@@ -339,41 +339,102 @@ function enclosingFunctionLike(n: ts.Node): ts.FunctionLikeDeclaration | null {
   return null;
 }
 
+/** The root identifier of `a.b[c].d` (through parentheses, `!`, `as` and `satisfies`), or null. */
+function rootIdentifier(e: ts.Expression): ts.Identifier | null {
+  let cur: ts.Expression = e;
+  for (;;) {
+    if (ts.isIdentifier(cur)) return cur;
+    if (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur) || ts.isNonNullExpression(cur) || ts.isParenthesizedExpression(cur) || ts.isAsExpression(cur) || ts.isTypeAssertionExpression(cur) || ts.isSatisfiesExpression(cur)) cur = cur.expression;
+    else return null;
+  }
+}
+
+const OBJECT_MUTATORS: ReadonlySet<string> = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
+
+/** Is `n` a property write / delete / `Object.assign`-style mutation whose target is rooted at `name`? */
+function mutatesName(n: ts.Node, name: string): boolean {
+  const rootedAtName = (e: ts.Expression) => {
+    const root = rootIdentifier(e);
+    return root !== null && root.text === name && root !== e; // a property of it, not a rebinding of the name itself
+  };
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return rootedAtName(n.left);
+  if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) return rootedAtName(n.operand);
+  if (ts.isDeleteExpression(n)) return rootedAtName(n.expression);
+  if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "Object" && OBJECT_MUTATORS.has(n.expression.name.text)) {
+    const first = n.arguments[0];
+    return first !== undefined && rootIdentifier(first)?.text === name;
+  }
+  return false;
+}
+
+/** Every identifier a binding name introduces (`x`, `{ a, b: [c] }`, …). */
+function boundNames(b: ts.BindingName, out: string[] = []): string[] {
+  if (ts.isIdentifier(b)) out.push(b.text);
+  else for (const el of b.elements) if (!ts.isOmittedExpression(el)) boundNames(el.name, out);
+  return out;
+}
+
 /**
- * The initializer of the `const <name> = …` that `site` (an identifier) REALLY
- * refers to, or null — and null means opaque. Followed only when the
- * declaration is (a) a `const`, (b) in a block that encloses the use, (c)
- * BEFORE it, and (d) in the SAME function as the use (a closure over an outer
- * function's variable is not followed), and no parameter of that function
- * shadows the name. Resolving to "the first declaration of that name in the
- * file" let an unrelated `const data = { name }` elsewhere make a parameter
- * `data` look harmless.
+ * The initializer of the one `const <name> = …` that `site` (an identifier)
+ * refers to, or null — and null means OPAQUE (assumed to write credentials).
+ *
+ * What the code does, exactly. The declaration is followed only when ALL hold:
+ *   - it is a `const` with an initializer, in a block that encloses the use,
+ *     BEFORE it, and in the SAME function as the use (a closure over an outer
+ *     function's variable is not followed);
+ *   - no parameter of that function (patterns included) has the name;
+ *   - that `const` is the ONLY binding of the name in the function, nested
+ *     blocks included: any other — `let`/`var`, a destructuring
+ *     (`const { data } = input`), a `for (const data of …)`, a `catch (data)`,
+ *     a function or class declaration, a second `const` in another block — makes
+ *     the name opaque rather than guess which one is nearer. (Bindings in
+ *     NESTED FUNCTIONS are other scopes and are ignored.)
+ *   - the name is never MUTATED anywhere in the function, nested functions
+ *     included: a property assignment (\`data.password = h\`, \`+=\`, \`++\`), a
+ *     \`delete data.x\`, or \`Object.assign(data, …)\` (also defineProperty /
+ *     defineProperties / setPrototypeOf) — the literal's keys no longer tell
+ *     what is written.
+ * Resolving to "the first declaration of that name in the file" let an
+ * unrelated \`const data = { name }\` elsewhere make a parameter \`data\` look harmless.
  */
 function localInitializer(site: ts.Identifier): ts.Expression | null {
   const fn = enclosingFunctionLike(site);
-  if (fn?.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === site.text)) return null;
-  let best: ts.VariableDeclaration | null = null;
+  if (fn?.parameters.some((p) => boundNames(p.name).includes(site.text))) return null;
   const file = site.getSourceFile();
-  const visit = (n: ts.Node) => {
-    if (n !== file && n !== fn && ts.isFunctionLike(n)) return; // another function's scope
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === site.text && n.initializer) {
-      const list = n.parent;
-      const scope = list.parent.parent; // VariableDeclarationList -> VariableStatement -> Block | SourceFile
-      if (
-        ts.isVariableDeclarationList(list) &&
-        (list.flags & ts.NodeFlags.Const) !== 0 &&
-        scope.getStart() <= site.getStart() &&
-        site.getEnd() <= scope.getEnd() &&
-        n.getEnd() <= site.getStart() &&
-        enclosingFunctionLike(n) === fn &&
-        (best === null || n.getStart() > best.getStart())
-      ) {
-        best = n;
+  const root: ts.Node = fn?.body ?? file;
+  const candidates: ts.VariableDeclaration[] = [];
+  let otherBindings = 0;
+  let mutated = false;
+  const countBinding = () => {
+    otherBindings++;
+  };
+  const visit = (n: ts.Node, sameFunction: boolean) => {
+    if (mutatesName(n, site.text)) mutated = true; // nested functions included
+    const nested = n !== root && ts.isFunctionLike(n);
+    if (nested) {
+      // another function's scope: only mutations (above) matter inside it
+      ts.forEachChild(n, (c) => visit(c, false));
+      return;
+    }
+    if (sameFunction) {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === site.text && n.initializer && ts.isVariableDeclarationList(n.parent) && (n.parent.flags & ts.NodeFlags.Const) !== 0 && ts.isVariableStatement(n.parent.parent)) {
+        candidates.push(n);
+      } else if (ts.isVariableDeclaration(n) && boundNames(n.name).includes(site.text)) {
+        countBinding(); // let / var / destructuring / for-of / catch / const without a followable shape
+      } else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name?.text === site.text) {
+        countBinding();
       }
     }
-    ts.forEachChild(n, visit);
+    ts.forEachChild(n, (c) => visit(c, sameFunction));
   };
-  visit(fn?.body ?? file);
+  visit(root, true);
+  if (mutated || otherBindings > 0) return null;
+  let best: ts.VariableDeclaration | null = null;
+  for (const n of candidates) {
+    const scope = n.parent.parent.parent; // VariableDeclarationList -> VariableStatement -> Block | SourceFile
+    if (scope.getStart() <= site.getStart() && site.getEnd() <= scope.getEnd() && n.getEnd() <= site.getStart() && (best === null || n.getStart() > best.getStart())) best = n;
+  }
+  if (candidates.length > 1) return null; // two consts of that name in the function: not guessed
   return (best as ts.VariableDeclaration | null)?.initializer ?? null;
 }
 
@@ -485,8 +546,14 @@ const UNREADABLE: DataShape = { credentials: true, bumps: false, badVersion: fal
  *
  * Followed: an inline object, a `const data = { … }` declared before the call in
  * the SAME function (also when `data` is passed shorthand), spreads of either.
- * Opaque (a parameter, a spread of one, a call result, a `let`) counts as
- * "writes credentials". NOT seen by construction: a client under another name
+ * Opaque (a parameter, a spread of one, a call result, a `let`, a name bound
+ * twice in the function, a name mutated by property assignment / delete /
+ * Object.assign — see localInitializer) counts as "writes credentials".
+ * REMAINING LIMITS, stated: an alias (`const d = data; d.password = h`) or a
+ * helper that mutates its argument (`fill(data)`) is not followed — the literal
+ * is still read as it was written; a `const` declared in an OUTER function and
+ * used in a closure is opaque (safe) but one mutated only through a reference
+ * held elsewhere is not seen. NOT seen by construction: a client under another name
  * than `prisma`/`tx`, raw SQL (the only raw SQL of the app is a SELECT … FOR
  * UPDATE), a writer passed as a value instead of called, a `sessionVersion`
  * hidden inside an opaque spread, a User written through a relation FROM the

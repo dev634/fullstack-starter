@@ -11,6 +11,7 @@ import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/ac
 import { assignableRoles, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import type { UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
+import { MIN_PASSWORD_LENGTH } from "@/schemas/user";
 import JobFunctionOptions, { type JobFunctionOption } from "@/forms/JobFunctionOptions";
 
 type ManagedUser = {
@@ -119,18 +120,26 @@ export default function UsersManager({
     if (!editing) return;
     setError(null);
     setFieldErrors(undefined);
+    // Checked BEFORE anything is sent: on my own account the assignments are
+    // written first, so a refusal by updateUser afterwards would be a partial write.
+    if (password && password.length < MIN_PASSWORD_LENGTH) {
+      setFieldErrors({ password: format(t.users.messages.passwordTooShort, { min: MIN_PASSWORD_LENGTH }) });
+      return;
+    }
     // Editing MY OWN account with a new password or role: that write kills my
     // session (sessionVersion), and updateUser then signs me out. So it goes
     // LAST — the assignments are saved first, while the cookie still works.
     const endsOwnSession =
       editing.mode === "edit" && isSelfRow(editing.user) && (password !== "" || role !== editing.user.role);
     startTransition(async () => {
+      let projectsSavedFirst = false;
       if (endsOwnSession && editing.mode === "edit" && canAssignProjects) {
         const assignRes = await setUserProjectAssignments(editing.user.id, [...assigned]);
         if (assignRes.type === "error") {
           setError(assignRes.message);
           return;
         }
+        projectsSavedFirst = true;
       }
       const fd = new FormData();
       fd.set("name", name.trim());
@@ -159,7 +168,8 @@ export default function UsersManager({
         }
       }
       if (res.type !== "success") {
-        setError(res.message);
+        // The assignments of my own account went first: say that they are saved and the profile is not.
+        setError(projectsSavedFirst ? `${t.users.messages.projectsSavedProfileNot} ${res.message}` : res.message);
         if (res.type === "zodError") setFieldErrors(res.fieldsForm);
         return;
       }
@@ -354,6 +364,7 @@ export default function UsersManager({
             <input
               type="password"
               autoComplete="new-password"
+              minLength={MIN_PASSWORD_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={inputClass}

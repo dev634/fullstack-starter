@@ -1023,6 +1023,8 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
+            passwordTooShort: "Le mot de passe doit contenir au moins {min} caractères.",
+            projectsSavedProfileNot: "Les chantiers ont été enregistrés, mais le profil ne l'a pas été :",
             // Equipment.ownerId et EquipmentLoan.borrowerId (prêts OUVERTS)
             // sont en onDelete: Restrict (migration 20260918120000) — les
             // prêts fermés, eux, sont purgés automatiquement à la suppression.

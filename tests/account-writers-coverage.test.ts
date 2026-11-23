@@ -536,6 +536,24 @@ describe("every writer of User.password / User.role bumps sessionVersion in the 
       expect(bumpViolations(planted(`export async function f(id: number) { let data = { name: "x" }; return prisma.user.update({ where: { id }, data }); }`))).toHaveLength(1);
     });
 
+    it("probe e2 (scope, the seven forms) — a name mutated or re-bound in the function is opaque, hence RED; the plain form stays GREEN", () => {
+      const head = "export async function f(id: number, c: boolean, input: { data: object }, list: object[]) {";
+      const update = "return prisma.user.update({ where: { id }, data }); }";
+      const red = [
+        `${head} const data: { name: string; password?: string } = { name: "x" }; data.password = "h"; ${update}`,
+        `${head} const data = { name: "x" }; (data as { password?: string }).password = "h"; ${update}`,
+        `${head} const data: { name: string; sessionVersion?: object } = { name: "x" }; delete data.sessionVersion; ${update}`,
+        `${head} const data = { name: "x" }; Object.assign(data, { password: "h" }); ${update}`,
+        `${head} let data = { name: "x" }; ${update}`,
+        `${head} var data = { name: "x" }; ${update}`,
+        `${head} const data = { name: "x" }; if (c) { const { data } = input; ${update} } return data; }`,
+        `${head} const data = { name: "x" }; for (const data of list) { await prisma.user.update({ where: { id }, data }); } return data; }`,
+        `${head} const data = { name: "x" }; try { return data; } catch (data) { ${update} } }`,
+      ];
+      for (const text of red) expect(bumpViolations(planted(text)), text).toHaveLength(1);
+      expect(bumpViolations(planted(`${head} const data = { name: "x" }; ${update}`))).toEqual([]);
+    });
+
     it("probe f (depth) — a user write nested several levels under another model is DISCOVERED, and RED without the bump", () => {
       const deep = (extra: string) =>
         planted(

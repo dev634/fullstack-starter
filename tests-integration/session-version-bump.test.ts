@@ -126,22 +126,28 @@ describe("sessionVersion is bumped by the writers of the password and the role",
       expect(row.password).toBe("old-hash");
     });
 
-    it("a reset deletes the account's other unused links", async () => {
+    it("a reset deletes the account's other unused links, and ONLY its own (a neighbour's link survives)", async () => {
+      const neighbour = await makeUser("neighbour");
+      await createResetToken(neighbour.id, `raw-nb-${neighbour.id}`, new Date(Date.now() + 60_000));
       const user = await makeUser("others");
       await createResetToken(user.id, `raw-o1-${user.id}`, new Date(Date.now() + 60_000));
       // Minted by hand: createResetToken itself keeps a single unused link.
       await prisma.passwordResetToken.create({ data: { userId: user.id, token: `other-${user.id}`, expiresAt: new Date(Date.now() + 60_000) } });
       expect(await resetPasswordWithToken(`raw-o1-${user.id}`, "h")).toBe(true);
       expect(await unused(user.id)).toBe(0);
+      expect(await unused(neighbour.id)).toBe(1);
     });
 
     it("updateProfile with a password deletes the account's unused links; without one, it keeps them", async () => {
+      const neighbour = await makeUser("profile-neighbour");
+      await createResetToken(neighbour.id, `raw-pn-${neighbour.id}`, new Date(Date.now() + 60_000));
       const user = await makeUser("profile-links");
       await createResetToken(user.id, `raw-p-${user.id}`, new Date(Date.now() + 60_000));
       await updateProfile(user.id, { name: "Other", role: "EDITOR", jobFunctionId: null }, null);
       expect(await unused(user.id)).toBe(1);
       await updateProfile(user.id, { name: "Other", role: "EDITOR", jobFunctionId: null, password: "h" }, null);
       expect(await unused(user.id)).toBe(0);
+      expect(await unused(neighbour.id)).toBe(1);
     });
   });
 });

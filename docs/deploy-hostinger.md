@@ -425,6 +425,7 @@ if (!email || !password) {
   // normalized (CHECK), so a clash on lower(email) is a clash on email.
   // The WHERE refuses a portal login: the row is then neither inserted nor
   // updated, nothing is returned (rowCount 0) and the DELETE below has no id.
+  // `xmax <> 0` tells an UPDATE (existing row) from an INSERT (new row).
   // One statement: the upsert and the purge of the unused reset links commit together.
   const res = await client.query(
     `WITH account AS (
@@ -436,12 +437,12 @@ if (!email || !password) {
          role = 'SUPERADMIN',
          "sessionVersion" = "User"."sessionVersion" + 1
        WHERE "User".role <> 'CLIENT'
-       RETURNING id
+       RETURNING id, (xmax <> 0) AS existed
      ), purge AS (
        DELETE FROM "PasswordResetToken"
        WHERE "userId" IN (SELECT id FROM account) AND "usedAt" IS NULL
      )
-     SELECT id FROM account`,
+     SELECT id, existed FROM account`,
     [email, hash, name]
   );
   await client.end();
@@ -449,7 +450,11 @@ if (!email || !password) {
     console.error('❌ Refusé :', email, 'est un login du portail client. Rien n\'a été modifié.');
     process.exit(1);
   }
-  console.log('✅ Compte SUPERADMIN prêt :', email);
+  console.log(
+    res.rows[0].existed
+      ? '✅ Compte existant mis à jour (mot de passe remplacé, sessions révoquées) : ' + email
+      : '✅ Compte créé : ' + email
+  );
 })().catch((err) => {
   console.error('❌', err.message);
   process.exit(1);
@@ -537,17 +542,38 @@ gunzip -c /opt/fullstack-starter/backups/app-20260101-030000.sql.gz \
 `User.sessionVersion` est le compteur qui annule les cookies d'un compte dont le mot de passe ou
 le rôle a changé (`lib/sessionGate.ts`). Une sauvegarde le **fait reculer** : tout cookie révoqué
 depuis la date de la sauvegarde (mot de passe changé après une fuite, compte rétrogradé) porte à
-nouveau la version courante de la base, et **redevient valide**. Juste après la restauration :
+nouveau la version courante de la base, et **redevient valide**.
+
+**Procédure principale : faire tourner `AUTH_SECRET`** (nouvelle valeur dans le `.env` du
+serveur, puis redémarrer le conteneur). C'est la seule mesure complète : tous les jetons émis avec
+l'ancien secret deviennent invalides, quelle que soit la version qu'ils portent. Tout le monde
+devra se reconnecter (voir `docs/SECURITE-CHECKLIST.md`, V9). La rotation est **strictement plus
+forte** qu'un incrément, pas équivalente.
+
+**Repli, si la rotation est impossible** :
 
 ```bash
 docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
-  psql -U app app -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1'
+  psql -U app app -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1000000'
 ```
 
-Tout le monde devra se reconnecter. À défaut, faire tourner `AUTH_SECRET` (même effet, voir
-`docs/SECURITE-CHECKLIST.md`, V9 : tous les jetons deviennent invalides). Un compte supprimé
-depuis la sauvegarde est de retour avec son ancien mot de passe : à traiter avec la même
-procédure.
+**Pourquoi pas `+ 1`** : la barrière compare par **égalité** (le jeton porte la version lue à la
+connexion). Une sauvegarde prise à V=0, restaurée alors que la base avait vu deux incréments depuis
+(V=2), serait ramenée à V=1 par un `+ 1` : un cookie émis à V=1 puis révoqué redevient valide.
+Un saut d'un million passe au-dessus de toute version déjà émise. La colonne est un `INT`
+(maximum 2 147 483 647) : cette marge ne tient qu'environ **2 000 restaurations**, après quoi le
+repli ne sert plus et seule la rotation reste.
+
+**Ce qu'une restauration ressuscite d'autre**, à défaire aussi :
+
+- les **comptes supprimés depuis la sauvegarde** reviennent avec leur ancien mot de passe :
+  supprimer de nouveau les comptes supprimés depuis la date de la sauvegarde ;
+- les **liens de réinitialisation** non utilisés qui existaient alors :
+
+```bash
+docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
+  psql -U app app -c 'DELETE FROM "PasswordResetToken" WHERE "usedAt" IS NULL'
+```
 
 ### Health-check + monitoring externe
 
