@@ -305,6 +305,24 @@ describe("the scan itself is proven by probes", () => {
       export async function a() { return create({}); }`)).toHaveLength(1);
   });
 
+  it("probe 7 — fail closed: an AndReturn write, or a method nobody has heard of, makes its function a writer; every known read does not", () => {
+    const writer = (call: string) =>
+      repositoryWriters({ path: "repository/users.ts", text: `import { prisma } from "@/lib/prisma";
+export async function f(id: number) { return ${call}; }` });
+    for (const call of [
+      'prisma.user.updateManyAndReturn({ where: { id }, data: { name: "x" } })',
+      'prisma.user.createManyAndReturn({ data: [] })',
+      'prisma.$transaction(async (tx) => tx.user.updateManyAndReturn({ where: { id }, data: {} }))',
+      'prisma.user.frobnicate({ where: { id } })',
+      'prisma.jobFunction.updateManyAndReturn({ data: {} })',
+    ]) {
+      expect(writer(call), call).toEqual(["repository/users.ts::f"]);
+    }
+    for (const read of ["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]) {
+      expect(writer(`prisma.user.${read}({ where: { id } })`), read).toEqual([]);
+    }
+  });
+
   it("probe 4 — a writer removed from the domain changes the count (the exact size turns red)", () => {
     const without: Source[] = [{ path: "repository/users.ts", text: `export async function create() { return 1; }` }];
     expect(repositoryWriters(without[0]!)).toHaveLength(0);
@@ -471,6 +489,30 @@ describe("every writer of User.password / User.role bumps sessionVersion in the 
       expect(
         bumpViolations(planted(`export async function f(id: number) { return prisma.user.upsert({ where: { id }, create: { password: "x" }, update: { password: "y" } }); }`))
       ).toHaveLength(1);
+    });
+
+    it("probe i (fail closed) — updateManyAndReturn / an unknown method with credentials and no bump is RED; a read is not counted; the bumped form is GREEN", () => {
+      const bad = (call: string) => bumpViolations(planted(`export async function f(id: number, h: string, role: string) { return ${call}; }`));
+      expect(bad(`prisma.user.updateManyAndReturn({ where: { id }, data: { password: h } })`)).toHaveLength(1);
+      expect(bad(`prisma.$transaction(async (tx) => tx.user.updateManyAndReturn({ where: { id }, data: { role } }))`)).toHaveLength(1);
+      expect(bad(`prisma.user.frobnicate({ where: { id }, data: { role } })`)).toHaveLength(1);
+      // an unknown method whose data the scan cannot even locate is opaque, hence RED
+      expect(bad(`prisma.user.frobnicate({ where: { id } })`)).toHaveLength(1);
+      expect(bad(`prisma.user.updateManyAndReturn({ where: { id }, data: { password: h, sessionVersion: { increment: 1 } } })`)).toEqual([]);
+      expect(bad(`prisma.user.updateManyAndReturn({ where: { id }, data: { name: "x" } })`)).toEqual([]);
+      // a read is no site at all
+      for (const read of ["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]) {
+        expect(planted(`export async function f(id: number) { return prisma.user.${read}({ where: { id } }); }`).flatMap(userWriteSites), read).toEqual([]);
+      }
+      // a delete writes no column and is no site (the session dies with the row)
+      expect(planted(`export async function f(id: number) { return prisma.user.deleteMany({ where: { id } }); }`).flatMap(userWriteSites)).toEqual([]);
+    });
+
+    it("probe i2 — createManyAndReturn is a CREATE: a row with credentials needs the real create exemption (RED without it, GREEN with it)", () => {
+      const create = planted(`export async function f(h: string) { return prisma.user.createManyAndReturn({ data: [{ email: "a", password: h, role: "VIEWER" }] }); }`);
+      expect(create.flatMap(userWriteSites).map((x) => [x.createOnly, x.createsCredentials, x.writesCredentials])).toEqual([[true, true, false]]);
+      expect(bumpViolations(create, {})).toHaveLength(1);
+      expect(bumpViolations(create)).toEqual([]);
     });
 
     it("probe c — the same neighbouring forms WITH the bump stay GREEN", () => {

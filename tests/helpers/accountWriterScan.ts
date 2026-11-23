@@ -1,5 +1,6 @@
 import ts from "typescript";
 import { posix } from "node:path";
+import { PRISMA_CREATE_METHODS, PRISMA_DELETE_METHODS, isPrismaWrite } from "./prismaMethods";
 
 /**
  * Discovery of the ACCOUNT WRITERS, from their writes — never from a list of
@@ -18,7 +19,6 @@ import { posix } from "node:path";
  */
 
 export const ACCOUNT_MODELS: ReadonlySet<string> = new Set(["user", "jobFunction", "passwordResetToken"]);
-const WRITE_METHODS: ReadonlySet<string> = new Set(["create", "createMany", "update", "updateMany", "upsert", "delete", "deleteMany"]);
 const CLIENT_NAMES: ReadonlySet<string> = new Set(["prisma", "tx"]);
 
 export type Source = { path: string; text: string };
@@ -49,7 +49,7 @@ function infoOf(name: string, exported: boolean, body: ts.Node): FnInfo {
         // prisma.user.create(...) / tx.user.create(...)
         const model = e.expression;
         if (
-          WRITE_METHODS.has(e.name.text) &&
+          isPrismaWrite(e.name.text) &&
           ts.isPropertyAccessExpression(model) &&
           ts.isIdentifier(model.expression) &&
           CLIENT_NAMES.has(model.expression.text)
@@ -276,7 +276,6 @@ export function accountActionsIn(
 
 // --- Writers of the session-killing columns (lot 3) -------------------------
 
-const USER_WRITE_METHODS: ReadonlySet<string> = new Set(["create", "createMany", "update", "updateMany", "upsert"]);
 const CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["password", "role"]);
 /** Keys of a Prisma argument that only READ (a `user` under them is a filter or a projection, not a write). */
 const READ_ONLY_KEYS: ReadonlySet<string> = new Set(["where", "select", "include", "omit", "orderBy"]);
@@ -284,7 +283,7 @@ const READ_ONLY_KEYS: ReadonlySet<string> = new Set(["where", "select", "include
 export type UserWriteSite = {
   /** "repository/users.ts::updateProfile#update" — file, enclosing function, method. */
   site: string;
-  /** `create`/`createMany`: a NEW row, nothing earlier to invalidate: no bump required. */
+  /** `create`/`createMany`/`createManyAndReturn`: a NEW row, nothing earlier to invalidate: no bump required. */
   createOnly: boolean;
   /**
    * The data this write can touch `password` or `role` with on an EXISTING row:
@@ -549,6 +548,15 @@ const UNREADABLE: DataShape = { credentials: true, bumps: false, badVersion: fal
  * Opaque (a parameter, a spread of one, a call result, a `let`, a name bound
  * twice in the function, a name mutated by property assignment / delete /
  * Object.assign — see localInitializer) counts as "writes credentials".
+ * WHAT IS A WRITE: fails CLOSED (tests/helpers/prismaMethods.ts). On `prisma`/`tx`, any
+ * `<model>.<method>()` that is not one of the eight reads the client exposes
+ * (findUnique[OrThrow], findFirst[OrThrow], findMany, count, aggregate, groupBy) is a
+ * write: `updateManyAndReturn` / `createManyAndReturn` are seen, and so is a method
+ * the client gains or a probe invents (read as an update of its `data`; no `data`
+ * the scan can read = opaque = RED). A `create*` is a new row (the create exemption);
+ * `delete`/`deleteMany` write no column and are no site. The one thing this does NOT
+ * close: a NEW READ method of the client is a write here until it is added to
+ * PRISMA_READ_METHODS (red, never silently green).
  * REMAINING LIMITS, stated: an alias (`const d = data; d.password = h`) or a
  * helper that mutates its argument (`fill(data)`) is not followed — the literal
  * is still read as it was written; a `const` declared in an OUTER function and
@@ -567,7 +575,8 @@ export function userWriteSites(src: Source): UserWriteSite[] {
       const method = n.expression.name.text;
       const modelAccess = n.expression.expression;
       if (
-        USER_WRITE_METHODS.has(method) &&
+        isPrismaWrite(method) &&
+        !PRISMA_DELETE_METHODS.has(method) &&
         ts.isPropertyAccessExpression(modelAccess) &&
         ts.isIdentifier(modelAccess.expression) &&
         CLIENT_NAMES.has(modelAccess.expression.text)
@@ -580,7 +589,7 @@ export function userWriteSites(src: Source): UserWriteSite[] {
           return data ? shapeOf(data) : UNREADABLE;
         };
         if (modelAccess.name.text === "user") {
-          if (method === "create" || method === "createMany") {
+          if (PRISMA_CREATE_METHODS.has(method)) {
             const created = shapeAt("data");
             out.push({
               site: `${where}#${method}`,
