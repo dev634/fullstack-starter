@@ -6,8 +6,8 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { auth } from "@/lib/auth";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
-import { createJobFunctionSchema } from "@/schemas/jobFunction";
-import { create, remove, reorder, updateHiddenSections, updateHiddenAreas, updateProjectScope } from "@/repository/jobFunctions";
+import { createJobFunctionSchema, functionConfigSchema } from "@/schemas/jobFunction";
+import { create, remove, reorder, updateConfig } from "@/repository/jobFunctions";
 import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
 import { isProjectSectionKey } from "@/lib/projectSections";
 import { normalizeHiddenAreas } from "@/lib/appAreas";
@@ -24,8 +24,8 @@ import type { JobFunctionActionState } from "@/types/jobFunction";
  * (which can lift their restrictions, or lock them out of Administration). An
  * ADMIN is exempt from hiddenSections and from the project scope
  * (lib/accessContext.ts), a SUPERADMIN from every axis — so on sections and
- * scope this guard takes nothing from an attacker today: it is kept on all four
- * actions for the rule's coherence, and so it already holds the day an ADMIN
+ * scope this guard takes nothing from an attacker today: it is kept on both
+ * actions (saveFunctionConfig, deleteJobFunction) for the rule's coherence, and so it already holds the day an ADMIN
  * becomes subject to those axes. Deleting the function detaches its holders
  * (onDelete: SetNull on User.jobFunctionId). The self-lock guards below only
  * cover the caller's OWN function — this covers every OTHER administrator's.
@@ -102,13 +102,13 @@ export async function deleteJobFunction(id: number) {
   try {
     if (isNaN(id)) throw { type: "error", message: t.errors.invalidId };
 
-    // Adversarial pass, lot C1, #2: a THIRD lever on top of setFunctionAreas
+    // Adversarial pass, lot C1, #2: a THIRD lever on top of saveFunctionConfig
     // and updateUser (both closed in passe 3b). onDelete: SetNull on
     // User.jobFunctionId means deleting the function CURRENTLY ASSIGNED to
     // the caller's own account clears their jobFunctionId in the same
     // transaction — every hiddenAreas/hiddenSections/projectScope
     // restriction it imposed disappears with it, with no SUPERADMIN
-    // involved. Same self-check as setFunctionAreas, for the same reason:
+    // involved. Same self-check as saveFunctionConfig, for the same reason:
     // the escape hatch stays SUPERADMIN, who bypasses hiddenAreas
     // unconditionally anyway (lib/accessContext.ts) — a user must never be
     // able to lock themselves out with no recourse.
@@ -137,38 +137,22 @@ export async function deleteJobFunction(id: number) {
 }
 
 /**
- * Set which project-detail sections are hidden from users holding this
- * function. The incoming keys are filtered to known section keys server-side,
- * so a tampered payload can't store arbitrary values.
+ * Save a function's whole access configuration in one call: which
+ * project-detail sections are hidden, which top-level app rubriques are hidden,
+ * and the project scope. It replaces three separate actions (sections / areas /
+ * scope) that the editor fired in parallel — each wrote on its own, so any
+ * failure left a half-applied configuration. Now every guard runs once, in
+ * order, then ONE repository write.
+ *
+ * The payload is validated by functionConfigSchema (refused when a field is
+ * missing or malformed); the keys inside the arrays are then filtered to known
+ * keys server-side (isProjectSectionKey, normalizeHiddenAreas), so a tampered
+ * payload can't store arbitrary values.
  */
-export async function setFunctionSections(id: number, hiddenSections: string[]) {
-  const roleCheck = await requireCapability("functions.manage");
-  if (roleCheck.error) return roleCheck.error;
-  const areaCheck = await requireAreaAccess("admin.functions");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
-    if (heldByAdmin) return heldByAdmin;
-    const valid = Array.isArray(hiddenSections) ? [...new Set(hiddenSections.filter(isProjectSectionKey))] : [];
-    await updateHiddenSections(id, valid);
-    revalidatePath("/admin/settings/fonctions");
-    return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
-  } catch (error) {
-    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
-  }
-}
-
-/**
- * Set which top-level app rubriques (and sub-parts) are hidden from users
- * holding this function — the exact mirror of setFunctionSections, applied to
- * lib/appAreas.ts's tree instead of a project's sections. Incoming keys are
- * filtered to known area keys server-side via normalizeHiddenAreas, so a
- * tampered payload can't store arbitrary values.
- */
-export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
+export async function saveFunctionConfig(
+  id: number,
+  config: { hiddenSections: string[]; projectScope: string; hiddenAreas: string[] }
+) {
   const roleCheck = await requireCapability("functions.manage");
   if (roleCheck.error) return roleCheck.error;
   const areaCheck = await requireAreaAccess("admin.functions");
@@ -178,15 +162,17 @@ export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
   try {
     if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
 
-    // Passe 3b, point 3: an ADMIN whose OWN function hides some rubriques
-    // could call setFunctionAreas(theirOwnFunctionId, []) and lift that
-    // restriction on themselves in a single call, with no SUPERADMIN
-    // involved — proven during this pass. Block editing the function
-    // CURRENTLY ASSIGNED to the caller's own account. The escape hatch
-    // stays SUPERADMIN, who bypasses hiddenAreas unconditionally anyway
-    // (lib/accessContext.ts) — a user must never be able to lock themselves
-    // out with no recourse, and SUPERADMIN is that recourse: it can always
-    // still fix a misconfigured function, including its own.
+    // The payload comes from the client: validated before anything is read or
+    // written, and refused (not repaired) when it is not what the editor sends.
+    const parsed = functionConfigSchema.safeParse(config);
+    if (!parsed.success) return { type: "error" as const, message: t.errors.validationError };
+
+    // An ADMIN whose OWN function hides some rubriques could otherwise lift
+    // that restriction on themselves in a single call, with no SUPERADMIN
+    // involved (passe 3b, point 3). Block editing the function CURRENTLY
+    // ASSIGNED to the caller's own account. The escape hatch stays SUPERADMIN,
+    // who bypasses hiddenAreas unconditionally (lib/accessContext.ts): a user
+    // must never be able to lock themselves out with no recourse.
     const session = await auth();
     if (!hasMinRole(session?.user?.role, "SUPERADMIN")) {
       const email = session?.user?.email;
@@ -201,34 +187,11 @@ export async function setFunctionAreas(id: number, hiddenAreas: string[]) {
     const heldByAdmin = await refuseIfHeldByAdmin(id, t);
     if (heldByAdmin) return heldByAdmin;
 
-    const valid = Array.isArray(hiddenAreas) ? normalizeHiddenAreas(hiddenAreas) : [];
-    await updateHiddenAreas(id, valid);
-    revalidatePath("/admin/settings/fonctions");
-    return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
-  } catch (error) {
-    return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
-  }
-}
+    const hiddenSections = [...new Set(parsed.data.hiddenSections.filter(isProjectSectionKey))];
+    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
+    const projectScope = parsed.data.projectScope;
 
-/**
- * Set a function's project scope. Same gate as the section config — both are
- * halves of the same question, "what may this function reach".
- */
-export async function setFunctionScope(id: number, scope: string) {
-  const roleCheck = await requireCapability("functions.manage");
-  if (roleCheck.error) return roleCheck.error;
-  const areaCheck = await requireAreaAccess("admin.functions");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    if (!Number.isInteger(id) || id <= 0) return { type: "error" as const, message: t.errors.invalidId };
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
-    if (heldByAdmin) return heldByAdmin;
-    // Anything unrecognised falls back to the permissive default rather than
-    // silently locking people out of every chantier.
-    const valid = scope === "ASSIGNED" ? "ASSIGNED" : "ALL";
-    await updateProjectScope(id, valid);
+    await updateConfig(id, { hiddenSections, hiddenAreas, projectScope });
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
   } catch (error) {

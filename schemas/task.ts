@@ -1,18 +1,5 @@
 import z from "zod";
-import { MAX_NAME_LENGTH } from "@/schemas/fields";
-
-// Same convention as schemas/project.ts's own optionalDate (which this was
-// missing — passe 3b (C2), point 3): empty string means "not provided", but
-// a non-empty value must still parse to a real date. Without the .refine()
-// below, an unparseable or out-of-range string (e.g. year 275760+) reached
-// the repository's `new Date(...)` unchecked and got stored — the exact
-// defect that made /projects/export 500 for everyone, permanently, the last
-// time a date field was left unvalidated (see project.ts's own comment).
-const optionalDate = z
-    .string()
-    .optional()
-    .transform((v) => (v && v.trim() !== "" ? v : undefined))
-    .refine((v) => v === undefined || !isNaN(Date.parse(v)), { message: "Date invalide" });
+import { MAX_NAME_LENGTH, optionalDateField } from "@/schemas/fields";
 
 // Empty string (nothing picked) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -29,7 +16,7 @@ export const createTaskSchema = z.object({
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
     title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH),
-    dueDate: optionalDate,
+    dueDate: optionalDateField,
     // A standalone task can optionally track progress as a quantity (e.g.
     // "12 / 20 panneaux") instead of a plain checkbox — set once at creation.
     quantityTarget: optionalPositiveInt,
@@ -48,7 +35,7 @@ export const updateTaskSchema = z.object({
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
     title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH),
-    dueDate: optionalDate,
+    dueDate: optionalDateField,
     quantityTarget: optionalPositiveInt,
 });
 

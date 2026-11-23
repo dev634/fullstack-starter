@@ -11,7 +11,8 @@ import { create, update, setPrimary, remove, setContactProjects, findLinkedProje
 import { findByEmail } from "@/repository/clients";
 import type { Contact } from "@/app/generated/prisma/client";
 import { findAllOptions as findAllJobFunctions } from "@/repository/jobFunctions";
-import { parseCsvRecords, MAX_IMPORT_ROWS } from "@/lib/csv";
+import { readCsvUpload, csvHeaderOf, CONTACT_CSV_COLUMNS } from "@/lib/csv";
+import { csvRefusalResult } from "@/lib/csvRefusal";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -108,6 +109,18 @@ export async function editContact(
 
 const PRIMARY_TRUE = /^(true|1|yes|oui)$/i;
 
+// Headers come from CONTACT_CSV_COLUMNS, the list the export writes — one
+// source, so the two can't drift.
+const HEADER = {
+  companyEmail: csvHeaderOf(CONTACT_CSV_COLUMNS, "companyEmail"),
+  firstName: csvHeaderOf(CONTACT_CSV_COLUMNS, "firstName"),
+  lastName: csvHeaderOf(CONTACT_CSV_COLUMNS, "lastName"),
+  role: csvHeaderOf(CONTACT_CSV_COLUMNS, "role"),
+  email: csvHeaderOf(CONTACT_CSV_COLUMNS, "email"),
+  phone: csvHeaderOf(CONTACT_CSV_COLUMNS, "phone"),
+  isPrimary: csvHeaderOf(CONTACT_CSV_COLUMNS, "isPrimary"),
+};
+
 /**
  * Bulk-create contacts from a CSV file (same column headers as
  * /clients/contacts/export). Each row is linked to an existing organisation by
@@ -130,20 +143,10 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
     return { type: "error", message: t.contacts.import.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
-  const records = parseCsvRecords(await file.text());
-  if (records.length === 0) {
-    return { type: "error", message: t.contacts.import.emptyCsvFile, created: 0, total: 0, errors: [] };
-  }
-  // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7.
-  if (records.length > MAX_IMPORT_ROWS) {
-    return {
-      type: "error",
-      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
-      created: 0,
-      total: records.length,
-      errors: [],
-    };
-  }
+  // See lib/csv.ts's MAX_IMPORT_* — adversarial pass 2, point 7.
+  const upload = await readCsvUpload(file);
+  if (!upload.ok) return csvRefusalResult(upload, t, t.contacts.import.emptyCsvFile);
+  const { records } = upload;
 
   let created = 0;
   const errors: ImportRowError[] = [];
@@ -162,7 +165,7 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
     const rowNumber = i + 2; // +1 for 0-index, +1 for the header row
-    const companyEmail = (record["Company Email"] ?? "").trim();
+    const companyEmail = (record[HEADER.companyEmail] ?? "").trim();
 
     try {
       if (!companyEmail) throw { type: "error", message: t.contacts.import.missingCompanyEmail };
@@ -177,14 +180,14 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
         throw { type: "error", message: scopeRefusalMessage(scopeCheck, t.contacts.import.unknownCompanyEmail) };
       }
 
-      const isPrimary = PRIMARY_TRUE.test((record["Primary"] ?? "").trim());
+      const isPrimary = PRIMARY_TRUE.test((record[HEADER.isPrimary] ?? "").trim());
       const parsed = createContactSchema.safeParse({
         clientId: org.id,
-        firstName: (record["First name"] ?? "").trim(),
-        lastName: (record["Last name"] ?? "").trim(),
-        jobFunctionId: fnIdByName.get((record["Role"] ?? "").trim().toLowerCase()) ?? undefined,
-        email: (record["Email"] ?? "").trim() || undefined,
-        phone: (record["Phone"] ?? "").trim() || undefined,
+        firstName: (record[HEADER.firstName] ?? "").trim(),
+        lastName: (record[HEADER.lastName] ?? "").trim(),
+        jobFunctionId: fnIdByName.get((record[HEADER.role] ?? "").trim().toLowerCase()) ?? undefined,
+        email: (record[HEADER.email] ?? "").trim() || undefined,
+        phone: (record[HEADER.phone] ?? "").trim() || undefined,
       });
       if (!parsed.success) throw { type: "error", message: t.contacts.import.invalidRow };
 
@@ -194,7 +197,7 @@ export async function importContacts(formData: FormData): Promise<ImportResult> 
     } catch (error) {
       errors.push({
         row: rowNumber,
-        email: companyEmail || record["Email"],
+        email: companyEmail || record[HEADER.email],
         message: getErrorMessage(error, t.contacts.import.invalidRow),
       });
     }

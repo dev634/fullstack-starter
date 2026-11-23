@@ -52,33 +52,29 @@ export async function remove(id: number) {
     }
 }
 
-/** Set the project-section keys hidden from users holding this function. */
-export async function updateHiddenSections(id: number, hiddenSections: string[]) {
+/**
+ * Write a function's whole access configuration — hidden project sections,
+ * hidden app areas, project scope — in ONE statement. A single `update` on one
+ * row is atomic by itself (all three columns land, or none does), which is
+ * the point: the three former setters ran in parallel and a failure in one
+ * left the other two written.
+ */
+export async function updateConfig(
+    id: number,
+    config: { hiddenSections: string[]; hiddenAreas: string[]; projectScope: "ALL" | "ASSIGNED" }
+) {
     try {
-        return await prisma.jobFunction.update({ where: { id }, data: { hiddenSections } });
+        return await prisma.jobFunction.update({
+            where: { id },
+            data: {
+                hiddenSections: config.hiddenSections,
+                hiddenAreas: config.hiddenAreas,
+                projectScope: config.projectScope,
+            },
+        });
     } catch (error) {
-        console.log("Repository updateHiddenSections (jobFunction) error:", error);
-        throw { type: "repositoryError", message: "Database Error updating function sections." };
-    }
-}
-
-/** Set the top-level app-area keys hidden from users holding this function. */
-export async function updateHiddenAreas(id: number, hiddenAreas: string[]) {
-    try {
-        return await prisma.jobFunction.update({ where: { id }, data: { hiddenAreas } });
-    } catch (error) {
-        console.log("Repository updateHiddenAreas (jobFunction) error:", error);
-        throw { type: "repositoryError", message: "Database Error updating function areas." };
-    }
-}
-
-/** Set whether holders of this function see every project or only assigned ones. */
-export async function updateProjectScope(id: number, projectScope: "ALL" | "ASSIGNED") {
-    try {
-        return await prisma.jobFunction.update({ where: { id }, data: { projectScope } });
-    } catch (error) {
-        console.log("Repository updateProjectScope error:", error);
-        throw { type: "repositoryError", message: "Database Error updating project scope." };
+        console.log("Repository updateConfig (jobFunction) error:", error);
+        throw { type: "repositoryError", message: "Database Error updating function configuration." };
     }
 }
 

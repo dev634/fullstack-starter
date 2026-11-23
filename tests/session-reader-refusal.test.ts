@@ -96,9 +96,7 @@ vi.mock("@/repository/jobFunctions", () => ({
   create: vi.fn(),
   remove: vi.fn(),
   reorder: vi.fn(),
-  updateHiddenSections: vi.fn(),
-  updateHiddenAreas: vi.fn(),
-  updateProjectScope: vi.fn(),
+  updateConfig: vi.fn(),
 }));
 
 vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
@@ -129,7 +127,7 @@ import { getCurrentUserId, getLoansActor } from "@/lib/currentUser";
 import { blockClientFromApp, getPortalContext } from "@/lib/portal";
 import { requireAppUser } from "@/lib/requireAppUser";
 import { addUser } from "@/actions/users/users";
-import { deleteJobFunction, setFunctionAreas } from "@/actions/jobFunctions/jobFunctions";
+import { deleteJobFunction, saveFunctionConfig } from "@/actions/jobFunctions/jobFunctions";
 import fr from "@/lib/i18n/dictionaries/fr";
 import { accountWithoutFunction, expectDenied } from "./helpers/accessFixtures";
 
@@ -304,17 +302,17 @@ const SESSION_READERS: Record<string, ReaderProbe> = {
     },
   },
 
-  "actions/jobFunctions/jobFunctions.ts::setFunctionAreas": {
+  "actions/jobFunctions/jobFunctions.ts::saveFunctionConfig": {
     noSession: async () => {
       authMock.mockResolvedValue(null as never);
-      const res = await setFunctionAreas(9, []);
+      const res = await saveFunctionConfig(9, { hiddenSections: [], hiddenAreas: [], projectScope: "ALL" });
       expect((res as { type: string }).type).toBe("error");
     },
     absentRow: async () => {
       authMock.mockResolvedValue({ user: { role: "ADMIN", email: "ghost@example.com" } } as never);
       findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
       findAccountJobFunctionByEmailMock.mockResolvedValue(null);
-      const res = await setFunctionAreas(9, []);
+      const res = await saveFunctionConfig(9, { hiddenSections: [], hiddenAreas: [], projectScope: "ALL" });
       expect((res as { type: string }).type).toBe("error");
       expect((res as { message: string }).message).toBe(fr.errors.unauthorized);
     },

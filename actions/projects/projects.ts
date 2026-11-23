@@ -14,16 +14,25 @@ import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
 import { destroyProjectFile } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/projectActivity";
-import { parseCsvRecords, PROJECT_CSV_COLUMNS, MAX_IMPORT_ROWS } from "@/lib/csv";
+import {
+  readCsvUpload,
+  csvHeaderOf,
+  normalizeCsvDate,
+  normalizeCsvNumber,
+  PROJECT_CSV_COLUMNS,
+  type CsvDelimiter,
+} from "@/lib/csv";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
+import { csvRefusalResult } from "@/lib/csvRefusal";
 import type { ProjectActionState } from "@/types/project";
 
 const HEADER_TO_FIELD: Record<string, string> = Object.fromEntries(
   PROJECT_CSV_COLUMNS.map((c) => [c.header, c.key])
 );
+const CLIENT_EMAIL_HEADER = csvHeaderOf(PROJECT_CSV_COLUMNS, "clientEmail");
 
 export async function addProject(
   prevState: ProjectActionState,
@@ -246,6 +255,19 @@ export type ImportResult = {
 };
 
 /**
+ * Brings a spreadsheet-edited cell back to the shape the schema validates:
+ * dates JJ/MM/AAAA -> AAAA-MM-JJ, numbers with a decimal comma and thousands
+ * spaces -> plain digits — in a ";" file (Excel FR); a "," file follows the
+ * English conventions (lib/csv.ts). Done BEFORE the schema, which stays
+ * strict (F9), and anything not understood is handed to it unchanged.
+ */
+function normalizeImportedValue(field: string, value: string, delimiter: CsvDelimiter): string {
+  if (field === "startDate" || field === "endDate") return normalizeCsvDate(value, delimiter);
+  if (field === "power" || field === "budget") return normalizeCsvNumber(value, delimiter);
+  return value;
+}
+
+/**
  * Bulk-create projects from a CSV file (same column headers as
  * /projects/export). Each row is matched to an existing client by email —
  * a project can't exist without one, so an unknown email fails that row
@@ -267,24 +289,13 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     return { type: "error", message: t.projects.messages.chooseCsvFile, created: 0, total: 0, errors: [] };
   }
 
-  const text = await file.text();
-  const records = parseCsvRecords(text);
-  if (records.length === 0) {
-    return { type: "error", message: t.projects.messages.emptyCsvFile, created: 0, total: 0, errors: [] };
-  }
-  // See lib/csv.ts's MAX_IMPORT_ROWS — adversarial pass 2, point 7. This is
-  // the heaviest of the three importers (up to three sequential repository
-  // calls per row: findByEmail, then — for a caller restricted to some
-  // projects only — hasProjectAmong, then create).
-  if (records.length > MAX_IMPORT_ROWS) {
-    return {
-      type: "error",
-      message: format(t.errors.tooManyRows, { count: records.length, max: MAX_IMPORT_ROWS }),
-      created: 0,
-      total: records.length,
-      errors: [],
-    };
-  }
+  // See lib/csv.ts's MAX_IMPORT_* — adversarial pass 2, point 7. This is the
+  // heaviest of the three importers (up to three sequential repository calls
+  // per row: findByEmail, then — for a caller restricted to some projects
+  // only — hasProjectAmong, then create).
+  const upload = await readCsvUpload(file);
+  if (!upload.ok) return csvRefusalResult(upload, t, t.projects.messages.emptyCsvFile);
+  const { records, delimiter } = upload;
 
   let created = 0;
   const errors: ImportRowError[] = [];
@@ -296,13 +307,13 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
     const rowNumber = i + 2;
-    const clientEmail = record["Client Email"];
+    const clientEmail = record[CLIENT_EMAIL_HEADER];
 
     const data: Record<string, string> = {};
     for (const [header, value] of Object.entries(record)) {
       const field = HEADER_TO_FIELD[header];
       if (field && field !== "clientEmail" && !((field === "type" || field === "status") && value === "")) {
-        data[field] = value;
+        data[field] = normalizeImportedValue(field, value, delimiter);
       }
     }
 

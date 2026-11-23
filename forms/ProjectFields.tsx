@@ -90,6 +90,9 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           onChange={onChange}
           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         />
+        {typeof errors === "object" && errors?.startDate && (
+          <p className="mt-1 text-start text-red-500" aria-live="polite">{errors.startDate}</p>
+        )}
       </div>
       <div className="mb-7">
         <label htmlFor="endDate" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">{t.projects.fields.endDate}</label>
@@ -101,6 +104,9 @@ export function ProjectFields({ values, onChange, errors }: ProjectFieldsProps) 
           onChange={onChange}
           className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-gray-900 dark:text-gray-100"
         />
+        {typeof errors === "object" && errors?.endDate && (
+          <p className="mt-1 text-start text-red-500" aria-live="polite">{errors.endDate}</p>
+        )}
       </div>
 
       <div className="mb-7 sm:col-span-2">

@@ -36,6 +36,11 @@ export default function EditInterventionForm({
   // Re-seeded from the prop each time the modal opens (below), since the
   // form isn't remounted between edits.
   const [scheduledAt, setScheduledAt] = useState(() => toDatetimeLocal(intervention.scheduledAt));
+  // Controlled too: React 19 resets non-controlled fields of a <form action>
+  // when the action returns, zodError included.
+  const [description, setDescription] = useState(intervention.description);
+  const [technician, setTechnician] = useState(intervention.technician ?? "");
+  const [status, setStatus] = useState(intervention.status);
   const [state, formAction, isPending] = useActionState<InterventionActionState, FormData>(
     editIntervention,
     initialState
@@ -53,6 +58,9 @@ export default function EditInterventionForm({
         type="button"
         onClick={() => {
           setScheduledAt(toDatetimeLocal(intervention.scheduledAt));
+          setDescription(intervention.description);
+          setTechnician(intervention.technician ?? "");
+          setStatus(intervention.status);
           setOpen(true);
         }}
         aria-label={format(t.interventions.editIntervention, { description: intervention.description })}
@@ -92,7 +100,8 @@ export default function EditInterventionForm({
               <input
                 type="text"
                 name="description"
-                defaultValue={intervention.description}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 placeholder={t.interventions.newPlaceholder}
                 aria-label={t.interventions.descriptionLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
@@ -106,7 +115,8 @@ export default function EditInterventionForm({
               <input
                 type="text"
                 name="technician"
-                defaultValue={intervention.technician ?? ""}
+                value={technician}
+                onChange={(e) => setTechnician(e.target.value)}
                 placeholder={t.interventions.technicianPlaceholder}
                 aria-label={t.interventions.technicianLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
@@ -119,7 +129,8 @@ export default function EditInterventionForm({
             <div className="mb-4">
               <select
                 name="status"
-                defaultValue={intervention.status}
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
                 aria-label={t.interventions.statusLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
               >

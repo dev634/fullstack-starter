@@ -1,7 +1,8 @@
 import { findAllWithClientEmail } from "@/repository/contacts";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { CONTACT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { CONTACT_CSV_COLUMNS, csvResponse } from "@/lib/csv";
+import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
 /**
@@ -25,26 +26,15 @@ export async function GET() {
 
   const contacts = await findAllWithClientEmail(projectIdFilter(await getAccessContext()));
 
-  const header = CONTACT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
-  const rows = contacts.map((contact) => {
-    const row: Record<string, unknown> = {
-      companyEmail: contact.client.email,
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      role: contact.jobFunction?.name ?? "",
-      email: contact.email,
-      phone: contact.phone,
-      isPrimary: contact.isPrimary ? "true" : "false",
-    };
-    return CONTACT_CSV_COLUMNS.map((c) => csvCell(row[c.key])).join(",");
-  });
-  // Prepend a BOM so Excel opens UTF-8 accents correctly.
-  const csv = "﻿" + [header, ...rows].join("\r\n");
+  const rows = contacts.map((contact) => ({
+    companyEmail: contact.client.email,
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    role: contact.jobFunction?.name ?? "",
+    email: contact.email,
+    phone: contact.phone,
+    isPrimary: contact.isPrimary ? "true" : "false",
+  }));
 
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="contacts.csv"`,
-    },
-  });
+  return csvResponse(CONTACT_CSV_COLUMNS, rows, "contacts.csv", await getLocale());
 }

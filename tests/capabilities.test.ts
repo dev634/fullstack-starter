@@ -91,7 +91,7 @@ describe("resolveAccessConfig — defaults + merge", () => {
 
   // Passe 3b, point 4: functions.manage/users.manage joined LOCKED_CAPABILITIES
   // — an EDITOR granted functions.manage could otherwise call
-  // setFunctionAreas on their OWN function and clear its hiddenAreas/
+  // saveFunctionConfig on their OWN function and clear its hiddenAreas/
   // hiddenSections, annulling two of the three access axes for themselves.
   // Locking these two changes nothing for the ADMIN accounts that already
   // hold them (DEFAULT_CAPABILITY_ROLE is already ADMIN for both) — it only

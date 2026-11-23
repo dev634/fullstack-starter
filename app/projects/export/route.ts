@@ -1,7 +1,8 @@
 import { search, type ProjectSortField } from "@/repository/projects";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { PROJECT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { PROJECT_CSV_COLUMNS, csvResponse } from "@/lib/csv";
+import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
 const SORT_FIELDS: ProjectSortField[] = ["name", "status", "createdAt"];
@@ -41,24 +42,12 @@ export async function GET(request: Request) {
     return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
   };
 
-  const rows = projects.map((project) => {
-    const flat: Record<string, unknown> = {
-      ...project,
-      clientEmail: project.client.email,
-      startDate: toCsvDate(project.startDate),
-      endDate: toCsvDate(project.endDate),
-    };
-    return PROJECT_CSV_COLUMNS.map((c) => csvCell(flat[c.key])).join(",");
-  });
+  const rows = projects.map((project) => ({
+    ...project,
+    clientEmail: project.client.email,
+    startDate: toCsvDate(project.startDate),
+    endDate: toCsvDate(project.endDate),
+  }));
 
-  const header = PROJECT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
-  // Prepend a BOM so Excel opens UTF-8 accents correctly.
-  const csv = "﻿" + [header, ...rows].join("\r\n");
-
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="projects.csv"`,
-    },
-  });
+  return csvResponse(PROJECT_CSV_COLUMNS, rows, "projects.csv", await getLocale());
 }

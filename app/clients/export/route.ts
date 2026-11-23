@@ -1,7 +1,8 @@
 import { search, type ClientSortField } from "@/repository/clients";
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { canAccessArea } from "@/lib/areaAccess";
-import { CLIENT_CSV_COLUMNS, csvCell } from "@/lib/csv";
+import { CLIENT_CSV_COLUMNS, csvResponse } from "@/lib/csv";
+import { getLocale } from "@/lib/i18n/getLocale";
 import { requireAppUser } from "@/lib/requireAppUser";
 
 const SORT_FIELDS: ClientSortField[] = ["companyName", "email", "city"];
@@ -31,17 +32,5 @@ export async function GET(request: Request) {
 
   const { clients } = await search({ q, sortField, dir, page: 1, pageSize: 100000, projectIds: projectIdFilter(await getAccessContext()) });
 
-  const header = CLIENT_CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
-  const rows = clients.map((client) =>
-    CLIENT_CSV_COLUMNS.map((c) => csvCell((client as Record<string, unknown>)[c.key])).join(",")
-  );
-  // Prepend a BOM so Excel opens UTF-8 accents correctly.
-  const csv = "﻿" + [header, ...rows].join("\r\n");
-
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="clients.csv"`,
-    },
-  });
+  return csvResponse(CLIENT_CSV_COLUMNS, clients, "clients.csv", await getLocale());
 }

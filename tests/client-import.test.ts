@@ -18,7 +18,7 @@ import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { logActivity } from "@/repository/activity";
 import { findAccessScopeByEmail } from "@/repository/users";
-import { MAX_IMPORT_ROWS } from "@/lib/csv";
+import { MAX_IMPORT_ROWS, MAX_IMPORT_BYTES } from "@/lib/csv";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
 
 const authMock = vi.mocked(auth);
@@ -63,7 +63,7 @@ describe("importClients", () => {
   });
 
   // Adversarial pass 2, point 7: no row-count limit existed before this —
-  // the only real ceiling was the 10 MB Server Action body cap (~170 000
+  // the only real ceiling was the Server Action body cap (~600 000
   // rows for a short CSV row), each costing its own createClient call.
   it("rejects a file over MAX_IMPORT_ROWS without creating anything", async () => {
     authMock.mockResolvedValue(adminSession());
@@ -75,6 +75,35 @@ describe("importClients", () => {
     expect(res.type).toBe("error");
     expect(res.total).toBe(MAX_IMPORT_ROWS + 1);
     expect(res.created).toBe(0);
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
+  // Preexisting memory denial of service: every row became an object carrying
+  // ALL the header's columns, and the row cap only applied afterwards.
+  it("rejects a header of 100 000 columns with an explicit message, creating nothing", async () => {
+    authMock.mockResolvedValue(adminSession());
+    const header = Array.from({ length: 100_000 }, (_, i) => "c" + i).join(",");
+    const fd = new FormData();
+    fd.set("file", new File([header + "\r\nx\r\nx"], "clients.csv", { type: "text/csv" }));
+    const start = performance.now();
+    const res = await importClients(fd);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(res.type).toBe("error");
+    expect(res.message).toContain("100000");
+    expect(res.created).toBe(0);
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a file over the byte ceiling before reading it", async () => {
+    authMock.mockResolvedValue(adminSession());
+    const file = new File(["a"], "clients.csv", { type: "text/csv" });
+    Object.defineProperty(file, "size", { value: MAX_IMPORT_BYTES + 1 });
+    const arrayBuffer = vi.spyOn(file, "arrayBuffer");
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await importClients(fd);
+    expect(res.type).toBe("error");
+    expect(arrayBuffer).not.toHaveBeenCalled();
     expect(createClientMock).not.toHaveBeenCalled();
   });
 

@@ -28,6 +28,7 @@ const fr = {
         minValue: "Doit être supérieur ou égal à {min}.",
         maxValue: "Doit être inférieur ou égal à {max}.",
         tooManyRows: "Ce fichier contient trop de lignes ({count}). Maximum : {max}.",
+        tooManyColumns: "Ce fichier contient trop de colonnes ({count}). Maximum : {max}.",
         tooManySelected: "Trop d'éléments sélectionnés ({count}). Maximum : {max}.",
         passwordMismatch: "Les mots de passe ne correspondent pas.",
         notANumber: "Doit être un nombre.",
@@ -41,6 +42,8 @@ const fr = {
         seriesTooLarge: "La série ne peut pas dépasser {max} tâches.",
         requiredQuantityMissing: "La quantité requise est nécessaire quand une tâche ou une série est liée.",
         invalidCharacters: "Ne peut pas contenir de caractères de contrôle.",
+        invalidDate: "Date invalide.",
+        endBeforeStart: "La date de fin ne peut pas précéder la date de début.",
         validationError: "Erreur de validation. Vérifie les informations saisies et réessaie.",
         unauthorized: "Non autorisé. Merci de te connecter.",
         // Un refus par RÔLE. Les deux suivants viennent de la FONCTION, un axe

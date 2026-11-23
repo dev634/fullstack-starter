@@ -40,13 +40,22 @@ export default function EditTaskForm({
     if (state.type === "success") setOpen(false);
   }
 
-  const dueDateValue = toDateInputValue(task.dueDate);
+  // Controlled fields: React 19 resets non-controlled fields of a <form action>
+  // when the action returns, zodError included. Re-seeded when the modal opens.
+  const [title, setTitle] = useState(task.title);
+  const [dueDate, setDueDate] = useState(() => toDateInputValue(task.dueDate));
+  const [quantityTarget, setQuantityTarget] = useState(task.quantityTarget === null ? "" : String(task.quantityTarget));
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setTitle(task.title);
+          setDueDate(toDateInputValue(task.dueDate));
+          setQuantityTarget(task.quantityTarget === null ? "" : String(task.quantityTarget));
+          setOpen(true);
+        }}
         aria-label={format(t.tasks.editTask, { title: task.title })}
         className="shrink-0 cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-500/10 dark:text-gray-400"
       >
@@ -68,7 +77,8 @@ export default function EditTaskForm({
               <input
                 type="text"
                 name="title"
-                defaultValue={task.title}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 placeholder={t.tasks.newPlaceholder}
                 aria-label={t.tasks.titleLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
@@ -82,10 +92,14 @@ export default function EditTaskForm({
               <input
                 type="date"
                 name="dueDate"
-                defaultValue={dueDateValue}
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
                 aria-label={t.tasks.dueDateLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
               />
+              {state.type === "zodError" && state.fieldsForm?.dueDate && (
+                <p className="mt-1 text-xs text-red-500" aria-live="polite">{state.fieldsForm.dueDate}</p>
+              )}
             </div>
 
             <div className="mb-4">
@@ -94,7 +108,8 @@ export default function EditTaskForm({
                 name="quantityTarget"
                 min="1"
                 step="1"
-                defaultValue={task.quantityTarget ?? ""}
+                value={quantityTarget}
+                onChange={(e) => setQuantityTarget(e.target.value)}
                 placeholder={t.tasks.quantityTargetPlaceholder}
                 aria-label={t.tasks.quantityTargetLabel}
                 className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
@@ -104,7 +119,9 @@ export default function EditTaskForm({
               )}
             </div>
 
-            {state.type === "error" && <p className="mb-4 text-xs text-red-500">{state.message}</p>}
+            {(state.type === "error" || state.type === "zodError") && (
+              <p className="mb-4 text-xs text-red-500" aria-live="polite">{state.message}</p>
+            )}
 
             <div className="flex justify-end gap-3">
               <button
