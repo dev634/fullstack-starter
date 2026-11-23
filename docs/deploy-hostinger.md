@@ -575,6 +575,20 @@ docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
   psql -U app app -c 'DELETE FROM "PasswordResetToken" WHERE "usedAt" IS NULL'
 ```
 
+> **⚠️ Liste incomplète (relevé du 2026-11-23, après le merge de #251) — à compléter avant
+> la prochaine restauration.** Une restauration remet *toutes* les lignes à leur état de la
+> sauvegarde, donc aussi :
+> - l'**ancien mot de passe** de tout compte changé depuis — y compris un mot de passe changé
+>   *parce qu'il avait fuité*. Ni la rotation de `AUTH_SECRET` ni le saut de version n'y
+>   font rien : l'attaquant se reconnecte avec le mot de passe qu'il connaît. Il faut refaire
+>   ces changements, ou exiger une réinitialisation des comptes concernés ;
+> - les **rôles, fonctions, rubriques masquées et affectations de chantiers** resserrés depuis :
+>   un compte rétrogradé redevient ce qu'il était.
+>
+> Ce qui manque à la procédure : le moyen de savoir *quels* comptes ont changé depuis la date
+> de la sauvegarde (le journal d'activité, s'il les trace, ou une comparaison avec la base
+> d'avant la restauration). Tâche de documentation à part, pas encore faite.
+
 ### Health-check + monitoring externe
 
 L'app expose `GET /api/health` (public, pas besoin d'être connecté) — renvoie `200` avec

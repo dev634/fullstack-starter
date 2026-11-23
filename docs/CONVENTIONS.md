@@ -264,6 +264,14 @@ dont la raison n'avait pas été éprouvée.
 | 9 | **reprendre un login de portail** : fixer le mot de passe d'un compte CLIENT et lire par le portail les chantiers qu'on vous masque | `updateUser` | fermé, lot 5a : `updateUser` refuse toute cible CLIENT et tout rôle CLIENT demandé ; un login se gère depuis son contact |
 | 10 | **créer un login de portail** (ou lier un contact à des chantiers) et lire par lui | `createPortalLogin`, `editContact` | fermé, lot 5a : `mayProvisionPortalLogin` refuse qui masque une rubrique visible du portail (`PORTAL_EXPOSED_AREAS` = `projects`) ; `editContact` ne touche les liens de chantiers qu'avec la rubrique `projects` |
 
+*Hors table, parce que l'acteur n'y fait rien* : un compte rétrogradé gardait
+par son cookie le rôle qu'on venait de lui retirer (H1). Fermé par le lot 3
+(`2f8fbb6`, rôle du jeton comparé à la ligne, `lib/sessionGate.ts`). Le lot 3
+n'ouvre aucun levier : `sessionVersion` ne s'écrit que dans les deux écrivains
+d'identifiants (§ « Révocation des sessions »), sous les gardes déjà en place
+(`updateUser`, lien de réinitialisation à usage unique), et la session exposée
+au client ne la porte pas.
+
 **La règle qui ferme 8 à 10** (`lib/accountPolicy.ts`, pure, lue par les actions
 **et** par les écrans) : un compte n'est géré que si sa fonction, **avant et
 après** l'écriture, masque au moins les rubriques de l'acteur
@@ -307,12 +315,25 @@ par chemin de module **et** par binding, et exige **la** règle de chaque action
 (`REQUIRED_RULE`), résolue jusqu'à `lib/accountPolicy`. Tailles exactes, vertes
 à `0e10b1b` : 13 écrivains, 13 actions (7 sous la règle, 6 exemptées — chaque
 exemption porte sa raison, sa condition de disparition, et des **affirmations
-relues dans le code parsé**, jamais dans un commentaire). Angles morts déclarés
+relues dans le code parsé**, jamais dans un commentaire). **12 écrivains à
+`2f8fbb6`** (lot 3 : `updatePassword` et `markResetTokenUsed` fusionnés en
+`resetPasswordWithToken`) — recompté par le `repositoryWriters` du test sur les
+fichiers suivis de `repository/`, 13 actions par son `accountActionsIn` sur
+ceux d'`actions/`. Angles morts déclarés
 par le test lui-même : une écriture par relation imbriquée, du SQL brut, un
 écrivain passé en valeur, un client Prisma nommé autrement que `prisma`/`tx` —
 c'est pourquoi `repository/users.ts` nomme `tx` son paramètre de transaction.
 Une nouvelle écriture de compte qui tombe dans un de ces angles est invisible :
-la nommer `prisma`/`tx`, ou étendre le scan.
+la nommer `prisma`/`tx`, ou étendre le scan. ⚠️ **Angle mort non déclaré,
+sondé le 2026-11-23 à `2f8fbb6`** : la liste des méthodes d'écriture est écrite
+à la main (`WRITE_METHODS`, `USER_WRITE_METHODS`) et ne connaît ni
+`updateManyAndReturn` ni `createManyAndReturn`, que le client Prisma 7 généré
+expose sur `User` — un `tx.user.updateManyAndReturn({ data: { password } })`
+n'est vu par **aucun** des deux scans (relais, révocation). Aucune occurrence
+dans le code à ce commit. Même liste manuelle, même trou, dans
+`tests/helpers/partialWriteScan.ts` et `tests/read-named-functions.test.ts`.
+Tâche ouverte : énumérer les **lectures** connues et tenir pour écriture tout
+le reste.
 
 **Logins CLIENT orphelins** (lot 5a) : la destruction définitive d'une
 entreprise supprime aussi les logins CLIENT de ses contacts
@@ -324,10 +345,51 @@ restaient actifs et invisibles.
 `User.email`, toutes dans `repository/users.ts` (`sessionAccountWhere`), et une
 égalité **exacte**. Jamais `mode: "insensitive"` : Prisma le compile en `ILIKE`
 sans échapper `%` ni `_`, et `jean_dupont@…` résolvait `jean.dupont@…` (sondé,
-non-régression dans `tests-integration/email-lookup-wildcards.test.ts`). Une
-ligne enregistrée en majuscules avant cette normalisation n'est plus trouvée ;
-la production n'en comptait aucune au lot 5a (#248), et la garantie en base
-n'est **pas** sur `main` à `0e10b1b`.
+non-régression dans `tests-integration/email-lookup-wildcards.test.ts`). **La
+garantie en base est sur `main` depuis `2f8fbb6`** (lot 3, #251, migration
+`20261123100000`) : `CHECK "User_email_normalized_check"` (stocké = normalisé)
+et index unique `"User_email_lower_key"` sur `lower(email)`. En production
+depuis le déploiement de `2f8fbb6` (sonde lue le 2026-11-23 : `2347b47` à 18:35
+UTC, `2f8fbb6` à 18:48). **Lu dans la base de prod** le 2026-11-23 à 18:40 UTC
+(lecture seule, par SSH) : `_prisma_migrations` porte la migration finie et non
+annulée, `pg_constraint` porte `User_email_normalized_check`, `pg_indexes` porte
+`User_email_lower_key`, la colonne `sessionVersion` est `integer NOT NULL
+DEFAULT 0`, `role` n'a plus de défaut, et les 2 comptes sont à la version 0, e-mails
+normalisés. Le journal du conteneur montre « Applying migration
+`20261123100000_user_session_version_and_email_ci` », puis « All migrations have
+been successfully applied ».
+La migration réécrit les lignes ASCII et **refuse** (RAISE, ids seuls) une
+ligne non ASCII à réécrire ou une collision : `lower()`/`btrim` de PostgreSQL et
+`toLowerCase()`/`trim()` de JS ne sont pas la même fonction (29 points de code
+pour la casse, 1 caractère contre 16 pour le trim, détail en tête du fichier).
+Une normalisation ou une mesure faite **en SQL** sur cette colonne reprend la
+classe écrite dans la migration, jamais `btrim` : le premier pré-vol de prod,
+écrit avec `btrim`, ne pouvait pas voir une tabulation.
+
+**Révocation des sessions** (lot 3, #251, `2f8fbb6`). Le jeton porte le `role`
+et la `sessionVersion` lus à la connexion (`auth.config.ts`, seul endroit où
+ils sont posés) ; `lib/sessionGate.ts` les compare à la ligne à chaque
+relecture et annule le jeton sur écart. **Toute écriture de `User.password` ou
+de `User.role` sur une ligne existante porte `sessionVersion: { increment: 1 }`
+dans le même `data`** : forme et monotonie imposées par
+`tests/account-writers-coverage.test.ts`, condition (mot de passe ou rôle
+changé, pas un nom seul) par `tests-integration/session-version-bump.test.ts`.
+Le compteur ne fait que croître : réécrire une valeur déjà émise (un retour à 0,
+une restauration de sauvegarde) ressuscite les cookies révoqués depuis — après
+une restauration, procédure de `docs/deploy-hostinger.md` §10, jamais un `+ 1`.
+Changer **ses propres** identifiants coupe sa propre session : l'écran des
+comptes fait passer l'écriture qui révoque en dernier et valide avant tout
+envoi (`UsersManager`), puis `updateUser` déconnecte avec la raison
+(`/login?raison=identifiants-modifies`). Un nouvel écran qui enchaîne plusieurs
+actions sur son propre compte suit le même ordre.
+*Compte, à `2f8fbb6`* — méthode : `userWriteSites` du test sur les fichiers
+suivis hors `tests/`, `docs/` et code généré, recoupé par `git grep` des appels
+`<client>.user.<écriture>` : 11 appels, dont 3 suppressions (hors domaine, sans
+données) et **8 écritures à données** — 4 `upsert` du seed (`update: {}`), le
+`create`, `setUserProjects` (relation seule) et **2 écrivains d'identifiants**,
+`repository/users.ts::updateProfile` et `::resetPasswordWithToken`. Hors de
+tout scan : le script SQL `create-admin.js` de `docs/deploy-hostinger.md` §8,
+qui incrémente lui-même.
 
 **Atteindre une entreprise n'est pas l'emporter** (lot 1, F1). `requireClientAccess`
 répond « puis-je atteindre cette entreprise » — au moins un chantier **vivant**
@@ -540,10 +602,19 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   puis relire : le diff doit contenir *exactement* le changement voulu.
 - La prod applique les migrations **au démarrage du conteneur**
   (`docker-entrypoint.sh`) — une migration mergée part automatiquement.
-- **Un index unique partiel** (`CREATE UNIQUE INDEX … WHERE …`) n'existe pas
+- **Un fichier de migration est une seule transaction**, ici (Prisma 7 sur
+  PostgreSQL 16) : prouvé au lot 3 par un échec forcé sur base jetable (une
+  ligne qui déclenche le `RAISE` de `20261123100000` → `P0001`, ni colonne, ni
+  `CHECK`, ni index appliqués, migration marquée en échec, reprise par
+  `prisma migrate resolve --rolled-back` — PR #251). C'est ce qui permet
+  « normaliser puis contraindre » dans le même fichier. Un changement d'outil
+  ou de moteur se reprouve de la même façon avant de s'y fier.
+- **Un index unique partiel ou d'expression** (`CREATE UNIQUE INDEX … WHERE …`,
+  `… ON "User" (lower("email"))`) n'existe pas
   pour Prisma : `migrate diff` ne le voit pas, il vit **seulement** dans le SQL
   de la migration — se vérifie dans `pg_indexes`, pas dans `schema.prisma`
-  (`EquipmentLoan_equipmentId_open_key`, « un prêt ouvert par équipement »).
+  (`EquipmentLoan_equipmentId_open_key`, « un prêt ouvert par équipement » ;
+  `User_email_lower_key`, lot 3).
 - **Sur un P2002, `meta.target` est vide** avec le driver que l'app utilise
   (`@prisma/adapter-pg`, `lib/prisma.ts`) — sondé sur la base locale, PR #230 :
   les colonnes sont sous `meta.driverAdapterError.cause.constraint.fields`,
@@ -554,6 +625,9 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   tables gagne une seconde contrainte unique : ce jour-là, lire la structure
   de l'adaptateur (et l'épingler par un test), sinon un doublon sur la
   nouvelle contrainte sera annoncé comme un doublon sur l'ancienne.
+  `User` porte **deux** uniques depuis le lot 3 (`User_email_key` et
+  `User_email_lower_key`), tous deux sur l'e-mail : l'hypothèse tient encore
+  pour cette table, par ce seul fait.
 
 ## SQL brut (Prisma.raw)
 
