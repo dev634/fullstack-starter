@@ -40,7 +40,7 @@ Ne jamais les croiser en matrice.
 | **Rôle** (capability) | ce qu'on a le droit de *faire* (lire / écrire) | `requireCapability` — `lib/access.ts`, `lib/capabilities.ts` |
 | **Fonction → sections** | quelles sections d'un projet existent pour toi | `requireSectionAccess` — `lib/sectionAccess.ts` |
 | **Fonction → rubriques** | quelles rubriques de l'app existent pour toi | `requireAreaAccess` / `canAccessArea` — `lib/areaAccess.ts` |
-| **Fonction → projets** | quels projets tu peux atteindre | `requireProjectAccess` — `lib/accessContext.ts` |
+| **Fonction → projets** | quels projets tu peux atteindre | `requireProjectAccess` — `lib/access.ts` (contexte résolu par `lib/accessContext.ts`) |
 | **Propriété** (rubrique personnelle) | « cette ligne est-elle à moi ? » — l'utilisateur courant *ou* un ADMIN+ | `getLoansActor` — `lib/currentUser.ts` |
 
 **Le quatrième axe est arrivé avec la rubrique Prêts (PR #230)** et ne
@@ -76,6 +76,27 @@ sur les routes de lecture ci-dessous : rubrique avant section.
 Le `projectId` passé à `requireProjectAccess` doit venir de **la base**, jamais
 d'un champ de formulaire (ex. `findCompanyProjectId(companyId)`). Un `projectId`
 de FormData ne sert qu'au `revalidatePath`.
+
+**`requireProjectAccess` gèle aussi la corbeille** (lot 2, #245) : après le
+périmètre, il refuse un chantier à la corbeille **et** un chantier vivant dont
+l'entreprise est à la corbeille (la corbeille d'une entreprise ne cascade pas
+sur ses chantiers). « À la corbeille » est défini **une fois**,
+`lib/projectTrash.ts::projectTrashState`, et les lectures qui décident si un
+chantier s'affiche (hub, pages de section, `/api/assets`, rapports, portail)
+l'appellent aussi — sinon la page reste visible pendant que chaque bouton est
+refusé. Les deux seules actions qui agissent **sur** un chantier à la corbeille
+(`restoreProject`, `permanentlyDeleteProject`) appellent son inverse,
+`requireTrashedProjectAccess(id, "restore" | "destroy")`, et un test structurel
+interdit tout autre appelant. Côté entreprise, `requireClientAccess` refuse une
+entreprise absente ou à la corbeille ; `requireClientAccessWithin(ctx, client)`
+est la même règle pour un appelant qui a déjà lu le contexte et la ligne (imports
+par e-mail, une ligne par tour de boucle sans relecture).
+
+Les refus de ces gardes sont **typés** (`lib/scopeRefusal.ts` :
+`forbidden` / `absent` / `inTrash` / `parentInTrash`). Une action
+anti-énumération décide sur la **raison**, jamais sur le texte du message :
+`scopeRefusalMessage` replie `forbidden` et `absent` sur le même `invalidId`, et
+ne laisse passer les deux raisons de corbeille qu'à qui atteint déjà la ligne.
 
 **Ordre des gardes sur une route de LECTURE** (export, téléchargement,
 rapport) — établi par `app/api/assets/[kind]/[id]/route.ts` (livraison gardée
@@ -128,7 +149,9 @@ re-dériver :
   « interdit » — choix de rendu, pas entorse au 403/404 des routes ci-dessus.
 - `tests/project-section-authz-coverage.test.ts` découvre ses cibles **par cette
   table** et exige un appel résolu par l'**import** (un homonyme local ne compte
-  pas). C'est ce qui lui a fait attraper seul une page créée après lui. Ajouter
+  pas), **avec les clés de la route** depuis #249 — la page `reserves` qui
+  appellerait `resolveProjectSectionAccess(params, "tasks")` rougit. C'est ce
+  qui lui a fait attraper seul une page créée après lui. Ajouter
   une section = une entrée dans la table + le garde partagé, rien d'autre.
 
 **Ajouter une rubrique de l'app** (le chemin qu'a suivi Prêts, PR #230) touche
@@ -171,7 +194,8 @@ lectures (page projet, tableau de bord, rapport PDF, `/api/assets`,
 `getClient`/`getProject`) avaient été fermées derrière `canAccessArea("projects")`,
 mais une trentaine — en réalité **41** à l'époque, **45 dans 12 fichiers** au
 2026-09-19 (`actions/materialCategories` compris ; recompte par `functionsIn`,
-voir `docs/SECURITE-CHECKLIST.md` V8) — de mutations dans `actions/tasks`,
+voir `docs/SECURITE-CHECKLIST.md` V8), **47 dans 13** à `0e10b1b` (compte exact
+`OWNED_ACTIONS_EXPECTED` du test, vert) — de mutations dans `actions/tasks`,
 `actions/taskGroups`, `actions/taskCategories`, `actions/taskAssignee`,
 `actions/projectMaterials`, `actions/materialCategories`, `actions/projectFiles`,
 `actions/reserves`, `actions/interventions`, `actions/interims`,
@@ -213,18 +237,45 @@ le bas, ça ne lève rien).
 
 *Auto-élévation* — un ADMIN dont la fonction masque des rubriques
 (`hiddenAreas`, le seul axe auquel un ADMIN est soumis) s'en affranchit.
-**Huit leviers, sept fermés :**
+**Dix leviers connus, tous fermés à `0e10b1b`** (en prod le 2026-11-23) — la
+table de `96b041b` plus les deux relais du lot 5a, **pas** un recompte depuis les
+écritures : ce qui fait foi désormais, c'est la découverte outillée ci-dessous
+(13 actions, chacune sous sa règle ou exemptée avec sa raison). La table a
+porté « huit, sept fermés » à `96b041b` sans compter `createPortalLogin` — la
+même section l'écartait des chemins vers un compte ADMIN+ parce qu'il « ne crée
+qu'un CLIENT », sans se demander ce qu'un CLIENT voit : il **lit par le portail**
+les chantiers auxquels il est lié — deux relais de plus (9, 10), trouvés par le
+lot 5a. Quatrième compte faux, encore par le bas, encore par une **exclusion**
+dont la raison n'avait pas été éprouvée.
 
-| # | levier | action | état à `96b041b` |
+| # | levier | action | état |
 |---|---|---|---|
-| 1 | éditer sa propre fonction | `setFunctionAreas` | fermé (lot C1) |
+| 1 | éditer sa propre fonction | `saveFunctionConfig` (alors `setFunctionAreas`, fusionnée avec `setFunctionSections` / `setFunctionScope` en une écriture par #247) | fermé (lot C1) |
 | 2 | repointer son compte vers une autre fonction, ou aucune | `updateUser` | fermé (lot C1) |
 | 3 | supprimer sa propre fonction (`SetNull`) | `deleteJobFunction` | fermé (lot C1) |
 | 4 | créer un ADMIN sans fonction et s'y connecter | `addUser` | fermé, lot 1 (`canAssignRole`) |
 | 5 | promouvoir ADMIN un compte qu'on contrôle (un EDITOR qu'on vient de créer) | `updateUser` | fermé, lot 1 (`canAssignRole`) — absent du compte « six » |
 | 6 | fixer le mot de passe d'un autre ADMIN non restreint, et s'y connecter | `updateUser` | fermé, lot 1 (`canManageAccount`) — absent du compte « six » |
 | 7 | lever les restrictions de la fonction portée par un autre ADMIN (utile combiné au 6) | les 4 actions d'écriture de `actions/jobFunctions` | fermé, lot 1 (`refuseIfHeldByAdmin`) |
-| 8 | **compte relais** : un EDITOR sans fonction, créé (`addUser`) ou repris (`updateUser` : fonction vidée, mot de passe fixé), pour voir par lui | `addUser`, `updateUser` | **ouvert, accepté** par l'humain le 2026-11-22 ; à rouvrir le jour où un ADMIN reçoit une fonction qui masque du contenu |
+| 8 | **compte relais** : un compte moins restreint que soi, créé (`addUser`) ou repris (`updateUser` : fonction vidée ou allégée, mot de passe fixé), supprimé ou réaffecté, pour voir par lui | `addUser`, `updateUser`, `deleteUser`, `setUserProjectAssignments` | fermé, lot 5a (#248, `mayManageAccountWithFunction`) — accepté ouvert le 2026-11-22, refermé le lendemain |
+| 9 | **reprendre un login de portail** : fixer le mot de passe d'un compte CLIENT et lire par le portail les chantiers qu'on vous masque | `updateUser` | fermé, lot 5a : `updateUser` refuse toute cible CLIENT et tout rôle CLIENT demandé ; un login se gère depuis son contact |
+| 10 | **créer un login de portail** (ou lier un contact à des chantiers) et lire par lui | `createPortalLogin`, `editContact` | fermé, lot 5a : `mayProvisionPortalLogin` refuse qui masque une rubrique visible du portail (`PORTAL_EXPOSED_AREAS` = `projects`) ; `editContact` ne touche les liens de chantiers qu'avec la rubrique `projects` |
+
+**La règle qui ferme 8 à 10** (`lib/accountPolicy.ts`, pure, lue par les actions
+**et** par les écrans) : un compte n'est géré que si sa fonction, **avant et
+après** l'écriture, masque au moins les rubriques de l'acteur
+(`mayManageAccountWithFunction`, une rubrique parente couvrant ses
+sous-parties — `coversHiddenAreas`) ; une fonction portée par des comptes ne
+rend visible rien de ce qu'elle cachait à l'acteur (`mayChangeHeldFunction`,
+règle **monotone**). Les rubriques d'administration, gardées par des capacités
+verrouillées ≥ ADMIN, ne comptent pas : un ADMIN qui ne masque qu'elles n'est
+pas « restreint » (`relevantHiddenAreas`). Vérification et écriture vivent dans
+**une** transaction qui verrouille la ligne `JobFunction` (`SELECT … FOR
+UPDATE`), dans **tout** écrivain, toujours dans le même ordre — fonction(s)
+actuelle et cible, puis compte — sinon deux écritures croisées s'interbloquent.
+Les écrans reçoivent les verrous calculés côté serveur (`heldFunctionLocks`,
+`unmanageableAccountIds`, `assignableFunctionIds`) : ils ne recalculent pas la
+règle, ils l'affichent.
 
 *Comptes ADMIN+* — règle décidée le 2026-11-22 : **tout ce qui touche un compte
 ADMIN ou SUPERADMIN passe par un SUPERADMIN**. Chemins par lesquels un
@@ -244,10 +295,36 @@ l'écran (`UsersManager`) — sinon l'écran propose ce que l'action refuse. Tou
 nouvelle écriture sur `User` ou sur une `JobFunction` passe par elle, et ce
 recompte se refait **depuis les écritures**, jamais en complétant la table.
 Sortie de secours SUPERADMIN et garde du dernier SUPERADMIN intactes.
-⚠️ **Aucun test ne découvre ces actions par leurs écritures** :
-`tests/user-actions-admin-rank.test.ts` et `tests/job-function-actions.test.ts`
-les nomment une à une ; une dixième action qui écrirait `User` ne serait vue
-par personne.
+**Ces actions sont découvertes par leurs écritures** depuis le lot 5a :
+`tests/account-writers-coverage.test.ts` (helpers dans
+`tests/helpers/accountWriterScan.ts`) parse les fonctions exportées de
+`repository/*.ts` qui écrivent `user`, `jobFunction` ou `passwordResetToken`
+par un client nommé `prisma` ou `tx`, remonte aux actions qui les atteignent
+par chemin de module **et** par binding, et exige **la** règle de chaque action
+(`REQUIRED_RULE`), résolue jusqu'à `lib/accountPolicy`. Tailles exactes, vertes
+à `0e10b1b` : 13 écrivains, 13 actions (7 sous la règle, 6 exemptées — chaque
+exemption porte sa raison, sa condition de disparition, et des **affirmations
+relues dans le code parsé**, jamais dans un commentaire). Angles morts déclarés
+par le test lui-même : une écriture par relation imbriquée, du SQL brut, un
+écrivain passé en valeur, un client Prisma nommé autrement que `prisma`/`tx` —
+c'est pourquoi `repository/users.ts` nomme `tx` son paramètre de transaction.
+Une nouvelle écriture de compte qui tombe dans un de ces angles est invisible :
+la nommer `prisma`/`tx`, ou étendre le scan.
+
+**Logins CLIENT orphelins** (lot 5a) : la destruction définitive d'une
+entreprise supprime aussi les logins CLIENT de ses contacts
+(`repository/clients.ts::permanentlyRemove`, filtré sur `role: "CLIENT"`) — ils
+restaient actifs et invisibles.
+
+**E-mail d'un compte** (`lib/normalizeEmail.ts`) : une seule forme canonique
+(trim + minuscules) à **chaque** écriture et **chaque** lecture de
+`User.email`, toutes dans `repository/users.ts` (`sessionAccountWhere`), et une
+égalité **exacte**. Jamais `mode: "insensitive"` : Prisma le compile en `ILIKE`
+sans échapper `%` ni `_`, et `jean_dupont@…` résolvait `jean.dupont@…` (sondé,
+non-régression dans `tests-integration/email-lookup-wildcards.test.ts`). Une
+ligne enregistrée en majuscules avant cette normalisation n'est plus trouvée ;
+la production n'en comptait aucune au lot 5a (#248), et la garantie en base
+n'est **pas** sur `main` à `0e10b1b`.
 
 **Atteindre une entreprise n'est pas l'emporter** (lot 1, F1). `requireClientAccess`
 répond « puis-je atteindre cette entreprise » — au moins un chantier **vivant**
@@ -265,6 +342,18 @@ et `permanentlyDeleteProject` refusent une ligne qui n'est pas à la corbeille,
 même réponse qu'une ligne absente — l'écran ne les proposait que depuis la
 corbeille, l'appel direct détruisait une ligne vivante.
 
+**La destruction définitive est gardée sur tout ce qu'elle emporte** (lot 5b,
+#249). La cascade d'un chantier emporte fichiers, réserves, tâches, matériel… :
+`permanentlyDeleteProject` exige **toutes** les sections de chantier
+(`lib/sectionAccess.ts::requireEverySectionAccess`), et
+`permanentlyDeleteClient` exige en plus les rubriques `projects` et
+`clients.contacts`. La mise à la corbeille, réversible, garde sa garde
+d'origine. Les boutons « Supprimer définitivement » lisent la même règle
+(`lib/destroyAccess.ts`, prop `canDestroy`) : on ne propose pas ce que le
+serveur refuse. Une nouvelle destruction en cascade se garde **à partir du
+schéma** (`onDelete: Cascade` lus dans `prisma/schema.prisma`), pas à partir
+de l'écran qui l'appelle.
+
 `LOCKED_CAPABILITIES` (`lib/capabilities.ts`) = `settings.manage`,
 `functions.manage`, `users.manage` : **non délégables par la matrice de rôles**,
 puisqu'elles configurent le modèle d'accès lui-même. Une capacité qui donne le
@@ -272,12 +361,12 @@ pouvoir de changer les capacités rejoint cette liste.
 
 `tests/authz-coverage.test.ts` échoue si une fonction exportée de
 `actions/{clients,projects,contacts,portal,equipment,equipmentLoans}` (six
-fichiers d'`AREA_BY_FILE` à `96b041b`) saute `requireAreaAccess` — **lectures
-comprises depuis PR #187**. Par son **nom seul** : la valeur de la table n'est
-pas comparée à l'argument (voir « Une garde exigée par son nom seul » plus bas),
-et une table à une valeur par fichier ne sait pas dire que `createPortalLogin`
-en exige **deux** (`admin.users` et `clients.contacts`) — ce sont
-`tests/portal-actions.test.ts` qui les prouvent, pas ce test. Il portait auparavant un `READS = new Set([...])`
+fichiers d'`AREA_BY_FILE`, inchangés à `0e10b1b`) saute `requireAreaAccess` —
+**lectures comprises depuis PR #187** — ou ne refuse pas sur son résultat.
+Depuis #249, **avec l'argument** que la table assigne au fichier, et une entrée
+peut en porter plusieurs : `actions/portal/portal.ts` exige `admin.users` **et**
+`clients.contacts`, `permanentlyDeleteClient` a sa propre entrée (`overrides`)
+à trois rubriques. Il portait auparavant un `READS = new Set([...])`
 qui en exemptait trois : l'exemption *était* le trou. Aucune exemption ne se
 rajoute ici sans porter sa raison et la condition de sa disparition.
 
@@ -310,26 +399,19 @@ sonde** (garde retirée → rouge).
 pages de rubrique (`tests/authz-coverage.test.ts`, PR #230) exigeait « un
 appel à `requireAreaOrRedirect` » : `requireAreaOrRedirect("projects")` collé
 dans `app/loans/page.tsx` restait vert tout en gardant la mauvaise rubrique.
-Il lit désormais l'**argument** (`bodyCallsAnyOfWithFirstArg`, sondé rouge →
-vert). Inventaire au 2026-09-20 (`9f718ec`) de ce qui vérifie encore le nom
-sans l'argument alors que la valeur attendue est connue — six vérifications
-dans deux fichiers, **à fermer** avec le même helper, une sonde chacune :
-
-- `tests/authz-coverage.test.ts` — `AREA_BY_FILE` : la valeur de la table
-  (`clients`, `projects`, `clients.contacts`, `loans`) n'est jamais comparée à
-  l'argument de `requireAreaAccess` ; `AREA_BY_ROUTE` : idem pour
-  `canAccessArea` sur les trois exports CSV ; `OWNED_BY_SECTION` :
-  `requireAreaAccess` sans exiger `"projects"` ; route `/api/assets` + rapport
-  de réserves : `canAccessArea` sans `"projects"` ; page de détail projet :
-  idem.
-- `tests/project-section-authz-coverage.test.ts` — `sectionKey` vient bien de
-  `PROJECT_SECTION_ROUTES` mais ne sert qu'au message : la page `reserves`
-  qui appellerait `resolveProjectSectionAccess(params, "tasks")` passe.
-
-Toujours ouvert à `96b041b` : le lot 1 a ajouté `actions/portal/portal.ts` à
-`AREA_BY_FILE` avec un commentaire qui déclare sa valeur « documentation ». Une
-valeur de table que rien ne lit est un commentaire de plus ; la fermeture
-ci-dessus doit aussi accepter **plusieurs** rubriques par fichier.
+Il lit l'**argument** depuis, sondé rouge → vert. ✅ **Les six autres
+vérifications par nom seul** inventoriées à `9f718ec` (`AREA_BY_FILE`,
+`AREA_BY_ROUTE`, `OWNED_BY_SECTION` côté rubrique, `/api/assets` et rapport de
+réserves, page de détail projet, clé de section des pages de chantier) **sont
+fermées par #249** : un seul mécanisme, `areaViolationsIn` / `areasNamedIn`
+(`tests/authz-coverage.test.ts`), qui résout l'import, compare l'argument à la
+table, accepte plusieurs valeurs par entrée — la valeur « documentation »
+d'`actions/portal/portal.ts` est désormais lue — et, pour les gardes qui
+**rendent** un refus (`requireAreaAccess`, `requireSectionAccess`), exige
+qu'on refuse sur leur résultat avant tout effet. Les sondes de forme (garde
+dans une fermeture jamais appelée, après l'écriture, résultat ignoré, throw
+avalé, branche conditionnelle, `finally`, import par espace de noms…) sont
+écrites dans le test : une nouvelle forme qui passe s'y ajoute, avec sa sonde.
 
 ## Validation — primitives partagées, à réutiliser
 
@@ -405,6 +487,43 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   le monde, définitivement**. Une donnée d'entrée qui casse une lecture globale
   se corrige **des deux côtés** : validation à l'entrée, et lecture tolérante à
   une ligne déjà corrompue en base.
+- **Dates** (lot 4, #247) : une seule primitive, `schemas/fields.ts` —
+  `requiredDateField` / `optionalDateField` (`AAAA-MM-JJ` stricte, date réelle,
+  années `MIN_DATE_YEAR`–`MAX_DATE_YEAR` = 1900–2100) et `requiredDateTimeField`
+  (instant ISO zoné, interventions), à la place de quatre copies de
+  `Date.parse`. Une règle inter-champs (« fin ≥ début ») ne juge que **deux
+  valeurs déjà valides** : Zod 4 exécute le `refine` d'un objet même quand un
+  de ses champs a échoué, avec la valeur brute — sans ce garde, une date
+  invalide affichait en plus une fausse erreur d'ordre
+  (`schemas/project.ts::endNotBeforeStart`).
+- **Mise à jour partielle** (lot 5b, #249) : absent = inchangé, vide = effacé.
+  Les schémas de mise à jour n'ont **aucun** `.default()` (un `type` absent
+  revenait en « AUTRE » par-dessus la vraie valeur) ; un champ effaçable passe
+  par `clearable(inner)` / `clearableDateField`, qui rend `undefined` (omis),
+  `null` (vidé) ou la valeur ; les dépôts transmettent `undefined` tel quel, et
+  les conversions sans repli destructeur vivent dans
+  `lib/partialWrite.ts::dateColumn` et `lib/taskQuantity.ts::quantityTargetPatch`.
+  Une borne envoyée seule (une date de fin, une quantité) se compare à l'autre
+  **lue en base dans la transaction qui écrit, sous `FOR UPDATE`**
+  (`repository/projects.ts::update`, `repository/projectMaterials.ts::update`,
+  paramètre `accept`) — sans le verrou, la concurrence viole l'invariant dès le
+  premier tour (sondé). Verrou structurel : `tests/repository-partial-write.test.ts`
+  (`tests/helpers/partialWriteScan.ts`) interdit `?? null`, `|| null` et
+  `?? <défaut>` dans le `data` d'une mise à jour.
+- **Import / export CSV** (`lib/csv.ts`, lot 4) : octets décodés en UTF-8
+  strict, repli Windows-1252 ; séparateur détecté (`;` ou `,`) et il **dicte les
+  conventions** — `;` = virgule décimale, espaces de milliers, `JJ/MM/AAAA` ;
+  `,` = point décimal, virgule seulement en milliers groupés par 3, date à
+  barres **refusée** (ambiguë). Une valeur incomprise est rendue telle quelle
+  pour que le schéma la refuse, jamais normalisée vers une valeur fausse
+  (`15,000` valait 15). L'export pose `;` en français, `,` en anglais, avec le
+  BOM ; `unescapeCsvCell` est la réciproque **exacte** de `csvCell` (apostrophe
+  anti-formule). Plafonds `MAX_IMPORT_BYTES` (8 Mio, sur `file.size`, avant
+  lecture), `MAX_IMPORT_COLUMNS` (40) et `MAX_IMPORT_ROWS` (1000), refusés
+  **avant** de construire les lignes — calcul de chacun en commentaire. Tout
+  import passe par `readCsvUpload` ; tout export par `csvResponse`. Ouvert, en
+  liste d'attente : Excel FR retire les zéros de tête (`0612345678`, `01000`)
+  et convertit `2026-01` en date — le corriger change l'export vu par tous.
 
 ## Migrations
 
@@ -607,6 +726,20 @@ paquet importé par le code embarqué.
   callback venant des props — appeler une callback de prop pendant le rendu
   déclenche « Cannot update a component while rendering a different component »
   et un double appel en StrictMode.
+- **Champs contrôlés** sous `<form action>` (React 19 vide les autres au retour
+  de l'action, refus compris) : les fenêtres de tâche, d'intervention, de
+  contact et de matériel le sont depuis les lots 4 et 5b ; champ compact à
+  libellé et erreur : `components/FormInput.tsx`. Chaque forme d'erreur rendue
+  par l'action (`error`, `zodError`) a son rendu, sous le champ quand elle en
+  nomme un.
+- **Un `<select>` d'édition dont les options sont filtrées perd la valeur
+  stockée qu'il ne liste pas** — il soumet la première option. Deux réponses
+  dans ce dépôt, à copier : `components/AssigneePicker.tsx` garde l'affectation
+  devenue invisible comme option désactivée au libellé neutre (la nommer
+  fuirait ce que la section masquée cache) ; `forms/EditMaterialForm.tsx`
+  (`linkIsListed`) affiche en lecture seule un lien vers une tâche de série,
+  absente de la liste, et n'envoie pas `link` (absent = inchangé). Le second
+  déliait le matériel à chaque enregistrement jusqu'à #249.
 
 ## Modèles de personnes
 

@@ -327,6 +327,15 @@ Accessible via **Administration** dans la barre de navigation (selon les droits)
   > corbeille ou supprimer une entreprise que si **tous** ses chantiers lui
   > sont accessibles. Ce chapitre et la capture restent à reprendre ; la
   > référence technique est `docs/CONVENTIONS.md`.
+  >
+  > **Depuis les PR #248 et #249, encore deux règles.** Un Administrateur dont la
+  > fonction masque des rubriques ne gère que les comptes dont la fonction en
+  > masque au moins autant (l'écran ne propose que celles-là, et explique les
+  > lignes verrouillées) ; un login de portail se gère depuis son contact, plus
+  > depuis l'écran Utilisateurs. Et la **suppression définitive** d'un chantier
+  > ou d'une entreprise exige de voir toutes les sections de chantier (et, pour
+  > une entreprise, les chantiers et les contacts) : la mise à la corbeille, elle,
+  > reste possible.
 - **Thème** *(Super admin)* — nom de l'application, logo, couleurs (aperçu en direct).
 - **Ordre des sections** *(Super admin)* — glisser-déposer pour ordonner les sections de la page projet.
 - **Rôles & accès** *(Super admin)* — la matrice capacité → rôle minimum décrite plus haut.
