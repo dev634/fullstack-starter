@@ -156,11 +156,16 @@ export async function findIdByEmail(email: string): Promise<number | null> {
  * reused, so a stale `sub` can't resolve to whatever row the email now
  * belongs to.
  */
-export async function findSessionAccount(id: number, email: string): Promise<{ id: number } | null> {
+export async function findSessionAccount(
+    id: number,
+    email: string
+): Promise<{ id: number; role: Role; sessionVersion: number } | null> {
     try {
+        // Explicit select, never the hash: role and sessionVersion are what
+        // lib/sessionGate.ts compares to the token.
         return await prisma.user.findUnique({
             where: { id, ...sessionAccountWhere(email) },
-            select: { id: true },
+            select: { id: true, role: true, sessionVersion: true },
         });
     } catch (error) {
         console.log("Repository findSessionAccount error:", error);
@@ -369,7 +374,7 @@ export async function updateProfile(
 ) {
     try {
         return await prisma.$transaction(async (tx) => {
-            const current = await tx.user.findUnique({ where: { id }, select: { jobFunctionId: true } });
+            const current = await tx.user.findUnique({ where: { id }, select: { jobFunctionId: true, role: true } });
             const currentId = current?.jobFunctionId ?? null;
             const locked = await lockFunctionsForUpdate(
                 tx,
@@ -380,7 +385,17 @@ export async function updateProfile(
                 if (!relay(hiddenOf(currentId))) throw guardRefusal(RELAY_REFUSED);
                 if (data.jobFunctionId !== currentId && !relay(hiddenOf(data.jobFunctionId))) throw guardRefusal(RELAY_REFUSED);
             }
-            return tx.user.update({ where: { id }, data, select: ACCOUNT_SELECT });
+            // A new password or a new role kills the account's existing
+            // sessions (lib/sessionGate.ts). The bump rides in THIS statement,
+            // so there is no instant where the write is visible and the old
+            // cookies still pass. A name or a function alone does not bump: the
+            // function is re-read on every request, it is not in the token.
+            const invalidatesSessions = data.password !== undefined || (current !== null && current.role !== data.role);
+            return tx.user.update({
+                where: { id },
+                data: { ...data, sessionVersion: invalidatesSessions ? { increment: 1 } : undefined },
+                select: ACCOUNT_SELECT,
+            });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;
@@ -500,7 +515,8 @@ export async function updatePassword(userId: number, hashedPassword: string) {
     try {
         return await prisma.user.update({
             where: { id: userId },
-            data: { password: hashedPassword },
+            // The bump kills every session opened with the old password.
+            data: { password: hashedPassword, sessionVersion: { increment: 1 } },
             // No caller reads the row; never hand back the password hash.
             select: { id: true },
         });

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { remove } from "@/repository/users";
+import { remove, updatePassword, updateProfile } from "@/repository/users";
 import { authConfig } from "@/auth.config";
 
 /**
@@ -18,8 +18,8 @@ import { authConfig } from "@/auth.config";
  * `callbacks.jwt`, is captured unmodified and called directly below.
  */
 
-type SessionToken = { sub?: string; email?: string | null; role?: string };
-type JwtCallback = (params: { token: SessionToken; user?: { role?: string } }) => Promise<SessionToken | null>;
+type SessionToken = { sub?: string; email?: string | null; role?: string; sessionVersion?: number };
+type JwtCallback = (params: { token: SessionToken; user?: { role?: string; sessionVersion?: number } }) => Promise<SessionToken | null>;
 type CapturedConfig = { callbacks: { jwt: JwtCallback; session: unknown } };
 
 // `vi.hoisted` so `captured` exists already when the `next-auth` mock
@@ -97,6 +97,62 @@ describe("lib/auth.ts's real jwt callback, against a real Postgres", () => {
     expect(await jwt()({ token: newToken })).toEqual(newToken);
   });
 
+  describe("the token is compared to the row (lot 3)", () => {
+    it("keeps a legacy token (no version) while the row is at 0, and a token stamped with the row's version", async () => {
+      const email = uniqueEmail("legacy");
+      const user = await makeUser(email);
+      const legacy: SessionToken = { sub: String(user.id), email, role: "EDITOR" };
+      const stamped: SessionToken = { ...legacy, sessionVersion: 0 };
+      expect(await jwt()({ token: legacy })).toEqual(legacy);
+      expect(await jwt()({ token: stamped })).toEqual(stamped);
+    });
+
+    it("voids the token after a password reset (updatePassword), legacy and stamped alike", async () => {
+      const email = uniqueEmail("pwd");
+      const user = await makeUser(email);
+      const legacy: SessionToken = { sub: String(user.id), email, role: "EDITOR" };
+      const stamped: SessionToken = { ...legacy, sessionVersion: 0 };
+
+      await updatePassword(user.id, "new-hash");
+
+      expect(await jwt()({ token: legacy })).toBeNull();
+      expect(await jwt()({ token: stamped })).toBeNull();
+      // A sign-in after the change is stamped with the row's NEW version and survives.
+      const fresh: SessionToken = { ...legacy, sessionVersion: 1 };
+      expect(await jwt()({ token: fresh })).toEqual(fresh);
+    });
+
+    it("voids the token after a demotion through the account screen's writer (updateProfile)", async () => {
+      const email = uniqueEmail("demoted");
+      const user = await makeUser(email);
+      const token: SessionToken = { sub: String(user.id), email, role: "EDITOR", sessionVersion: 0 };
+
+      await updateProfile(user.id, { name: null, role: "VIEWER", jobFunctionId: null }, null);
+
+      expect(await jwt()({ token })).toBeNull();
+    });
+
+    it("voids the token after a role written by something that does NOT bump (a raw update): the role comparison is the net", async () => {
+      const email = uniqueEmail("rawrole");
+      const user = await makeUser(email);
+      const token: SessionToken = { sub: String(user.id), email, role: "EDITOR", sessionVersion: 0 };
+
+      await prisma.user.update({ where: { id: user.id }, data: { role: "VIEWER" } });
+
+      expect(await jwt()({ token })).toBeNull();
+    });
+
+    it("keeps the token after a change of name alone (no bump, same role)", async () => {
+      const email = uniqueEmail("rename");
+      const user = await makeUser(email);
+      const token: SessionToken = { sub: String(user.id), email, role: "EDITOR", sessionVersion: 0 };
+
+      await updateProfile(user.id, { name: "Renamed", role: "EDITOR", jobFunctionId: null }, null);
+
+      expect(await jwt()({ token })).toEqual(token);
+    });
+  });
+
   it("a sign-in call (user present) carries the role onto the token, WITHOUT any database lookup", async () => {
     // The token arrives WITHOUT a role, as Auth.js hands it to the callback at
     // sign-in: the role is what authConfig's own `jwt` puts there from the
@@ -114,10 +170,11 @@ describe("lib/auth.ts's real jwt callback, against a real Postgres", () => {
     const token: SessionToken = { sub: "999999999", email: "nobody@session-gate-test.local" };
     expect(token.role).toBeUndefined();
 
-    const result = await jwt()({ token, user: { role: "EDITOR" } });
+    const result = await jwt()({ token, user: { role: "EDITOR", sessionVersion: 4 } });
 
     expect(result).not.toBeNull();
     expect(result?.role).toBe("EDITOR");
+    expect(result?.sessionVersion).toBe(4);
     expect(result?.sub).toBe(token.sub);
     expect(result?.email).toBe(token.email);
   });

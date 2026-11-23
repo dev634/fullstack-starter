@@ -36,5 +36,6 @@ export async function verifyCredentials(data: LoginInput) {
         email: user.email,
         name: user.name,
         role: user.role,
+        sessionVersion: user.sessionVersion,
     };
 }

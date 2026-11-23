@@ -273,3 +273,173 @@ export function accountActionsIn(
   }
   return { reports, dynamicRepositoryImports: dynamic.filter((m) => m.startsWith("repository/") || m === "<computed>") };
 }
+
+// --- Writers of the session-killing columns (lot 3) -------------------------
+
+const USER_WRITE_METHODS: ReadonlySet<string> = new Set(["create", "createMany", "update", "updateMany", "upsert"]);
+const CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["password", "role"]);
+
+export type UserWriteSite = {
+  /** "repository/users.ts::updatePassword#update" — file, enclosing function, method. */
+  site: string;
+  /** `create`/`createMany`: a NEW row, nothing earlier to invalidate. Not analysed. */
+  createOnly: boolean;
+  /**
+   * The data this write can touch `password` or `role` with: an explicit key, or
+   * a spread / data object the scan cannot read (an opaque value is assumed to
+   * carry them — what is not understood is refused, never normalised to "safe").
+   */
+  writesCredentials: boolean;
+  /** The SAME data object carries `sessionVersion: { increment: 1 }` (possibly under a conditional). */
+  bumps: boolean;
+};
+
+type DataShape = { credentials: boolean; bumps: boolean };
+
+function propertyName(n: ts.PropertyName): string | null {
+  return ts.isIdentifier(n) || ts.isStringLiteralLike(n) ? n.text : null;
+}
+
+/** An object literal somewhere in `node` with `increment: 1`. */
+function containsIncrementOne(node: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (ts.isPropertyAssignment(n) && propertyName(n.name) === "increment" && ts.isNumericLiteral(n.initializer) && n.initializer.text === "1") found = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** The initializer of the first `const|let|var <name> = …` of the file (local constants only; a parameter is not found). */
+function localInitializer(file: ts.SourceFile, name: string): ts.Expression | null {
+  let found: ts.Expression | null = null;
+  const visit = (n: ts.Node) => {
+    if (!found && ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) found = n.initializer;
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
+  return found;
+}
+
+/** What a data expression writes. An identifier is followed to a local object literal; anything else is opaque. */
+function shapeOf(expr: ts.Expression, file: ts.SourceFile, depth = 0): DataShape {
+  const opaque: DataShape = { credentials: true, bumps: false };
+  if (depth > 5) return opaque;
+  if (ts.isParenthesizedExpression(expr)) return shapeOf(expr.expression, file, depth + 1);
+  if (ts.isIdentifier(expr)) {
+    const init = localInitializer(file, expr.text);
+    return init ? shapeOf(init, file, depth + 1) : opaque;
+  }
+  if (!ts.isObjectLiteralExpression(expr)) return opaque;
+  const shape: DataShape = { credentials: false, bumps: false };
+  for (const p of expr.properties) {
+    if (ts.isSpreadAssignment(p)) {
+      const inner = shapeOf(p.expression, file, depth + 1);
+      shape.credentials ||= inner.credentials;
+      shape.bumps ||= inner.bumps;
+    } else if (ts.isShorthandPropertyAssignment(p)) {
+      if (CREDENTIAL_KEYS.has(p.name.text)) shape.credentials = true;
+    } else if (ts.isPropertyAssignment(p)) {
+      const key = propertyName(p.name);
+      if (key === null) shape.credentials = true; // computed key: not understood
+      else if (CREDENTIAL_KEYS.has(key)) shape.credentials = true;
+      else if (key === "sessionVersion" && containsIncrementOne(p.initializer)) shape.bumps = true;
+    } else {
+      shape.credentials = true; // method / accessor: not understood
+    }
+  }
+  return shape;
+}
+
+/** Nested-write form (`user: { update: { data: { … } } }`): the shape is not a flat object, so search the whole subtree for the keys. */
+function deepShapeOf(node: ts.Node): DataShape {
+  const shape: DataShape = { credentials: false, bumps: false };
+  const visit = (n: ts.Node) => {
+    if (ts.isPropertyAssignment(n)) {
+      const key = propertyName(n.name);
+      if (key !== null && CREDENTIAL_KEYS.has(key)) shape.credentials = true;
+      if (key === "sessionVersion" && containsIncrementOne(n.initializer)) shape.bumps = true;
+    } else if (ts.isShorthandPropertyAssignment(n) && CREDENTIAL_KEYS.has(n.name.text)) shape.credentials = true;
+    else if (ts.isSpreadAssignment(n)) shape.credentials = true; // not understood
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return shape;
+}
+
+/** The expression assigned to `key` in an object literal (a shorthand `key` counts as the identifier `key`). */
+function propertyOf(obj: ts.ObjectLiteralExpression, key: string): ts.Expression | null {
+  for (const p of obj.properties) {
+    if (ts.isPropertyAssignment(p) && propertyName(p.name) === key) return p.initializer;
+    if (ts.isShorthandPropertyAssignment(p) && p.name.text === key) return p.name;
+  }
+  return null;
+}
+
+function enclosingFunctionName(n: ts.Node): string {
+  for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
+    if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+    if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name) && cur.initializer && (ts.isArrowFunction(cur.initializer) || ts.isFunctionExpression(cur.initializer))) {
+      return cur.name.text;
+    }
+  }
+  return "<top>";
+}
+
+/**
+ * Every write of the `User` model in `src`, from the WRITE CALL — `prisma.user.<w>()` /
+ * `tx.user.<w>()`, and a nested `user: { … }` inside the `data` of a write on
+ * another model (`prisma.contact.update({ data: { user: { update } } })`) — never
+ * from a list of files. For each: does its data write `password`/`role`, and
+ * does that SAME data object carry `sessionVersion: { increment: 1 }`?
+ *
+ * Followed: an inline object, a local `const data = { … }` (also when `data`
+ * is passed shorthand), spreads of either. Opaque (a parameter spread, a call
+ * result) counts as "writes credentials". Not seen by construction: a client
+ * under another name than `prisma`/`tx`, raw SQL (the only raw SQL of the app is
+ * a SELECT … FOR UPDATE), a writer passed as a value instead of called.
+ */
+export function userWriteSites(src: Source): UserWriteSite[] {
+  const file = parse(src);
+  const out: UserWriteSite[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const method = n.expression.name.text;
+      const modelAccess = n.expression.expression;
+      if (
+        USER_WRITE_METHODS.has(method) &&
+        ts.isPropertyAccessExpression(modelAccess) &&
+        ts.isIdentifier(modelAccess.expression) &&
+        CLIENT_NAMES.has(modelAccess.expression.text)
+      ) {
+        const where = `${src.path}::${enclosingFunctionName(n)}`;
+        const arg = n.arguments[0];
+        if (modelAccess.name.text === "user") {
+          if (method === "create" || method === "createMany") {
+            out.push({ site: `${where}#${method}`, createOnly: true, writesCredentials: false, bumps: false });
+          } else {
+            // upsert: only the UPDATE branch can change an existing row; its create branch is a new row.
+            const dataKey = method === "upsert" ? "update" : "data";
+            const data = arg && ts.isObjectLiteralExpression(arg) ? propertyOf(arg, dataKey) : null;
+            const shape: DataShape = data ? shapeOf(data, file) : { credentials: true, bumps: false };
+            out.push({ site: `${where}#${method}`, createOnly: false, writesCredentials: shape.credentials, bumps: shape.bumps });
+          }
+        } else if (arg && ts.isObjectLiteralExpression(arg)) {
+          // A write on ANOTHER model: a nested `user: { … }` in its data / create / update.
+          for (const key of ["data", "create", "update"]) {
+            const data = propertyOf(arg, key);
+            const nested = data && ts.isObjectLiteralExpression(data) ? propertyOf(data, "user") : null;
+            if (nested) {
+              const shape = deepShapeOf(nested);
+              out.push({ site: `${where}#${modelAccess.name.text}.${method}.${key}.user`, createOnly: false, writesCredentials: shape.credentials, bumps: shape.bumps });
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
+  return out;
+}
