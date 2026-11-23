@@ -85,6 +85,15 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
+  it("addProject returns no row: budget, notes and the reserve counter never reach the browser", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 1, budget: 123456, notes: "confidentiel", reserveCounter: 4, deletedAt: null } as never);
+    const res = await addProject(initial, formOf({ clientId: "1", name: "Toiture principale" }));
+    expect(res.type).toBe("success");
+    expect(res).not.toHaveProperty("data");
+    expect(JSON.stringify(res)).not.toMatch(/123456|confidentiel|reserveCounter/);
+  });
+
   it("addProject seeds the standard root folders for the new project", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     createMock.mockResolvedValue({ id: 7 } as never);

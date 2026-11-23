@@ -14,14 +14,22 @@ const initialState: ClientActionState = {
   message: "",
 }
 
-export default function UpdateClientForm({ client }: { client: Client }) {
+/**
+ * Every column of the company the form edits — all of `Client` except
+ * `deletedAt`, which no field reads. The page builds this as a literal: a
+ * narrower prop type alone would not stop a wider row from being serialised
+ * to the browser (structural typing), only not passing the column does.
+ */
+export type UpdateClientFormValues = Omit<Client, "deletedAt">;
+
+export default function UpdateClientForm({ client }: { client: UpdateClientFormValues }) {
   const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ClientActionState, FormData>(
     updateClient,
     initialState
   );
-  const [values, setValues] = useState<Client>(client);
+  const [values, setValues] = useState<UpdateClientFormValues>(client);
 
   useEffect(() => {
     if (state.type === null) return;

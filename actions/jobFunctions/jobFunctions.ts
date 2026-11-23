@@ -123,9 +123,9 @@ export async function addJobFunction(
   }
 
   try {
-    const created = await create(parsed.data.name);
+    await create(parsed.data.name);
     revalidatePath("/admin/settings/fonctions");
-    return { ...prevState, type: "success", message: t.jobFunctions.messages.added, data: created };
+    return { ...prevState, type: "success", message: t.jobFunctions.messages.added };
   } catch (error) {
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
       return { ...prevState, type: "error", message: t.jobFunctions.messages.duplicate };
@@ -191,9 +191,9 @@ export async function deleteJobFunction(id: number) {
     const heldByAdmin = await refuseIfHeldByAdmin(actor, id, null, t);
     if (heldByAdmin) return heldByAdmin;
 
-    const deleted = await remove(id, guardFor(actor, null));
+    await remove(id, guardFor(actor, null));
     revalidatePath("/admin/settings/fonctions");
-    return { type: "success" as const, message: t.jobFunctions.messages.deleted, data: deleted };
+    return { type: "success" as const, message: t.jobFunctions.messages.deleted };
   } catch (error) {
     if (isGuardRefusal(error)) return { type: "error" as const, message: refusalMessage(error.reason, t) };
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };

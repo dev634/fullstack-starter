@@ -194,7 +194,6 @@ export async function updateClient(
     return {
       type: "success",
       message: t.clients.messages.updated,
-      data: client,
     };
   } catch (error) {
     console.log("Action updateClient error:", error);

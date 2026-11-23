@@ -73,7 +73,6 @@ export async function addProject(
       ...prevState,
       type: "success",
       message: t.projects.messages.created,
-      data: project,
     };
   } catch (error) {
     return {
@@ -148,7 +147,6 @@ export async function updateProject(
       ...prevState,
       type: "success",
       message: t.projects.messages.updated,
-      data: project,
     };
   } catch (error) {
     return {
@@ -178,7 +176,7 @@ export async function deleteProject(id: number, clientId: number) {
     const scopeCheck = await requireProjectAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
-    const project = await softDelete(id);
+    await softDelete(id);
     await logActivity({
       action: "DELETED",
       projectId: id,
@@ -187,7 +185,7 @@ export async function deleteProject(id: number, clientId: number) {
     });
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/projects");
-    return { type: "success" as const, message: t.projects.messages.deleted, data: project };
+    return { type: "success" as const, message: t.projects.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,
@@ -221,7 +219,7 @@ export async function restoreProject(id: number) {
     });
     revalidatePath("/projects");
     revalidatePath("/projects/trash");
-    return { type: "success" as const, message: t.projects.messages.restored, data: project };
+    return { type: "success" as const, message: t.projects.messages.restored };
   } catch (error) {
     return {
       type: "error" as const,
@@ -261,7 +259,7 @@ export async function permanentlyDeleteProject(id: number) {
     await Promise.all(
       files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))
     );
-    const project = await remove(id);
+    await remove(id);
     await logActivity({
       action: "PERMANENTLY_DELETED",
       projectId: id,
@@ -269,7 +267,7 @@ export async function permanentlyDeleteProject(id: number) {
       actorEmail: roleCheck.email,
     });
     revalidatePath("/projects/trash");
-    return { type: "success" as const, message: t.projects.messages.permanentlyDeleted, data: project };
+    return { type: "success" as const, message: t.projects.messages.permanentlyDeleted };
   } catch (error) {
     return {
       type: "error" as const,

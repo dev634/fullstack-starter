@@ -137,7 +137,7 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
       relayCheckFor(actor)
     );
     revalidatePath("/admin/settings/utilisateurs");
-    return { ...prevState, type: "success", message: t.users.messages.added, data: user };
+    return { ...prevState, type: "success", message: t.users.messages.added, data: { id: user.id } };
   } catch (error) {
     if (isGuardRefusal(error)) return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
@@ -225,7 +225,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     // Hashed BEFORE the repository's transaction (nothing slow between the
     // relay check and the write); `undefined` = the password is left alone.
     const password = parsed.data.password ? await bcrypt.hash(parsed.data.password, 10) : undefined;
-    const user = await updateProfile(
+    await updateProfile(
       target.id,
       {
         // Refactoring point 3 (revue + audit "travailleurs"): `name` is
@@ -247,7 +247,7 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     // cookie is already dead. Sign out explicitly, with the reason, instead of
     // letting the next request bounce to /login unexplained.
     endsOwnSession = isSelf && (password !== undefined || parsed.data.role !== target.role);
-    result = { ...prevState, type: "success", message: t.users.messages.updated, data: user };
+    result = { ...prevState, type: "success", message: t.users.messages.updated };
   } catch (error) {
     if (isGuardRefusal(error)) return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };

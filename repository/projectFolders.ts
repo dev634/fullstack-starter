@@ -32,6 +32,7 @@ export async function create(data: FolderData) {
                 name: data.name,
                 parentId: data.parentId ?? null,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create folder error:", error);

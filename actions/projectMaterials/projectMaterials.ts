@@ -91,7 +91,7 @@ export async function addMaterial(
   }
 
   try {
-    const { material, accumulated } = await createOrAccumulate({
+    const { accumulated } = await createOrAccumulate({
       projectId: parsed.data.projectId,
       name: parsed.data.name,
       quantity: parsed.data.quantity,
@@ -110,7 +110,6 @@ export async function addMaterial(
       type: "success",
       // Same reference + supplier tops up the existing line, like a scan does.
       message: accumulated ? t.materials.messages.accumulated : t.materials.messages.added,
-      data: material,
     };
   } catch (error) {
     return {
@@ -202,7 +201,6 @@ export async function editMaterial(
       ...prevState,
       type: "success",
       message: t.materials.messages.updated,
-      data: material,
     };
   } catch (error) {
     return {
@@ -236,9 +234,9 @@ export async function deleteMaterial(id: number, clientId: number, projectId: nu
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see editMaterial's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
-    const material = await remove(id);
+    await remove(id);
     revalidateMaterials(clientId, projectId);
-    return { type: "success" as const, message: t.materials.messages.deleted, data: material };
+    return { type: "success" as const, message: t.materials.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,

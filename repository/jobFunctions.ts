@@ -92,7 +92,7 @@ export async function create(name: string) {
         // New functions go to the end of the list.
         const last = await prisma.jobFunction.findFirst({ orderBy: { position: "desc" }, select: { position: true } });
         const position = (last?.position ?? -1) + 1;
-        return await prisma.jobFunction.create({ data: { name, position } });
+        return await prisma.jobFunction.create({ data: { name, position }, select: { id: true } });
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
             throw { type: "duplicate", message: "This function already exists." };
@@ -111,7 +111,7 @@ export async function remove(id: number, guard: FunctionGuard | null) {
     try {
         return await prisma.$transaction(async (tx) => {
             await enforceGuard(tx, id, guard);
-            return tx.jobFunction.delete({ where: { id } });
+            return tx.jobFunction.delete({ where: { id }, select: { id: true } });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;

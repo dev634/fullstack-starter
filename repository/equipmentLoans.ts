@@ -62,6 +62,7 @@ export async function create(data: EquipmentLoanCreateData) {
                 dueAt: data.dueAt ? new Date(data.dueAt) : null,
                 note: data.note ?? null,
             },
+            select: { id: true },
         });
     } catch (error) {
         if (isOpenLoanConflict(error)) {
@@ -134,6 +135,7 @@ export async function update(id: number, data: EquipmentLoanUpdateData) {
                 dueAt: dateColumn(data.dueAt),
                 note: data.note,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update (equipmentLoan) error:", error);

@@ -381,7 +381,7 @@ export async function applyScanItems(projectId: number, items: ScanApplyItem[], 
 
 export async function remove(id: number) {
     try {
-        return await prisma.projectMaterial.delete({ where: { id } });
+        return await prisma.projectMaterial.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove material error:", error);
         throw {

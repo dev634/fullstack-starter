@@ -16,6 +16,8 @@ export async function create(data: TaskGroupData) {
                 pattern: data.pattern,
                 categoryId: data.categoryId ?? null,
             },
+            // addTaskSeries reads the id (to attach the series' tasks) and the category.
+            select: { id: true, categoryId: true },
         });
     } catch (error) {
         console.log("Repository create task group error:", error);
@@ -84,7 +86,7 @@ export async function findProjectId(id: number): Promise<number | null> {
 /** Assigns (or clears, when categoryId is null) the category an existing series belongs to. */
 export async function setCategory(id: number, categoryId: number | null) {
     try {
-        return await prisma.projectTaskGroup.update({ where: { id }, data: { categoryId } });
+        return await prisma.projectTaskGroup.update({ where: { id }, data: { categoryId }, select: { id: true } });
     } catch (error) {
         console.log("Repository setCategory (task group) error:", error);
         throw {
@@ -120,7 +122,7 @@ export async function setAssignee(
 /** Deletes the group and, via cascade, every task in it. */
 export async function remove(id: number) {
     try {
-        return await prisma.projectTaskGroup.delete({ where: { id } });
+        return await prisma.projectTaskGroup.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove task group error:", error);
         throw {

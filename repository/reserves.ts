@@ -59,6 +59,9 @@ export async function create(data: ReserveCreateData) {
                     latitude: data.latitude ?? null,
                     longitude: data.longitude ?? null,
                 },
+                // The action reads nothing back; tests-integration/reserve-numbering
+                // asserts the stable number and the owning project on the created row.
+                select: { id: true, number: true, projectId: true },
             });
         });
     } catch (error) {
@@ -89,6 +92,7 @@ export async function update(id: number, data: ReserveUpdateData) {
                 latitude: data.latitude,
                 longitude: data.longitude,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update (reserve) error:", error);
@@ -98,7 +102,7 @@ export async function update(id: number, data: ReserveUpdateData) {
 
 export async function remove(id: number) {
     try {
-        return await prisma.reserve.delete({ where: { id } });
+        return await prisma.reserve.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove (reserve) error:", error);
         throw { type: "repositoryError", message: "Database Error deleting réserve." };

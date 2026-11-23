@@ -158,7 +158,7 @@ export default function UsersManager({
       // are saved right after — only once the profile itself succeeded, to
       // avoid assigning projects to a user whose creation just failed.
       if (res.type === "success" && canAssignProjects && !endsOwnSession) {
-        const targetId = editing.mode === "edit" ? editing.user.id : (res.data as { id?: number } | undefined)?.id;
+        const targetId = editing.mode === "edit" ? editing.user.id : res.data?.id;
         if (targetId) {
           const assignRes = await setUserProjectAssignments(targetId, [...assigned]);
           if (assignRes.type === "error") {

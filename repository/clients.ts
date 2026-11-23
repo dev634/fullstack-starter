@@ -347,6 +347,8 @@ export async function update({ id, email, companyName, address, city, zipCode, c
                 // other fields doesn't wipe an existing photo.
                 ...(photoUrl !== undefined ? { photoUrl } : {}),
             },
+            // updateClient logs the company name in the activity journal.
+            select: { id: true, companyName: true },
         });
         return client;
     }catch(error){

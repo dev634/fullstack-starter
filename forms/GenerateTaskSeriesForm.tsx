@@ -1,12 +1,12 @@
 'use client'
-import { addTaskSeries, type AddTaskSeriesData } from "@/actions/tasks/tasks";
+import { addTaskSeries } from "@/actions/tasks/tasks";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Squares2X2Icon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
-import type { TaskActionState } from "@/types/task";
+import type { CreatedTaskData, TaskActionState } from "@/types/task";
 
-const initialState: TaskActionState<AddTaskSeriesData> = {
+const initialState: TaskActionState<CreatedTaskData> = {
   type: null,
   message: "",
 }
@@ -26,7 +26,7 @@ export default function GenerateTaskSeriesForm({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [state, formAction, isPending] = useActionState<TaskActionState<AddTaskSeriesData>, FormData>(
+  const [state, formAction, isPending] = useActionState<TaskActionState<CreatedTaskData>, FormData>(
     addTaskSeries,
     initialState
   );
@@ -40,7 +40,7 @@ export default function GenerateTaskSeriesForm({
   useEffect(() => {
     if (state.type !== "success") return;
     formRef.current?.reset();
-    onCreatedRef.current?.(state.data?.group.categoryId ?? null);
+    onCreatedRef.current?.(state.data?.categoryId ?? null);
   }, [state]);
 
   const [lastHandledState, setLastHandledState] = useState(state);

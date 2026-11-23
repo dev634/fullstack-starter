@@ -49,7 +49,21 @@ export default async function EditPage({ params }: PageProps){
     return <main className="flex flex-1 min-h-0 flex-col justify-start items-center overflow-y-auto px-6 py-8">
                 <div className="w-full max-w-2xl">
                     <Title title={t.clients.editTitle}/>
-                    <UpdateClientForm client={client.data!} />
+                    <UpdateClientForm
+                        client={{
+                            id: client.data!.id,
+                            companyName: client.data!.companyName,
+                            address: client.data!.address,
+                            zipCode: client.data!.zipCode,
+                            city: client.data!.city,
+                            country: client.data!.country,
+                            email: client.data!.email,
+                            photoUrl: client.data!.photoUrl,
+                            phone: client.data!.phone,
+                            website: client.data!.website,
+                            status: client.data!.status,
+                        }}
+                    />
                 </div>
            </main>
 }

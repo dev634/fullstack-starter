@@ -25,6 +25,8 @@ export async function create(data: TaskData) {
                 quantityDone: data.quantityTarget != null ? 0 : null,
                 categoryId: data.categoryId ?? null,
             },
+            // The action reads back the category only (AddTaskForm reveals it).
+            select: { id: true, categoryId: true },
         });
     } catch (error) {
         console.log("Repository create task error:", error);
@@ -441,7 +443,7 @@ export async function findProjectId(id: number): Promise<number | null> {
 
 export async function toggle(id: number, done: boolean) {
     try {
-        return await prisma.projectTask.update({ where: { id }, data: { done } });
+        return await prisma.projectTask.update({ where: { id }, data: { done }, select: { id: true } });
     } catch (error) {
         console.log("Repository toggle task error:", error);
         throw {
@@ -465,6 +467,7 @@ export async function updateQuantity(id: number, quantityDone: number) {
         return await prisma.projectTask.update({
             where: { id },
             data: { quantityDone: clamped, done: target > 0 && clamped >= target },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository updateQuantity task error:", error);
@@ -500,6 +503,7 @@ export async function update(id: number, data: TaskUpdateData) {
                 dueDate: dateColumn(data.dueDate),
                 ...quantityTargetPatch(current, data.quantityTarget),
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update task error:", error);
@@ -513,7 +517,7 @@ export async function update(id: number, data: TaskUpdateData) {
 /** Assigns (or clears, when categoryId is null) the category a standalone task belongs to. */
 export async function setCategory(id: number, categoryId: number | null) {
     try {
-        return await prisma.projectTask.update({ where: { id }, data: { categoryId } });
+        return await prisma.projectTask.update({ where: { id }, data: { categoryId }, select: { id: true } });
     } catch (error) {
         console.log("Repository setCategory (task) error:", error);
         throw {
@@ -548,7 +552,7 @@ export async function setAssignee(
 
 export async function remove(id: number) {
     try {
-        return await prisma.projectTask.delete({ where: { id } });
+        return await prisma.projectTask.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove task error:", error);
         throw {

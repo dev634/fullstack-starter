@@ -22,13 +22,12 @@ import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
-import type { TaskActionState } from "@/types/task";
-import type { ProjectTask, ProjectTaskGroup } from "@/app/generated/prisma/client";
+import type { CreatedTaskData, TaskActionState } from "@/types/task";
 
 export async function addTask(
-  prevState: TaskActionState<ProjectTask>,
+  prevState: TaskActionState<CreatedTaskData>,
   formData: FormData
-): Promise<TaskActionState<ProjectTask>> {
+): Promise<TaskActionState<CreatedTaskData>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const areaCheck = await requireAreaAccess("projects");
@@ -79,7 +78,7 @@ export async function addTask(
       ...prevState,
       type: "success",
       message: t.tasks.messages.added,
-      data: task,
+      data: { categoryId: task.categoryId },
     };
   } catch (error) {
     return {
@@ -90,18 +89,15 @@ export async function addTask(
   }
 }
 
-/** Shape of `addTaskSeries`'s success `data`: the newly-created group plus the bulk-insert count. */
-export type AddTaskSeriesData = { group: ProjectTaskGroup; count: number };
-
 /**
  * Bulk-generate numbered tasks from a pattern (e.g. "String {n}" from 1 to
  * 27 creates 27 tasks). See schemas/task.ts's createTaskSeriesSchema for the
  * validation rules (placeholder required, range bounds).
  */
 export async function addTaskSeries(
-  prevState: TaskActionState<AddTaskSeriesData>,
+  prevState: TaskActionState<CreatedTaskData>,
   formData: FormData
-): Promise<TaskActionState<AddTaskSeriesData>> {
+): Promise<TaskActionState<CreatedTaskData>> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const areaCheck = await requireAreaAccess("projects");
@@ -146,7 +142,7 @@ export async function addTaskSeries(
       ...prevState,
       type: "success",
       message: format(t.tasks.series.generated, { count: result.count }),
-      data: { group, ...result },
+      data: { categoryId: group.categoryId },
     };
   } catch (error) {
     return {
@@ -192,11 +188,11 @@ export async function toggleTask(
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const task = await toggle(id, done);
+    await toggle(id, done);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
-    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
+    return { type: "success" as const, message: t.tasks.messages.updated };
   } catch (error) {
     return {
       type: "error" as const,
@@ -234,7 +230,7 @@ export async function editTask(
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
     if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.errors.invalidId) };
-    const task = await update(parsed.data.id, {
+    await update(parsed.data.id, {
       title: parsed.data.title,
       dueDate: parsed.data.dueDate,
       quantityTarget: parsed.data.quantityTarget,
@@ -245,7 +241,6 @@ export async function editTask(
       ...prevState,
       type: "success",
       message: t.tasks.messages.updated,
-      data: task,
     };
   } catch (error) {
     return {
@@ -285,10 +280,10 @@ export async function updateTaskQuantity(
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const task = await updateQuantity(parsed.data.id, parsed.data.quantityDone);
+    await updateQuantity(parsed.data.id, parsed.data.quantityDone);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
-    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
+    return { type: "success" as const, message: t.tasks.messages.updated };
   } catch (error) {
     return {
       type: "error" as const,
@@ -331,10 +326,10 @@ export async function setTaskCategory(
     if (categoryId != null && (await findTaskCategoryProjectId(categoryId)) !== realProjectId) {
       return { type: "error" as const, message: t.tasks.messages.invalidId };
     }
-    const task = await setCategory(id, categoryId);
+    await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
-    return { type: "success" as const, message: t.tasks.messages.updated, data: task };
+    return { type: "success" as const, message: t.tasks.messages.updated };
   } catch (error) {
     return {
       type: "error" as const,
@@ -366,11 +361,11 @@ export async function deleteTask(
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see toggleTask's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const task = await remove(id);
+    await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
     if (groupId) revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks/${groupId}`);
-    return { type: "success" as const, message: t.tasks.messages.deleted, data: task };
+    return { type: "success" as const, message: t.tasks.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,

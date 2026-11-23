@@ -39,7 +39,7 @@ export async function addInterim(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const interim = await create({
+    await create({
       projectId: parsed.data.projectId,
       name: parsed.data.name,
       jobFunctionId: parsed.data.jobFunctionId,
@@ -51,7 +51,6 @@ export async function addInterim(
       ...prevState,
       type: "success",
       message: t.interims.messages.added,
-      data: interim,
     };
   } catch (error) {
     return {
@@ -84,10 +83,10 @@ export async function deleteInterim(id: number, clientId: number, projectId: num
     // "forbidden" response would let a restricted EDITOR enumerate ids
     // across the whole company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.interims.messages.invalidId) };
-    const interim = await remove(id);
+    await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
-    return { type: "success" as const, message: t.interims.messages.deleted, data: interim };
+    return { type: "success" as const, message: t.interims.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,
