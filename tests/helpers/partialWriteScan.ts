@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PRISMA_CREATE_METHODS, PRISMA_DELETE_METHODS, PRISMA_UPDATE_METHODS, isPrismaWrite } from "./prismaMethods";
 
 /**
  * Scans a source for the forms that fold "absent" into a value in the `data` of
@@ -33,6 +34,15 @@ import { join } from "node:path";
  *
  * Whatever this scanner cannot read it REFUSES ("opaque"): the failure mode of
  * a scanner is to certify what it does not inspect.
+ *
+ * WHAT IS AN UPDATE: fails CLOSED on `prisma`/`tx` (tests/helpers/prismaMethods.ts).
+ * Any `<model>.<method>()` that is not a read, a create or a delete is inspected
+ * as an update of `data` — `updateManyAndReturn` included; a method outside the
+ * known update family is also a finding ("unknown write method"). REMAINING
+ * LIMITS, stated: on a receiver that is not `prisma`/`tx` only the update names
+ * the client is known to expose are recognised (a made-up method on another
+ * receiver is invisible: "not a read" there would flag every `list.items.push()`);
+ * the action layer is recognised by the IMPORTED name `update*`, not by method.
  */
 
 export type Finding = { line: number; kind: string; text: string };
@@ -99,8 +109,24 @@ export const SAFE_SPREAD_CALLS: ReadonlyMap<string, string> = new Map([
   ],
 ]);
 
-const WRITE_METHODS = new Set(["update", "updateMany", "upsert"]);
 const KNOWN_ROOTS = new Set(["prisma", "tx"]);
+
+/**
+ * `<x>.<model>.<method>()` that writes an EXISTING row. On the client itself
+ * (`prisma`/`tx`) it FAILS CLOSED: any method that is not a read, a create or a
+ * delete is update-shaped — `updateManyAndReturn` included, and a method nobody
+ * has heard of (refused as such below). On another receiver only the update
+ * names the client is known to expose can be recognised (`list.items.push()`
+ * is not a write), and they are reported as an unknown receiver.
+ */
+function isUpdateShapedCall(callee: ts.PropertyAccessExpression): boolean {
+  const model = callee.expression;
+  if (!ts.isPropertyAccessExpression(model)) return false;
+  const method = callee.name.text;
+  const onClient = ts.isIdentifier(model.expression) && KNOWN_ROOTS.has(model.expression.text);
+  if (!onClient) return PRISMA_UPDATE_METHODS.has(method);
+  return isPrismaWrite(method) && !PRISMA_CREATE_METHODS.has(method) && !PRISMA_DELETE_METHODS.has(method);
+}
 
 function unwrap(e: ts.Expression): ts.Expression {
   let cur = e;
@@ -397,7 +423,7 @@ export function scanWrites(source: string, fileName = "repository/x.ts"): WriteS
   };
 
   const visit = (n: ts.Node) => {
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && WRITE_METHODS.has(n.expression.name.text)) {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && isUpdateShapedCall(n.expression)) {
       const model = n.expression.expression;
       if (ts.isPropertyAccessExpression(model)) {
         const root = model.expression;
@@ -408,6 +434,9 @@ export function scanWrites(source: string, fileName = "repository/x.ts"): WriteS
         } else {
           scan.calls += 1;
           functions.add(topLevelName(n));
+          if (!PRISMA_UPDATE_METHODS.has(method)) {
+            scan.findings.push({ line: lineOf(n), kind: "unknown write method", text: describe(n) });
+          }
           for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
             if (ts.isFunctionLike(cur)) parameterDefaults(cur, scan.findings, seenFunctions);
           }

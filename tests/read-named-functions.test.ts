@@ -3,6 +3,7 @@ import ts from "typescript";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { sourceFilesIn } from "@/tests/helpers/astScan";
+import { PRISMA_KNOWN_WRITE_METHODS, isPrismaWrite } from "@/tests/helpers/prismaMethods";
 
 /**
  * "A function named like a read does not write" — checked, not assumed (lot 5b).
@@ -18,8 +19,9 @@ import { sourceFilesIn } from "@/tests/helpers/astScan";
  * or through a function of the same file it calls.
  *
  * Domain, by AST: every top-level `function f` and `const f = () => …` of those
- * files. A write is a call whose method is a Prisma write (create, createMany,
- * update, updateMany, upsert, delete, deleteMany, $executeRaw[Unsafe]) or whose
+ * files. A write is a call whose method is a Prisma write (on `prisma`/`tx`: anything that
+ * is not a known read; elsewhere the known create/update/delete family, `*AndReturn` included;
+ * and $executeRaw[Unsafe]) or whose
  * receiver chain goes through Cloudinary's `uploader` (upload_stream, destroy…).
  * Names: ^(find|get|count|has|is|list|search|exists).
  * Counts are exact and published below (method: this test's own walk, on the
@@ -30,18 +32,17 @@ import { sourceFilesIn } from "@/tests/helpers/astScan";
  */
 
 const READ_NAME = /^(find|get|count|has|is|list|search|exists)/;
-const PRISMA_WRITES: ReadonlySet<string> = new Set([
-  "create",
-  "createMany",
-  "createManyAndReturn",
-  "update",
-  "updateMany",
-  "upsert",
-  "delete",
-  "deleteMany",
-  "$executeRaw",
-  "$executeRawUnsafe",
-]);
+// Fail closed on the client: `prisma|tx.<model>.<anything that is not a known read>()` is a write
+// (tests/helpers/prismaMethods.ts), so `updateManyAndReturn` or a method added tomorrow is seen. On any
+// OTHER receiver only the writes the client is known to expose can be recognised.
+const RAW_WRITES: ReadonlySet<string> = new Set(["$executeRaw", "$executeRawUnsafe"]);
+const CLIENT_ROOTS: ReadonlySet<string> = new Set(["prisma", "tx"]);
+
+/** `prisma.<model>.<method>()` / `tx.<model>.<method>()` with a method that is not a known read. */
+function isClientModelWrite(callee: ts.PropertyAccessExpression): boolean {
+  const model = callee.expression;
+  return ts.isPropertyAccessExpression(model) && ts.isIdentifier(model.expression) && CLIENT_ROOTS.has(model.expression.text) && isPrismaWrite(callee.name.text);
+}
 
 const EXPECTED_FILES = 29;
 // 235 -> 234 at lot 3: updatePassword and markResetTokenUsed (two functions)
@@ -82,7 +83,7 @@ function writeIn(body: ts.Node): string | undefined {
   const visit = (n: ts.Node) => {
     if (found) return;
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-      if (PRISMA_WRITES.has(n.expression.name.text) || throughUploader(n.expression)) {
+      if (PRISMA_KNOWN_WRITE_METHODS.has(n.expression.name.text) || RAW_WRITES.has(n.expression.name.text) || isClientModelWrite(n.expression) || throughUploader(n.expression)) {
         found = n.expression.getText().replace(/\s+/g, " ").slice(0, 80);
         return;
       }
@@ -176,8 +177,16 @@ describe("the scanner (probes)", () => {
     expect(offenders(`export function isUploaded(buf: Buffer) { return cloudinary.uploader.upload_stream({}, () => 1).end(buf); }`)).toHaveLength(1);
   });
 
+  it("fails closed on the client: an AndReturn write, or a method nobody has heard of, is a write", () => {
+    expect(offenders(`export async function findX() { return prisma.x.updateManyAndReturn({ data: {} }); }`)).toHaveLength(1);
+    expect(offenders(`export async function findX() { return prisma.x.createManyAndReturn({ data: [] }); }`)).toHaveLength(1);
+    expect(offenders(`export async function findX() { return tx.x.frobnicate({ data: {} }); }`)).toHaveLength(1);
+  });
+
   it("stays green on a real read, and on a write whose name says so", () => {
     expect(offenders(`export async function findX(id: number) { return prisma.x.findUnique({ where: { id } }); }`)).toEqual([]);
+    expect(offenders(`export async function findX() { return prisma.x.groupBy({ by: ["a"] }); }`)).toEqual([]);
+    expect(offenders(`export async function findX() { return prisma.$transaction([prisma.x.findMany(), prisma.x.aggregate({})]); }`)).toEqual([]);
     expect(offenders(`export async function countX() { return prisma.x.count(); }`)).toEqual([]);
     expect(offenders(`export async function createX() { return prisma.x.create({ data: {} }); }`)).toEqual([]);
     expect(offenders(`export async function setX() { return prisma.x.update({ where: { id: 1 }, data: {} }); }`)).toEqual([]);

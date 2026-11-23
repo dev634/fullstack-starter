@@ -67,9 +67,12 @@ import { findSessionAccount } from "@/repository/users";
  * from that request on. `lib/accessContext.ts` then treats "no session" as
  * DENIED, not "unrestricted".
  *
- * An admin who changes their OWN password (or role) through the account
- * management screen voids their own session on the next request: back to
- * /login. Accepted.
+ * An admin who changes their OWN credentials (password or role) through the
+ * account management screen voids their own session, and is not left to find
+ * that out on the next click: actions/users/users.ts::updateUser notices it
+ * ends their own session and calls `signOut` towards
+ * /login?raison=identifiants-modifies (lot 3, #251), so they land on the login
+ * page with the reason named.
  *
  * This runs in Node only (no import of next-auth itself) — kept separate
  * from lib/auth.ts so it stays trivially unit-testable without constructing

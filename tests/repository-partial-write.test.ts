@@ -227,6 +227,21 @@ describe("the scanner (probes)", () => {
     ).toEqual(["|| <literal>"]);
   });
 
+  it("fails closed on the client: updateManyAndReturn is inspected like updateMany, an unknown method is refused, a read and a delete are not writes", () => {
+    expect(
+      findingsOf(`export async function f(d: D) { return prisma.p.updateManyAndReturn({ where: {}, data: { a: d.a ?? null } }); }`)
+    ).toEqual(["?? <literal>"]);
+    expect(
+      findingsOf(`export async function f(d: D) { return prisma.$transaction(async (tx) => tx.p.updateManyAndReturn({ where: {}, data: { a: d.a || null } })); }`)
+    ).toEqual(["|| <literal>"]);
+    expect(findingsOf(`export async function f(d: D) { return prisma.p.updateManyAndReturn({ where: {}, data: { a: d.a } }); }`)).toEqual([]);
+    expect(findingsOf(`export async function f(d: D) { return prisma.p.frobnicate({ where: {}, data: { a: d.a } }); }`)).toEqual(["unknown write method"]);
+    expect(findingsOf(`export async function f(d: D) { return prisma.p.createManyAndReturn({ data: [{ a: d.a ?? null }] }); }`)).toEqual([]);
+    for (const other of ["findMany", "findFirst", "count", "aggregate", "groupBy", "delete", "deleteMany"]) {
+      expect(findingsOf(`export async function f(d: D) { return prisma.p.${other}({ where: { a: d.a ?? null } }); }`), other).toEqual([]);
+    }
+  });
+
   it("does NOT flag the same forms in a create, or an upsert's create branch", () => {
     expect(findingsOf(`export async function f(d: D) { return prisma.p.create({ data: { a: d.a ?? null, b: d.b || null, c: d.c ? 1 : null } }); }`)).toEqual([]);
     expect(

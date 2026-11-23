@@ -537,57 +537,156 @@ gunzip -c /opt/fullstack-starter/backups/app-20260101-030000.sql.gz \
   | docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db psql -U app app
 ```
 
-#### Après une restauration : révoquer les sessions (obligatoire)
+#### Après une restauration : ce qu'elle ramène, et ce qu'il faut refaire (obligatoire)
 
-`User.sessionVersion` est le compteur qui annule les cookies d'un compte dont le mot de passe ou
-le rôle a changé (`lib/sessionGate.ts`). Une sauvegarde le **fait reculer** : tout cookie révoqué
-depuis la date de la sauvegarde (mot de passe changé après une fuite, compte rétrogradé) porte à
-nouveau la version courante de la base, et **redevient valide**.
+Une restauration remet **toutes** les lignes à leur état de la sauvegarde. Rien n'y est
+« réparé » : elle ramène aussi ce que des actions de sécurité avaient retiré depuis. Cinq choses
+reviennent, et la rotation d'`AUTH_SECRET` n'en couvre qu'**une** (les cookies) :
 
-**Procédure principale : faire tourner `AUTH_SECRET`** (nouvelle valeur dans le `.env` du
-serveur, puis redémarrer le conteneur). C'est la seule mesure complète : tous les jetons émis avec
-l'ancien secret deviennent invalides, quelle que soit la version qu'ils portent. Tout le monde
-devra se reconnecter (voir `docs/SECURITE-CHECKLIST.md`, V9). La rotation est **strictement plus
-forte** qu'un incrément, pas équivalente.
+| Ce qui revient | Couvert par la rotation d'`AUTH_SECRET` ? | À refaire à la main |
+|---|---|---|
+| **`User.sessionVersion` en arrière** : un cookie révoqué depuis la sauvegarde porte à nouveau la version courante de la base et redevient valide (`lib/sessionGate.ts`) | **Oui, entièrement.** Tout jeton signé avec l'ancien secret est invalide, quelle que soit la version qu'il porte. C'est strictement plus fort qu'un incrément, pas équivalent | Rien si on fait tourner le secret. Repli si la rotation est impossible : le saut de version ci-dessous |
+| **L'ancien mot de passe** de tout compte changé depuis la sauvegarde — y compris un mot de passe changé *parce qu'il avait fuité* | **Non.** Un cookie n'est pas un mot de passe : l'attaquant ouvre une session neuve avec celui qu'il connaît | Rendre inutilisable le mot de passe de chaque compte changé depuis la sauvegarde (étape 4) : le titulaire repasse par « Mot de passe oublié » |
+| **Les rôles, fonctions (rubriques masquées, périmètre de chantiers) et affectations de chantiers** resserrés depuis : un compte rétrogradé redevient ce qu'il était, une fonction restreinte redevient large | **Non** (le rôle est certes relu en base à chaque requête, mais c'est la base *restaurée* qui est relue) | Rejouer les resserrements (étape 5) |
+| **Les comptes supprimés depuis** reviennent, avec leur ancien mot de passe et leur ancien rôle | **Non** | Les supprimer de nouveau (étape 6) |
+| **Les liens de réinitialisation** non utilisés qui existaient alors | **Non** | Les supprimer (étape 7) |
 
-**Repli, si la rotation est impossible** :
+**Le moyen de savoir *quoi* refaire n'existe pas dans l'application** : le journal d'activité
+(`ActivityLog`, `ProjectActivityLog`) ne trace que les entreprises et les chantiers, jamais un
+compte, et `User` n'a ni `updatedAt` ni date de changement de mot de passe. La seule source est
+**l'état de la base juste avant la restauration**, qu'il faut donc **capturer avant**
+d'écraser quoi que ce soit (étape 1). Si la base d'avant n'est plus lisible (disque perdu), voir
+« Sans état d'avant » plus bas.
+
+Les commandes ci-dessous supposent `cd /opt/fullstack-starter` et un `.env` qui porte
+`POSTGRES_USER` / `POSTGRES_DB` (le script de sauvegarde les lit de la même façon). Notation :
+`PSQL` désigne `docker compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB"`.
+
+**1. AVANT de restaurer : capturer l'état courant des comptes, de leurs fonctions et de leurs
+affectations** (trois fichiers, lisibles par vous seul — ils contiennent des empreintes de mots de
+passe) :
 
 ```bash
-docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
-  psql -U app app -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1000000'
+cd /opt/fullstack-starter && set -a && . ./.env && set +a && umask 077
+PSQL='docker compose -f docker-compose.prod.yml exec -T db psql -U '"$POSTGRES_USER"' '"$POSTGRES_DB"
+$PSQL -c '\copy (SELECT id, email, password, role, "jobFunctionId", "sessionVersion" FROM "User" ORDER BY id) TO STDOUT WITH CSV HEADER' > avant-user.csv
+$PSQL -c '\copy (SELECT id, name, "hiddenSections", "hiddenAreas", "projectScope" FROM "JobFunction" ORDER BY id) TO STDOUT WITH CSV HEADER' > avant-function.csv
+$PSQL -c '\copy (SELECT "A" AS project_id, "B" AS user_id FROM "_UserProjects" ORDER BY 1, 2) TO STDOUT WITH CSV HEADER' > avant-assign.csv
+wc -l avant-*.csv
+```
+
+Faire aussi un `pg_dump` complet de la base d'avant (`scripts/backup-db.sh`) : c'est le seul moyen
+de revenir en arrière si la restauration elle-même est la mauvaise opération.
+
+**2. Restaurer** la sauvegarde (commande ci-dessus). Elle suppose une base **vide** : le `pg_dump`
+du script n'a pas d'option `--clean`.
+
+**3. Faire tourner `AUTH_SECRET`** : nouvelle valeur dans le `.env` du serveur
+(`openssl rand -base64 32`), puis redémarrer le conteneur de l'application. Tout le monde devra se
+reconnecter (voir `docs/SECURITE-CHECKLIST.md`, V9). Cette étape ferme les cookies, et seulement
+eux.
+
+*Repli, si la rotation est impossible* — il ne couvre que `sessionVersion`, **pas** le secret
+éventuellement divulgué :
+
+```bash
+$PSQL -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1000000'
 ```
 
 **Pourquoi pas `+ 1`** : la barrière compare par **égalité** (le jeton porte la version lue à la
 connexion). Une sauvegarde prise à V=0, restaurée alors que la base avait vu deux incréments depuis
-(V=2), serait ramenée à V=1 par un `+ 1` : un cookie émis à V=1 puis révoqué redevient valide.
-Un saut d'un million passe au-dessus de toute version déjà émise. La colonne est un `INT`
-(maximum 2 147 483 647) : cette marge ne tient qu'environ **2 000 restaurations**, après quoi le
-repli ne sert plus et seule la rotation reste.
+(V=2), serait ramenée à V=1 par un `+ 1` : un cookie émis à V=1 puis révoqué redevient valide. Un
+saut d'un million passe au-dessus de toute version déjà émise. La colonne est un `INT` (maximum
+2 147 483 647) : cette marge ne tient qu'environ **2 000 restaurations**, après quoi le repli ne
+sert plus et seule la rotation reste.
 
-**Ce qu'une restauration ressuscite d'autre**, à défaire aussi :
-
-- les **comptes supprimés depuis la sauvegarde** reviennent avec leur ancien mot de passe :
-  supprimer de nouveau les comptes supprimés depuis la date de la sauvegarde ;
-- les **liens de réinitialisation** non utilisés qui existaient alors :
+**4. Mots de passe changés depuis la sauvegarde** : charger les fichiers d'avant dans des tables
+de comparaison, puis rendre inutilisable le mot de passe de tout compte dont l'empreinte diffère.
+Le titulaire passe par « Mot de passe oublié » (`/forgot-password`) ; l'empreinte posée n'a pas la
+forme d'un hash bcrypt (60 caractères), donc aucune saisie ne peut la satisfaire.
 
 ```bash
-docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
-  psql -U app app -c 'DELETE FROM "PasswordResetToken" WHERE "usedAt" IS NULL'
+docker compose -f docker-compose.prod.yml cp avant-user.csv db:/tmp/avant-user.csv
+docker compose -f docker-compose.prod.yml cp avant-function.csv db:/tmp/avant-function.csv
+docker compose -f docker-compose.prod.yml cp avant-assign.csv db:/tmp/avant-assign.csv
+$PSQL <<'SQL'
+CREATE TABLE restauration_avant_user ("id" int, "email" text, "password" text, "role" text, "jobFunctionId" int, "sessionVersion" int);
+CREATE TABLE restauration_avant_function ("id" int, "name" text, "hiddenSections" text[], "hiddenAreas" text[], "projectScope" text);
+CREATE TABLE restauration_avant_assign ("project_id" int, "user_id" int);
+\copy restauration_avant_user FROM '/tmp/avant-user.csv' WITH CSV HEADER
+\copy restauration_avant_function FROM '/tmp/avant-function.csv' WITH CSV HEADER
+\copy restauration_avant_assign FROM '/tmp/avant-assign.csv' WITH CSV HEADER
+SQL
+
+# Les comptes concernés, À LIRE avant d'écrire (id seulement, jamais les empreintes) :
+$PSQL -c 'SELECT u.id, u.email FROM "User" u JOIN restauration_avant_user a ON a.id = u.id WHERE a.password <> u.password ORDER BY u.id'
+
+# Les rendre inutilisables et révoquer leurs cookies :
+$PSQL -c "UPDATE \"User\" u SET password = '!restauration-' || md5(random()::text || u.id::text), \"sessionVersion\" = u.\"sessionVersion\" + 1000000 FROM restauration_avant_user a WHERE a.id = u.id AND a.password <> u.password"
 ```
 
-> **⚠️ Liste incomplète (relevé du 2026-11-23, après le merge de #251) — à compléter avant
-> la prochaine restauration.** Une restauration remet *toutes* les lignes à leur état de la
-> sauvegarde, donc aussi :
-> - l'**ancien mot de passe** de tout compte changé depuis — y compris un mot de passe changé
->   *parce qu'il avait fuité*. Ni la rotation de `AUTH_SECRET` ni le saut de version n'y
->   font rien : l'attaquant se reconnecte avec le mot de passe qu'il connaît. Il faut refaire
->   ces changements, ou exiger une réinitialisation des comptes concernés ;
-> - les **rôles, fonctions, rubriques masquées et affectations de chantiers** resserrés depuis :
->   un compte rétrogradé redevient ce qu'il était.
->
-> Ce qui manque à la procédure : le moyen de savoir *quels* comptes ont changé depuis la date
-> de la sauvegarde (le journal d'activité, s'il les trace, ou une comparaison avec la base
-> d'avant la restauration). Tâche de documentation à part, pas encore faite.
+Un compte qui existait avant la restauration et pas dans la sauvegarde n'est **plus dans la base** :
+son titulaire a perdu son compte, à recréer (par la gestion des comptes), avec un mot de passe neuf.
+
+**5. Rôles, fonctions et affectations resserrés depuis** : comparer, puis rejouer **à la main**
+par l'écran de gestion des comptes et des fonctions (les règles d'autorisation de
+`lib/accountPolicy.ts` s'y appliquent ; un `UPDATE` SQL les contournerait). Les requêtes de
+comparaison :
+
+```bash
+# rôle ou fonction différents d'avant la restauration
+$PSQL -c 'SELECT u.id, u.email, a.role AS role_avant, u.role AS role_restaure, a."jobFunctionId" AS fonction_avant, u."jobFunctionId" AS fonction_restauree FROM "User" u JOIN restauration_avant_user a ON a.id = u.id WHERE a.role <> u.role::text OR a."jobFunctionId" IS DISTINCT FROM u."jobFunctionId" ORDER BY u.id'
+# rubriques masquées ou périmètre de chantiers différents
+$PSQL -c 'SELECT f.id, f.name, a."hiddenSections" AS sections_avant, f."hiddenSections" AS sections_restaurees, a."hiddenAreas" AS rubriques_avant, f."hiddenAreas" AS rubriques_restaurees, a."projectScope" AS portee_avant, f."projectScope" AS portee_restauree FROM "JobFunction" f JOIN restauration_avant_function a ON a.id = f.id WHERE a."hiddenSections" <> f."hiddenSections" OR a."hiddenAreas" <> f."hiddenAreas" OR a."projectScope" <> f."projectScope"::text ORDER BY f.id'
+# affectations de chantiers retirées depuis (présentes avant, absentes maintenant)
+$PSQL -c 'SELECT a.project_id, a.user_id FROM restauration_avant_assign a WHERE NOT EXISTS (SELECT 1 FROM "_UserProjects" p WHERE p."A" = a.project_id AND p."B" = a.user_id) ORDER BY 1, 2'
+```
+
+Ces requêtes **listent** ; elles n'écrivent rien. Une fonction ou un compte créés depuis la
+sauvegarde n'y figurent pas non plus (absents de la base restaurée).
+
+**6. Comptes supprimés depuis** : ils reviennent. Les retrouver, puis les supprimer de nouveau par
+l'écran de gestion des comptes (la suppression applique les gardes et la cascade de l'application) :
+
+```bash
+$PSQL -c 'SELECT u.id, u.email, u.role FROM "User" u WHERE NOT EXISTS (SELECT 1 FROM restauration_avant_user a WHERE a.id = u.id) ORDER BY u.id'
+```
+
+Cette liste est **exacte** si la base d'avant était lisible : tout compte présent dans la base
+restaurée et absent de l'état d'avant a été supprimé depuis la sauvegarde.
+
+**7. Liens de réinitialisation** non utilisés qui existaient alors :
+
+```bash
+$PSQL -c 'DELETE FROM "PasswordResetToken" WHERE "usedAt" IS NULL'
+```
+
+**8. Nettoyer** : les tables de comparaison et les fichiers (ils portent des empreintes de mots de
+passe), puis vérifier :
+
+```bash
+$PSQL -c 'DROP TABLE restauration_avant_user, restauration_avant_function, restauration_avant_assign'
+docker compose -f docker-compose.prod.yml exec -T db rm -f /tmp/avant-user.csv /tmp/avant-function.csv /tmp/avant-assign.csv
+shred -u avant-user.csv avant-function.csv avant-assign.csv 2>/dev/null || rm -f avant-user.csv avant-function.csv avant-assign.csv
+curl -s https://devadn.com/api/health
+```
+
+**Sans état d'avant** (base illisible, disque perdu — la restauration est alors la seule source) :
+les étapes 4 à 6 ne peuvent pas être calculées. Faire tourner `AUTH_SECRET`, supprimer **tous** les
+liens de réinitialisation (étape 7), puis **tenir tout mot de passe pour compromis** : rendre
+inutilisable celui de chaque compte (`UPDATE "User" SET password = '!restauration-' ||
+md5(random()::text || id::text)`) et faire repasser chacun par « Mot de passe oublié » ; relire à la
+main les rôles, fonctions et affectations (écran de gestion des comptes) contre ce que vous savez
+avoir resserré ; accepter que les comptes supprimés depuis la sauvegarde soient revenus tant que
+vous ne les avez pas retrouvés un à un.
+
+**Limites, énoncées** : la procédure n'a **pas été rejouée sur une vraie restauration** (elle a été
+écrite d'après le schéma et les requêtes ont été relues, pas exécutées contre la base de
+production) ; elle repose sur un état d'avant capturé *avant* la restauration, qu'aucun script du
+dépôt ne prend à votre place ; la comparaison des mots de passe se fait sur les empreintes, donc un
+mot de passe changé puis remis à l'identique n'est (justement) pas listé ; `ProjectWorker`
+(présence d'un salarié sur un chantier) et les autres tables métier reviennent aussi à l'état de la
+sauvegarde, sans enjeu d'autorisation — ce ne sont pas des droits d'accès.
 
 ### Health-check + monitoring externe
 

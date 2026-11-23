@@ -332,8 +332,15 @@ expose sur `User` — un `tx.user.updateManyAndReturn({ data: { password } })`
 n'est vu par **aucun** des deux scans (relais, révocation). Aucune occurrence
 dans le code à ce commit. Même liste manuelle, même trou, dans
 `tests/helpers/partialWriteScan.ts` et `tests/read-named-functions.test.ts`.
-Tâche ouverte : énumérer les **lectures** connues et tenir pour écriture tout
-le reste.
+**Fermé** (branche `fix/suites-lot3`) : les quatre scans tirent leurs méthodes d'une
+source unique, `tests/helpers/prismaMethods.ts`, qui énumère les **8 lectures** du
+client (`findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow`,
+`findMany`, `count`, `aggregate`, `groupBy`) et tient pour écriture toute autre
+méthode appelée sur `prisma`/`tx` — une méthode inconnue est rouge (échec fermé).
+Sondé : `updateManyAndReturn` sans bump, `createManyAndReturn`, une méthode inventée
+rougissent, `findMany` n'est pas compté. Limite restante (dans les blocs « REMAINING
+LIMITS ») : sur un récepteur autre que `prisma`/`tx`, seules les écritures connues sont
+reconnues.
 
 **Logins CLIENT orphelins** (lot 5a) : la destruction définitive d'une
 entreprise supprime aussi les logins CLIENT de ses contacts
