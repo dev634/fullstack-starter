@@ -488,9 +488,10 @@ export async function createResetToken(userId: number, token: string, expiresAt:
 
 /**
  * A token that hasn't been used yet and hasn't expired, with its user. A READ
- * only: no production caller consumes a link through it any more (the reset
- * action claims it inside resetPasswordWithToken, atomically) — it stays for
- * the integration tests that probe how tokens are stored.
+ * only, used by actions/auth/auth.ts::resetPassword as a cheap pre-check before
+ * hashing the new password (the action has no rate limit). It does NOT consume
+ * the link and is not the guard: resetPasswordWithToken claims it atomically
+ * and decides any race.
  */
 export async function findValidResetToken(token: string) {
     try {

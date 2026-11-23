@@ -26,6 +26,7 @@ import {
 import {
   findByEmail,
   createResetToken,
+  findValidResetToken,
   resetPasswordWithToken,
 } from "@/repository/users";
 import type { AuthActionState } from "@/types/auth";
@@ -191,6 +192,13 @@ export async function resetPassword(
     };
   }
 
+  // Cheap pre-check BEFORE the bcrypt hash: this action has no rate limit, so
+  // hashing first would make every request with a bogus token cost a bcrypt.
+  // It is only a shortcut: the conditional claim inside resetPasswordWithToken
+  // is the guard that holds, and settles any race between the two.
+  if (!(await findValidResetToken(parsed.data.token))) {
+    return { ...prevState, type: "error", message: t.auth.resetLinkInvalidOrExpired };
+  }
   // Hashed BEFORE the repository's transaction (nothing slow inside it); the
   // link is claimed and the password written there, atomically.
   const hashed = await bcrypt.hash(parsed.data.password, 10);
