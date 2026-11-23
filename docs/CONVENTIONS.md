@@ -350,9 +350,14 @@ garantie en base est sur `main` depuis `2f8fbb6`** (lot 3, #251, migration
 `20261123100000`) : `CHECK "User_email_normalized_check"` (stocké = normalisé)
 et index unique `"User_email_lower_key"` sur `lower(email)`. En production
 depuis le déploiement de `2f8fbb6` (sonde lue le 2026-11-23 : `2347b47` à 18:35
-UTC, `2f8fbb6` à 18:48) : l'entrypoint (`set -e`) ne démarre l'application
-qu'après `prisma migrate deploy`, donc la migration est passée — déduit, pas
-lu dans `pg_constraint` de la base de prod.
+UTC, `2f8fbb6` à 18:48). **Lu dans la base de prod** le 2026-11-23 à 18:40 UTC
+(lecture seule, par SSH) : `_prisma_migrations` porte la migration finie et non
+annulée, `pg_constraint` porte `User_email_normalized_check`, `pg_indexes` porte
+`User_email_lower_key`, la colonne `sessionVersion` est `integer NOT NULL
+DEFAULT 0`, `role` n'a plus de défaut, et les 2 comptes sont à la version 0, e-mails
+normalisés. Le journal du conteneur montre « Applying migration
+`20261123100000_user_session_version_and_email_ci` », puis « All migrations have
+been successfully applied ».
 La migration réécrit les lignes ASCII et **refuse** (RAISE, ids seuls) une
 ligne non ASCII à réécrire ou une collision : `lower()`/`btrim` de PostgreSQL et
 `toLowerCase()`/`trim()` de JS ne sont pas la même fonction (29 points de code
