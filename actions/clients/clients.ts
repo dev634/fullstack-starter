@@ -6,6 +6,7 @@ import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireRole } from "@/lib/authz";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
@@ -171,8 +172,6 @@ export async function updateClient(
     const client = await update({
       ...clientDatas,
       id,
-      phone: clientDatas.phone || null,
-      website: clientDatas.website || null,
       photoUrl,
     });
 
@@ -184,7 +183,9 @@ export async function updateClient(
     await logActivity({
       action: "UPDATED",
       clientId: id,
-      clientName: clientDatas.companyName,
+      // `companyName` is optional on an update (absent = unchanged): log the
+      // name the row carries now, as the repository returned it.
+      clientName: client.companyName,
       actorEmail: roleCheck.email,
     });
 
@@ -380,6 +381,18 @@ export async function permanentlyDeleteClient(id: number) {
   if (roleCheck.error) return roleCheck.error;
   const areaCheck = await requireAreaAccess("clients");
   if (areaCheck.error) return areaCheck.error;
+  // Project.client is onDelete: Cascade: destroying a company destroys its
+  // chantiers, so an account whose function hides the `projects` rubrique
+  // must not be able to do it. (Trashing, reversible, stays on `clients`.)
+  const projectsAreaCheck = await requireAreaAccess("projects");
+  if (projectsAreaCheck.error) return projectsAreaCheck.error;
+  // It also takes the company's contacts and, through its chantiers, every
+  // project section: the rubrique `clients.contacts` and EVERY section are
+  // required too.
+  const contactsAreaCheck = await requireAreaAccess("clients.contacts");
+  if (contactsAreaCheck.error) return contactsAreaCheck.error;
+  const sectionsCheck = await requireEverySectionAccess();
+  if (sectionsCheck.error) return sectionsCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

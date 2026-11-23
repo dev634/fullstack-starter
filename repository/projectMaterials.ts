@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma, ProjectMaterial } from "@/app/generated/prisma/client";
 import type { MaterialStockStats } from "@/lib/projectDashboard";
 
 type MaterialData = {
@@ -214,12 +215,15 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
+// A PARTIAL write: absent = leave the column alone, null = clear it (every
+// nullable column), a value sets it (lib/partialWrite.ts,
+// tests/repository-partial-write.test.ts).
 type MaterialUpdateData = {
-    name: string;
-    quantity: number;
-    unit?: string;
-    supplierName?: string;
-    reference?: string;
+    name?: string;
+    quantity?: number;
+    unit?: string | null;
+    supplierName?: string | null;
+    reference?: string | null;
     taskId?: number | null;
     taskGroupId?: number | null;
     taskCategoryId?: number | null;
@@ -229,28 +233,44 @@ type MaterialUpdateData = {
 
 /**
  * Edits a material's own fields, including its link (task/series/category):
- * the three FK columns are mutually exclusive by construction of the picker,
- * and an unset pick clears them all (SetNull-style) — so a scanned material,
- * which starts unlinked, can be attached to a task after the fact. Same
- * clearable convention for materialCategoryId, independently: an unset pick
- * there sends the material back to "non classé" without touching the link.
+ * the three FK columns are mutually exclusive by construction of the picker.
+ * Omitting them leaves the link alone; passing all three as `null` clears it
+ * (the schema resolves the picker's "no link" to that) — so a scanned
+ * material, which starts unlinked, can be attached to a task after the fact.
+ * Same convention for materialCategoryId, independently: `null` sends the
+ * material back to "non classé" without touching the link.
  */
-export async function update(id: number, data: MaterialUpdateData) {
+export async function update(id: number, data: MaterialUpdateData): Promise<ProjectMaterial>;
+export async function update(id: number, data: MaterialUpdateData, accept: (stored: { linked: boolean }) => boolean): Promise<ProjectMaterial | null>;
+export async function update(id: number, data: MaterialUpdateData, accept?: (stored: { linked: boolean }) => boolean): Promise<ProjectMaterial | null> {
     try {
-        return await prisma.projectMaterial.update({
-            where: { id },
-            data: {
-                name: data.name,
-                quantity: data.quantity,
-                unit: data.unit || null,
-                supplierName: data.supplierName || null,
-                reference: data.reference || null,
-                taskId: data.taskId ?? null,
-                taskGroupId: data.taskGroupId ?? null,
-                taskCategoryId: data.taskCategoryId ?? null,
-                requiredQuantity: data.requiredQuantity ?? null,
-                materialCategoryId: data.materialCategoryId ?? null,
-            },
+        const write = (tx: Prisma.TransactionClient) =>
+            tx.projectMaterial.update({
+                where: { id },
+                data: {
+                    name: data.name,
+                    quantity: data.quantity,
+                    unit: data.unit,
+                    supplierName: data.supplierName,
+                    reference: data.reference,
+                    taskId: data.taskId,
+                    taskGroupId: data.taskGroupId,
+                    taskCategoryId: data.taskCategoryId,
+                    requiredQuantity: data.requiredQuantity,
+                    materialCategoryId: data.materialCategoryId,
+                },
+            });
+        if (!accept) return await write(prisma);
+        // With `accept`: the stored link is read and the write made in ONE
+        // transaction that holds the row (SELECT … FOR UPDATE), so a link added
+        // by a concurrent edit cannot slip in between the check and the write.
+        // `null` = refused, nothing written.
+        return await prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT "id" FROM "ProjectMaterial" WHERE "id" = ${id} FOR UPDATE`;
+            const row = await tx.projectMaterial.findUnique({ where: { id }, select: { taskId: true, taskGroupId: true, taskCategoryId: true } });
+            const linked = row !== null && (row.taskId !== null || row.taskGroupId !== null || row.taskCategoryId !== null);
+            if (row && !accept({ linked })) return null;
+            return write(tx);
         });
     } catch (error) {
         console.log("Repository update material error:", error);

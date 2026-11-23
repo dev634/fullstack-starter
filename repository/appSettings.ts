@@ -27,7 +27,17 @@ export async function upsert(data: SettingsUpdate) {
     try {
         return await prisma.appSettings.upsert({
             where: { id: 1 },
-            update: data,
+            // Field by field, not `update: data`: a whole parameter handed to
+            // Prisma is a write nobody can read (tests/repository-partial-write.test.ts).
+            // logoUrl/logoPublicId stay `undefined` when absent = left alone.
+            update: {
+                appName: data.appName,
+                logoUrl: data.logoUrl,
+                logoPublicId: data.logoPublicId,
+                primaryColor: data.primaryColor,
+                accentColor: data.accentColor,
+                updatedBy: data.updatedBy,
+            },
             create: { id: 1, ...data },
         });
     } catch (error) {

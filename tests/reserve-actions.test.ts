@@ -485,6 +485,22 @@ describe("updateReserveStatusStyle", () => {
     });
   });
 
+  // Lot 5b — "absent is not empty": the action used to fold each undefined into
+  // null (`?? null`), so a payload that omitted a field erased the stored label.
+  it("leaves a status field that is NOT in the payload alone (undefined), and clears only the blank ones", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    updateReserveStatusStyleRowMock.mockResolvedValue({ id: 2 } as never);
+
+    const res = await updateReserveStatusStyle(initial, form({ projectId: "2", clientId: "1", openLabel: "" }));
+
+    expect(res.type).toBe("success");
+    const written = updateReserveStatusStyleRowMock.mock.calls[0][1];
+    expect(written.openLabel).toBeNull();
+    expect(written.openColor).toBeUndefined();
+    expect(written.resolvedLabel).toBeUndefined();
+    expect(written.resolvedColor).toBeUndefined();
+  });
+
   it("resolves requireProjectAccess against the project id being configured, not a stray form field", async () => {
     requireRoleMock.mockResolvedValue({ email: "chef@example.com" } as never);
     updateReserveStatusStyleRowMock.mockResolvedValue({ id: 2 } as never);

@@ -136,6 +136,21 @@ describe("client action auth guard + delegation", () => {
     expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ id: 1, companyName: "Acme" }));
   });
 
+  // Lot 5b — "absent is not empty": the action used to write `phone || null`
+  // and the schema defaulted `status` to PROSPECT, so a payload that omitted
+  // them erased the phone and demoted a CLIENT.
+  it("updateClient: an omitted phone/website/status is left alone, a blank phone is cleared", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    await updateClient(initial, formOf({ id: "1", phone: "" }));
+    const written = updateMock.mock.calls[0][0];
+    expect(written.phone).toBeNull();
+    expect(written.website).toBeUndefined();
+    expect(written.status).toBeUndefined();
+    expect(written.companyName).toBeUndefined();
+  });
+
   it("deleteClient refuses without a session", async () => {
     authMock.mockResolvedValue(null as never);
     const res = await deleteClient(1);
@@ -230,6 +245,53 @@ describe("client action auth guard + delegation", () => {
     const res = await permanentlyDeleteClient(1);
     expect(res.type).toBe("error");
     expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+  });
+
+  // Project.client is onDelete: Cascade: destroying a company destroys its
+  // chantiers, so hiding only the `projects` rubrique must refuse it too.
+  it("permanentlyDeleteClient refuses an account whose function hides the projects rubrique", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findAccessScopeByEmailMock.mockResolvedValue({
+      hiddenSections: [],
+      hiddenAreas: ["projects"],
+      projectScope: "ALL",
+      assignedProjectIds: [],
+    });
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), photoUrl: null } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(res.type).toBe("error");
+    expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+    expect(findPublicIdsByClientMock).not.toHaveBeenCalled();
+  });
+
+  // Lot 5b: the cascade also takes the contacts and every project section.
+  it.each([
+    ["a project section", { hiddenSections: ["reserves"], hiddenAreas: [] }],
+    ["the clients.contacts rubrique", { hiddenSections: [], hiddenAreas: ["clients.contacts"] }],
+  ])("permanentlyDeleteClient refuses an EDITOR whose function hides %s, and destroys nothing", async (_label, hidden) => {
+    authMock.mockResolvedValue({ user: { role: "EDITOR", email: "chef@example.com" } } as never);
+    findAccessScopeByEmailMock.mockResolvedValue({ ...hidden, projectScope: "ALL", assignedProjectIds: [] } as never);
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), photoUrl: null } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(res.type).toBe("error");
+    expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+    expect(findPublicIdsByClientMock).not.toHaveBeenCalled();
+  });
+
+  it("permanentlyDeleteClient refuses an EDITOR who hides a section with the dedicated message", async () => {
+    authMock.mockResolvedValue({ user: { role: "EDITOR", email: "chef@example.com" } } as never);
+    findAccessScopeByEmailMock.mockResolvedValue({ hiddenSections: ["files"], hiddenAreas: [], projectScope: "ALL", assignedProjectIds: [] } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(res.message).toBe(fr.errors.forbiddenDestroyHiddenSections);
+  });
+
+  it("permanentlyDeleteClient lets an EDITOR with nothing hidden destroy a trashed company", async () => {
+    authMock.mockResolvedValue({ user: { role: "EDITOR", email: "chef@example.com" } } as never);
+    findAccessScopeByEmailMock.mockResolvedValue({ hiddenSections: [], hiddenAreas: [], projectScope: "ALL", assignedProjectIds: [] } as never);
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), photoUrl: null, firstName: "A", lastName: "B" } as never);
+    permanentlyRemoveMock.mockResolvedValue({ id: 1 } as never);
+    findPublicIdsByClientMock.mockResolvedValue([]);
+    expect((await permanentlyDeleteClient(1)).type).toBe("success");
   });
 
   it("permanentlyDeleteClient removes the client and its photo when authenticated as ADMIN", async () => {

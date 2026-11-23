@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
+import { dateColumn } from "@/lib/partialWrite";
 
 type EquipmentLoanCreateData = {
     equipmentId: number;
@@ -112,7 +113,7 @@ export async function markReturned(id: number, returnedAt: string): Promise<numb
     try {
         const result = await prisma.equipmentLoan.updateMany({
             where: { id, returnedAt: null },
-            data: { returnedAt: new Date(returnedAt) },
+            data: { returnedAt: dateColumn(returnedAt) },
         });
         return result.count;
     } catch (error) {
@@ -121,15 +122,17 @@ export async function markReturned(id: number, returnedAt: string): Promise<numb
     }
 }
 
-type EquipmentLoanUpdateData = { dueAt?: string; note?: string };
+// A PARTIAL write: absent = leave the column alone, null = clear it, a value
+// sets it (lib/partialWrite.ts, tests/repository-partial-write.test.ts).
+type EquipmentLoanUpdateData = { dueAt?: string | null; note?: string | null };
 
 export async function update(id: number, data: EquipmentLoanUpdateData) {
     try {
         return await prisma.equipmentLoan.update({
             where: { id },
             data: {
-                dueAt: data.dueAt ? new Date(data.dueAt) : null,
-                note: data.note ?? null,
+                dueAt: dateColumn(data.dueAt),
+                note: data.note,
             },
         });
     } catch (error) {

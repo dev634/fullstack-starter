@@ -30,12 +30,14 @@ import type { ProjectMaterialActionState } from "@/types/projectMaterial";
  * why the earlier sweep of FK-shaped fields missed it.
  */
 async function linkTargetInProject(
-  data: { taskId?: number; taskGroupId?: number; taskCategoryId?: number },
+  data: { taskId?: number | null; taskGroupId?: number | null; taskCategoryId?: number | null },
   projectId: number
 ): Promise<boolean> {
-  if (data.taskId !== undefined) return (await findTaskProjectId(data.taskId)) === projectId;
-  if (data.taskGroupId !== undefined) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
-  if (data.taskCategoryId !== undefined) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
+  // `!= null`: on an update, null is "clear the link" (nothing to resolve),
+  // undefined is "leave it" — only a number names a target to cross-check.
+  if (data.taskId != null) return (await findTaskProjectId(data.taskId)) === projectId;
+  if (data.taskGroupId != null) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
+  if (data.taskCategoryId != null) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
   return true;
 }
 
@@ -163,7 +165,16 @@ export async function editMaterial(
       return { ...prevState, type: "error", message: t.errors.invalidId };
     }
 
-    const material = await update(parsed.data.id, {
+    // The schema cannot see the STORED link: a payload with no `link` and a
+    // blank requiredQuantity would clear the quantity of a linked material,
+    // leaving its stock indicator with nothing to compare against. An explicit
+    // link in the payload is already covered by the schema's own refine. The
+    // stored link is read and the write made in ONE locked transaction
+    // (repository update's `accept`), so a concurrent link cannot slip between.
+    const { taskId, taskGroupId, taskCategoryId } = parsed.data;
+    const clearsRequiredQuantityWithoutLink =
+      parsed.data.requiredQuantity === null && taskId === undefined && taskGroupId === undefined && taskCategoryId === undefined;
+    const data = {
       name: parsed.data.name,
       quantity: parsed.data.quantity,
       unit: parsed.data.unit,
@@ -174,7 +185,18 @@ export async function editMaterial(
       taskCategoryId: parsed.data.taskCategoryId,
       requiredQuantity: parsed.data.requiredQuantity,
       materialCategoryId: parsed.data.materialCategoryId,
-    });
+    };
+    const material = clearsRequiredQuantityWithoutLink
+      ? await update(parsed.data.id, data, (stored) => !stored.linked)
+      : await update(parsed.data.id, data);
+    if (material === null) {
+      return {
+        ...prevState,
+        type: "zodError",
+        message: t.errors.validationError,
+        fieldsForm: { requiredQuantity: t.errors.requiredQuantityMissing },
+      };
+    }
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,

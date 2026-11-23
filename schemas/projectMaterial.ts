@@ -32,7 +32,7 @@ import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 // materiau cree par scan impossible a re-enregistrer a la main, sur un champ
 // que l`utilisateur n`a meme pas touche — meme signature que le plafond de
 // telephone a 30 qui bloquait des fiches existantes en production.
-import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiveIntId } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiveIntId, clearable, finiteNumberText } from "@/schemas/fields";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -49,14 +49,28 @@ import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiv
 // lib/materialStock.ts on every render, never written via an `increment`
 // itself, but there's no reason for it to accept a value the sibling field
 // on the very same row can't.
+const isUsableRequiredQuantity = (v: number) => Number.isFinite(v) && v > 0 && v <= MAX_SCAN_QUANTITY;
+const REQUIRED_QUANTITY_ISSUE = { message: "Must be a positive number", params: { i18n: "notANumber" } };
+
 const optionalPositiveNumber = z
     .string()
     .optional()
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || (Number.isFinite(v) && v > 0 && v <= MAX_SCAN_QUANTITY), {
-        message: "Must be a positive number",
-        params: { i18n: "notANumber" },
-    });
+    .refine((v) => v === undefined || isUsableRequiredQuantity(v), REQUIRED_QUANTITY_ISSUE);
+
+// The quantity in stock, NOT NULL in the database. z.coerce.number() alone
+// turns "", "  " and null into 0 (Number("") === 0), so a cleared input used to
+// set the stock to 0 without a word: blank and null are sent to NaN BEFORE the
+// coercion, which refuses them exactly as it refuses "abc". Same ceiling and
+// same messages as before. On an update the field stays `.optional()`: an
+// absent key is "leave alone", only a PRESENT-but-empty one is refused.
+const stockQuantity = z.preprocess(
+    (v) => (v === null || (typeof v === "string" && v.trim() === "") ? Number.NaN : v),
+    z.coerce
+        .number()
+        .nonnegative("La quantité doit être un nombre positif ou nul")
+        .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée")
+);
 
 // The picker submits a single field encoding what's linked: "" (nothing),
 // "task:<id>" (an individual standalone task), "group:<id>" (a whole task
@@ -86,10 +100,7 @@ export const createMaterialSchema = z
         // it's what drives the "out of stock" (red) indicator for a linked task.
         // .max(MAX_SCAN_QUANTITY): see this file's import comment — same
         // ceiling as the scan path, for the same Float `increment` column.
-        quantity: z.coerce
-            .number()
-            .nonnegative("La quantité doit être un nombre positif ou nul")
-            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
+        quantity: stockQuantity,
         unit: z.string().max(MAX_CODE_LENGTH).optional(),
         supplierName: z.string().max(MAX_NAME_LENGTH).optional(),
         reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
@@ -123,24 +134,48 @@ export const createMaterialSchema = z
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
 
 // Editing a material can now change its link (task/series/category) too —
-// same single `link` picker convention as createMaterialSchema. An empty
-// pick clears the link; picking a target requires requiredQuantity, so the
-// stock indicator has something to compare against.
+// same single `link` picker convention as createMaterialSchema, but a PARTIAL
+// write (schemas/fields.ts, "Partial writes"):
+//   - `link` absent    -> the three link columns are left alone;
+//   - `link` ""        -> all three cleared (the "no link" option of the picker);
+//   - `link` "kind:id" -> that one set, the other two cleared;
+//   - anything else    -> REFUSED. A malformed value used to read as "no link"
+//     and silently detached the material from its task — a typo erasing data.
+// Picking a target requires requiredQuantity, so the stock indicator has
+// something to compare against.
+type LinkColumns = { taskId: number | null; taskGroupId: number | null; taskCategoryId: number | null };
+const NO_LINK: LinkColumns = { taskId: null, taskGroupId: null, taskCategoryId: null };
+const LINK_VALUE = /^(task|group|category):([1-9]\d*)$/;
+
+const updateLinkTarget = z
+    .string()
+    .optional()
+    .transform((v, ctx): LinkColumns | undefined => {
+        if (v === undefined) return undefined;
+        if (v === "") return NO_LINK;
+        const m = LINK_VALUE.exec(v);
+        const id = m === null ? NaN : Number(m[2]);
+        if (m === null || !Number.isSafeInteger(id)) {
+            ctx.addIssue({ code: "custom", message: "Invalid link" });
+            return z.NEVER;
+        }
+        if (m[1] === "task") return { ...NO_LINK, taskId: id };
+        if (m[1] === "group") return { ...NO_LINK, taskGroupId: id };
+        return { ...NO_LINK, taskCategoryId: id };
+    });
+
 export const updateMaterialSchema = z
     .object({
         id: z.coerce.number().int().positive(),
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
-        name: z.string().min(1, "Le nom du matériel est requis").max(MAX_NAME_LENGTH),
-        quantity: z.coerce
-            .number()
-            .nonnegative("La quantité doit être un nombre positif ou nul")
-            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
-        unit: z.string().max(MAX_CODE_LENGTH).optional(),
-        supplierName: z.string().max(MAX_NAME_LENGTH).optional(),
-        reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
-        link: linkTarget,
-        requiredQuantity: optionalPositiveNumber,
+        name: z.string().min(1, "Le nom du matériel est requis").max(MAX_NAME_LENGTH).optional(),
+        quantity: stockQuantity.optional(),
+        unit: clearable(z.string().max(MAX_CODE_LENGTH)),
+        supplierName: clearable(z.string().max(MAX_NAME_LENGTH)),
+        reference: clearable(z.string().max(MAX_REFERENCE_LENGTH)),
+        link: updateLinkTarget,
+        requiredQuantity: clearable(finiteNumberText.refine(isUsableRequiredQuantity, REQUIRED_QUANTITY_ISSUE)),
         // See createMaterialSchema's own comment: independent of `link`, and
         // clearable back to "non classé" the same way a job function picker
         // clears back to "none".
@@ -148,12 +183,22 @@ export const updateMaterialSchema = z
     })
     .transform((data) => {
         const { link, ...rest } = data;
-        return { ...rest, taskId: link.taskId, taskGroupId: link.taskGroupId, taskCategoryId: link.taskCategoryId };
+        const links: Partial<LinkColumns> = link ?? {};
+        // The one deliberate exception to "absent = unchanged": an explicit
+        // "no link" with no requiredQuantity in the payload clears it too.
+        // EditMaterialForm only renders the requiredQuantity input while a
+        // link is picked, so a legitimate unlink never sends the field — and a
+        // required quantity with nothing to compare against is meaningless.
+        // An explicit requiredQuantity in the same payload is kept as sent.
+        const unlinked =
+            link !== undefined && link.taskId === null && link.taskGroupId === null && link.taskCategoryId === null;
+        const requiredQuantity = unlinked && rest.requiredQuantity === undefined ? null : rest.requiredQuantity;
+        return { ...rest, ...links, requiredQuantity };
     })
     .refine(
         (data) =>
-            (data.taskId === undefined && data.taskGroupId === undefined && data.taskCategoryId === undefined) ||
-            data.requiredQuantity !== undefined,
+            (data.taskId == null && data.taskGroupId == null && data.taskCategoryId == null) ||
+            (data.requiredQuantity !== undefined && data.requiredQuantity !== null),
         {
             message: "La quantité requise est nécessaire quand une tâche, une série ou un groupe est lié",
             path: ["requiredQuantity"],

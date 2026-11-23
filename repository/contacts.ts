@@ -231,11 +231,13 @@ export async function create(data: ContactData) {
     }
 }
 
+// A PARTIAL write: absent = leave the column alone, null = clear it, a value
+// sets it (lib/partialWrite.ts, tests/repository-partial-write.test.ts).
 type ContactUpdateData = {
-    firstName: string;
-    lastName: string;
-    email?: string;
-    phone?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string | null;
+    phone?: string | null;
     jobFunctionId?: number | null;
 };
 
@@ -247,9 +249,9 @@ export async function update(id: number, data: ContactUpdateData) {
             data: {
                 firstName: data.firstName,
                 lastName: data.lastName,
-                email: data.email || null,
-                phone: data.phone || null,
-                jobFunctionId: data.jobFunctionId ?? null,
+                email: data.email,
+                phone: data.phone,
+                jobFunctionId: data.jobFunctionId,
             },
             select: { id: true },
         });

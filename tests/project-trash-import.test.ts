@@ -60,6 +60,8 @@ const TRASHED_UNDER_TRASHED_COMPANY = { selfTrashed: true, parentTrashed: true, 
 function resetTrashState() {
   vi.clearAllMocks();
   findTrashStateMock.mockResolvedValue(LIVE);
+  // an ADMIN with nothing hidden, unless a test says otherwise
+  vi.mocked(getAccessContext).mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null } as never);
 }
 const findByEmailMock = vi.mocked(findByEmail);
 const findPublicIdsByProjectMock = vi.mocked(findPublicIdsByProject);
@@ -145,6 +147,34 @@ describe("permanentlyDeleteProject", () => {
     const res = await permanentlyDeleteProject(1);
     expect(res.type).toBe("error");
     expect(removeMock).not.toHaveBeenCalled();
+  });
+
+  // Lot 5b: the cascade takes every section of the chantier, so a function that
+  // hides ONE of them may not destroy it; an account with none hidden may.
+  it("refuses when the caller's function hides at least one project section, and destroys nothing", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "editor@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
+    vi.mocked(getAccessContext).mockResolvedValue({
+      email: "editor@example.com", role: "EDITOR", hiddenSections: new Set(["files"]), hiddenAreas: new Set(), projectIds: null,
+    } as never);
+    const res = await permanentlyDeleteProject(1);
+    expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.errors.forbiddenDestroyHiddenSections);
+    expect(findPublicIdsByProjectMock).not.toHaveBeenCalled();
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+
+  it("lets an account with no hidden section destroy a trashed project", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "editor@example.com" });
+    findTrashStateMock.mockResolvedValue(TRASHED);
+    vi.mocked(getAccessContext).mockResolvedValue({
+      email: "editor@example.com", role: "EDITOR", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null,
+    } as never);
+    findByIdMock.mockResolvedValue({ id: 1, name: "Toiture", deletedAt: new Date() } as never);
+    findPublicIdsByProjectMock.mockResolvedValue([]);
+    removeMock.mockResolvedValue({ id: 1 } as never);
+    expect((await permanentlyDeleteProject(1)).type).toBe("success");
+    expect(removeMock).toHaveBeenCalledWith(1);
   });
 
   it("permanently removes the project and logs the activity when authorized", async () => {

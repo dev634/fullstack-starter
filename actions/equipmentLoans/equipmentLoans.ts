@@ -184,7 +184,7 @@ export async function editLoan(
     // dueAt isn't part of this payload's own cross-field check
     // (schemas/equipmentLoan.ts) since lentAt isn't submitted on edit —
     // compared here against the value read back from the database instead.
-    if (parsed.data.dueAt !== undefined && Date.parse(parsed.data.dueAt) < loan.lentAt.getTime()) {
+    if (typeof parsed.data.dueAt === "string" && Date.parse(parsed.data.dueAt) < loan.lentAt.getTime()) {
       return { ...prevState, type: "error", message: t.loans.messages.dueBeforeLent };
     }
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { InterventionStatus } from "@/app/generated/prisma/client";
+import { dateColumn } from "@/lib/partialWrite";
 
 type InterventionData = {
     projectId: number;
@@ -73,11 +74,14 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
+// A PARTIAL write: absent = leave the column alone, null = clear it (only
+// `technician` is nullable), a value sets it (lib/partialWrite.ts,
+// tests/repository-partial-write.test.ts).
 type InterventionUpdateData = {
-    scheduledAt: string;
-    description: string;
-    technician?: string;
-    status: InterventionStatus;
+    scheduledAt?: string;
+    description?: string;
+    technician?: string | null;
+    status?: InterventionStatus;
 };
 
 export async function update(id: number, data: InterventionUpdateData) {
@@ -85,9 +89,9 @@ export async function update(id: number, data: InterventionUpdateData) {
         return await prisma.intervention.update({
             where: { id },
             data: {
-                scheduledAt: new Date(data.scheduledAt),
+                scheduledAt: dateColumn(data.scheduledAt),
                 description: data.description,
-                technician: data.technician || null,
+                technician: data.technician,
                 status: data.status,
             },
         });

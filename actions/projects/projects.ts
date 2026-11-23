@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { projectTrashState } from "@/lib/projectTrash";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
@@ -108,11 +109,38 @@ export async function updateProject(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const project = await update(parsed.data.id, parsed.data);
+    // A payload carrying only ONE bound is compared to nothing by the schema
+    // (no database read there): read the stored other one and apply the same
+    // ordering rule, same message, on endDate. An explicit null on the other
+    // bound clears it — nothing left to compare against.
+    const { startDate, endDate } = parsed.data;
+    const onlyStart = typeof startDate === "string" && endDate === undefined;
+    const onlyEnd = typeof endDate === "string" && startDate === undefined;
+    // The stored bound is read and the write made in ONE locked transaction
+    // (repository update's `accept`): two partial updates racing each other
+    // cannot both pass a check that, together, they break.
+    const project =
+      onlyStart || onlyEnd
+        ? await update(parsed.data.id, parsed.data, (stored) => {
+            const start = onlyStart ? startDate : stored.startDate;
+            const end = onlyEnd ? endDate : stored.endDate;
+            return !(start && end && end < start);
+          })
+        : await update(parsed.data.id, parsed.data);
+    if (project === null) {
+      return {
+        ...prevState,
+        type: "zodError",
+        message: t.errors.validationError,
+        fieldsForm: { endDate: t.errors.endBeforeStart },
+      };
+    }
     await logActivity({
       action: "UPDATED",
       projectId: parsed.data.id,
-      projectName: parsed.data.name,
+      // `name` is optional on an update (absent = unchanged): the name that
+      // counts is the one the row carries now, as the repository returned it.
+      projectName: project.name,
       actorEmail: roleCheck.email,
     });
     revalidatePath(`/clients/${parsed.data.clientId}`);
@@ -210,6 +238,11 @@ export async function permanentlyDeleteProject(id: number) {
   if (roleCheck.error) return roleCheck.error;
   const areaCheck = await requireAreaAccess("projects");
   if (areaCheck.error) return areaCheck.error;
+  // The cascade takes every section of the chantier (tasks, materials, files and
+  // their Cloudinary blobs, plans, réserves, interventions, workforce): a
+  // function that hides one of them does not get to destroy it.
+  const sectionsCheck = await requireEverySectionAccess();
+  if (sectionsCheck.error) return sectionsCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

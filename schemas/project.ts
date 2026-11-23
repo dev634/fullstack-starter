@@ -1,5 +1,15 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, MAX_LINE_LENGTH, MAX_CODE_LENGTH, MAX_NOTE_LENGTH, optionalDateField, isValidIsoDate } from "@/schemas/fields";
+import {
+    MAX_NAME_LENGTH,
+    MAX_LINE_LENGTH,
+    MAX_CODE_LENGTH,
+    MAX_NOTE_LENGTH,
+    optionalDateField,
+    isValidIsoDate,
+    clearable,
+    clearableDateField,
+    finiteNumberText,
+} from "@/schemas/fields";
 
 export const projectStatusSchema = z.enum([
     "ETUDE",
@@ -29,11 +39,13 @@ export const projectTypeSchema = z.enum([
 // invalid_type issue has no field-specific i18n hook and would fall back to
 // the generic "this field is required" message (lib/i18n/zodErrors.ts) for a
 // field that isn't actually empty, just malformed.
+// The finiteness predicate and its "notANumber" issue live in ONE place,
+// finiteNumberText (schemas/fields.ts); this only folds blank into "absent".
 const optionalNumber = z
     .string()
     .optional()
-    .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || Number.isFinite(v), { message: "Must be a number", params: { i18n: "notANumber" } });
+    .transform((v) => (v && v.trim() !== "" ? v : undefined))
+    .pipe(finiteNumberText.optional());
 
 // Adversarial pass 2, point 5: none of the free-text fields below had an
 // upper bound before — see schemas/fields.ts for the tier constants.
@@ -60,10 +72,13 @@ const createProjectFields = z.object({
 // would be reported twice (on its own field and as an ordering error), and
 // lib/zod.ts, which keeps one message per field, would let the ordering
 // message overwrite "Date invalide" on endDate. Two valid "AAAA-MM-JJ" strings
-// compare lexicographically as chronologically. An absent bound never fails:
-// a chantier may have only a start, or only an end.
-function endNotBeforeStart(data: { startDate?: string; endDate?: string }): boolean {
-    if (data.startDate === undefined || data.endDate === undefined) return true;
+// compare lexicographically as chronologically. An absent (undefined) or
+// cleared (null) bound never fails: a chantier may have only a start, or only
+// an end. (A partial update that sends only one bound cannot be compared
+// against the stored other one here — no database read in a schema; the
+// action does that comparison.)
+function endNotBeforeStart(data: { startDate?: string | null; endDate?: string | null }): boolean {
+    if (data.startDate == null || data.endDate == null) return true;
     if (!isValidIsoDate(data.startDate) || !isValidIsoDate(data.endDate)) return true;
     return data.endDate >= data.startDate;
 }
@@ -75,8 +90,26 @@ const END_BEFORE_START = {
 
 export const createProjectSchema = createProjectFields.refine(endNotBeforeStart, END_BEFORE_START);
 
-export const updateProjectSchema = createProjectFields
-    .extend({ id: z.coerce.number().int().positive() })
+// UPDATE: no `.default()` anywhere (an absent `type`/`status` used to come
+// back as "AUTRE"/"ETUDE" and be written over the real value), every field
+// optional (absent = leave alone), and the clearable ones resolve blank to
+// null (clear) — see schemas/fields.ts, "Partial writes". `clientId` is not a
+// written column: it only travels for revalidatePath.
+export const updateProjectSchema = z
+    .object({
+        id: z.coerce.number().int().positive(),
+        clientId: z.coerce.number().int().positive(),
+        name: z.string().min(1, "Project name is required").max(MAX_NAME_LENGTH).optional(),
+        businessNumber: clearable(z.string().max(MAX_CODE_LENGTH)),
+        type: projectTypeSchema.optional(),
+        status: projectStatusSchema.optional(),
+        power: clearable(finiteNumberText),
+        budget: clearable(finiteNumberText),
+        address: clearable(z.string().max(MAX_LINE_LENGTH)),
+        startDate: clearableDateField,
+        endDate: clearableDateField,
+        notes: clearable(z.string().max(MAX_NOTE_LENGTH)),
+    })
     .refine(endNotBeforeStart, END_BEFORE_START);
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

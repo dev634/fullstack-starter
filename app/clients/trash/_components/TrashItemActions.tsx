@@ -8,7 +8,7 @@ import { ArrowUturnLeftIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 
-export default function TrashItemActions({ clientId, name }: { clientId: number; name: string }) {
+export default function TrashItemActions({ clientId, name, canDestroy }: { clientId: number; name: string; canDestroy: boolean }) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
@@ -51,17 +51,19 @@ export default function TrashItemActions({ clientId, name }: { clientId: number;
         <ArrowUturnLeftIcon className="h-4 w-4" />
         {t.clients.trash.restore}
       </button>
-      <button
-        type="button"
-        onClick={() => setConfirming(true)}
-        disabled={pending}
-        className="inline-flex items-center gap-1.5 rounded border border-red-500/40 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 cursor-pointer disabled:opacity-50"
-      >
-        <TrashIcon className="h-4 w-4" />
-        {t.clients.trash.deleteForever}
-      </button>
+      {canDestroy && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded border border-red-500/40 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 cursor-pointer disabled:opacity-50"
+        >
+          <TrashIcon className="h-4 w-4" />
+          {t.clients.trash.deleteForever}
+        </button>
+      )}
 
-      {confirming && (
+      {canDestroy && confirming && (
         <Modal
           title={t.clients.trash.deleteForeverTitle}
           text={format(t.clients.trash.deleteForeverText, { name })}

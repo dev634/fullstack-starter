@@ -35,6 +35,29 @@ export async function canAccessSection(section: ProjectSectionKey): Promise<bool
 }
 
 /**
+ * Whether the current user may reach EVERY project section — the condition of
+ * an irreversible destruction by cascade (a company or a chantier takes its
+ * tasks, materials, interventions, subcontractors, interims, workers, files,
+ * plans and réserves with it). False as soon as the function hides at least one;
+ * always true for ADMIN and above, who are exempt from sections.
+ */
+export async function canAccessEverySection(): Promise<boolean> {
+  return (await getHiddenSections()).size === 0;
+}
+
+/**
+ * The server-action form of canAccessEverySection, for the two permanent
+ * deletions (actions/projects, actions/clients). The soft delete (trash) is
+ * reversible and does not need it.
+ */
+export async function requireEverySectionAccess(): Promise<{ error: { type: "error"; message: string } | null }> {
+  if (await canAccessEverySection()) return { error: null };
+
+  const t = getDictionary(await getLocale());
+  return { error: { type: "error" as const, message: t.errors.forbiddenDestroyHiddenSections } };
+}
+
+/**
  * Guard a server action behind a section, mirroring requireCapability's shape
  * so actions can check both the same way:
  *

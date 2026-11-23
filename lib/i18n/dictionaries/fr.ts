@@ -53,6 +53,7 @@ const fr = {
         forbidden: "Accès refusé. Ton rôle ne permet pas cette action.",
         forbiddenArea: "Accès refusé. Cette rubrique n'est pas accessible avec ta fonction.",
         forbiddenSection: "Accès refusé. Cette section n'est pas accessible avec ta fonction.",
+        forbiddenDestroyHiddenSections: "Accès refusé. La suppression définitive emporte des sections que ta fonction masque.",
         invalidId: "Identifiant invalide.",
         inTrash: "Cet élément est à la corbeille : restaure-le pour le modifier.",
         parentInTrash: "L'entreprise de ce chantier est à la corbeille : restaure-la d'abord.",
@@ -477,6 +478,7 @@ const fr = {
         editTitle: "Modifier le matériel",
         linkedTaskLabel: "Tâche liée",
         linkedTaskNone: "Aucune tâche liée",
+        linkedTaskKept: "Liée à une tâche qui ne figure pas dans cette liste (par exemple une tâche d'une série). Le lien est conservé tel quel.",
         // Les mots de l'interface, pas ceux du schéma : ProjectTaskGroup
         // s'affiche « série », ProjectTaskCategory s'affiche « groupe ».
         linkedTaskTasksGroup: "Tâches",
