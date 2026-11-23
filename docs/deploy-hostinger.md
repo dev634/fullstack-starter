@@ -378,6 +378,21 @@ compte admin.
 Crée le tien directement en SQL (contourne complètement Prisma/TypeScript, ne dépend que du
 package `pg` déjà présent dans l'image) :
 
+Le compte créé est un **`SUPERADMIN`**, pas un `ADMIN` : c'est le compte de secours, le seul rôle
+que rien ne contraint — ni fonction, ni rubriques masquées, ni périmètre de chantiers — et le seul
+qui gère les comptes `ADMIN` et `SUPERADMIN`. Un `ADMIN` reste soumis aux restrictions de sa
+fonction : si le premier compte en était un, personne ne pourrait lever une restriction posée par
+erreur. Le rôle est écrit **explicitement** : la colonne n'a plus de valeur par défaut (migration
+`20261123100000`), un `INSERT` sans rôle échoue au lieu de créer un administrateur en silence.
+
+Relancé sur un e-mail **déjà existant**, le script sert de procédure de secours : il remplace le
+mot de passe, remet le compte en `SUPERADMIN` et **révoque toutes ses sessions ouvertes**
+(`sessionVersion` incrémenté), y compris celles d'un cookie volé.
+
+L'e-mail est normalisé (`trim().toLowerCase()`, exactement comme `lib/normalizeEmail.ts`) avant
+l'`INSERT` : la base refuse toute autre forme (contrainte `User_email_normalized_check`), et c'est
+sous cette forme que la connexion cherche le compte.
+
 **1. Crée le script sur le VPS :**
 ```bash
 cat > /opt/fullstack-starter/create-admin.js <<'EOF'
@@ -385,7 +400,8 @@ require('dotenv/config');
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const email = process.env.ADMIN_EMAIL;
+// Same canonical form as lib/normalizeEmail.ts; the database refuses any other.
+const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const password = process.env.ADMIN_PASSWORD;
 const name = process.env.ADMIN_NAME || 'Admin';
 
@@ -398,13 +414,19 @@ if (!email || !password) {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   const hash = await bcrypt.hash(password, 10);
+  // ON CONFLICT (email) covers both unique indexes: every stored e-mail is
+  // normalized (CHECK), so a clash on lower(email) is a clash on email.
   await client.query(
-    `INSERT INTO "User" (email, password, name)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, name = EXCLUDED.name`,
+    `INSERT INTO "User" (email, password, name, role)
+     VALUES ($1, $2, $3, 'SUPERADMIN')
+     ON CONFLICT (email) DO UPDATE SET
+       password = EXCLUDED.password,
+       name = EXCLUDED.name,
+       role = 'SUPERADMIN',
+       "sessionVersion" = "User"."sessionVersion" + 1`,
     [email, hash, name]
   );
-  console.log('✅ Compte prêt :', email);
+  console.log('✅ Compte SUPERADMIN prêt :', email);
   await client.end();
 })();
 EOF
