@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import ts from "typescript";
 import { readFileSync } from "node:fs";
 import { join, relative, resolve, dirname, sep } from "node:path";
-import { sourceFilesIn, functionsIn, guardedNames } from "./helpers/astScan";
+import { sourceFilesIn, functionsIn, guardedNames, exportInfoOf } from "./helpers/astScan";
 import { AREA_HREFS } from "@/lib/appAreas";
 
 /**
@@ -128,6 +128,16 @@ const SECTION_OVERRIDES: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * The ONLY guard calls allowed to sit in a branch: setAssignee's second section
+ * depends on the kind of assignee, so its two checks are conditional by nature.
+ * Everything else must be on a path every call takes. Disappears with the split
+ * of setAssignee by assignee kind.
+ */
+const SECTION_CONDITIONAL: Readonly<Record<string, readonly string[]>> = {
+  "actions/taskAssignee/taskAssignee.ts::setAssignee": ["subcontractors", "interims"],
+};
+
+/**
  * "Resolved by import" helpers for lib/areaAccess.ts exports (requireAreaOrRedirect,
  * canAccessArea), used by the page-level and report-route tests below. Same
  * technique as tests/project-section-authz-coverage.test.ts's
@@ -209,9 +219,14 @@ type PageFn = { name: string; exported: boolean; body: ts.Node };
 /** Top-level named page functions in `source`, keeping the body node (unlike functionsIn above, which only keeps bare call names — not enough to tell an import-resolved call from a same-named local declaration). */
 function pageFunctionsIn(source: ts.SourceFile): PageFn[] {
   const fns: PageFn[] = [];
+  // `export { f }`, `export default f`, an anonymous default and a re-export are
+  // exports too (exportInfoOf): the last two have no named body here, so they
+  // are stood in for ("default" = its body; a re-export = its declaration, which
+  // calls nothing and therefore fails every guard check).
+  const info = exportInfoOf(source);
   ts.forEachChild(source, (node) => {
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword) || info.locals.has(node.name.text);
       fns.push({ name: node.name.text, exported, body: node.body });
       return;
     }
@@ -220,10 +235,12 @@ function pageFunctionsIn(source: ts.SourceFile): PageFn[] {
       for (const decl of node.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
         if (!ts.isArrowFunction(decl.initializer) && !ts.isFunctionExpression(decl.initializer)) continue;
-        fns.push({ name: decl.name.text, exported, body: decl.initializer.body });
+        fns.push({ name: decl.name.text, exported: exported || info.locals.has(decl.name.text), body: decl.initializer.body });
       }
     }
   });
+  for (const body of info.anonymousDefaults) fns.push({ name: "default", exported: true, body });
+  info.reexports.forEach((name, i) => fns.push({ name, exported: true, body: info.reexportNodes[i] }));
   return fns;
 }
 
@@ -268,6 +285,7 @@ function areasNamedIn(node: ts.Node, guardNames: ReadonlySet<string>): Set<strin
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
       const first = n.arguments[0];
       if (first && ts.isStringLiteral(first)) areas.add(first.text);
+      else if (!first) areas.add(""); // a guard with no argument (requireEverySectionAccess)
     }
     ts.forEachChild(n, visit);
   };
@@ -287,32 +305,34 @@ function areaViolationsIn(
   guardExport: string,
   pick: (fn: PageFn) => boolean,
   expectedFor: (fnName: string) => readonly string[],
-  libFile: string = AREA_ACCESS_LIB_FILE
+  libFile: string = AREA_ACCESS_LIB_FILE,
+  conditionalFor: (fnName: string) => readonly string[] = () => []
 ): string[] {
   const guardNames = collectImportedNames(source, file, libFile, guardExport);
   const violations: string[] = [];
-  // requireAreaAccess RETURNS a refusal: it protects nothing unless the action
-  // tests the result and leaves, in its own body, before any effect (lot 5b).
-  // The other area guards (canAccessArea in a route, requireAreaOrRedirect in a
-  // page) decide by their own control flow and stay on the by-argument check.
-  const mustRefuse = guardExport === REQUIRE_AREA_ACCESS || guardExport === REQUIRE_SECTION_ACCESS;
+  // requireAreaAccess / requireSectionAccess RETURN a refusal: they protect
+  // nothing unless the action tests the result and leaves, in its own body,
+  // before any effect (lot 5b). The other area guards (canAccessArea in a route,
+  // requireAreaOrRedirect in a page) decide by their own control flow and stay
+  // on the by-argument check.
+  const mustRefuse = RETURNING_GUARDS.has(guardExport);
   const bindings = new Map([...guardNames].map((local) => [local, guardExport] as const));
-  const effects = effectCallNames(source);
+  const effects = mustRefuse ? effectModelOf(source, file) : undefined;
   for (const fn of pageFunctionsIn(source).filter(pick)) {
     const named = areasNamedIn(fn.body, guardNames);
-    const sites = mustRefuse ? guardCallSites(fn.body, bindings) : [];
-    const effectPos = mustRefuse ? firstEffectPos(fn.body, effects) : Infinity;
+    const sites = mustRefuse ? guardCallSites(fn.body, bindings, true) : [];
+    const effectNodes = effects ? effectCallsIn(fn.body, effects) : [];
     for (const area of expectedFor(fn.name)) {
       if (!named.has(area)) {
         violations.push(`${file}::${fn.name} — never calls ${guardExport}("${area}")`);
       } else if (mustRefuse) {
-        const honoured = sites.some(
-          (site) => site.firstArg === area && site.refused && !site.nested && site.refusalPos !== undefined && site.refusalPos < effectPos
-        );
+        const mayBeConditional = conditionalFor(fn.name).includes(area);
+        const honoured = sites.some((site) => (site.firstArg ?? "") === area && siteHonoured(site, fn.body, effectNodes, mayBeConditional));
         if (!honoured) {
           violations.push(
             `${file}::${fn.name} — calls ${guardExport}("${area}") but does not REFUSE on it ` +
-              `(result bound, its .error tested by an if that exits, in the action body, before any repository/service write)`
+              `(result bound and never reassigned, its .error tested by an if that exits — a throw only if no catch swallows it — ` +
+              `on a path every call takes, in the action body, before any write, none of them inside the refusal branch or a finally)`
           );
         }
       }
@@ -321,38 +341,145 @@ function areaViolationsIn(
   return violations;
 }
 
+/** The returning guards of lib/areaAccess and lib/sectionAccess: their result must be tested and acted on. */
+const RETURNING_GUARDS: ReadonlySet<string> = new Set(["requireAreaAccess", "requireSectionAccess", "requireEverySectionAccess"]);
+
 /**
- * Local names bound to the WRITING functions imported from the layers that
- * write (repository, service, the Cloudinary wrapper). A read — an imported
- * name starting with find/get/count/has/is/list/search/exists — is not an
- * effect: a guard may legitimately wait for a read it depends on (setAssignee
- * resolves the target, parses the assignee, THEN asks for the second section
- * the assignee implies). What it may not do is wait for a write.
+ * Nodes between `node` and `body` that make it run only SOMETIMES: a branch of
+ * an if, a conditional expression, a loop (it may not run), a switch case, a
+ * catch or finally clause, the right side of && / || / ??. A guard that sits in
+ * one is not a guard of the action. The plain block of the function and the
+ * block of a try are not conditions.
  */
-function effectCallNames(source: ts.SourceFile): Set<string> {
-  const names = new Set<string>();
-  for (const stmt of source.statements) {
-    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-    const spec = stmt.moduleSpecifier.text;
-    if (!(spec.startsWith("@/repository/") || spec.startsWith("@/service/") || spec === "@/lib/cloudinary")) continue;
-    const bindings = stmt.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    for (const el of bindings.elements) {
-      if (!/^(find|get|count|has|is|list|search|exists)/.test((el.propertyName ?? el.name).text)) names.add(el.name.text);
+function isUnconditional(node: ts.Node, body: ts.Node): boolean {
+  for (let cur: ts.Node = node; cur.parent && cur !== body; cur = cur.parent) {
+    const p = cur.parent;
+    if (ts.isIfStatement(p) || ts.isConditionalExpression(p) || ts.isCaseClause(p) || ts.isDefaultClause(p) || ts.isCatchClause(p)) return false;
+    if (ts.isIterationStatement(p, false)) return false;
+    if (ts.isTryStatement(p) && p.tryBlock !== cur) return false;
+    if (ts.isBinaryExpression(p)) {
+      const k = p.operatorToken.kind;
+      if (k === ts.SyntaxKind.AmpersandAmpersandToken || k === ts.SyntaxKind.BarBarToken || k === ts.SyntaxKind.QuestionQuestionToken) return false;
     }
   }
-  return names;
+  return true;
 }
 
-/** Source position of the first call to one of `names` inside `body` (Infinity when none). */
-function firstEffectPos(body: ts.Node, names: ReadonlySet<string>): number {
-  let first = Infinity;
+/**
+ * Whether ONE guard call really protects the action: bound and refused by a
+ * valid if (guardCallSites), in the action's own body (not a closure), on a
+ * path every call takes (unless this action is explicitly allowed a
+ * conditional guard), with no effect before it, none INSIDE the refusal branch
+ * (`if (c.error) { await update(); return }` writes, then refuses), and none in
+ * the finally of a try that holds the refusal (a `return` still runs it).
+ */
+function siteHonoured(site: GuardCallSite, body: ts.Node, effects: readonly ts.CallExpression[], mayBeConditional: boolean): boolean {
+  if (site.nested) return false;
+  if (!mayBeConditional && !isUnconditional(site.callNode, body)) return false;
+  return site.refusals.some((refusal) => {
+    if (!mayBeConditional && !isUnconditional(refusal, body)) return false;
+    const refusedUntil = refusal.thenStatement.getEnd();
+    if (effects.some((e) => e.getStart() < refusedUntil)) return false;
+    for (let cur: ts.Node = refusal; cur.parent && cur !== body; cur = cur.parent) {
+      const p = cur.parent;
+      if (ts.isTryStatement(p) && p.tryBlock === cur && p.finallyBlock) {
+        const fin = p.finallyBlock;
+        if (effects.some((e) => e.getStart() >= fin.getStart() && e.getEnd() <= fin.getEnd())) return false;
+      }
+    }
+    return true;
+  });
+}
+
+/**
+ * The effect model of a file: which calls WRITE (or reach out). Modules, by
+ * repo-relative path whatever the import style (alias "@/…" or relative):
+ *   - repository/, service/ and lib/cloudinary, lib/deliveryNoteScan (an LLM
+ *     call), lib/rate-limit (registerFailure), lib/email: a call counts unless
+ *     its imported name reads (find/get/count/has/is/list/search/exists);
+ *   - lib/prisma: ANY call rooted at the imported client counts.
+ * Named imports bind a function name; a namespace / default import (and
+ * `const m = await import("…")`) binds a root, whose member is judged the same
+ * way.
+ */
+type EffectModel = { fnNames: Set<string>; nsRoots: Set<string>; allRoots: Set<string> };
+
+const WRITE_LAYER_MODULES: ReadonlySet<string> = new Set(["lib/cloudinary", "lib/deliveryNoteScan", "lib/rate-limit", "lib/email"]);
+const READ_NAME = /^(find|get|count|has|is|list|search|exists)/;
+
+/** Repo-relative module path of an import specifier written in `relFile`, without extension or /index. */
+function moduleKey(spec: string, relFile: string): string | undefined {
+  let abs: string | undefined;
+  if (spec.startsWith("@/")) abs = resolve(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) abs = resolve(dirname(resolve(ROOT, relFile)), spec);
+  if (!abs) return undefined;
+  return relative(ROOT, abs).split(sep).join("/").replace(/[.]tsx?$/, "").replace(/[/]index$/, "");
+}
+
+function layerOf(spec: string, relFile: string): "write-layer" | "prisma" | undefined {
+  const key = moduleKey(spec, relFile);
+  if (key === undefined) return undefined;
+  if (key === "lib/prisma") return "prisma";
+  if (key.startsWith("repository/") || key.startsWith("service/") || WRITE_LAYER_MODULES.has(key)) return "write-layer";
+  return undefined;
+}
+
+function effectModelOf(source: ts.SourceFile, relFile: string): EffectModel {
+  const model: EffectModel = { fnNames: new Set(), nsRoots: new Set(), allRoots: new Set() };
+  for (const stmt of source.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const layer = layerOf(stmt.moduleSpecifier.text, relFile);
+    if (!layer) continue;
+    const clause = stmt.importClause;
+    if (!clause) continue;
+    const bindings = clause.namedBindings;
+    if (clause.name) (layer === "prisma" ? model.allRoots : model.nsRoots).add(clause.name.text);
+    if (bindings && ts.isNamespaceImport(bindings)) (layer === "prisma" ? model.allRoots : model.nsRoots).add(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const el of bindings.elements) {
+        if (layer === "prisma") model.allRoots.add(el.name.text);
+        else if (!READ_NAME.test((el.propertyName ?? el.name).text)) model.fnNames.add(el.name.text);
+      }
+    }
+  }
+  // const m = await import("@/repository/x")
   const visit = (n: ts.Node) => {
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && names.has(n.expression.text)) first = Math.min(first, n.getStart());
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      let init: ts.Expression = n.initializer;
+      while (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init)) init = init.expression;
+      if (ts.isCallExpression(init) && init.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const arg = init.arguments[0];
+        const layer = arg && ts.isStringLiteralLike(arg) ? layerOf(arg.text, relFile) : undefined;
+        if (layer) (layer === "prisma" ? model.allRoots : model.nsRoots).add(n.name.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return model;
+}
+
+/** Every call inside `body` that the effect model counts as a write / outward call. */
+function effectCallsIn(body: ts.Node, model: EffectModel): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      if (ts.isIdentifier(callee)) {
+        if (model.fnNames.has(callee.text) || model.allRoots.has(callee.text)) calls.push(n);
+      } else if (ts.isPropertyAccessExpression(callee)) {
+        let root: ts.Expression = callee;
+        while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root)) root = root.expression;
+        if (ts.isIdentifier(root)) {
+          if (model.allRoots.has(root.text)) calls.push(n);
+          else if (model.nsRoots.has(root.text) && !READ_NAME.test(callee.name.text)) calls.push(n);
+        }
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(body);
-  return first;
+  return calls;
 }
 
 /** The same, over every file of a table read from disk. `overrides` keys are "file::function". */
@@ -361,14 +488,15 @@ function areaViolations(
   guardExport: string,
   pick: (fn: PageFn) => boolean,
   overrides: AreaTable = {},
-  libFile: string = AREA_ACCESS_LIB_FILE
+  libFile: string = AREA_ACCESS_LIB_FILE,
+  conditional: AreaTable = {}
 ): string[] {
   const violations: string[] = [];
   for (const [file, expected] of Object.entries(table)) {
     const source = ts.createSourceFile(file, readFileSync(join(process.cwd(), file), "utf8"), ts.ScriptTarget.Latest, true);
     const picked = pageFunctionsIn(source).filter(pick);
     expect(picked.length, `${file} has nothing to check — did it move?`).toBeGreaterThan(0);
-    violations.push(...areaViolationsIn(source, file, guardExport, pick, (name) => overrides[`${file}::${name}`] ?? expected, libFile));
+    violations.push(...areaViolationsIn(source, file, guardExport, pick, (name) => overrides[`${file}::${name}`] ?? expected, libFile, (name) => conditional[`${file}::${name}`] ?? []));
   }
   return violations;
 }
@@ -425,20 +553,59 @@ type GuardCallSite = {
   exportName: string;
   line: number;
   refused: boolean;
-  /** Where the refusing `if` starts (source position), when `refused`. */
+  /** Where the first valid refusing `if` starts (source position), when `refused`. */
   refusalPos: number | undefined;
   /** The guard call sits in a function nested in the action (a closure that may never run), not in the action itself. */
   nested: boolean;
   /** The string-literal first argument of the call (the area / section it names), if it is one. */
   firstArg: string | undefined;
+  /** The guard call itself. */
+  callNode: ts.CallExpression;
+  /** EVERY `if (check.error) <exit>` that is a valid refusal of this call (not reassigned before it, not a swallowed throw). */
+  refusals: ts.IfStatement[];
 };
+
+/** `x = …`, `x += …`, `x++` on the plain identifier `name` or on one of its properties (`name.error = null`). */
+function assignsTo(n: ts.Node, name: string): boolean {
+  const rootIs = (e: ts.Expression): boolean => {
+    let cur = e;
+    while (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur) || ts.isParenthesizedExpression(cur)) cur = cur.expression;
+    return ts.isIdentifier(cur) && cur.text === name;
+  };
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    if (k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment) return rootIs(n.left);
+  }
+  if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) {
+    return rootIs(n.operand);
+  }
+  return false;
+}
+
+/** Whether `stmt` leaves by a `return` (not only by a `throw`, which an enclosing `catch` may swallow). */
+function exitsByReturn(stmt: ts.Statement): boolean {
+  if (ts.isReturnStatement(stmt)) return true;
+  return ts.isBlock(stmt) && stmt.statements.some((s) => ts.isReturnStatement(s));
+}
+
+/** A `throw` exit inside a `try` whose `catch` does not itself leave the function: the refusal is swallowed and execution continues. */
+function throwIsSwallowed(ifNode: ts.IfStatement, body: ts.Node): boolean {
+  for (let cur: ts.Node = ifNode; cur.parent && cur !== body; cur = cur.parent) {
+    const p = cur.parent;
+    if (ts.isTryStatement(p) && p.tryBlock === cur && p.catchClause && !exitsFunction(p.catchClause.block)) return true;
+  }
+  return false;
+}
 
 /**
  * Every call to a guard (`guardNames`: local name -> the lib/access export it
  * is bound to) inside `body`, each with whether its result is bound to a
  * variable whose `.error` is tested, AFTER the call, by an `if` that exits.
+ * A refusal is valid only if the variable is not reassigned (nor its `.error`
+ * overwritten) between the call and the `if`, and — when it leaves by `throw`
+ * only — no enclosing `try` swallows the throw (lot 5b, point 3).
  */
-function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>): GuardCallSite[] {
+function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>, strict = false): GuardCallSite[] {
   const sites: GuardCallSite[] = [];
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
@@ -447,8 +614,7 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
       // Climb through `await` and parentheses to the declaration that binds the result.
       let parent: ts.Node = n.parent;
       while (ts.isAwaitExpression(parent) || ts.isParenthesizedExpression(parent)) parent = parent.parent;
-      let refused = false;
-      let refusalPos: number | undefined;
+      const refusals: ts.IfStatement[] = [];
       let nested = false;
       const firstArgNode = n.arguments[0];
       const firstArg = firstArgNode && ts.isStringLiteralLike(firstArgNode) ? firstArgNode.text : undefined;
@@ -466,24 +632,34 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
           (ts.isFunctionDeclaration(scope) || ts.isArrowFunction(scope) || ts.isFunctionExpression(scope) || ts.isMethodDeclaration(scope)) && scope.body
             ? scope.body
             : body;
+        const assignments: number[] = [];
+        const candidates: ts.IfStatement[] = [];
         const find = (m: ts.Node) => {
-          if (refused) return;
           if (m !== searchRoot && ts.isFunctionLike(m)) return;
-          if (
-            ts.isIfStatement(m) &&
-            m.pos >= after &&
-            isErrorTest(m.expression, varName) &&
-            exitsFunction(m.thenStatement)
-          ) {
-            refused = true;
-            refusalPos = m.getStart();
-            return;
-          }
+          if (m.pos >= after && assignsTo(m, varName)) assignments.push(m.getStart());
+          if (ts.isIfStatement(m) && m.pos >= after && isErrorTest(m.expression, varName) && exitsFunction(m.thenStatement)) candidates.push(m);
           ts.forEachChild(m, find);
         };
         find(searchRoot);
+        for (const c of candidates) {
+          // Strict (requireAreaAccess / requireSectionAccess): a per-row loop that CATCHES a thrown
+          // refusal and moves on to the next row is a legitimate pattern of the freeze guards
+          // (actions/contacts importContacts), so only the area/section checks refuse it.
+          const reassigned = strict && assignments.some((pos) => pos < c.getStart());
+          const swallowed = strict && !exitsByReturn(c.thenStatement) && throwIsSwallowed(c, searchRoot);
+          if (!reassigned && !swallowed) refusals.push(c);
+        }
       }
-      sites.push({ exportName, line, refused, refusalPos, nested, firstArg });
+      sites.push({
+        exportName,
+        line,
+        refused: refusals.length > 0,
+        refusalPos: refusals[0]?.getStart(),
+        nested,
+        firstArg,
+        callNode: n,
+        refusals,
+      });
     }
     ts.forEachChild(n, visit);
   };
@@ -605,7 +781,7 @@ describe("authorization coverage across server actions", () => {
     // lib/sectionAccess and the action must REFUSE on its result (same control
     // as requireAreaAccess above).
     expect(Object.keys(SECTION_BY_FILE).sort(), "SECTION_BY_FILE and OWNED_BY_SECTION name different files").toEqual([...OWNED_BY_SECTION].sort());
-    const ungated = areaViolations(SECTION_BY_FILE, REQUIRE_SECTION_ACCESS, exportedFn, SECTION_OVERRIDES, SECTION_ACCESS_LIB_FILE);
+    const ungated = areaViolations(SECTION_BY_FILE, REQUIRE_SECTION_ACCESS, exportedFn, SECTION_OVERRIDES, SECTION_ACCESS_LIB_FILE, SECTION_CONDITIONAL);
 
     expect(
       ungated,
@@ -616,6 +792,21 @@ describe("authorization coverage across server actions", () => {
           `if (sectionCheck.error) return ..., from @/lib/sectionAccess, next to the existing capability check.`
         : undefined
     ).toEqual([]);
+  });
+
+  it("a PERMANENT deletion refuses an account whose function hides any project section (requireEverySectionAccess, with a refusal)", () => {
+    // The cascade of a company or a chantier takes every section with it (tasks,
+    // materials, files and their Cloudinary blobs, plans, réserves, interventions,
+    // subcontractors, interims, workers) and, for a company, its contacts: the
+    // account must be allowed ALL of them. Trashing is reversible and is not here.
+    const violations = areaViolations(
+      { "actions/projects/projects.ts": [""], "actions/clients/clients.ts": [""] },
+      "requireEverySectionAccess",
+      (fn) => fn.exported && fn.name.startsWith("permanentlyDelete"),
+      {},
+      SECTION_ACCESS_LIB_FILE
+    );
+    expect(violations).toEqual([]);
   });
 
   it("gates every section-owned action behind the projects area too, not just its section (adversarial pass, lot C1, #1)", () => {
@@ -681,10 +872,11 @@ describe("authorization coverage across server actions", () => {
     // files, reads included, must call requireAreaAccess.
 
     // permanentlyDeleteClient destroys a company AND, by onDelete: Cascade, its
-    // chantiers: it needs the `projects` rubrique too (lot 5b). Only this action
-    // — trashing is reversible and stays on `clients`.
+    // chantiers and contacts: it needs the `projects` and `clients.contacts`
+    // rubriques too (lot 5b). Only this action — trashing is reversible and stays
+    // on `clients`.
     const ungated = areaViolations(AREA_BY_FILE, REQUIRE_AREA_ACCESS, exportedFn, {
-      "actions/clients/clients.ts::permanentlyDeleteClient": ["clients", "projects"],
+      "actions/clients/clients.ts::permanentlyDeleteClient": ["clients", "projects", "clients.contacts"],
     });
 
     expect(
@@ -1359,7 +1551,7 @@ describe("authorization coverage across server actions", () => {
 // ---------------------------------------------------------------------------
 describe("the area-argument guard check (probes)", () => {
   const REFUSAL_MESSAGE = (fn: string) =>
-    `actions/probe/probe.ts::${fn} — calls requireAreaAccess("loans") but does not REFUSE on it (result bound, its .error tested by an if that exits, in the action body, before any repository/service write)`;
+    `actions/probe/probe.ts::${fn} — calls requireAreaAccess("loans") but does not REFUSE on it (result bound and never reassigned, its .error tested by an if that exits — a throw only if no catch swallows it — on a path every call takes, in the action body, before any write, none of them inside the refusal branch or a finally)`;
 
   const IMPORT = `import { requireAreaAccess } from "@/lib/areaAccess";\n`;
 
@@ -1469,10 +1661,10 @@ describe("the section-argument guard check (probes)", () => {
   const IMPORT = `import { requireSectionAccess } from "@/lib/sectionAccess";\n`;
   const REFUSE = (section: string) => `const c = await requireSectionAccess("${section}"); if (c.error) return c.error;`;
 
-  function violationsOf(code: string, expected: readonly string[]): string[] {
+  function violationsOf(code: string, expected: readonly string[], conditional: readonly string[] = []): string[] {
     const file = "actions/probe/probe.ts";
     const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
-    return areaViolationsIn(source, file, REQUIRE_SECTION_ACCESS, exportedFn, () => expected, SECTION_ACCESS_LIB_FILE);
+    return areaViolationsIn(source, file, REQUIRE_SECTION_ACCESS, exportedFn, () => expected, SECTION_ACCESS_LIB_FILE, () => conditional);
   }
 
   it("goes red on the right guard with ANOTHER file's section (materials pasted into a tasks action)", () => {
@@ -1496,7 +1688,98 @@ describe("the section-argument guard check (probes)", () => {
         if (k) { const d = await requireSectionAccess("interims"); if (d.error) return d.error; }
         await setAssignee(1);
       }`;
-    expect(violationsOf(conditional, ["tasks", "interims"])).toEqual([]);
-    expect(violationsOf(conditional.replace("await setAssignee(1);", "").replace("await findTaskProjectId(1);", "await setAssignee(1);"), ["tasks", "interims"])).toHaveLength(1);
+    expect(violationsOf(conditional, ["tasks", "interims"], ["interims"])).toEqual([]);
+    expect(violationsOf(conditional.replace("await setAssignee(1);", "").replace("await findTaskProjectId(1);", "await setAssignee(1);"), ["tasks", "interims"], ["interims"])).toHaveLength(1);
+    // ... and a conditional guard in an action that is NOT allowed one goes red
+    expect(violationsOf(conditional, ["tasks", "interims"])).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Probes (lot 5b, audit of the refusal check): the forms that stayed green under
+// the first version of it. Each wrong form goes red, its correct neighbour stays
+// green. The letters are the audit's.
+// ---------------------------------------------------------------------------
+describe("the refusal check (probes: forms that used to stay green)", () => {
+  const HEAD =
+    `import { requireAreaAccess } from "@/lib/areaAccess";\n` +
+    `import { update, findById } from "@/repository/x";\n`;
+  const G = `const c = await requireAreaAccess("loans");`;
+  const REFUSE = `${G} if (c.error) return c.error;`;
+
+  function check(code: string, file = "actions/probe/probe.ts", conditional: readonly string[] = []): string[] {
+    const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+    return areaViolationsIn(source, file, REQUIRE_AREA_ACCESS, exportedFn, () => ["loans"], AREA_ACCESS_LIB_FILE, () => conditional);
+  }
+  const red = (code: string, file?: string) => expect(check(code, file)).toHaveLength(1);
+  const green = (code: string, file?: string, conditional?: readonly string[]) => expect(check(code, file, conditional)).toEqual([]);
+
+  it("(a) a refusal by throw inside a try whose catch CONTINUES is swallowed; a catch that leaves keeps it", () => {
+    red(`${HEAD}export async function a() { try { ${G} if (c.error) throw c.error; } catch { } await update(1); }`);
+    red(`${HEAD}export async function a() { try { ${G} if (c.error) throw c.error; } catch (e) { console.log(e); } await update(1); }`);
+    green(`${HEAD}export async function a() { try { ${G} if (c.error) throw c.error; } catch (e) { return { error: e }; } await update(1); }`);
+    green(`${HEAD}export async function a() { ${G} if (c.error) throw c.error; await update(1); }`);
+  });
+
+  it("(b) a guard or a refusal in a CONDITIONAL branch is not a guard — unless the action is explicitly allowed one", () => {
+    red(`${HEAD}export async function a(x: boolean) { if (x) { ${REFUSE} } await update(1); }`);
+    red(`${HEAD}export async function a(x: boolean) { ${G} if (x) { if (c.error) return c.error; } await update(1); }`);
+    red(`${HEAD}export async function a(x: boolean) { x && (await requireAreaAccess("loans")); await update(1); }`);
+    green(`${HEAD}export async function a(x: boolean) { if (x) { ${REFUSE} } await update(1); }`, undefined, ["loans"]);
+    green(`${HEAD}export async function a() { try { ${REFUSE} await update(1); } catch { return 1; } }`);
+  });
+
+  it("(c) a write in a finally, a refusal in a loop, a result reassigned before the test", () => {
+    red(`${HEAD}export async function a() { try { ${REFUSE} } finally { await update(1); } }`);
+    red(`${HEAD}export async function a() { ${G} for (const i of [1]) { if (c.error) return c.error; } await update(1); }`);
+    red(`${HEAD}export async function a() { let c = await requireAreaAccess("loans"); c = { error: null }; if (c.error) return c.error; await update(1); }`);
+    red(`${HEAD}export async function a() { const c = await requireAreaAccess("loans"); c.error = null; if (c.error) return c.error; await update(1); }`);
+    green(`${HEAD}export async function a() { try { ${REFUSE} await update(1); } finally { console.log(1); } }`);
+  });
+
+  it("(d) a write INSIDE the refusal branch writes first, then refuses", () => {
+    red(`${HEAD}export async function a() { ${G} if (c.error) { await update(1); return c.error; } }`);
+    green(`${HEAD}export async function a() { ${G} if (c.error) { console.log(c.error); return c.error; } await update(1); }`);
+  });
+
+  it("(e) the effects beyond repository/service/cloudinary: the LLM scan, the rate limiter, e-mail, a direct prisma import", () => {
+    const wrap = (imp: string, call: string) => `import { requireAreaAccess } from "@/lib/areaAccess";\n${imp}\nexport async function a() { ${call} ${REFUSE} }`;
+    red(wrap(`import { scanDeliveryNote } from "@/lib/deliveryNoteScan";`, "await scanDeliveryNote(1);"));
+    red(wrap(`import { registerFailure } from "@/lib/rate-limit";`, "await registerFailure(1);"));
+    red(wrap(`import { sendEmail } from "@/lib/email";`, "await sendEmail(1);"));
+    red(wrap(`import { prisma } from "@/lib/prisma";`, "await prisma.user.update({});"));
+    red(wrap(`import { prisma as db } from "@/lib/prisma";`, "await db.user.count();"));
+    // a READ by name does not count, from any of those modules
+    green(wrap(`import { getThing } from "@/repository/x";`, "await getThing(1);"));
+    green(wrap(`import { isRateLimited } from "@/lib/rate-limit";`, "await isRateLimited(1);"));
+  });
+
+  it("(f) a namespace import and a relative path are the same effect", () => {
+    red(`import { requireAreaAccess } from "@/lib/areaAccess";\nimport * as repo from "@/repository/x";\nexport async function a() { await repo.update(1); ${REFUSE} }`);
+    red(`import { requireAreaAccess } from "@/lib/areaAccess";\nimport { update } from "../../repository/x";\nexport async function a() { await update(1); ${REFUSE} }`);
+    red(`import { requireAreaAccess } from "@/lib/areaAccess";\nexport async function a() { const repo = await import("@/repository/x"); await repo.update(1); ${REFUSE} }`);
+    green(`import { requireAreaAccess } from "@/lib/areaAccess";\nimport * as repo from "@/repository/x";\nexport async function a() { await repo.findById(1); ${REFUSE} await repo.update(1); }`);
+  });
+
+  it("(g) an action exported by `export { a }`, `export default a`, an anonymous default or a re-export is seen by both walkers", () => {
+    const exportedNames = (code: string) => {
+      const source = ts.createSourceFile("actions/probe/probe.ts", code, ts.ScriptTarget.Latest, true);
+      return {
+        fns: functionsIn(source).filter((f) => f.exported).map((f) => f.name).sort(),
+        pages: pageFunctionsIn(source).filter((f) => f.exported).map((f) => f.name).sort(),
+      };
+    };
+    expect(exportedNames(`async function a() { await update(1); }\nexport { a };`)).toEqual({ fns: ["a"], pages: ["a"] });
+    expect(exportedNames(`async function a() { await update(1); }\nexport default a;`)).toEqual({ fns: ["a"], pages: ["a"] });
+    expect(exportedNames(`export default async function () { await update(1); }`)).toEqual({ fns: ["default"], pages: ["default"] });
+    expect(exportedNames(`export default async () => { await update(1); };`)).toEqual({ fns: ["default"], pages: ["default"] });
+    expect(exportedNames(`export { a, b as c } from "./elsewhere";`)).toEqual({ fns: ["a", "c"], pages: ["a", "c"] });
+    expect(exportedNames(`export * from "./elsewhere";`)).toEqual({ fns: ["*"], pages: ["*"] });
+    // a helper that is NOT exported stays private, and a type-only export is not an action
+    expect(exportedNames(`async function helper() {}\nexport type { T } from "./t";`)).toEqual({ fns: [], pages: [] });
+    // and an unguarded re-exported action is reported by the "every exported action is gated" check
+    const source = ts.createSourceFile("actions/probe/probe.ts", `export { leak } from "./elsewhere";`, ts.ScriptTarget.Latest, true);
+    const fns = functionsIn(source);
+    expect(guardedNames(fns, GUARD_CALLS).has("leak")).toBe(false);
   });
 });

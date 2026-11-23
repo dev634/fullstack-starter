@@ -6,6 +6,7 @@ import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAreaOrRedirect } from "@/lib/areaAccess";
+import { canPermanentlyDeleteProject } from "@/lib/destroyAccess";
 import { ArrowLeftIcon, BoltIcon } from "@heroicons/react/24/outline";
 import TrashProjectActions from "./_components/TrashProjectActions";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -22,6 +23,8 @@ export default async function ProjectsTrashPage() {
   await requireAreaOrRedirect("projects");
 
   const trashed = await findTrashed(projectIdFilter(await getAccessContext()));
+  // The button is offered only when the server action would accept it (lib/destroyAccess.ts).
+  const canDestroy = await canPermanentlyDeleteProject();
   const t = getDictionary(await getLocale());
 
   return (
@@ -54,7 +57,7 @@ export default async function ProjectsTrashPage() {
                       </p>
                     </div>
                   </div>
-                  <TrashProjectActions projectId={project.id} name={project.name} />
+                  <TrashProjectActions projectId={project.id} name={project.name} canDestroy={canDestroy} />
                 </li>
               ))}
             </ul>

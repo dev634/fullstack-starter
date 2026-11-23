@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma, ProjectMaterial } from "@/app/generated/prisma/client";
 import type { MaterialStockStats } from "@/lib/projectDashboard";
 
 type MaterialData = {
@@ -214,25 +215,6 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
-/**
- * Whether the material is currently linked to a task, a series or a category
- * (false when it does not exist). Minimal `select`: read by editMaterial to
- * refuse clearing the required quantity of a LINKED material from a payload
- * that does not carry the link.
- */
-export async function isLinked(id: number): Promise<boolean> {
-    try {
-        const row = await prisma.projectMaterial.findUnique({
-            where: { id },
-            select: { taskId: true, taskGroupId: true, taskCategoryId: true },
-        });
-        return row !== null && (row.taskId !== null || row.taskGroupId !== null || row.taskCategoryId !== null);
-    } catch (error) {
-        console.log("Repository isLinked (material) error:", error);
-        throw { type: "repositoryError", message: "Database Error fetching material." };
-    }
-}
-
 // A PARTIAL write: absent = leave the column alone, null = clear it (every
 // nullable column), a value sets it (lib/partialWrite.ts,
 // tests/repository-partial-write.test.ts).
@@ -258,22 +240,37 @@ type MaterialUpdateData = {
  * Same convention for materialCategoryId, independently: `null` sends the
  * material back to "non classé" without touching the link.
  */
-export async function update(id: number, data: MaterialUpdateData) {
+export async function update(id: number, data: MaterialUpdateData): Promise<ProjectMaterial>;
+export async function update(id: number, data: MaterialUpdateData, accept: (stored: { linked: boolean }) => boolean): Promise<ProjectMaterial | null>;
+export async function update(id: number, data: MaterialUpdateData, accept?: (stored: { linked: boolean }) => boolean): Promise<ProjectMaterial | null> {
     try {
-        return await prisma.projectMaterial.update({
-            where: { id },
-            data: {
-                name: data.name,
-                quantity: data.quantity,
-                unit: data.unit,
-                supplierName: data.supplierName,
-                reference: data.reference,
-                taskId: data.taskId,
-                taskGroupId: data.taskGroupId,
-                taskCategoryId: data.taskCategoryId,
-                requiredQuantity: data.requiredQuantity,
-                materialCategoryId: data.materialCategoryId,
-            },
+        const write = (tx: Prisma.TransactionClient) =>
+            tx.projectMaterial.update({
+                where: { id },
+                data: {
+                    name: data.name,
+                    quantity: data.quantity,
+                    unit: data.unit,
+                    supplierName: data.supplierName,
+                    reference: data.reference,
+                    taskId: data.taskId,
+                    taskGroupId: data.taskGroupId,
+                    taskCategoryId: data.taskCategoryId,
+                    requiredQuantity: data.requiredQuantity,
+                    materialCategoryId: data.materialCategoryId,
+                },
+            });
+        if (!accept) return await write(prisma);
+        // With `accept`: the stored link is read and the write made in ONE
+        // transaction that holds the row (SELECT … FOR UPDATE), so a link added
+        // by a concurrent edit cannot slip in between the check and the write.
+        // `null` = refused, nothing written.
+        return await prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT "id" FROM "ProjectMaterial" WHERE "id" = ${id} FOR UPDATE`;
+            const row = await tx.projectMaterial.findUnique({ where: { id }, select: { taskId: true, taskGroupId: true, taskCategoryId: true } });
+            const linked = row !== null && (row.taskId !== null || row.taskGroupId !== null || row.taskCategoryId !== null);
+            if (row && !accept({ linked })) return null;
+            return write(tx);
         });
     } catch (error) {
         console.log("Repository update material error:", error);

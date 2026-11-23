@@ -5,10 +5,11 @@ import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { projectTrashState } from "@/lib/projectTrash";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
-import { create, findById, findDates, update, remove, softDelete, restore } from "@/repository/projects";
+import { create, findById, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
 import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
@@ -115,20 +116,25 @@ export async function updateProject(
     const { startDate, endDate } = parsed.data;
     const onlyStart = typeof startDate === "string" && endDate === undefined;
     const onlyEnd = typeof endDate === "string" && startDate === undefined;
-    if (onlyStart || onlyEnd) {
-      const stored = await findDates(parsed.data.id);
-      const start = onlyStart ? startDate : stored?.startDate;
-      const end = onlyEnd ? endDate : stored?.endDate;
-      if (start && end && end < start) {
-        return {
-          ...prevState,
-          type: "zodError",
-          message: t.errors.validationError,
-          fieldsForm: { endDate: t.errors.endBeforeStart },
-        };
-      }
+    // The stored bound is read and the write made in ONE locked transaction
+    // (repository update's `accept`): two partial updates racing each other
+    // cannot both pass a check that, together, they break.
+    const project =
+      onlyStart || onlyEnd
+        ? await update(parsed.data.id, parsed.data, (stored) => {
+            const start = onlyStart ? startDate : stored.startDate;
+            const end = onlyEnd ? endDate : stored.endDate;
+            return !(start && end && end < start);
+          })
+        : await update(parsed.data.id, parsed.data);
+    if (project === null) {
+      return {
+        ...prevState,
+        type: "zodError",
+        message: t.errors.validationError,
+        fieldsForm: { endDate: t.errors.endBeforeStart },
+      };
     }
-    const project = await update(parsed.data.id, parsed.data);
     await logActivity({
       action: "UPDATED",
       projectId: parsed.data.id,
@@ -232,6 +238,11 @@ export async function permanentlyDeleteProject(id: number) {
   if (roleCheck.error) return roleCheck.error;
   const areaCheck = await requireAreaAccess("projects");
   if (areaCheck.error) return areaCheck.error;
+  // The cascade takes every section of the chantier (tasks, materials, files and
+  // their Cloudinary blobs, plans, réserves, interventions, workforce): a
+  // function that hides one of them does not get to destroy it.
+  const sectionsCheck = await requireEverySectionAccess();
+  if (sectionsCheck.error) return sectionsCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

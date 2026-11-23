@@ -6,6 +6,7 @@ import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { requireRole } from "@/lib/authz";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
@@ -385,6 +386,13 @@ export async function permanentlyDeleteClient(id: number) {
   // must not be able to do it. (Trashing, reversible, stays on `clients`.)
   const projectsAreaCheck = await requireAreaAccess("projects");
   if (projectsAreaCheck.error) return projectsAreaCheck.error;
+  // It also takes the company's contacts and, through its chantiers, every
+  // project section: the rubrique `clients.contacts` and EVERY section are
+  // required too.
+  const contactsAreaCheck = await requireAreaAccess("clients.contacts");
+  if (contactsAreaCheck.error) return contactsAreaCheck.error;
+  const sectionsCheck = await requireEverySectionAccess();
+  if (sectionsCheck.error) return sectionsCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

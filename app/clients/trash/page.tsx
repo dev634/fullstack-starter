@@ -7,6 +7,7 @@ import Title from "@/components/Title";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAreaOrRedirect } from "@/lib/areaAccess";
+import { canPermanentlyDeleteClient } from "@/lib/destroyAccess";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import TrashItemActions from "./_components/TrashItemActions";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -24,6 +25,8 @@ export default async function TrashPage() {
   await requireAreaOrRedirect("clients");
 
   const trashed = await findTrashed(projectIdFilter(await getAccessContext()));
+  // The button is offered only when the server action would accept it (lib/destroyAccess.ts).
+  const canDestroy = await canPermanentlyDeleteClient();
   const t = getDictionary(await getLocale());
 
   return (
@@ -61,6 +64,7 @@ export default async function TrashPage() {
                   <TrashItemActions
                     clientId={client.id}
                     name={client.companyName}
+                    canDestroy={canDestroy}
                   />
                 </li>
               ))}

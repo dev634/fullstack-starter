@@ -53,28 +53,96 @@ export function callsIn(node: ts.Node): Set<string> {
   return names;
 }
 
+/**
+ * What a module exports BESIDES `export function f` / `export const f = …`:
+ *   - `export { a, b as c }` and `export default a`: the LOCAL functions `a`, `b`
+ *     are exported (an action written `async function f() {}` then `export { f }`
+ *     is as reachable as one written `export async function f()`);
+ *   - `export { a } from "./x"` and `export * from "./x"`: names re-exported with
+ *     no body here — each is an action surface this file cannot show a gate for;
+ *   - `export default async function () {}` / `export default () => {}`: an
+ *     anonymous default, named "default".
+ * Before lot 5b only the two `export`-modifier forms were seen, so every other
+ * way of exporting an action walked past the "every exported action is gated" test.
+ */
+export type ExportInfo = {
+  /** Local names exported through `export { … }` (no module specifier) or `export default <identifier>`. */
+  locals: Set<string>;
+  /** Names re-exported from another module (`"*"` for `export * from`). */
+  reexports: string[];
+  /** The declaration node of each re-export, for a line number / a body-less stand-in. */
+  reexportNodes: ts.Node[];
+  /** Bodies of anonymous default exports (a function declaration or an arrow / function expression). */
+  anonymousDefaults: ts.Node[];
+};
+
+export function exportInfoOf(source: ts.SourceFile): ExportInfo {
+  const info: ExportInfo = { locals: new Set(), reexports: [], reexportNodes: [], anonymousDefaults: [] };
+  for (const node of source.statements) {
+    if (ts.isExportDeclaration(node)) {
+      if (node.isTypeOnly) continue;
+      const clause = node.exportClause;
+      if (node.moduleSpecifier) {
+        if (!clause) {
+          info.reexports.push("*");
+          info.reexportNodes.push(node);
+        } else if (ts.isNamespaceExport(clause)) {
+          info.reexports.push(clause.name.text);
+          info.reexportNodes.push(node);
+        } else {
+          for (const el of clause.elements) {
+            if (el.isTypeOnly) continue;
+            info.reexports.push(el.name.text);
+            info.reexportNodes.push(node);
+          }
+        }
+      } else if (clause && ts.isNamedExports(clause)) {
+        for (const el of clause.elements) if (!el.isTypeOnly) info.locals.add((el.propertyName ?? el.name).text);
+      }
+    } else if (ts.isExportAssignment(node) && !node.isExportEquals) {
+      const e = node.expression;
+      if (ts.isIdentifier(e)) info.locals.add(e.text);
+      else if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) info.anonymousDefaults.push(e.body);
+    } else if (ts.isFunctionDeclaration(node) && !node.name && node.body) {
+      const mods = ts.getModifiers(node) ?? [];
+      if (mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) && mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) {
+        info.anonymousDefaults.push(node.body);
+      }
+    }
+  }
+  return info;
+}
+
 export type Fn = { name: string; exported: boolean; calls: Set<string> };
 
-/** Every top-level named function in `source` — `function foo() {}` and `const foo = () => {}` alike. */
+/**
+ * Every top-level named function in `source` — `function foo() {}` and
+ * `const foo = () => {}` alike — plus a stand-in for each anonymous default
+ * export ("default") and each re-export (its name, no calls: nothing here
+ * gates it).
+ */
 export function functionsIn(source: ts.SourceFile): Fn[] {
   const fns: Fn[] = [];
+  const info = exportInfoOf(source);
+  const hasExport = (node: ts.Node) => (ts.getModifiers(node as ts.HasModifiers) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
   ts.forEachChild(source, (node) => {
     // `export async function foo()` and plain `async function helper()`
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-      fns.push({ name: node.name.text, exported, calls: callsIn(node.body) });
+      fns.push({ name: node.name.text, exported: hasExport(node) || info.locals.has(node.name.text), calls: callsIn(node.body) });
       return;
     }
     // `const foo = async () => {}` / `export const foo = async () => {}`
     if (ts.isVariableStatement(node)) {
-      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      const exported = hasExport(node);
       for (const decl of node.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
         if (!ts.isArrowFunction(decl.initializer) && !ts.isFunctionExpression(decl.initializer)) continue;
-        fns.push({ name: decl.name.text, exported, calls: callsIn(decl.initializer.body) });
+        fns.push({ name: decl.name.text, exported: exported || info.locals.has(decl.name.text), calls: callsIn(decl.initializer.body) });
       }
     }
   });
+  for (const body of info.anonymousDefaults) fns.push({ name: "default", exported: true, calls: callsIn(body) });
+  for (const name of info.reexports) fns.push({ name, exported: true, calls: new Set() });
   return fns;
 }
 

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { Prisma, type ProjectStatus, type ProjectType } from "@/app/generated/prisma/client";
+import { Prisma, type Project, type ProjectStatus, type ProjectType } from "@/app/generated/prisma/client";
 import { projectTrashState, type ProjectTrashState } from "@/lib/projectTrash";
 import { dateColumn } from "@/lib/partialWrite";
 
@@ -324,26 +324,6 @@ export async function findClientIdsAmong(projectIds: number[]): Promise<number[]
 }
 
 /**
- * The two stored bounds of a project as "AAAA-MM-JJ" (null = not set), or
- * `undefined` when the project does not exist. Minimal `select`: read by
- * updateProject to compare a partial update that sends only ONE bound against
- * the stored other one (no CHECK in the database orders them).
- */
-export async function findDates(id: number): Promise<{ startDate: string | null; endDate: string | null } | undefined> {
-    try {
-        const row = await prisma.project.findUnique({ where: { id }, select: { startDate: true, endDate: true } });
-        if (!row) return undefined;
-        return {
-            startDate: row.startDate ? row.startDate.toISOString().slice(0, 10) : null,
-            endDate: row.endDate ? row.endDate.toISOString().slice(0, 10) : null,
-        };
-    } catch (error) {
-        console.log("Repository findDates (project) error:", error);
-        throw { type: "repositoryError", message: "Database Error fetching project dates." };
-    }
-}
-
-/**
  * A PARTIAL write: `field?: T` is "absent = leave the column alone",
  * `field: null` is "clear it" (only for the nullable columns), a value sets
  * it. Prisma ignores `undefined`, so nothing here folds absent into null or
@@ -362,24 +342,47 @@ export type ProjectUpdateData = {
     notes?: string | null;
 };
 
-export async function update(id: number, data: ProjectUpdateData) {
+/** The two stored bounds of a project as "AAAA-MM-JJ" (null = not set). */
+export type StoredProjectDates = { startDate: string | null; endDate: string | null };
+
+const isoDay = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+
+/**
+ * Updates a project. With `accept`, the stored dates are read and the write
+ * made in ONE transaction that holds the row (SELECT … FOR UPDATE): a partial
+ * update that sends a single date bound is checked against the bound it does
+ * not send, and two such updates racing each other cannot both pass a check
+ * that, together, they break. `null` = `accept` refused the stored state,
+ * nothing was written.
+ */
+export async function update(id: number, data: ProjectUpdateData): Promise<Project>;
+export async function update(id: number, data: ProjectUpdateData, accept: (stored: StoredProjectDates) => boolean): Promise<Project | null>;
+export async function update(id: number, data: ProjectUpdateData, accept?: (stored: StoredProjectDates) => boolean): Promise<Project | null> {
     try {
-        const project = await prisma.project.update({
-            where: { id },
-            data: {
-                name: data.name,
-                businessNumber: data.businessNumber,
-                type: data.type,
-                status: data.status,
-                power: data.power,
-                budget: data.budget,
-                address: data.address,
-                startDate: dateColumn(data.startDate),
-                endDate: dateColumn(data.endDate),
-                notes: data.notes,
-            },
+        const write = (tx: Prisma.TransactionClient) =>
+            tx.project.update({
+                where: { id },
+                data: {
+                    name: data.name,
+                    businessNumber: data.businessNumber,
+                    type: data.type,
+                    status: data.status,
+                    power: data.power,
+                    budget: data.budget,
+                    address: data.address,
+                    startDate: dateColumn(data.startDate),
+                    endDate: dateColumn(data.endDate),
+                    notes: data.notes,
+                },
+            });
+        if (!accept) return await write(prisma);
+        return await prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT "id" FROM "Project" WHERE "id" = ${id} FOR UPDATE`;
+            const row = await tx.project.findUnique({ where: { id }, select: { startDate: true, endDate: true } });
+            // A row that does not exist is left to the write below, which fails as it always did.
+            if (row && !accept({ startDate: isoDay(row.startDate), endDate: isoDay(row.endDate) })) return null;
+            return write(tx);
         });
-        return project;
     } catch (error) {
         console.log("Repository update project error:", error);
         throw {

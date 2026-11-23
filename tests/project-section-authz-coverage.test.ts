@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import ts from "typescript";
 import { join, relative, resolve, dirname, sep } from "node:path";
-import { sourceFilesIn, callsIn, parseSource } from "./helpers/astScan";
+import { sourceFilesIn, callsIn, parseSource, exportInfoOf } from "./helpers/astScan";
 import { PROJECT_SECTION_ROUTES } from "@/lib/projectSections";
 
 /**
@@ -151,7 +151,7 @@ function bodyCallsGuard(node: ts.Node, bindings: GuardBindings): boolean {
  * route. `resolveProjectSectionAccess({ id, projectId }, "files")` ->
  * {"files"}; `..., ["tasks", "materials"])` -> {"tasks", "materials"}.
  */
-function guardCallSections(source: ts.SourceFile, bindings: GuardBindings): Set<string>[] {
+function guardCallSections(source: ts.Node, bindings: GuardBindings): Set<string>[] {
   const calls: Set<string>[] = [];
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n)) {
@@ -178,20 +178,17 @@ function guardCallSections(source: ts.SourceFile, bindings: GuardBindings): Set<
   return calls;
 }
 
-/** Whether some guard call of `source` names exactly the section keys `expected` (the route's own, from the table). */
-function namesTheRouteSections(source: ts.SourceFile, bindings: GuardBindings, expected: readonly string[]): boolean {
-  const want = [...expected].sort().join("+");
-  return guardCallSections(source, bindings).some((keys) => [...keys].sort().join("+") === want);
-}
-
 type FnNode = { name: string; exported: boolean; body: ts.Node; calls: Set<string> };
 
 /** Top-level named functions in `source`, with their body node kept (unlike tests/helpers/astScan.ts's functionsIn, which only keeps bare call names — not enough to tell an import-resolved call from a same-named local declaration). */
 function functionNodesIn(source: ts.SourceFile): FnNode[] {
   const fns: FnNode[] = [];
+  // `export { Page }`, `export default Page`, an anonymous default and a re-export
+  // are entry points too (lot 5b): see exportInfoOf.
+  const info = exportInfoOf(source);
   ts.forEachChild(source, (node) => {
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      const exported = (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword) || info.locals.has(node.name.text);
       fns.push({ name: node.name.text, exported, body: node.body, calls: callsIn(node.body) });
       return;
     }
@@ -200,10 +197,12 @@ function functionNodesIn(source: ts.SourceFile): FnNode[] {
       for (const decl of node.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
         if (!ts.isArrowFunction(decl.initializer) && !ts.isFunctionExpression(decl.initializer)) continue;
-        fns.push({ name: decl.name.text, exported, body: decl.initializer.body, calls: callsIn(decl.initializer.body) });
+        fns.push({ name: decl.name.text, exported: exported || info.locals.has(decl.name.text), body: decl.initializer.body, calls: callsIn(decl.initializer.body) });
       }
     }
   });
+  for (const body of info.anonymousDefaults) fns.push({ name: "default", exported: true, body, calls: callsIn(body) });
+  info.reexports.forEach((name, i) => fns.push({ name, exported: true, body: info.reexportNodes[i], calls: new Set() }));
   return fns;
 }
 
@@ -232,6 +231,32 @@ function functionsCallingGuard(fns: readonly FnNode[], bindings: GuardBindings):
 
   for (const fn of fns) if (isResolved(fn, new Set())) resolved.add(fn.name);
   return resolved;
+}
+
+/**
+ * The ENTRY functions (the page's exported ones) that do not name exactly the
+ * route's own section keys: a guard call counts for an entry function only if
+ * it sits in that function's own body or in a local helper it reaches. A file
+ * that names the right section in an unused helper, or in a function nobody
+ * exports, protects nothing (lot 5b). Empty when every entry function does.
+ */
+function entriesNotNamingTheRouteSections(fns: readonly FnNode[], bindings: GuardBindings, expected: readonly string[]): string[] {
+  const want = [...expected].sort().join("+");
+  const byName = new Map(fns.map((f) => [f.name, f]));
+  const reached = (fn: FnNode, seen: Set<string>): Set<string>[] => {
+    if (seen.has(fn.name)) return [];
+    seen.add(fn.name);
+    const own = guardCallSections(fn.body, bindings);
+    for (const call of fn.calls) {
+      const local = byName.get(call);
+      if (local) own.push(...reached(local, seen));
+    }
+    return own;
+  };
+  return fns
+    .filter((fn) => fn.exported)
+    .filter((fn) => !reached(fn, new Set()).some((keys) => [...keys].sort().join("+") === want))
+    .map((fn) => fn.name);
 }
 
 describe("every project-section page resolves access through the shared project-section guard", () => {
@@ -266,8 +291,8 @@ describe("every project-section page resolves access through the shared project-
       // By ARGUMENT, not just by name: the guard must be asked for THIS route's
       // section(s). resolveProjectSectionAccess(…, "files") pasted into the
       // réserves page would still be "a call to the shared guard".
-      if (!namesTheRouteSections(source, bindings, sections)) {
-        ungated.push(`${rel} (calls the guard, but never with the route's sections "${sections.join("+")}")`);
+      for (const name of entriesNotNamingTheRouteSections(fns, bindings, sections)) {
+        ungated.push(`${rel}::${name} (the entry function never calls the guard with the route's sections "${sections.join("+")}")`);
       }
     }
 
@@ -292,7 +317,7 @@ describe("the section-argument check (probes)", () => {
 
   function names(code: string, expected: readonly string[]): boolean {
     const source = ts.createSourceFile(FILE, code, ts.ScriptTarget.Latest, true);
-    return namesTheRouteSections(source, collectGuardBindings(source, FILE), expected);
+    return entriesNotNamingTheRouteSections(functionNodesIn(source), collectGuardBindings(source, FILE), expected).length === 0;
   }
 
   it("stays green on the route's own section, single or several, in any order", () => {
@@ -306,5 +331,32 @@ describe("the section-argument check (probes)", () => {
     expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, ["files", "reserves"]); }`, ["files"])).toBe(false);
     expect(names(`${IMPORT}const S = "files";\nexport default async function P() { await resolveProjectSectionAccess({}, S); }`, ["files"])).toBe(false);
     expect(names(`async function resolveProjectSectionAccess(_a: unknown, _s: string) { return 1; }\nexport default async function P() { await resolveProjectSectionAccess({}, "files"); }`, ["files"])).toBe(false);
+  });
+});
+
+describe("the section-argument check names the section in the ENTRY function (probes)", () => {
+  const FILE = "app/clients/[id]/projects/[projectId]/probe/page.tsx";
+  const IMPORT = `import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";
+`;
+  const names = (code: string, expected: readonly string[]) => {
+    const source = ts.createSourceFile(FILE, code, ts.ScriptTarget.Latest, true);
+    return entriesNotNamingTheRouteSections(functionNodesIn(source), collectGuardBindings(source, FILE), expected).length === 0;
+  };
+
+  it("goes red when the right section is named in a helper nobody calls, or in a non-exported function", () => {
+    expect(names(`${IMPORT}async function unused() { await resolveProjectSectionAccess({}, "files"); }
+export default async function P() { return 1; }`, ["files"])).toBe(false);
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, "reserves"); }
+async function other() { await resolveProjectSectionAccess({}, "files"); }`, ["files"])).toBe(false);
+  });
+
+  it("stays green when the entry names it directly, through a local helper it calls, or by export { } / export default", () => {
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, "files"); }`, ["files"])).toBe(true);
+    expect(names(`${IMPORT}async function helper() { await resolveProjectSectionAccess({}, "files"); }
+export default async function P() { await helper(); }`, ["files"])).toBe(true);
+    expect(names(`${IMPORT}async function P() { await resolveProjectSectionAccess({}, "files"); }
+export default P;`, ["files"])).toBe(true);
+    expect(names(`${IMPORT}async function P() { return 1; }
+export { P };`, ["files"])).toBe(false);
   });
 });

@@ -49,6 +49,12 @@ export default function EditMaterialForm({
   // is picked or cleared, and so the current link is pre-selected.
   const [link, setLink] = useState(material.link);
   const isLinked = link !== "";
+  // The picker only lists standalone tasks, series and groups. A material
+  // linked to something else (a task OF a series, for instance) has no
+  // matching <option>: React would fall back on the first one ("no link") and
+  // saving would silently UNLINK it. Such a link is shown as read-only text and
+  // `link` is not sent at all (absent = unchanged).
+  const linkIsListed = material.link === "" || linkOptions.some((o) => `${o.kind}:${o.id}` === material.link);
   // Every other field is controlled too: under `<form action>` React 19 resets
   // uncontrolled fields when the action returns, a validation error included.
   const [name, setName] = useState(material.name);
@@ -196,7 +202,12 @@ export default function EditMaterialForm({
               </div>
             )}
 
-            {linkOptions.length > 0 ? (
+            {!linkIsListed ? (
+              <div className="mb-3">
+                <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.materials.linkedTaskLabel}</span>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{t.materials.linkedTaskKept}</p>
+              </div>
+            ) : linkOptions.length > 0 ? (
               <div className="mb-3">
                 <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
                   {t.materials.linkedTaskLabel}

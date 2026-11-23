@@ -64,7 +64,7 @@ const EXPECTED_FILES_WITH_UPDATES = 16;
 const EXPECTED_UPDATE_FUNCTIONS = 42;
 const EXPECTED_UPDATE_CALLS = 43;
 const EXPECTED_ACTION_FILES_WITH_UPDATES = 13;
-const EXPECTED_ACTION_UPDATE_CALLS = 18;
+const EXPECTED_ACTION_UPDATE_CALLS = 20;
 
 type Scanned = { file: string; scan: WriteScan };
 type ScannedAction = { file: string; scan: ActionScan };

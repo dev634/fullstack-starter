@@ -16,7 +16,6 @@ vi.mock("@/repository/projects", () => ({
   restore: vi.fn(),
   findById: vi.fn(),
   findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }),
-  findDates: vi.fn(),
 }));
 vi.mock("@/repository/clients", () => ({ findByEmail: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ inTrash: false }), }));
 vi.mock("@/repository/projectFolders", () => ({ createDefaults: vi.fn() }));
@@ -28,7 +27,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addProject, updateProject, deleteProject, getProject } from "@/actions/projects/projects";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
-import { create, update, remove, softDelete, findById, findDates, findTrashState } from "@/repository/projects";
+import { create, update, remove, softDelete, findById, findTrashState } from "@/repository/projects";
 import { logActivity } from "@/repository/projectActivity";
 import fr from "@/lib/i18n/dictionaries/fr";
 import { createDefaults } from "@/repository/projectFolders";
@@ -146,37 +145,41 @@ describe("project actions", () => {
 
   // Lot 5b: a payload carrying ONE bound is compared to the stored other one.
   describe("updateProject: a single bound is compared to the stored other one", () => {
-    const stored = { startDate: "2026-03-10", endDate: "2026-06-30" };
+    // The repository reads the stored bounds under a row lock and asks the
+    // action's `accept`; a refusal is a null return and nothing is written.
+    let stored: { startDate: string | null; endDate: string | null };
     beforeEach(() => {
+      stored = { startDate: "2026-03-10", endDate: "2026-06-30" };
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-      updateMock.mockResolvedValue({ id: 1, name: "Toiture" } as never);
-      vi.mocked(findDates).mockResolvedValue(stored);
+      updateMock.mockImplementation((async (_id: number, _data: unknown, accept?: (s: typeof stored) => boolean) =>
+        accept && !accept(stored) ? null : { id: 1, name: "Toiture" }) as never);
     });
 
     it("refuses an endDate before the stored start, on endDate, with the ordering message", async () => {
       const res = await updateProject(initial, formOf({ id: "1", clientId: "1", endDate: "2026-01-01" }));
       expect(res.type).toBe("zodError");
       expect(res.fieldsForm?.endDate).toBe(fr.errors.endBeforeStart);
-      expect(updateMock).not.toHaveBeenCalled();
+      expect(updateMock).toHaveBeenCalledWith(1, expect.anything(), expect.any(Function));
     });
 
     it("refuses a startDate after the stored end", async () => {
       const res = await updateProject(initial, formOf({ id: "1", clientId: "1", startDate: "2026-12-01" }));
       expect(res.type).toBe("zodError");
       expect(res.fieldsForm?.endDate).toBe(fr.errors.endBeforeStart);
-      expect(updateMock).not.toHaveBeenCalled();
+      expect(updateMock).toHaveBeenCalledWith(1, expect.anything(), expect.any(Function));
     });
 
     it("accepts a single bound that keeps the order, and never reads when both bounds travel or one is cleared", async () => {
       expect((await updateProject(initial, formOf({ id: "1", clientId: "1", endDate: "2026-07-01" }))).type).toBe("success");
       expect((await updateProject(initial, formOf({ id: "1", clientId: "1", startDate: "2026-02-01", endDate: "2026-03-01" }))).type).toBe("success");
-      vi.mocked(findDates).mockClear();
+      updateMock.mockClear();
       expect((await updateProject(initial, formOf({ id: "1", clientId: "1", startDate: "2026-12-01", endDate: "" }))).type).toBe("success");
-      expect(vi.mocked(findDates)).not.toHaveBeenCalled();
+      // both bounds, or one cleared: the plain update, no locked read
+      expect(updateMock.mock.calls[0]).toHaveLength(2);
     });
 
     it("accepts a bound when the other one is not set in the database", async () => {
-      vi.mocked(findDates).mockResolvedValue({ startDate: null, endDate: null });
+      stored = { startDate: null, endDate: null };
       expect((await updateProject(initial, formOf({ id: "1", clientId: "1", endDate: "2020-01-01" }))).type).toBe("success");
     });
   });
