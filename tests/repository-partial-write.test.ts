@@ -64,7 +64,7 @@ const EXPECTED_FILES_WITH_UPDATES = 16;
 const EXPECTED_UPDATE_FUNCTIONS = 42;
 const EXPECTED_UPDATE_CALLS = 43;
 const EXPECTED_ACTION_FILES_WITH_UPDATES = 13;
-const EXPECTED_ACTION_UPDATE_CALLS = 20;
+const EXPECTED_ACTION_UPDATE_CALLS = 19;
 
 type Scanned = { file: string; scan: WriteScan };
 type ScannedAction = { file: string; scan: ActionScan };
@@ -120,7 +120,9 @@ describe("repository updates never fold an absent field into null or a default",
   it("inspects an exact, published set of action-layer updates (a file or call dropped from the walk turns this red)", () => {
     // Method: calls, in actions/**, to a function imported from @/repository/*
     // under an original name starting with "update" — counted by scanActionUpdates
-    // (AST), at the commit of lot 5b (on 09fbd0b + the lot 5b changes).
+    // (AST), on the lot 5b working tree above c934ac0, itself on main at 5eecf78
+    // (the merge of lot 5a). 20 -> 19 there: lot 5a folded updatePassword into
+    // updateProfile, so one call site (and its own file entry) disappeared.
     const withCalls = actionScans.filter(({ scan }) => scan.calls > 0);
     expect({ files: withCalls.length, calls: withCalls.reduce((n, { scan }) => n + scan.calls, 0) }).toEqual({
       files: EXPECTED_ACTION_FILES_WITH_UPDATES,
@@ -350,6 +352,48 @@ describe("the scanner (probes: neighbour forms)", () => {
 function actionFindingsOf(body: string): string[] {
   return scanActionUpdates(`import { update, update as updateLoan, findById } from "@/repository/x";\n${body}`).findings.map((f) => f.kind);
 }
+
+describe("the scanner, action layer: guards and callbacks are not data (probes)", () => {
+  // The declaration the scanner reads to tell a callback from data, as in
+  // repository/jobFunctions.ts (`guard: FunctionGuard | null`) and projects.ts
+  // (`accept?: (stored) => boolean`).
+  const REPOSITORY = `
+    export type FunctionGuard = (state: unknown) => string | null;
+    export async function updateConfig(id: number, config: { a: string }, guard: FunctionGuard | null) { return 1; }
+    export async function update(id: number, data: { a?: string }, accept?: (stored: unknown) => boolean) { return 1; }
+    export async function updateStatus(id: number, status: string) { return 1; }
+  `;
+  const scan = (body: string) =>
+    scanActionUpdates(
+      `import { updateConfig, update, updateStatus } from "@/repository/x";
+${body}`,
+      "actions/probe.ts",
+      () => REPOSITORY
+    );
+
+  it("a guard or a callback in its own place stays green, whatever the helper that builds it is called", () => {
+    expect(scan(`export async function a(d: D) { return updateConfig(1, { a: d.a }, guardFor(actor, d)); }`).findings).toEqual([]);
+    expect(scan(`export async function a(d: D) { return update(1, { a: d.a }, (stored) => stored.x !== d.y); }`).findings).toEqual([]);
+    expect(scan(`export async function a(d: D) { return updateConfig(1, { a: d.a }, null); }`).findings).toEqual([]);
+  });
+
+  it("goes red when the same helper is passed where DATA goes, or when the data itself folds", () => {
+    expect(scan(`export async function a(d: D) { return updateConfig(1, guardFor(actor, d), null); }`).findings.map((f) => f.kind)).toEqual(["opaque value"]);
+    expect(scan(`export async function a(d: D) { return updateConfig(1, { a: d.a ?? null }, guardFor(actor, d)); }`).findings.map((f) => f.kind)).toEqual(["?? <literal>"]);
+    // a scalar parameter (status) is a value, not a callback: still inspected
+    expect(scan(`export async function a(d: D) { return updateStatus(1, d.s ?? "OPEN"); }`).findings.map((f) => f.kind)).toEqual(["?? <literal>"]);
+  });
+
+  it("fails closed: a declaration the scanner cannot read inspects every argument", () => {
+    const unreadable = scanActionUpdates(
+      `import { updateConfig } from "@/repository/x";
+export async function a(d: D) { return updateConfig(1, { a: d.a }, guardFor(actor, d)); }`,
+      "actions/probe.ts",
+      () => undefined
+    );
+    expect(unreadable.findings.map((f) => f.kind)).toEqual(["opaque value"]);
+  });
+});
 
 describe("the scanner, action layer (probes)", () => {
   it("flags the folds in the arguments of an imported update*, aliased or not", () => {

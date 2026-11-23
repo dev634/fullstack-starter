@@ -23,8 +23,10 @@ import { sourceFilesIn } from "@/tests/helpers/astScan";
  * receiver chain goes through Cloudinary's `uploader` (upload_stream, destroy…).
  * Names: ^(find|get|count|has|is|list|search|exists).
  * Counts are exact and published below (method: this test's own walk, on the
- * lot 5b working tree above 1eee1f0); a function added or renamed changes them
- * on purpose — recheck the new one, then update the number.
+ * lot 5b working tree above c934ac0, itself on main at 5eecf78 — the merge of lot
+ * 5a, net +8 functions and +5 read-named ones (227 -> 235, 105 -> 110), none of which writes: the
+ * "never writes" test above passed before the recount); a function added or
+ * renamed changes them on purpose — recheck the new one, then update the number.
  */
 
 const READ_NAME = /^(find|get|count|has|is|list|search|exists)/;
@@ -42,8 +44,8 @@ const PRISMA_WRITES: ReadonlySet<string> = new Set([
 ]);
 
 const EXPECTED_FILES = 29;
-const EXPECTED_FUNCTIONS = 227;
-const EXPECTED_READ_NAMED = 105;
+const EXPECTED_FUNCTIONS = 235;
+const EXPECTED_READ_NAMED = 110;
 
 type Fn = { name: string; body: ts.Node };
 

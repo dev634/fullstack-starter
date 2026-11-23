@@ -1,4 +1,6 @@
 import ts from "typescript";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Scans a source for the forms that fold "absent" into a value in the `data` of
@@ -444,30 +446,89 @@ export function scanWrites(source: string, fileName = "repository/x.ts"): WriteS
  * `updateSomething` does not). Each argument is read like the value of a
  * column: `phone || null`, `x ?? null`, a replacement ternary, an opaque helper
  * and a non-conditional spread are refused.
+ *
+ * Only the arguments that CARRY DATA are read. A repository update may also take
+ * a guard or a callback (`updateConfig(id, data, guard)`, `updateProfile(id,
+ * data, relay)`, `update(id, data, accept)`): that is not a column value. Which
+ * parameter is a callback is read from the DECLARATION of the repository
+ * function, not from a list of names: a parameter whose type is a function type,
+ * written inline or through a local `type X = (…) => …` alias (a `| null` or
+ * `| undefined` around it is ignored). A parameter whose type cannot be read as
+ * a function type is data — an unreadable declaration fails closed, every
+ * argument is inspected. `repositorySourceOf` returns the source of a
+ * repository module from its import specifier (default: the file on disk).
  */
-export function scanActionUpdates(source: string, fileName = "actions/x.ts"): ActionScan {
+export function scanActionUpdates(
+  source: string,
+  fileName = "actions/x.ts",
+  repositorySourceOf: (specifier: string) => string | undefined = readRepositorySource
+): ActionScan {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const scan: ActionScan = { calls: 0, findings: [] };
 
-  const locals = new Set<string>();
+  // local name -> indexes of the parameters that are callbacks (not data)
+  const locals = new Map<string, ReadonlySet<number>>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
     if (!st.moduleSpecifier.text.startsWith("@/repository/")) continue;
     const bindings = st.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const moduleSource = repositorySourceOf(st.moduleSpecifier.text);
+    const moduleFile = moduleSource === undefined ? undefined : ts.createSourceFile(st.moduleSpecifier.text, moduleSource, ts.ScriptTarget.Latest, true);
     for (const el of bindings.elements) {
-      if ((el.propertyName ?? el.name).text.startsWith("update")) locals.add(el.name.text);
+      const imported = (el.propertyName ?? el.name).text;
+      if (imported.startsWith("update")) locals.set(el.name.text, moduleFile ? callbackParameters(moduleFile, imported) : new Set());
     }
   }
 
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && locals.has(n.expression.text)) {
       scan.calls += 1;
+      const callbacks = locals.get(n.expression.text)!;
       const ctx: Ctx = { out: scan.findings, seen: new Set() };
-      for (const arg of n.arguments) checkValue(arg, ctx);
+      n.arguments.forEach((arg, i) => {
+        if (!callbacks.has(i)) checkValue(arg, ctx);
+      });
     }
     ts.forEachChild(n, visit);
   };
   visit(sf);
   return scan;
+}
+
+/** The repository module behind `@/repository/<name>`, read from disk (undefined when it cannot be). */
+function readRepositorySource(specifier: string): string | undefined {
+  const file = join(process.cwd(), specifier.replace("@/", "") + ".ts");
+  return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+}
+
+/** Whether a parameter type is a function type: inline, or through a local `type X = (…) => …`; `| null` / `| undefined` ignored. */
+function isFunctionType(type: ts.TypeNode, module: ts.SourceFile, depth = 0): boolean {
+  if (depth > 5) return false;
+  if (ts.isParenthesizedTypeNode(type)) return isFunctionType(type.type, module, depth + 1);
+  if (ts.isFunctionTypeNode(type)) return true;
+  if (ts.isUnionTypeNode(type)) {
+    const real = type.types.filter((t) => !(ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword) && t.kind !== ts.SyntaxKind.UndefinedKeyword);
+    return real.length > 0 && real.every((t) => isFunctionType(t, module, depth + 1));
+  }
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    const name = type.typeName.text;
+    for (const st of module.statements) {
+      if (ts.isTypeAliasDeclaration(st) && st.name.text === name) return isFunctionType(st.type, module, depth + 1);
+    }
+  }
+  return false;
+}
+
+/** Indexes of the parameters of the repository function `name` (its implementation signature) whose type is a function type. */
+function callbackParameters(module: ts.SourceFile, name: string): ReadonlySet<number> {
+  const out = new Set<number>();
+  for (const st of module.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) {
+      st.parameters.forEach((p, i) => {
+        if (p.type && isFunctionType(p.type, module)) out.add(i);
+      });
+    }
+  }
+  return out;
 }
