@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/app/generated/prisma/client";
+import { Prisma, type ProjectStatus, type ProjectType } from "@/app/generated/prisma/client";
 import { projectTrashState, type ProjectTrashState } from "@/lib/projectTrash";
+import { dateColumn } from "@/lib/partialWrite";
 
 export type ProjectSortField = "name" | "status" | "createdAt";
 
@@ -322,21 +323,40 @@ export async function findClientIdsAmong(projectIds: number[]): Promise<number[]
     }
 }
 
-export async function update(id: number, data: ProjectData) {
+/**
+ * A PARTIAL write: `field?: T` is "absent = leave the column alone",
+ * `field: null` is "clear it" (only for the nullable columns), a value sets
+ * it. Prisma ignores `undefined`, so nothing here folds absent into null or
+ * into a default (lib/partialWrite.ts, tests/repository-partial-write.test.ts).
+ */
+export type ProjectUpdateData = {
+    name?: string;
+    businessNumber?: string | null;
+    type?: ProjectType;
+    status?: ProjectStatus;
+    power?: number | null;
+    budget?: number | null;
+    address?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    notes?: string | null;
+};
+
+export async function update(id: number, data: ProjectUpdateData) {
     try {
         const project = await prisma.project.update({
             where: { id },
             data: {
                 name: data.name,
-                businessNumber: data.businessNumber || null,
-                type: (data.type ?? "AUTRE") as never,
-                status: data.status as never,
-                power: data.power ?? null,
-                budget: data.budget ?? null,
-                address: data.address || null,
-                startDate: data.startDate ? new Date(data.startDate) : null,
-                endDate: data.endDate ? new Date(data.endDate) : null,
-                notes: data.notes || null,
+                businessNumber: data.businessNumber,
+                type: data.type,
+                status: data.status,
+                power: data.power,
+                budget: data.budget,
+                address: data.address,
+                startDate: dateColumn(data.startDate),
+                endDate: dateColumn(data.endDate),
+                notes: data.notes,
             },
         });
         return project;
@@ -349,11 +369,13 @@ export async function update(id: number, data: ProjectData) {
     }
 }
 
+// Partial, like ProjectUpdateData: absent = leave alone, null = back to the
+// product default, a string = custom.
 export type ReserveStatusStyleData = {
-    openLabel: string | null;
-    openColor: string | null;
-    resolvedLabel: string | null;
-    resolvedColor: string | null;
+    openLabel?: string | null;
+    openColor?: string | null;
+    resolvedLabel?: string | null;
+    resolvedColor?: string | null;
 };
 
 /**

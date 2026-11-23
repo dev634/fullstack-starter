@@ -30,12 +30,14 @@ import type { ProjectMaterialActionState } from "@/types/projectMaterial";
  * why the earlier sweep of FK-shaped fields missed it.
  */
 async function linkTargetInProject(
-  data: { taskId?: number; taskGroupId?: number; taskCategoryId?: number },
+  data: { taskId?: number | null; taskGroupId?: number | null; taskCategoryId?: number | null },
   projectId: number
 ): Promise<boolean> {
-  if (data.taskId !== undefined) return (await findTaskProjectId(data.taskId)) === projectId;
-  if (data.taskGroupId !== undefined) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
-  if (data.taskCategoryId !== undefined) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
+  // `!= null`: on an update, null is "clear the link" (nothing to resolve),
+  // undefined is "leave it" — only a number names a target to cross-check.
+  if (data.taskId != null) return (await findTaskProjectId(data.taskId)) === projectId;
+  if (data.taskGroupId != null) return (await findTaskGroupProjectId(data.taskGroupId)) === projectId;
+  if (data.taskCategoryId != null) return (await findTaskCategoryProjectId(data.taskCategoryId)) === projectId;
   return true;
 }
 

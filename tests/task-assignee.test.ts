@@ -65,9 +65,31 @@ describe("parseAssignee", () => {
   it("maps worker:<id> to assignedWorkerId only", () => {
     expect(parseAssignee("worker:3")).toEqual({ assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: 3 });
   });
-  it("treats empty / unknown / invalid as unassigned", () => {
-    for (const v of ["", "none", "company:0", "company:-1", "company:abc", undefined, null]) {
-      expect(parseAssignee(v as string)).toEqual({ assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null });
+  it("reads only the explicit empty value as 'no assignee'", () => {
+    expect(parseAssignee("")).toEqual({ assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null });
+  });
+  // Lot 5b: a value that is not understood used to be normalised to "no
+  // assignee" — a typo erased an existing assignment. It is refused now.
+  it("REFUSES (null) a value it does not understand instead of clearing the assignment", () => {
+    for (const v of [
+      "none",
+      "bogus:3",
+      "company",
+      "company:",
+      "company:0",
+      "company:-1",
+      "company:abc",
+      "company:1.5",
+      "company:1e3",
+      "company:03",
+      "company:5:6",
+      "company: 5",
+      " company:5",
+      "COMPANY:5",
+      "company:99999999999999999999",
+      " ",
+    ]) {
+      expect(parseAssignee(v), v).toBeNull();
     }
   });
 });
@@ -111,6 +133,17 @@ describe("setAssignee action", () => {
     groupRepoMock.mockResolvedValue({ id: 1 } as never);
     await setAssignee("group", 4, "interim:9", 1, 3);
     expect(groupRepoMock).toHaveBeenCalledWith(4, { assignedCompanyId: null, assignedInterimId: 9, assignedWorkerId: null });
+  });
+
+  it("refuses a malformed assignee value instead of clearing the assignment (lot 5b)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    for (const bad of ["compagny:2", "company:abc", "company:0", "none"]) {
+      const res = await setAssignee("task", 7, bad, 1, 3);
+      expect(res.type, bad).toBe("error");
+    }
+    expect(taskRepoMock).not.toHaveBeenCalled();
+    expect(groupRepoMock).not.toHaveBeenCalled();
+    expect(categoryRepoMock).not.toHaveBeenCalled();
   });
 
   it("routes a category assignment (cleared) to the category repository", async () => {

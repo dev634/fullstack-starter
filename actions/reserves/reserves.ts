@@ -446,10 +446,10 @@ export async function updateReserveStatusStyle(
 
   try {
     const project = await updateReserveStatusStyleRow(parsed.data.projectId, {
-      openLabel: parsed.data.openLabel ?? null,
-      openColor: parsed.data.openColor ?? null,
-      resolvedLabel: parsed.data.resolvedLabel ?? null,
-      resolvedColor: parsed.data.resolvedColor ?? null,
+      openLabel: parsed.data.openLabel,
+      openColor: parsed.data.openColor,
+      resolvedLabel: parsed.data.resolvedLabel,
+      resolvedColor: parsed.data.resolvedColor,
     });
     revalidateReserves(clientId, parsed.data.projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.statusStyleUpdated, data: project };

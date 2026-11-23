@@ -64,8 +64,9 @@ export async function create(data: EquipmentData) {
 }
 
 type EquipmentUpdateData = {
-    name: string;
-    reference?: string;
+    name?: string;
+    /** `undefined` = leave it; `null` = no reference; a string = the new one. */
+    reference?: string | null;
     /** `undefined` = leave the photo untouched; `null` = clear the pair;
      * a string = the new upload's field. Always written together with
      * photoPublicId — see the CHECK on Equipment_photo_pair_check. */
@@ -79,7 +80,7 @@ export async function update(id: number, data: EquipmentUpdateData) {
             where: { id },
             data: {
                 name: data.name,
-                reference: data.reference ?? null,
+                reference: data.reference,
                 ...(data.photoUrl !== undefined ? { photoUrl: data.photoUrl, photoPublicId: data.photoPublicId } : {}),
             },
             select: EQUIPMENT_LIST_SELECT,

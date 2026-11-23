@@ -479,7 +479,9 @@ describe("material actions", () => {
     );
     expect(updateMock).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ taskId: 5, taskGroupId: undefined, taskCategoryId: undefined, requiredQuantity: 20 })
+      // The other two link columns are explicitly cleared (null), not left
+      // undefined: picking a task detaches any series/category link.
+      expect.objectContaining({ taskId: 5, taskGroupId: null, taskCategoryId: null, requiredQuantity: 20 })
     );
     expect(res.type).toBe("success");
   });

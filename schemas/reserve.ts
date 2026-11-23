@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NOTE_LENGTH, MAX_NAME_LENGTH, CONTROL_CHAR } from "@/schemas/fields";
+import { MAX_NOTE_LENGTH, MAX_NAME_LENGTH, CONTROL_CHAR, clearable } from "@/schemas/fields";
 import { hexColor } from "@/schemas/appSettings";
 
 export const reserveStatusSchema = z.enum(["OPEN", "RESOLVED"]);
@@ -20,16 +20,21 @@ export const reserveStatusSchema = z.enum(["OPEN", "RESOLVED"]);
 // isn't empty (adversarial pass on EDITOR, point 3). Accepting the comma
 // (rather than only fixing the message) is the fix: it's the ordinary way a
 // French user types a decimal here, not a malformed input.
+const decimalText = (v: unknown): unknown => (typeof v === "string" ? v.replace(",", ".") : v);
+
 const optionalCoord = (min: number, max: number) =>
     z
         .preprocess(
-            (v) => {
-                if (v === "" || v === null || v === undefined) return undefined;
-                return typeof v === "string" ? v.replace(",", ".") : v;
-            },
+            (v) => (v === "" || v === null || v === undefined ? undefined : decimalText(v)),
             z.coerce.number().min(min).max(max).optional()
         )
         .optional();
+
+// UPDATE counterpart: absent -> undefined (leave the coordinate alone),
+// blank/null -> null (no GPS), a value -> the number (schemas/fields.ts,
+// "Partial writes").
+const clearableCoord = (min: number, max: number) =>
+    clearable(z.preprocess(decimalText, z.coerce.number().min(min).max(max)));
 
 // Adversarial pass 2, point 5: description had no upper bound — proven
 // reachable at 500 000 characters.
@@ -43,12 +48,14 @@ export const createReserveSchema = z.object({
     longitude: optionalCoord(-180, 180),
 });
 
+// UPDATE: no `.default()` on `status` (an absent one used to reopen a
+// resolved réserve), absent coordinates are left alone and blank ones clear.
 export const updateReserveSchema = z.object({
     id: z.coerce.number().int().positive(),
-    description: z.string().min(1, "La description est requise").max(MAX_NOTE_LENGTH),
-    status: reserveStatusSchema.default("OPEN"),
-    latitude: optionalCoord(-90, 90),
-    longitude: optionalCoord(-180, 180),
+    description: z.string().min(1, "La description est requise").max(MAX_NOTE_LENGTH).optional(),
+    status: reserveStatusSchema.optional(),
+    latitude: clearableCoord(-90, 90),
+    longitude: clearableCoord(-180, 180),
 });
 
 export type CreateReserveInput = z.infer<typeof createReserveSchema>;

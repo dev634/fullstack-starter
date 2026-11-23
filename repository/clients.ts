@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { type Client, Prisma } from "@/app/generated/prisma/client";
+import { type Client, type ClientStatus, Prisma } from "@/app/generated/prisma/client";
 
 
 
@@ -318,7 +318,25 @@ export async function findById(id: number) {
     }
 }
 
-export async function update({ id, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: Omit<Client, "photoUrl" | "deletedAt"> & { photoUrl?: string | null }) {
+// A PARTIAL write: absent = leave the column alone, null = clear it (only the
+// nullable columns), a value sets it (lib/partialWrite.ts,
+// tests/repository-partial-write.test.ts).
+export type ClientUpdateData = {
+    id: number;
+    email?: string;
+    companyName?: string;
+    address?: string;
+    city?: string;
+    zipCode?: string;
+    country?: string;
+    phone?: string | null;
+    website?: string | null;
+    status?: ClientStatus;
+    /** `undefined` = keep the photo; `null` = remove it; a string = the new one. */
+    photoUrl?: string | null;
+};
+
+export async function update({ id, email, companyName, address, city, zipCode, country, phone, website, status, photoUrl }: ClientUpdateData) {
     try{
         const client = await prisma.client.update({
             where: { id },

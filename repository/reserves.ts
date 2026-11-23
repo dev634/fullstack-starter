@@ -11,9 +11,11 @@ type ReserveCreateData = {
     longitude?: number | null;
 };
 
+// A PARTIAL write: absent = leave the column alone, null = clear it (GPS only),
+// a value sets it (lib/partialWrite.ts, tests/repository-partial-write.test.ts).
 type ReserveUpdateData = {
-    description: string;
-    status: ReserveStatus;
+    description?: string;
+    status?: ReserveStatus;
     latitude?: number | null;
     longitude?: number | null;
 };
@@ -84,8 +86,8 @@ export async function update(id: number, data: ReserveUpdateData) {
             data: {
                 description: data.description,
                 status: data.status,
-                latitude: data.latitude ?? null,
-                longitude: data.longitude ?? null,
+                latitude: data.latitude,
+                longitude: data.longitude,
             },
         });
     } catch (error) {

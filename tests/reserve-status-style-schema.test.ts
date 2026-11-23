@@ -30,11 +30,12 @@ describe("updateReserveStatusStyleSchema", () => {
     // resolved this to null" apart from "this key was never even parsed".
     // The real answer: ZodOptional short-circuits to `undefined` without
     // running the inner preprocess/refine chain at all when the key is
-    // absent — the schema itself never produces `null` here. It's
-    // actions/reserves/reserves.ts's `updateReserveStatusStyle` that turns
-    // `undefined` into the database's NULL via its own `?? null` right
-    // before writing (see its own test in tests/reserve-actions.test.ts) —
-    // this test only covers what THIS schema does on its own.
+    // absent — the schema itself never produces `null` here.
+    // Lot 5b: the action used to turn `undefined` into the database's NULL via
+    // its own `?? null` right before writing — an absent field then erased the
+    // stored label. It now passes `undefined` through to the repository (which
+    // leaves the column alone); only a blank/null field clears. This test
+    // covers what THIS schema does on its own.
     const result = updateReserveStatusStyleSchema.safeParse({ projectId: "2" });
     expect(result.success).toBe(true);
     if (result.success) {

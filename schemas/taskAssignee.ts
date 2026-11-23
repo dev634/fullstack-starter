@@ -11,15 +11,24 @@ export type ParsedAssignee = {
     assignedWorkerId: number | null;
 };
 
-export function parseAssignee(value: string | null | undefined): ParsedAssignee {
-    const empty: ParsedAssignee = { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null };
-    const [kind, idStr] = (value ?? "").split(":");
-    const id = Number(idStr);
-    if (!Number.isInteger(id) || id <= 0) return empty;
-    if (kind === "company") return { assignedCompanyId: id, assignedInterimId: null, assignedWorkerId: null };
-    if (kind === "interim") return { assignedCompanyId: null, assignedInterimId: id, assignedWorkerId: null };
-    if (kind === "worker") return { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: id };
-    return empty;
+const ASSIGNEE_VALUE = /^(company|interim|worker):([1-9]\d*)$/;
+
+/**
+ * Reads the picker's one-field encoding. Only the EXPLICIT "no assignee" — the
+ * empty string, the picker's "Non assigné" option — means "clear". A value
+ * that is not understood (unknown kind, an id that is not a positive integer,
+ * a stray separator) is REFUSED with `null`: it used to be normalised to "no
+ * assignee", so a typo erased an existing assignment instead of failing.
+ */
+export function parseAssignee(value: string): ParsedAssignee | null {
+    if (value === "") return { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: null };
+    const m = ASSIGNEE_VALUE.exec(value);
+    if (m === null) return null;
+    const id = Number(m[2]);
+    if (!Number.isSafeInteger(id)) return null;
+    if (m[1] === "company") return { assignedCompanyId: id, assignedInterimId: null, assignedWorkerId: null };
+    if (m[1] === "interim") return { assignedCompanyId: null, assignedInterimId: id, assignedWorkerId: null };
+    return { assignedCompanyId: null, assignedInterimId: null, assignedWorkerId: id };
 }
 
 export const ASSIGNEE_TARGET_KINDS = ["task", "group", "category"] as const;

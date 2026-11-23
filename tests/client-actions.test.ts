@@ -136,6 +136,21 @@ describe("client action auth guard + delegation", () => {
     expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ id: 1, companyName: "Acme" }));
   });
 
+  // Lot 5b — "absent is not empty": the action used to write `phone || null`
+  // and the schema defaulted `status` to PROSPECT, so a payload that omitted
+  // them erased the phone and demoted a CLIENT.
+  it("updateClient: an omitted phone/website/status is left alone, a blank phone is cleared", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    await updateClient(initial, formOf({ id: "1", phone: "" }));
+    const written = updateMock.mock.calls[0][0];
+    expect(written.phone).toBeNull();
+    expect(written.website).toBeUndefined();
+    expect(written.status).toBeUndefined();
+    expect(written.companyName).toBeUndefined();
+  });
+
   it("deleteClient refuses without a session", async () => {
     authMock.mockResolvedValue(null as never);
     const res = await deleteClient(1);

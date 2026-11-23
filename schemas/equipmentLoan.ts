@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NOTE_LENGTH, requiredDateField, optionalDateField } from "@/schemas/fields";
+import { MAX_NOTE_LENGTH, requiredDateField, optionalDateField, clearable, clearableDateField } from "@/schemas/fields";
 
 // Dates are built from an <input type="date"> ("YYYY-MM-DD") and kept as
 // strings here — the repository converts with `new Date(str)` (a UTC
@@ -41,10 +41,14 @@ export const returnLoanSchema = z.object({
     returnedAt: requiredDateField,
 });
 
+// UPDATE: absent = leave alone, blank/null = clear (no due date / no note),
+// a value = set it — schemas/fields.ts, "Partial writes". The note keeps the
+// "blank means none" rule of optionalNote above: trimmed, and a stored note is
+// never "" (EquipmentLoan_note_check).
 export const editLoanSchema = z.object({
     id: z.coerce.number().int().positive(),
-    dueAt: optionalDateField,
-    note: optionalNote,
+    dueAt: clearableDateField,
+    note: clearable(z.string().trim().max(MAX_NOTE_LENGTH)),
 });
 
 export type LendEquipmentInput = z.infer<typeof lendEquipmentSchema>;

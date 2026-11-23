@@ -112,7 +112,9 @@ export async function updateProject(
     await logActivity({
       action: "UPDATED",
       projectId: parsed.data.id,
-      projectName: parsed.data.name,
+      // `name` is optional on an update (absent = unchanged): the name that
+      // counts is the one the row carries now, as the repository returned it.
+      projectName: project.name,
       actorEmail: roleCheck.email,
     });
     revalidatePath(`/clients/${parsed.data.clientId}`);

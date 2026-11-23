@@ -142,3 +142,47 @@ export const requiredDateTimeField = z
   .string()
   .min(1, "La date est requise")
   .refine(isValidIsoInstant, INVALID_DATE);
+
+// ---------------------------------------------------------------------------
+// Partial writes: "absent" is not "empty" (lot 5b).
+//
+// An UPDATE payload distinguishes three states per field, and the three must
+// reach the repository as three different values:
+//
+//   key absent from the payload      -> undefined  (the column is left alone)
+//   key present, blank or null       -> null       (the column is cleared)
+//   key present, with a value        -> the value
+//
+// The create schemas fold blank into `undefined` ("not provided"), which is
+// right for a create and wrong for an update: there, `undefined` then meant
+// both "the user emptied the field" and "the caller never sent it", and the
+// repository's `?? null` wrote NULL over a value nobody had asked to touch.
+// The forms always send every field, so no form can show the difference — a
+// direct call to the action can. The update schemas below therefore use
+// these primitives instead, and carry no `.default()`.
+// ---------------------------------------------------------------------------
+
+function isBlank(v: unknown): boolean {
+  return v === null || (typeof v === "string" && v.trim() === "");
+}
+
+/**
+ * Wraps a schema for a CLEARABLE field of an update payload: blank ("", "  ")
+ * or an explicit `null` resolve to `null` (clear), a non-blank value is
+ * validated by `inner`, and an absent key stays `undefined` (leave alone) —
+ * the outer `.optional()` is what short-circuits an absent key before the
+ * preprocess runs (same reasoning as optionalPositiveIntId above).
+ * `inner` sees only non-blank values; it does not need to accept null.
+ */
+export function clearable<T extends z.ZodType>(inner: T) {
+  return z.preprocess((v) => (isBlank(v) ? null : v), inner.nullable()).optional();
+}
+
+/** A finite number typed in a text/number input ("1e999" is Infinity, which a bare NaN check lets through). */
+export const finiteNumberText = z
+  .string()
+  .transform((v) => Number(v))
+  .refine((v) => Number.isFinite(v), { message: "Must be a number", params: { i18n: "notANumber" } });
+
+/** Update counterpart of optionalDateField: absent -> undefined, blank/null -> null, else a valid "AAAA-MM-JJ". */
+export const clearableDateField = clearable(z.string().trim().refine(isValidIsoDate, INVALID_DATE));

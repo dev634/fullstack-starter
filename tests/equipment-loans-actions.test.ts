@@ -330,7 +330,7 @@ describe("editLoan", () => {
     expect(updateLoanMock).not.toHaveBeenCalled();
   });
 
-  it("trims the note and maps a whitespace-only one to undefined", async () => {
+  it("trims the note and maps a whitespace-only one to null (cleared), never to undefined (left alone)", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findLoanByIdMock.mockResolvedValue(loanRow() as never);
@@ -339,7 +339,7 @@ describe("editLoan", () => {
     const res = await editLoan(initial, form({ id: "10", note: "   " }));
 
     expect(res.type).toBe("success");
-    expect(updateLoanMock).toHaveBeenCalledWith(10, expect.objectContaining({ note: undefined }));
+    expect(updateLoanMock).toHaveBeenCalledWith(10, expect.objectContaining({ note: null }));
   });
 
   it("updates dueAt/note when authorized", async () => {

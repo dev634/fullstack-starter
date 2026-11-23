@@ -1,16 +1,16 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, optionalDateField } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, optionalDateField, clearable, clearableDateField } from "@/schemas/fields";
 
 // Empty string (nothing picked) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
+const isPositiveInt = (v: number) => Number.isInteger(v) && v > 0;
+const POSITIVE_INT_ISSUE = { message: "Invalid category", params: { i18n: "notANumber" } };
+
 const optionalPositiveInt = z
     .string()
     .optional()
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || (Number.isInteger(v) && v > 0), {
-        message: "Invalid category",
-        params: { i18n: "notANumber" },
-    });
+    .refine((v) => v === undefined || isPositiveInt(v), POSITIVE_INT_ISSUE);
 
 export const createTaskSchema = z.object({
     projectId: z.coerce.number().int().positive(),
@@ -27,16 +27,23 @@ export const createTaskSchema = z.object({
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
-// Leaving quantityTarget blank on edit reverts the task to a plain checkbox
-// (see repository/tasks.ts's update) — same "empty means not provided"
-// convention as everywhere else in this schema.
+// UPDATE: absent = leave alone, blank/null = clear — schemas/fields.ts,
+// "Partial writes". Leaving quantityTarget BLANK on edit reverts the task to a
+// plain checkbox (lib/taskQuantity.ts); leaving it OUT of the payload does
+// nothing to it. `projectId`/`clientId` are not written columns: they only
+// travel for revalidatePath.
 export const updateTaskSchema = z.object({
     id: z.coerce.number().int().positive(),
     projectId: z.coerce.number().int().positive(),
     clientId: z.coerce.number().int().positive(),
-    title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH),
-    dueDate: optionalDateField,
-    quantityTarget: optionalPositiveInt,
+    title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH).optional(),
+    dueDate: clearableDateField,
+    quantityTarget: clearable(
+        z
+            .string()
+            .transform((v) => Number(v))
+            .refine(isPositiveInt, POSITIVE_INT_ISSUE)
+    ),
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

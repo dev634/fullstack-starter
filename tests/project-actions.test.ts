@@ -130,6 +130,26 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
+  // Lot 5b — "absent is not empty": a payload that omits a field must reach the
+  // repository without it (left alone), not rewritten to null or a default.
+  it("updateProject: an omitted field is NOT sent to the repository, a blank one is sent as null", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1, name: "Toiture existante" } as never);
+    await updateProject(initial, formOf({ id: "1", clientId: "1", notes: "" }));
+    const data = updateMock.mock.calls[0][1];
+    expect(data.notes).toBeNull();
+    for (const omitted of ["name", "type", "status", "power", "budget", "address", "businessNumber", "startDate", "endDate"] as const) {
+      expect(data[omitted], omitted).toBeUndefined();
+    }
+  });
+
+  it("updateProject logs the name the row carries, not the (optional) submitted one", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1, name: "Toiture existante" } as never);
+    await updateProject(initial, formOf({ id: "1", clientId: "1" }));
+    expect(vi.mocked(logActivity)).toHaveBeenCalledWith(expect.objectContaining({ projectName: "Toiture existante" }));
+  });
+
   it("deleteProject refuses a non-ADMIN session", async () => {
     requireRoleMock.mockResolvedValue({ error: { type: "error", message: "Forbidden." } });
     const res = await deleteProject(1, 2);

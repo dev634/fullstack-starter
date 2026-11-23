@@ -223,6 +223,84 @@ function bodyCallsAnyOfWithFirstArg(node: ts.Node, guardNames: ReadonlySet<strin
 }
 
 /**
+ * AREA ARGUMENT, function by function (lot 5b). The tests below used to check
+ * that a file calls `requireAreaAccess` / `canAccessArea` SOMEWHERE — the
+ * name, not the argument. `requireAreaAccess("projects")` pasted into
+ * actions/loans would have stayed green while guarding the wrong rubrique, and
+ * so would a guard on the right rubrique in ANOTHER function of the same file
+ * (the file "calls it", the function does not). And a table of one value per
+ * file cannot say that `createPortalLogin` needs TWO rubriques.
+ *
+ * So each table below maps a file to the rubrique(s) EVERY exported function of
+ * it must name, and `overrides` maps "file::function" to its own list when it
+ * differs. A violation is reported per function and per missing rubrique. The
+ * guard must be resolved by IMPORT (collectAreaGuardNames): a same-named local
+ * function that never imports the real guard counts for nothing. Probes at the
+ * bottom of this file prove the four ways to fail (right guard wrong rubrique,
+ * right rubrique in another function, a local homonym) and the one way to pass.
+ */
+type AreaTable = Readonly<Record<string, readonly string[]>>;
+
+/** Every string-literal first argument passed to a call of one of `guardNames` anywhere inside `node`. */
+function areasNamedIn(node: ts.Node, guardNames: ReadonlySet<string>): Set<string> {
+  const areas = new Set<string>();
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
+      const first = n.arguments[0];
+      if (first && ts.isStringLiteral(first)) areas.add(first.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return areas;
+}
+
+/**
+ * Violations of `table` in ONE parsed file: every function selected by `pick`
+ * must name every rubrique expected of it, through `guardExport` imported from
+ * lib/areaAccess. `expectedFor` is the table entry for this file (or the
+ * per-function override).
+ */
+function areaViolationsIn(
+  source: ts.SourceFile,
+  file: string,
+  guardExport: string,
+  pick: (fn: PageFn) => boolean,
+  expectedFor: (fnName: string) => readonly string[]
+): string[] {
+  const guardNames = collectAreaGuardNames(source, file, guardExport);
+  const violations: string[] = [];
+  for (const fn of pageFunctionsIn(source).filter(pick)) {
+    const named = areasNamedIn(fn.body, guardNames);
+    for (const area of expectedFor(fn.name)) {
+      if (!named.has(area)) violations.push(`${file}::${fn.name} — never calls ${guardExport}("${area}")`);
+    }
+  }
+  return violations;
+}
+
+/** The same, over every file of a table read from disk. `overrides` keys are "file::function". */
+function areaViolations(
+  table: AreaTable,
+  guardExport: string,
+  pick: (fn: PageFn) => boolean,
+  overrides: AreaTable = {}
+): string[] {
+  const violations: string[] = [];
+  for (const [file, expected] of Object.entries(table)) {
+    const source = ts.createSourceFile(file, readFileSync(join(process.cwd(), file), "utf8"), ts.ScriptTarget.Latest, true);
+    const picked = pageFunctionsIn(source).filter(pick);
+    expect(picked.length, `${file} has nothing to check — did it move?`).toBeGreaterThan(0);
+    violations.push(...areaViolationsIn(source, file, guardExport, pick, (name) => overrides[`${file}::${name}`] ?? expected));
+  }
+  return violations;
+}
+
+const REQUIRE_AREA_ACCESS = "requireAreaAccess";
+const exportedFn = (fn: PageFn) => fn.exported;
+const exportedGet = (fn: PageFn) => fn.exported && fn.name === "GET";
+
+/**
  * REFUSAL, not just a call. A scope guard (requireProjectAccess & co.) returns a
  * result; it protects nothing unless the caller TESTS that result and leaves.
  * `await requireProjectAccess(id);` on its own is "a call to the guard" and
@@ -464,29 +542,20 @@ describe("authorization coverage across server actions", () => {
     // single file, and still add/edit/delete tasks, materials, files,
     // réserves, interventions, intérimaires and subcontractors on it. Same
     // OWNED_BY_SECTION list as above, deliberately: any file added to one
-    // gate belongs behind both.
-    const ungated: string[] = [];
-    for (const file of OWNED_BY_SECTION) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
-      for (const fn of fns) {
-        if (!fn.exported) continue;
-        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
-      }
-    }
+    // gate belongs behind both. Lot 5b: by ARGUMENT, function by function —
+    // every exported action must call requireAreaAccess("projects").
+    const ungated = areaViolations(
+      Object.fromEntries(OWNED_BY_SECTION.map((file) => [file, ["projects"]])),
+      REQUIRE_AREA_ACCESS,
+      exportedFn
+    );
 
     expect(
       ungated,
       ungated.length
         ? `These actions belong to a project but never check the projects area:\n` +
           ungated.map((k) => `  - ${k}`).join("\n") +
-          `\n\nAdd requireAreaAccess("projects") from @/lib/areaAccess, ` +
+          `\n\nAdd requireAreaAccess("projects") imported from @/lib/areaAccess, ` +
           `next to the existing capability/section check.`
         : undefined
     ).toEqual([]);
@@ -498,17 +567,20 @@ describe("authorization coverage across server actions", () => {
     // this, a function whose hiddenAreas hides clients/projects/contacts
     // still reaches every mutation in it — the same gap requireSectionAccess
     // already closes for project-content mutations above.
-    const AREA_BY_FILE: Record<string, string> = {
-      "actions/clients/clients.ts": "clients",
-      "actions/projects/projects.ts": "projects",
-      "actions/contacts/contacts.ts": "clients.contacts",
-      // createPortalLogin needs TWO rubriques (admin.users and clients.contacts):
-      // this table only checks that requireAreaAccess is called, not its
-      // argument (the value below is documentation). Both arguments are
-      // proven by tests/portal-actions.test.ts instead.
-      "actions/portal/portal.ts": "clients.contacts",
-      "actions/equipment/equipment.ts": "loans",
-      "actions/equipmentLoans/equipmentLoans.ts": "loans",
+    // Lot 5b: the values are READ now — each exported function must call
+    // requireAreaAccess with every rubrique listed for its file. A list holds
+    // several when the file's actions need several: createPortalLogin creates a
+    // login (admin.users) for a contact (clients.contacts), and both are also
+    // proven by tests/portal-actions.test.ts. The portal file has ONE exported
+    // action; a second one added there must name both too, or be given its own
+    // entry in the overrides below.
+    const AREA_BY_FILE: AreaTable = {
+      "actions/clients/clients.ts": ["clients"],
+      "actions/projects/projects.ts": ["projects"],
+      "actions/contacts/contacts.ts": ["clients.contacts"],
+      "actions/portal/portal.ts": ["admin.users", "clients.contacts"],
+      "actions/equipment/equipment.ts": ["loans"],
+      "actions/equipmentLoans/equipmentLoans.ts": ["loans"],
     };
     // Passe 3b, point 1: getClient/getProjectsForClient/getProject used to be
     // exempted here as "reads are exempt — only mutations must check the
@@ -519,21 +591,7 @@ describe("authorization coverage across server actions", () => {
     // that the guard actually exists; every exported function in these three
     // files, reads included, must call requireAreaAccess.
 
-    const ungated: string[] = [];
-    for (const file of Object.keys(AREA_BY_FILE)) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
-      for (const fn of fns) {
-        if (!fn.exported) continue;
-        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
-      }
-    }
+    const ungated = areaViolations(AREA_BY_FILE, REQUIRE_AREA_ACCESS, exportedFn);
 
     expect(
       ungated,
@@ -562,25 +620,15 @@ describe("authorization coverage across server actions", () => {
     // hides the rubrique a CSV belongs to must be refused here too, or the
     // export becomes a way around that restriction by direct URL. Mirrors
     // the mutation-area test below, but for GET route handlers.
-    const AREA_BY_ROUTE: Record<string, string> = {
-      "app/clients/export/route.ts": "clients",
-      "app/projects/export/route.ts": "projects",
-      "app/clients/contacts/export/route.ts": "clients.contacts",
+    // Lot 5b: by ARGUMENT — canAccessArea("clients") pasted into the projects
+    // export would have been "a call to canAccessArea" and stayed green.
+    const AREA_BY_ROUTE: AreaTable = {
+      "app/clients/export/route.ts": ["clients"],
+      "app/projects/export/route.ts": ["projects"],
+      "app/clients/contacts/export/route.ts": ["clients.contacts"],
     };
 
-    const ungated: string[] = [];
-    for (const file of Object.keys(AREA_BY_ROUTE)) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      const getFn = fns.find((f) => f.exported && f.name === "GET");
-      expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
-      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
-    }
+    const ungated = areaViolations(AREA_BY_ROUTE, AREA_CAN_ACCESS_EXPORT_NAME, exportedGet);
 
     expect(
       ungated,
@@ -651,24 +699,13 @@ describe("authorization coverage across server actions", () => {
     // stream files/plans/photos and download the réserves report by direct
     // URL, exactly the gap a project's own detail page has too (see the test
     // below).
-    const AREA_BY_ROUTE: Record<string, string> = {
-      "app/api/assets/[kind]/[id]/route.ts": "projects",
-      "app/clients/[id]/projects/[projectId]/reserves/report/route.ts": "projects",
+    // Lot 5b: by ARGUMENT, like the report routes above.
+    const AREA_BY_ROUTE: AreaTable = {
+      "app/api/assets/[kind]/[id]/route.ts": ["projects"],
+      "app/clients/[id]/projects/[projectId]/reserves/report/route.ts": ["projects"],
     };
 
-    const ungated: string[] = [];
-    for (const file of Object.keys(AREA_BY_ROUTE)) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      const getFn = fns.find((f) => f.exported && f.name === "GET");
-      expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
-      if (!getFn!.calls.has("canAccessArea")) ungated.push(`${file}::GET`);
-    }
+    const ungated = areaViolations(AREA_BY_ROUTE, AREA_CAN_ACCESS_EXPORT_NAME, exportedGet);
 
     expect(
       ungated,
@@ -699,11 +736,12 @@ describe("authorization coverage across server actions", () => {
     const fns = functionsIn(source);
     const pageFn = fns.find((f) => f.exported && f.name === "ProjectDetailPage");
     expect(pageFn, `${file} has no exported ProjectDetailPage — did it get renamed?`).toBeDefined();
+    // Lot 5b: by ARGUMENT, and resolved by import, like the tables above.
     expect(
-      pageFn!.calls.has("canAccessArea"),
+      areaViolationsIn(source, file, AREA_CAN_ACCESS_EXPORT_NAME, (f) => f.exported && f.name === "ProjectDetailPage", () => ["projects"]),
       `${file} never checks canAccessArea("projects") — a job function with the ` +
         `rubrique hidden can still reach a project's detail page directly.`
-    ).toBe(true);
+    ).toEqual([]);
   });
 
   it("gates the project dashboard page behind the `projects` area and hiddenSections, same as the detail page (adversarial pass 1, #4)", () => {
@@ -722,11 +760,12 @@ describe("authorization coverage across server actions", () => {
     const fns = functionsIn(source);
     const pageFn = fns.find((f) => f.exported && f.name === "ProjectDashboardPage");
     expect(pageFn, `${file} has no exported ProjectDashboardPage — did it get renamed?`).toBeDefined();
+    // Lot 5b: by ARGUMENT, and resolved by import, like the tables above.
     expect(
-      pageFn!.calls.has("canAccessArea"),
+      areaViolationsIn(source, file, AREA_CAN_ACCESS_EXPORT_NAME, (f) => f.exported && f.name === "ProjectDashboardPage", () => ["projects"]),
       `${file} never checks canAccessArea("projects") — a job function with the ` +
         `rubrique hidden can still reach a project's dashboard directly.`
-    ).toBe(true);
+    ).toEqual([]);
     expect(
       pageFn!.calls.has("getHiddenSections"),
       `${file} never checks getHiddenSections() — a function hiding the tasks/materials ` +
@@ -741,27 +780,14 @@ describe("authorization coverage across server actions", () => {
     // function even show me this Admin tab at all?". Without this, a function
     // whose hiddenAreas hides admin.users/functions/settings still reaches
     // every mutation in it.
-    const AREA_BY_FILE: Record<string, string> = {
-      "actions/users/users.ts": "admin.users",
-      "actions/jobFunctions/jobFunctions.ts": "admin.functions",
-      "actions/appSettings/appSettings.ts": "admin.settings",
+    // Lot 5b: by ARGUMENT, function by function.
+    const AREA_BY_FILE: AreaTable = {
+      "actions/users/users.ts": ["admin.users"],
+      "actions/jobFunctions/jobFunctions.ts": ["admin.functions"],
+      "actions/appSettings/appSettings.ts": ["admin.settings"],
     };
 
-    const ungated: string[] = [];
-    for (const file of Object.keys(AREA_BY_FILE)) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
-      for (const fn of fns) {
-        if (!fn.exported) continue;
-        if (!fn.calls.has("requireAreaAccess")) ungated.push(`${file}::${fn.name}`);
-      }
-    }
+    const ungated = areaViolations(AREA_BY_FILE, REQUIRE_AREA_ACCESS, exportedFn);
 
     expect(
       ungated,
@@ -1227,5 +1253,75 @@ describe("authorization coverage across server actions", () => {
       }
     }
     expect([...callers].sort()).toEqual(allowed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Probes (lot 5b) — the area-argument check itself, on sources written for the
+// occasion. A structural test proves nothing until it has been seen to fail:
+// each way of being wrong must go red, the one correct form must stay green.
+// ---------------------------------------------------------------------------
+describe("the area-argument guard check (probes)", () => {
+  const IMPORT = `import { requireAreaAccess } from "@/lib/areaAccess";\n`;
+
+  function violationsOf(code: string, expected: readonly string[], guardExport = REQUIRE_AREA_ACCESS): string[] {
+    const file = "actions/probe/probe.ts";
+    const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+    return areaViolationsIn(source, file, guardExport, exportedFn, () => expected);
+  }
+
+  it("stays green on the correct form, aliased or not", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { await requireAreaAccess("loans"); }`, ["loans"])).toEqual([]);
+    expect(
+      violationsOf(`import { requireAreaAccess as guard } from "@/lib/areaAccess";\nexport async function a() { await guard("loans"); }`, ["loans"])
+    ).toEqual([]);
+  });
+
+  it("goes red on the right guard with the WRONG rubrique", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { await requireAreaAccess("projects"); }`, ["loans"])).toEqual([
+      'actions/probe/probe.ts::a — never calls requireAreaAccess("loans")',
+    ]);
+  });
+
+  it("goes red on the right rubrique guarded in ANOTHER function of the same file", () => {
+    const code = `${IMPORT}
+      export async function guarded() { await requireAreaAccess("loans"); }
+      export async function unguarded() { return 1; }`;
+    expect(violationsOf(code, ["loans"])).toEqual(['actions/probe/probe.ts::unguarded — never calls requireAreaAccess("loans")']);
+  });
+
+  it("goes red on a local homonym that is not the imported guard", () => {
+    const code = `async function requireAreaAccess(_area: string) { return { error: null }; }
+      export async function a() { await requireAreaAccess("loans"); }`;
+    expect(violationsOf(code, ["loans"])).toHaveLength(1);
+    // ... and on a same-named import from some OTHER module
+    const other = `import { requireAreaAccess } from "@/lib/somewhereElse";\nexport async function a() { await requireAreaAccess("loans"); }`;
+    expect(violationsOf(other, ["loans"])).toHaveLength(1);
+  });
+
+  it("goes red when the rubrique only appears in a comment or a string", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { /* requireAreaAccess("loans") */ const s = 'requireAreaAccess("loans")'; return s; }`, ["loans"])).toHaveLength(1);
+  });
+
+  it("goes red on a non-literal argument (it cannot be shown to be the expected rubrique)", () => {
+    expect(violationsOf(`${IMPORT}const AREA = "loans";\nexport async function a() { await requireAreaAccess(AREA); }`, ["loans"])).toHaveLength(1);
+  });
+
+  it("accepts SEVERAL rubriques for one function, and names the missing one", () => {
+    const both = `${IMPORT}export async function createPortalLogin() { await requireAreaAccess("admin.users"); await requireAreaAccess("clients.contacts"); }`;
+    expect(violationsOf(both, ["admin.users", "clients.contacts"])).toEqual([]);
+    const one = `${IMPORT}export async function createPortalLogin() { await requireAreaAccess("clients.contacts"); }`;
+    expect(violationsOf(one, ["admin.users", "clients.contacts"])).toEqual([
+      'actions/probe/probe.ts::createPortalLogin — never calls requireAreaAccess("admin.users")',
+    ]);
+  });
+
+  it("works the same for canAccessArea on a route handler", () => {
+    const route = (arg: string) => `import { canAccessArea } from "@/lib/areaAccess";\nexport async function GET() { return canAccessArea("${arg}"); }`;
+    const file = "app/probe/route.ts";
+    const check = (arg: string) =>
+      areaViolationsIn(ts.createSourceFile(file, route(arg), ts.ScriptTarget.Latest, true), file, AREA_CAN_ACCESS_EXPORT_NAME, exportedGet, () => ["projects"]);
+    expect(check("projects")).toEqual([]);
+    expect(check("clients")).toHaveLength(1);
   });
 });

@@ -63,6 +63,9 @@ export async function setAssignee(
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.errors.invalidId) };
 
     const parsed = parseAssignee(assignee);
+    // A value the picker never produces is refused, not read as "no assignee":
+    // only the explicit "" clears (schemas/taskAssignee.ts).
+    if (parsed === null) return { type: "error" as const, message: t.errors.invalidValue };
 
     // The assignee kind gates a SECOND section, beyond the unconditional
     // `tasks` check above: an entreprise sous-traitante is the

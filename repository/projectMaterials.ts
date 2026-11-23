@@ -214,12 +214,15 @@ export async function findProjectId(id: number): Promise<number | null> {
     }
 }
 
+// A PARTIAL write: absent = leave the column alone, null = clear it (every
+// nullable column), a value sets it (lib/partialWrite.ts,
+// tests/repository-partial-write.test.ts).
 type MaterialUpdateData = {
-    name: string;
-    quantity: number;
-    unit?: string;
-    supplierName?: string;
-    reference?: string;
+    name?: string;
+    quantity?: number;
+    unit?: string | null;
+    supplierName?: string | null;
+    reference?: string | null;
     taskId?: number | null;
     taskGroupId?: number | null;
     taskCategoryId?: number | null;
@@ -229,11 +232,12 @@ type MaterialUpdateData = {
 
 /**
  * Edits a material's own fields, including its link (task/series/category):
- * the three FK columns are mutually exclusive by construction of the picker,
- * and an unset pick clears them all (SetNull-style) — so a scanned material,
- * which starts unlinked, can be attached to a task after the fact. Same
- * clearable convention for materialCategoryId, independently: an unset pick
- * there sends the material back to "non classé" without touching the link.
+ * the three FK columns are mutually exclusive by construction of the picker.
+ * Omitting them leaves the link alone; passing all three as `null` clears it
+ * (the schema resolves the picker's "no link" to that) — so a scanned
+ * material, which starts unlinked, can be attached to a task after the fact.
+ * Same convention for materialCategoryId, independently: `null` sends the
+ * material back to "non classé" without touching the link.
  */
 export async function update(id: number, data: MaterialUpdateData) {
     try {
@@ -242,14 +246,14 @@ export async function update(id: number, data: MaterialUpdateData) {
             data: {
                 name: data.name,
                 quantity: data.quantity,
-                unit: data.unit || null,
-                supplierName: data.supplierName || null,
-                reference: data.reference || null,
-                taskId: data.taskId ?? null,
-                taskGroupId: data.taskGroupId ?? null,
-                taskCategoryId: data.taskCategoryId ?? null,
-                requiredQuantity: data.requiredQuantity ?? null,
-                materialCategoryId: data.materialCategoryId ?? null,
+                unit: data.unit,
+                supplierName: data.supplierName,
+                reference: data.reference,
+                taskId: data.taskId,
+                taskGroupId: data.taskGroupId,
+                taskCategoryId: data.taskCategoryId,
+                requiredQuantity: data.requiredQuantity,
+                materialCategoryId: data.materialCategoryId,
             },
         });
     } catch (error) {

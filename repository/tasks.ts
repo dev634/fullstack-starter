@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { roundPercent } from "@/lib/projectDashboard";
+import { dateColumn } from "@/lib/partialWrite";
+import { quantityTargetPatch } from "@/lib/taskQuantity";
 
 type TaskData = {
     projectId: number;
@@ -473,39 +475,30 @@ export async function updateQuantity(id: number, quantityDone: number) {
     }
 }
 
+// A PARTIAL write: absent = leave the column alone, null = clear it, a value
+// sets it (lib/partialWrite.ts, tests/repository-partial-write.test.ts).
 type TaskUpdateData = {
-    title: string;
-    dueDate?: string;
-    quantityTarget?: number;
+    title?: string;
+    dueDate?: string | null;
+    quantityTarget?: number | null;
 };
 
 /**
  * Edits a task's own fields. Changing quantityTarget re-clamps the existing
  * quantityDone to the new target and keeps done in sync — same rule as
- * updateQuantity. Clearing quantityTarget entirely reverts the task to a
- * plain checkbox (done is left as-is; the admin can flip it manually).
- *
- * Newly turning ON quantity tracking (quantityTarget was null, now isn't)
- * starts from the task's current done state rather than always 0 — a task
- * that was already checked off shouldn't silently flip back to "not done"
- * with its progress wiped just because an admin gave it a target.
+ * updateQuantity. Clearing quantityTarget (null) reverts the task to a plain
+ * checkbox; omitting it leaves the quantity columns alone. The rule itself is
+ * lib/taskQuantity.ts::quantityTargetPatch (pure, tested).
  */
 export async function update(id: number, data: TaskUpdateData) {
     try {
         const current = await prisma.projectTask.findUniqueOrThrow({ where: { id } });
-        const quantityTarget = data.quantityTarget ?? null;
-        const baselineDone =
-            current.quantityTarget != null ? (current.quantityDone ?? 0) : current.done ? (quantityTarget ?? 0) : 0;
-        const quantityDone = quantityTarget != null ? Math.max(0, Math.min(baselineDone, quantityTarget)) : null;
-        const done = quantityTarget != null ? quantityDone! >= quantityTarget : current.done;
         return await prisma.projectTask.update({
             where: { id },
             data: {
                 title: data.title,
-                dueDate: data.dueDate ? new Date(data.dueDate) : null,
-                quantityTarget,
-                quantityDone,
-                done,
+                dueDate: dateColumn(data.dueDate),
+                ...quantityTargetPatch(current, data.quantityTarget),
             },
         });
     } catch (error) {

@@ -171,8 +171,6 @@ export async function updateClient(
     const client = await update({
       ...clientDatas,
       id,
-      phone: clientDatas.phone || null,
-      website: clientDatas.website || null,
       photoUrl,
     });
 
@@ -184,7 +182,9 @@ export async function updateClient(
     await logActivity({
       action: "UPDATED",
       clientId: id,
-      clientName: clientDatas.companyName,
+      // `companyName` is optional on an update (absent = unchanged): log the
+      // name the row carries now, as the repository returned it.
+      clientName: client.companyName,
       actorEmail: roleCheck.email,
     });
 
