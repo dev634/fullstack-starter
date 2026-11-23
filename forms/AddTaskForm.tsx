@@ -30,7 +30,12 @@ export default function AddTaskForm({
     addTask,
     initialState
   );
-  const formRef = useRef<HTMLFormElement>(null);
+  // Controlled fields: React 19 resets non-controlled fields of a <form action>
+  // when the action returns, zodError included.
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [quantityTarget, setQuantityTarget] = useState("");
+  const [categoryId, setCategoryId] = useState("");
 
   const onCreatedRef = useRef(onCreated);
   useEffect(() => {
@@ -39,7 +44,6 @@ export default function AddTaskForm({
 
   useEffect(() => {
     if (state.type !== "success") return;
-    formRef.current?.reset();
     onCreatedRef.current?.(state.data?.categoryId ?? null);
   }, [state]);
 
@@ -48,6 +52,10 @@ export default function AddTaskForm({
     setLastHandledState(state);
     if (state.type === "success") {
       setOpen(false);
+      setTitle("");
+      setDueDate("");
+      setQuantityTarget("");
+      setCategoryId("");
     }
   }
 
@@ -63,13 +71,15 @@ export default function AddTaskForm({
       </button>
 
       <ModalShell open={open} onClose={() => setOpen(false)} title={t.tasks.addToggle}>
-        <form ref={formRef} action={formAction} className="flex flex-col gap-3">
+        <form action={formAction} className="flex flex-col gap-3">
           <input type="hidden" name="clientId" value={clientId} />
           <input type="hidden" name="projectId" value={projectId} />
           <div>
             <input
               type="text"
               name="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               autoFocus
               placeholder={t.tasks.newPlaceholder}
               aria-label={t.tasks.titleLabel}
@@ -80,16 +90,25 @@ export default function AddTaskForm({
             )}
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              type="date"
-              name="dueDate"
-              aria-label={t.tasks.dueDateLabel}
-              className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 sm:flex-1"
-            />
+            <div className="sm:flex-1">
+              <input
+                type="date"
+                name="dueDate"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                aria-label={t.tasks.dueDateLabel}
+                className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
+              />
+              {state.type === "zodError" && state.fieldsForm?.dueDate && (
+                <p className="mt-1 text-xs text-red-500" aria-live="polite">{state.fieldsForm.dueDate}</p>
+              )}
+            </div>
             <div className="sm:w-28">
               <input
                 type="number"
                 name="quantityTarget"
+                value={quantityTarget}
+                onChange={(e) => setQuantityTarget(e.target.value)}
                 min="1"
                 step="1"
                 placeholder={t.tasks.quantityTargetPlaceholder}
@@ -104,7 +123,8 @@ export default function AddTaskForm({
           {categories.length > 0 && (
             <select
               name="categoryId"
-              defaultValue=""
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
               aria-label={t.tasks.series.categoryLabel}
               className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
             >
@@ -116,7 +136,9 @@ export default function AddTaskForm({
               ))}
             </select>
           )}
-          {state.type === "error" && <p className="text-xs text-red-500">{state.message}</p>}
+          {(state.type === "error" || state.type === "zodError") && (
+            <p className="text-xs text-red-500" aria-live="polite">{state.message}</p>
+          )}
           <div className="flex justify-end gap-3">
             <button
               type="button"
