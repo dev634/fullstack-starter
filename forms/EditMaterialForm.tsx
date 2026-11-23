@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { PencilIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import MaterialLinkOptions from "@/components/MaterialLinkOptions";
+import FormInput, { formInputClass } from "@/components/FormInput";
 import { format } from "@/lib/i18n/format";
 import type { ProjectMaterialActionState } from "@/types/projectMaterial";
 import type { MaterialLinkOption, MaterialCategoryOption } from "@/forms/AddMaterialForm";
@@ -48,10 +49,36 @@ export default function EditMaterialForm({
   // is picked or cleared, and so the current link is pre-selected.
   const [link, setLink] = useState(material.link);
   const isLinked = link !== "";
+  // Every other field is controlled too: under `<form action>` React 19 resets
+  // uncontrolled fields when the action returns, a validation error included.
+  const [name, setName] = useState(material.name);
+  const [quantity, setQuantity] = useState(String(material.quantity));
+  const [unit, setUnit] = useState(material.unit ?? "");
+  const [supplierName, setSupplierName] = useState(material.supplierName ?? "");
+  const [reference, setReference] = useState(material.reference ?? "");
+  const [requiredQuantity, setRequiredQuantity] = useState(String(material.requiredQuantity ?? ""));
+  const [categoryId, setCategoryId] = useState(String(material.materialCategoryId ?? ""));
+
+  // The state lives in this parent, which outlives the modal's content: a
+  // cancelled edit would otherwise reappear on the next open. Re-seed from the
+  // (revalidated) row each time the modal opens.
+  function openModal() {
+    setName(material.name);
+    setQuantity(String(material.quantity));
+    setUnit(material.unit ?? "");
+    setSupplierName(material.supplierName ?? "");
+    setReference(material.reference ?? "");
+    setRequiredQuantity(String(material.requiredQuantity ?? ""));
+    setCategoryId(String(material.materialCategoryId ?? ""));
+    setLink(material.link);
+    setOpen(true);
+  }
   const [state, formAction, isPending] = useActionState<ProjectMaterialActionState, FormData>(
     editMaterial,
     initialState
   );
+
+  const fieldErrors = state.type === "zodError" ? state.fieldsForm : undefined;
 
   // Close the modal once a successful edit is reflected in state — done
   // during render (not an effect), same pattern as AddTaskCategoryForm.
@@ -65,7 +92,7 @@ export default function EditMaterialForm({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openModal}
         aria-label={format(t.materials.editMaterial, { name: material.name })}
         className="shrink-0 cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-500/10 dark:text-gray-400"
       >
@@ -84,130 +111,136 @@ export default function EditMaterialForm({
             <input type="hidden" name="projectId" value={projectId} />
 
             <div className="mb-3">
-              <input
+              <FormInput
                 type="text"
                 name="name"
-                defaultValue={material.name}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                label={t.materials.nameLabel}
                 placeholder={t.materials.newPlaceholder}
-                aria-label={t.materials.nameLabel}
-                className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                error={fieldErrors?.name}
               />
-              {state.type === "zodError" && state.fieldsForm?.name && (
-                <p className="mt-1 text-xs text-red-500">{state.fieldsForm.name}</p>
-              )}
             </div>
 
             <div className="mb-3 flex gap-2">
               <div className="w-1/2">
-                <input
+                <FormInput
                   type="number"
                   name="quantity"
                   min="0"
                   step="any"
-                  defaultValue={material.quantity}
-                  placeholder={t.materials.quantityLabel}
-                  aria-label={t.materials.quantityLabel}
-                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  label={t.materials.quantityLabel}
+                  error={fieldErrors?.quantity}
                 />
-                {state.type === "zodError" && state.fieldsForm?.quantity && (
-                  <p className="mt-1 text-xs text-red-500">{state.fieldsForm.quantity}</p>
-                )}
               </div>
               <div className="w-1/2">
-                <input
+                <FormInput
                   type="text"
                   name="unit"
-                  defaultValue={material.unit ?? ""}
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  label={t.materials.unitLabel}
                   placeholder={t.materials.unitPlaceholder}
-                  aria-label={t.materials.unitLabel}
-                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                  error={fieldErrors?.unit}
                 />
               </div>
             </div>
 
             <div className="mb-3">
-              <input
+              <FormInput
                 type="text"
                 name="supplierName"
-                defaultValue={material.supplierName ?? ""}
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                label={t.materials.supplierLabel}
                 placeholder={t.materials.supplierPlaceholder}
-                aria-label={t.materials.supplierLabel}
-                className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                error={fieldErrors?.supplierName}
               />
             </div>
 
             <div className="mb-3">
-              <input
+              <FormInput
                 type="text"
                 name="reference"
-                defaultValue={material.reference ?? ""}
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                label={t.materials.referenceLabel}
                 placeholder={t.materials.referencePlaceholder}
-                aria-label={t.materials.referenceLabel}
-                className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                error={fieldErrors?.reference}
               />
             </div>
 
             {/* Filing (WHAT the material is) — independent of the "Tâche
-                liée" picker below (WHY it's here); never controlled state,
-                unlike `link`, since nothing else on this form reacts to it. */}
+                liée" picker below (WHY it's here). Controlled like every
+                other field: `<form action>` would reset it on a refusal. */}
             {categories.length > 0 && (
               <div className="mb-3">
                 <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
                   {t.materials.categoryPickerLabel}
+                  <select
+                    name="materialCategoryId"
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className={`mt-1 ${formInputClass}`}
+                  >
+                    <option value="">{t.materials.category.uncategorized}</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-                <select
-                  name="materialCategoryId"
-                  defaultValue={material.materialCategoryId ?? ""}
-                  aria-label={t.materials.categoryPickerLabel}
-                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
-                >
-                  <option value="">{t.materials.category.uncategorized}</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             )}
 
-            {linkOptions.length > 0 && (
+            {linkOptions.length > 0 ? (
               <div className="mb-3">
                 <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
                   {t.materials.linkedTaskLabel}
+                  <select
+                    name="link"
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    className={`mt-1 ${formInputClass}`}
+                  >
+                    <option value="">{t.materials.linkedTaskNone}</option>
+                    <MaterialLinkOptions options={linkOptions} t={t} />
+                  </select>
                 </label>
-                <select
-                  name="link"
-                  value={link}
-                  onChange={(e) => setLink(e.target.value)}
-                  aria-label={t.materials.linkedTaskLabel}
-                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100"
-                >
-                  <option value="">{t.materials.linkedTaskNone}</option>
-                  <MaterialLinkOptions options={linkOptions} t={t} />
-                </select>
               </div>
+            ) : (
+              // No picker to render (the project has no task/series/category
+              // left). An unlinked material still sends an explicit EMPTY link:
+              // an absent `link` means "leave the link and requiredQuantity
+              // alone", which would keep an orphaned requiredQuantity (the FK
+              // is SetNull, the quantity isn't) that no input can clear.
+              // A material still linked to something outside the options keeps
+              // its link untouched (field absent).
+              !isLinked && <input type="hidden" name="link" value="" />
             )}
 
             {isLinked && (
               <div className="mb-4">
-                <input
+                <FormInput
                   type="number"
                   name="requiredQuantity"
                   min="0"
                   step="any"
-                  defaultValue={material.requiredQuantity ?? ""}
+                  value={requiredQuantity}
+                  onChange={(e) => setRequiredQuantity(e.target.value)}
+                  label={t.materials.requiredQuantityLabel}
                   placeholder={t.materials.requiredQuantityPlaceholder}
-                  aria-label={t.materials.requiredQuantityLabel}
-                  className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                  error={fieldErrors?.requiredQuantity}
                 />
-                {state.type === "zodError" && state.fieldsForm?.requiredQuantity && (
-                  <p className="mt-1 text-xs text-red-500">{state.fieldsForm.requiredQuantity}</p>
-                )}
               </div>
             )}
 
-            {state.type === "error" && <p className="mb-4 text-xs text-red-500">{state.message}</p>}
+            {(state.type === "error" || state.type === "zodError") && state.message && (
+              <p className="mb-4 text-xs text-red-500">{state.message}</p>
+            )}
 
             <div className="flex justify-end gap-3">
               <button
