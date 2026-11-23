@@ -1,6 +1,6 @@
 "use server";
 import bcrypt from "bcryptjs";
-import { auth } from "@/lib/auth";
+import { auth, signOut } from "@/lib/auth";
 import { hasMinRole } from "@/lib/authz";
 import { can } from "@/lib/access";
 import {
@@ -160,6 +160,10 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     return { ...prevState, type: "zodError", message: t.errors.validationError, fieldsForm: makeObjectFromZodError(parsed.error, t) };
   }
 
+  // Set once the write succeeded on the caller's OWN account and changed what
+  // its sessions were issued for (password, role): see the sign-out below.
+  let endsOwnSession = false;
+  let result: UserActionState;
   try {
     const target = await findById(parsed.data.id);
     if (!target) return { ...prevState, type: "error", message: t.errors.invalidId };
@@ -239,11 +243,19 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       relayCheckFor(actor)
     );
     revalidatePath("/admin/settings/utilisateurs");
-    return { ...prevState, type: "success", message: t.users.messages.updated, data: user };
+    // updateProfile bumped sessionVersion (password or role changed): this very
+    // cookie is already dead. Sign out explicitly, with the reason, instead of
+    // letting the next request bounce to /login unexplained.
+    endsOwnSession = isSelf && (password !== undefined || parsed.data.role !== target.role);
+    result = { ...prevState, type: "success", message: t.users.messages.updated, data: user };
   } catch (error) {
     if (isGuardRefusal(error)) return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
+  // OUTSIDE the try/catch on purpose: signOut throws the redirect, and the
+  // catch above would turn it into a "server error" message.
+  if (endsOwnSession) await signOut({ redirectTo: "/login?raison=identifiants-modifies" });
+  return result;
 }
 
 export async function deleteUser(id: number) {

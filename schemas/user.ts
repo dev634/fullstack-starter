@@ -1,6 +1,9 @@
 import z from "zod";
 import { optionalJobFunctionId, MAX_EMAIL_LENGTH, MAX_NAME_LENGTH, CONTROL_CHAR } from "@/schemas/fields";
 
+/** Shortest password the schemas accept; the accounts screen (UsersManager) checks the same value before sending. */
+export const MIN_PASSWORD_LENGTH = 8;
+
 export const userRoleSchema = z.enum(["SUPERADMIN", "ADMIN", "EDITOR", "VIEWER", "CLIENT"]);
 
 // Passe 3a, point 5: email had no upper bound — same defect already fixed
@@ -33,7 +36,7 @@ export const createUserSchema = z.object({
         .refine((v) => !CONTROL_CHAR.test(v), { message: "Invalid characters", params: { i18n: "invalidCharacters" } }),
     role: userRoleSchema,
     jobFunctionId: optionalJobFunctionId,
-    password: z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères"),
+    password: z.string().min(MIN_PASSWORD_LENGTH, `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères`),
 });
 
 export const updateUserSchema = z.object({
@@ -57,7 +60,7 @@ export const updateUserSchema = z.object({
     // Optional: only present when the admin wants to reset the password.
     password: z.preprocess(
         (v) => (v === "" || v === null || v === undefined ? undefined : v),
-        z.string().min(8, "Le mot de passe doit contenir au moins 8 caractères").optional()
+        z.string().min(MIN_PASSWORD_LENGTH, `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères`).optional()
     ).optional(),
 });
 

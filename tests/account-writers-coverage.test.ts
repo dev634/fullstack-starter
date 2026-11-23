@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { sourceFilesIn } from "./helpers/astScan";
 import {
@@ -9,6 +9,7 @@ import {
   localGuardPolicySymbols,
   repositoryFunctionText,
   repositoryWriters,
+  userWriteSites,
   type Source,
 } from "./helpers/accountWriterScan";
 
@@ -40,7 +41,8 @@ import {
  *      banned: the scan cannot follow it.
  *
  * Counted at d4594e9 + the lot 5a working tree: 13 writers in 4 repository
- * files (users 7, jobFunctions 4, contacts 1, clients 1) and 13 actions in 7
+ * files (users 7, jobFunctions 4, contacts 1, clients 1; users is 6 since lot 3 and the
+ * total 12, see EXPECTED_WRITERS) and 13 actions in 7
  * action files — 7 apply the relay rule (REQUIRED_RULE), 6 are exempt. The
  * sizes are EXACT, below. Not seen by construction: a write by nested relation
  * (`contact.update({ data: { user: { create } } })` — none exists), raw SQL (the
@@ -145,7 +147,9 @@ const EXEMPT: Record<string, { reason: string; until: string; claims?: string[] 
   },
 };
 
-const EXPECTED_WRITERS = 13;
+// 13 -> 12 at the lot 3 commit: updatePassword and markResetTokenUsed (two
+// writers, two statements) became ONE, repository/users.ts::resetPasswordWithToken.
+const EXPECTED_WRITERS = 12;
 const EXPECTED_ACTIONS = 13;
 
 function discover(repos: Source[], actions: Source[]) {
@@ -337,5 +341,257 @@ describe("the scan itself is proven by probes", () => {
       export async function a() { return create({}); }`;
     const v = violations(repos, baseline(text), { "actions/x/x.ts::a": { reason: " ", until: "x" } }, {});
     expect(v).toHaveLength(1);
+  });
+});
+
+// --- Lot 3: whoever writes the password or the role bumps sessionVersion ------
+//
+// lib/sessionGate.ts voids a token whose sessionVersion differs from the row's;
+// the role has its own comparison there (it covers every writer of the role by
+// construction), but the PASSWORD is covered only by the bump. A writer of
+// `User.password` that forgets `sessionVersion: { increment: 1 }` leaves a
+// stolen cookie valid after the reset — and nothing else would show it.
+//
+// DISCOVERED from the write calls (parsed, not grepped, no list of files): every
+// `prisma.user.<w>()` / `tx.user.<w>()` (and a nested `user: { … }` inside the
+// data of a write on another model) in every source file of the tree outside
+// tests, generated code and docs. A write whose data carries `password` or
+// `role` — explicitly, or through a spread / object the scan cannot read —
+// must carry `sessionVersion: { increment: 1 }` in the SAME data object.
+//
+// WHAT THIS TEST CANNOT JUDGE: whether the bump is applied under the RIGHT
+// CONDITION. `invalidatesSessions` replaced by `false` in updateProfile keeps the
+// shape `cond ? { increment: 1 } : undefined` and stays green here. That is
+// covered by tests-integration/session-version-bump.test.ts (a real database:
+// +1 on a password, +1 on a role change, 0 on a name or a function alone, one
+// bump — not two — for both at once). This test proves a bump is written next
+// to every credential write, and that it can only ever GROW; the integration
+// test proves it fires when it should.
+//
+// Counted (method: parse every application source file of the tree, count the
+// `prisma.user.<w>()` / `tx.user.<w>()` calls and the nested `user` writes at any
+// depth) at 9193b4c plus the commit that carries this comment: 8 write sites, of
+// which 2 write credentials on an existing row (repository/users.ts::updateProfile
+// and ::resetPasswordWithToken); the other six are 1 create, 4 seed upserts (a
+// `create` branch plus an empty `update: {}`) and setUserProjects (relation only).
+// The sizes are EXACT, below.
+const SESSION_BUMP_EXEMPT: Record<string, { reason: string; until: string }> = {
+  create: {
+    reason:
+      "a create (or the create branch of an upsert) writes a NEW row: it starts at the column default 0 and no earlier session exists to kill. The update branch of an upsert is still checked",
+    until: "a create can land on an account that already had sessions (ids are autoincrement and never reused today)",
+  },
+};
+
+const EXPECTED_USER_WRITE_SITES = 8;
+const EXPECTED_CREDENTIAL_WRITERS = ["repository/users.ts::resetPasswordWithToken#update", "repository/users.ts::updateProfile#update"];
+
+const SCAN_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["tests", "tests-integration", "node_modules", ".claude", ".next", ".git", "docs", "public", "deploy"]);
+const SCAN_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js"] as const;
+
+/** Every application source file of the tree (root files included), by walking it — never by a list. */
+function allApplicationSources(): Source[] {
+  const files: string[] = [];
+  for (const name of readdirSync(ROOT)) {
+    const full = join(ROOT, name);
+    if (statSync(full).isDirectory()) {
+      if (!SCAN_EXCLUDED_DIRS.has(name)) files.push(...sourceFilesIn(full, SCAN_EXTENSIONS));
+    } else if (SCAN_EXTENSIONS.some((ext) => name.endsWith(ext))) files.push(full);
+  }
+  return files
+    .map((f) => ({ path: rel(f), text: readFileSync(f, "utf8") }))
+    .filter((f) => !f.path.startsWith("app/generated/") && !f.path.endsWith(".d.ts"));
+}
+
+/** The violations, as readable lines. */
+function bumpViolations(sources: Source[], exempt = SESSION_BUMP_EXEMPT): string[] {
+  const out: string[] = [];
+  for (const [id, ex] of Object.entries(exempt)) {
+    if (!ex.reason.trim() || !ex.until.trim()) out.push(`exemption ${id} needs a reason and a condition of disappearance`);
+  }
+  for (const site of sources.flatMap(userWriteSites)) {
+    // The create exemption is REAL: a new row written with password/role is
+    // accepted only while the `create` entry exists (remove it and the
+    // repository's create and the seeds turn red).
+    if (site.createsCredentials && !exempt.create) {
+      out.push(`${site.site} creates a row with the password or the role, and no "create" exemption is declared`);
+    }
+    if (!site.createOnly && site.writesCredentials && !site.bumps) {
+      out.push(`${site.site} writes the password or the role (or data the scan cannot read) without a valid sessionVersion bump in the same data`);
+    }
+    // Monotonic: whatever the write touches, a sessionVersion key may only be
+    // { increment: 1 } or `cond ? { increment: 1 } : undefined`.
+    if (site.badVersionWrite) {
+      out.push(`${site.site} writes sessionVersion with something other than { increment: 1 } (the counter must only ever grow)`);
+    }
+  }
+  return out;
+}
+
+describe("every writer of User.password / User.role bumps sessionVersion in the same statement", () => {
+  const sources = allApplicationSources();
+  const sites = sources.flatMap(userWriteSites);
+
+  it("the discovered domain has its EXACT size (a removed writer turns this red)", () => {
+    expect(sites.length).toBe(EXPECTED_USER_WRITE_SITES);
+    expect(sites.filter((s) => s.writesCredentials).map((s) => s.site).sort()).toEqual(EXPECTED_CREDENTIAL_WRITERS);
+  });
+
+  it("each of them carries the bump (a create is exempt, with a reason and a condition)", () => {
+    expect(bumpViolations(sources)).toEqual([]);
+  });
+
+  describe("probes, on planted sources", () => {
+    const planted = (text: string): Source[] => [{ path: "repository/probe.ts", text: `import { prisma } from "@/lib/prisma";\n${text}` }];
+
+    it("probe a — a password write WITHOUT the bump is RED", () => {
+      expect(
+        bumpViolations(planted(`export async function updatePassword(id: number, h: string) { return prisma.user.update({ where: { id }, data: { password: h } }); }`))
+      ).toHaveLength(1);
+    });
+
+    it("probe b — a role writer in the NEIGHBOURING forms (local const, shorthand) without the bump is RED", () => {
+      expect(bumpViolations(planted(`export async function f(id: number) { const data = { role: "VIEWER" }; return prisma.user.update({ where: { id }, data }); }`))).toHaveLength(1);
+      expect(bumpViolations(planted(`export async function f(id: number) { const payload = { role: "VIEWER" }; return prisma.user.update({ where: { id }, data: payload }); }`))).toHaveLength(1);
+      expect(bumpViolations(planted(`export async function f(id: number, role: string) { return prisma.user.update({ where: { id }, data: { role } }); }`))).toHaveLength(1);
+    });
+
+    it("probe b2 — data the scan cannot read (a parameter, a spread of one) is RED, never assumed safe", () => {
+      expect(bumpViolations(planted(`export async function f(id: number, d: object) { return prisma.user.update({ where: { id }, data: d }); }`))).toHaveLength(1);
+      expect(bumpViolations(planted(`export async function f(id: number, d: object) { return prisma.user.update({ where: { id }, data: { ...d } }); }`))).toHaveLength(1);
+    });
+
+    it("probe b3 — a nested write through another model, a tx client and an upsert's update branch are seen", () => {
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { return prisma.contact.update({ where: { id }, data: { user: { update: { data: { role: "ADMIN" } } } } }); }`))
+      ).toHaveLength(1);
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { return prisma.$transaction(async (tx) => tx.user.updateMany({ where: { id }, data: { password: "x" } })); }`))
+      ).toHaveLength(1);
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { return prisma.user.upsert({ where: { id }, create: { password: "x" }, update: { password: "y" } }); }`))
+      ).toHaveLength(1);
+    });
+
+    it("probe c — the same neighbouring forms WITH the bump stay GREEN", () => {
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { const data = { role: "VIEWER", sessionVersion: { increment: 1 } }; return prisma.user.update({ where: { id }, data }); }`))
+      ).toEqual([]);
+      expect(
+        bumpViolations(planted(`export async function f(id: number, d: object, c: boolean) { return prisma.user.update({ where: { id }, data: { ...d, sessionVersion: c ? { increment: 1 } : undefined } }); }`))
+      ).toEqual([]);
+      expect(
+        bumpViolations(
+          planted(`export async function f(id: number) { return prisma.contact.update({ where: { id }, data: { user: { update: { data: { role: "ADMIN", sessionVersion: { increment: 1 } } } } } }); }`)
+        )
+      ).toEqual([]);
+    });
+
+    it("probe c2 — a bump that is not an increment of 1, or that sits in ANOTHER statement, does not count", () => {
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { return prisma.user.update({ where: { id }, data: { password: "x", sessionVersion: { increment: 0 } } }); }`))
+      ).toHaveLength(2); // no valid bump AND a sessionVersion write that is not one
+      expect(
+        bumpViolations(
+          planted(
+            `export async function f(id: number) { await prisma.user.update({ where: { id }, data: { sessionVersion: { increment: 1 } } }); return prisma.user.update({ where: { id }, data: { password: "x" } }); }`
+          )
+        )
+      ).toHaveLength(1);
+    });
+
+    it("probe c3 — other columns, a create, and a mention in a COMMENT are not violations", () => {
+      expect(bumpViolations(planted(`export async function f(id: number) { return prisma.user.update({ where: { id }, data: { name: "x", jobFunctionId: 1 } }); }`))).toEqual([]);
+      expect(bumpViolations(planted(`export async function f() { return prisma.user.create({ data: { password: "x", role: "VIEWER" } }); }`))).toEqual([]);
+      expect(bumpViolations(planted(`// prisma.user.update({ data: { password: "x" } })\nexport async function f() { return 1; }`))).toEqual([]);
+    });
+
+    it("probe d — a target removed from the domain changes the count (the exact size turns red)", () => {
+      const both = planted(
+        `export async function a(id: number) { return prisma.user.update({ where: { id }, data: { password: "x", sessionVersion: { increment: 1 } } }); }
+         export async function b(id: number) { return prisma.user.update({ where: { id }, data: { password: "y", sessionVersion: { increment: 1 } } }); }`
+      );
+      const one = planted(`export async function a(id: number) { return prisma.user.update({ where: { id }, data: { password: "x", sessionVersion: { increment: 1 } } }); }`);
+      expect(both.flatMap(userWriteSites)).toHaveLength(2);
+      expect(one.flatMap(userWriteSites)).toHaveLength(1);
+    });
+
+    it("an exemption without a reason or a condition is refused", () => {
+      expect(bumpViolations([], { create: { reason: " ", until: "x" } })).toHaveLength(1);
+    });
+
+    // --- the review's probes (scope, depth, monotonic, real exemption) -------
+
+    it("probe e (scope) — a parameter named like a const declared in ANOTHER function is opaque, hence RED", () => {
+      const text = `export async function other(name: string) { const data = { name }; return data; }
+        export async function f(id: number, data: { role: string }) { return prisma.user.update({ where: { id }, data }); }`;
+      expect(bumpViolations(planted(text))).toHaveLength(1);
+      // the same const, declared in the SAME function before the call, is followed (no credential key: GREEN)
+      expect(
+        bumpViolations(planted(`export async function f(id: number) { const data = { name: "x" }; return prisma.user.update({ where: { id }, data }); }`))
+      ).toEqual([]);
+      // declared AFTER the call, in an inner block that does not enclose it, or via `let`: not followed (opaque, RED)
+      expect(bumpViolations(planted(`export async function f(id: number) { const r = prisma.user.update({ where: { id }, data }); const data = { name: "x" }; return r; }`))).toHaveLength(1);
+      expect(bumpViolations(planted(`export async function f(id: number, c: boolean) { if (c) { const data = { name: "x" }; } return prisma.user.update({ where: { id }, data }); }`))).toHaveLength(1);
+      expect(bumpViolations(planted(`export async function f(id: number) { let data = { name: "x" }; return prisma.user.update({ where: { id }, data }); }`))).toHaveLength(1);
+    });
+
+    it("probe e2 (scope, the seven forms) — a name mutated or re-bound in the function is opaque, hence RED; the plain form stays GREEN", () => {
+      const head = "export async function f(id: number, c: boolean, input: { data: object }, list: object[]) {";
+      const update = "return prisma.user.update({ where: { id }, data }); }";
+      const red = [
+        `${head} const data: { name: string; password?: string } = { name: "x" }; data.password = "h"; ${update}`,
+        `${head} const data = { name: "x" }; (data as { password?: string }).password = "h"; ${update}`,
+        `${head} const data: { name: string; sessionVersion?: object } = { name: "x" }; delete data.sessionVersion; ${update}`,
+        `${head} const data = { name: "x" }; Object.assign(data, { password: "h" }); ${update}`,
+        `${head} let data = { name: "x" }; ${update}`,
+        `${head} var data = { name: "x" }; ${update}`,
+        `${head} const data = { name: "x" }; if (c) { const { data } = input; ${update} } return data; }`,
+        `${head} const data = { name: "x" }; for (const data of list) { await prisma.user.update({ where: { id }, data }); } return data; }`,
+        `${head} const data = { name: "x" }; try { return data; } catch (data) { ${update} } }`,
+      ];
+      for (const text of red) expect(bumpViolations(planted(text)), text).toHaveLength(1);
+      expect(bumpViolations(planted(`${head} const data = { name: "x" }; ${update}`))).toEqual([]);
+    });
+
+    it("probe f (depth) — a user write nested several levels under another model is DISCOVERED, and RED without the bump", () => {
+      const deep = (extra: string) =>
+        planted(
+          `export async function f(id: number) { return prisma.client.update({ where: { id }, data: { contacts: { update: { where: { id: 1 }, data: { user: { update: { data: { password: "x"${extra} } } } } } } } }); }`
+        );
+      expect(deep("").flatMap(userWriteSites)).toHaveLength(1);
+      expect(bumpViolations(deep(""))).toHaveLength(1);
+      expect(bumpViolations(deep(", sessionVersion: { increment: 1 }"))).toEqual([]);
+      // a `user` under a read-only key (where / select / include) is a filter, not a write
+      expect(
+        planted(`export async function f(id: number) { return prisma.contact.update({ where: { user: { email: "x" } }, data: { name: "y" }, select: { user: true } }); }`).flatMap(userWriteSites)
+      ).toHaveLength(0);
+    });
+
+    it("probe g (monotonic) — anything but { increment: 1 } or cond ? { increment: 1 } : undefined is RED, credentials or not", () => {
+      const write = (version: string, cols = 'name: "x"') =>
+        planted(`export async function f(id: number, c: boolean) { return prisma.user.update({ where: { id }, data: { ${cols}, sessionVersion: ${version} } }); }`);
+      for (const bad of ["0", "{ set: 0 }", "{ decrement: 1 }", "{ increment: 2 }", "c ? { increment: 1 } : { set: 0 }", "c ? { set: 0 } : undefined"]) {
+        expect(bumpViolations(write(bad)), bad).toHaveLength(1);
+        expect(bumpViolations(write(bad, 'password: "x"')).length, bad).toBeGreaterThanOrEqual(1);
+      }
+      expect(bumpViolations(write("{ increment: 1 }", 'password: "x"'))).toEqual([]);
+      expect(bumpViolations(write("c ? { increment: 1 } : undefined", 'password: "x"'))).toEqual([]);
+      // an increment buried elsewhere in the subtree no longer counts as the bump
+      expect(bumpViolations(write("{ set: 0, increment: 1 }", 'password: "x"')).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("probe h (exemption) — the create exemption is real: without it a create with credentials is RED, with it GREEN", () => {
+      const create = planted(`export async function f() { return prisma.user.create({ data: { email: "a", password: "x", role: "VIEWER" } }); }`);
+      const seed = planted(`export async function f() { return prisma.user.upsert({ where: { email: "a" }, update: {}, create: { email: "a", password: "x", role: "ADMIN" } }); }`);
+      expect(bumpViolations(create, {})).toHaveLength(1);
+      expect(bumpViolations(seed, {})).toHaveLength(1);
+      expect(bumpViolations(create)).toEqual([]);
+      expect(bumpViolations(seed)).toEqual([]);
+      // the real tree: dropping the entry turns the repository's create and the seeds red
+      const sitesWithCreation = sources.flatMap(userWriteSites).filter((s) => s.createsCredentials).map((s) => s.site);
+      expect(sitesWithCreation.length).toBeGreaterThanOrEqual(2);
+      expect(bumpViolations(sources, {}).filter((v) => v.includes('no "create" exemption')).length).toBe(sitesWithCreation.length);
+    });
   });
 });

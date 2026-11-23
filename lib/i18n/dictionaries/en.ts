@@ -128,6 +128,7 @@ const en: Dictionary = {
         resetLinkSent: "If an account exists for this email, a reset link has been sent.",
         resetLinkInvalidOrExpired: "This reset link is invalid or has expired.",
         passwordUpdated: "Password updated. You can now sign in.",
+        credentialsChanged: "Your credentials have changed: sign in again with your new password.",
     },
     accessDenied: {
         title: "Access denied",
@@ -1001,6 +1002,8 @@ const en: Dictionary = {
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
+            passwordTooShort: "The password must be at least {min} characters.",
+            projectsSavedProfileNot: "The projects were saved, but the profile was not:",
             // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are
             // onDelete: Restrict (migration 20260918120000) — closed loans
             // are purged automatically when the user is deleted.

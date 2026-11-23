@@ -85,7 +85,6 @@ vi.mock("@/repository/users", () => ({
   remove: vi.fn(),
   findById: vi.fn(),
   countSuperadmins: vi.fn(),
-  updatePassword: vi.fn(),
   countOwnershipBlockers: vi.fn(),
   setUserProjects: vi.fn(),
 }));

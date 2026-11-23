@@ -883,12 +883,69 @@ model JobFunction {
   subcontractorPeople SubcontractorPerson[]
 }
 
+// Enforced by the database, not only by the application — migration
+// 20261123100000_user_session_version_and_email_ci:
+//   User_email_lower_key — a FUNCTIONAL UNIQUE INDEX on (lower(email)): no two
+//              accounts whose e-mails differ only by case. Prisma cannot
+//              express an expression index, so it exists only in the
+//              migration SQL and in this comment; do not conclude from the
+//              plain @unique below that 'Foo@x.fr' and 'foo@x.fr' may coexist.
+//              `prisma migrate diff` (database -> this schema) does not show
+//              it either way: probed, the diff is empty on a database that
+//              carries it. Only pg_indexes tells it is there. A collision
+//              surfaces as P2002 like the plain @unique (adapter-pg maps every
+//              23505 to it; its `fields` parse reads "lower(email" here, which
+//              no catch in this repo looks at).
+//   The plain @unique (User_email_key) is KEPT on purpose: it is what
+//              findUnique({ where: { email } }) needs, what serves the exact
+//              lookups on the NORMALIZED e-mail (the functional index cannot
+//              serve `email = $1`), and the ON CONFLICT (email) arbiter of the
+//              bootstrap script in docs/deploy-hostinger.md. With the CHECK
+//              below, lower(email) = email on every row, so the two indexes
+//              refuse exactly the same rows and that arbiter covers both.
+//   User_email_normalized_check — a CHECK: the STORED e-mail is already
+//              normalized, i.e. email = lower(email) AND no leading/trailing
+//              character of the JS trim() set (16 code points, listed in the
+//              migration). Prisma cannot express a CHECK either; the
+//              constraint IS there (pg_constraint), do not conclude from this
+//              silent schema that a raw 'Jean@x.fr', 'jean@x.fr<TAB>' or
+//              ' jean@x.fr' can be stored — each fails with 23514. Every
+//              output of lib/normalizeEmail.ts (trim().toLowerCase()) passes
+//              it — probed over all code points, including the characters on
+//              which the two engines disagree — so the application, which
+//              normalizes before every write, never meets it; only a writer
+//              that skipped the normalization does. Consequence for readers:
+//              stored = normalized, so an EXACT match on the normalized value
+//              (findUnique, User_email_key) finds every account; a
+//              case-insensitive filter is not needed, and Prisma's
+//              `mode: "insensitive"` is worse than unneeded — it compiles to
+//              ILIKE with `_` and `%` left as wildcards (probed).
+//              Postgres lower() and JS toLowerCase() are NOT the same function
+//              (U+0130, final sigma, Unicode 16+ letters — see the migration),
+//              so never normalize an e-mail in SQL and compare it with one
+//              normalized in JS.
 model User {
   id            Int                  @id @default(autoincrement())
   email         String               @unique
   password      String
   name          String?
-  role          Role                 @default(ADMIN)
+  // No @default, deliberately: it used to be ADMIN, so any writer that forgot
+  // the role (a raw INSERT, a seed, a test helper) silently created an
+  // administrator. Every creation now has to say which role it grants — the
+  // Prisma create input makes it required, and a raw INSERT without it fails
+  // on NOT NULL instead of granting ADMIN.
+  role          Role
+  // Revocation counter for the JWT sessions (Auth.js, no session table): the
+  // token carries the value read at sign-in, and lib/sessionGate.ts voids it
+  // when it no longer equals this column. Incremented (never set) by every
+  // application writer of the password or the role and by the bootstrap script
+  // (docs/deploy-hostinger.md); a raw SQL write of the role is caught by the
+  // gate's role comparison, not by this counter. 0 = never bumped, and also what a token
+  // issued BEFORE this column existed is read as — so deploying it signs
+  // nobody out. Must only ever grow: writing back a value already issued
+  // (e.g. a reset to 0) revives every cookie revoked since. Not a user-facing
+  // value, hence a database DEFAULT rather than one in code.
+  sessionVersion Int                 @default(0)
   // The user's job function, picked from the managed list (see JobFunction).
   jobFunction   JobFunction?         @relation(fields: [jobFunctionId], references: [id], onDelete: SetNull)
   jobFunctionId Int?

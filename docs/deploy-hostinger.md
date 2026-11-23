@@ -378,6 +378,28 @@ compte admin.
 Crée le tien directement en SQL (contourne complètement Prisma/TypeScript, ne dépend que du
 package `pg` déjà présent dans l'image) :
 
+Le compte créé est un **`SUPERADMIN`**, pas un `ADMIN` : c'est le compte de secours, le seul rôle
+que rien ne contraint — ni fonction, ni rubriques masquées, ni périmètre de chantiers — et le seul
+qui gère les comptes `ADMIN` et `SUPERADMIN`. Un `ADMIN` reste soumis aux restrictions de sa
+fonction : si le premier compte en était un, personne ne pourrait lever une restriction posée par
+erreur. Le rôle est écrit **explicitement** : la colonne n'a plus de valeur par défaut (migration
+`20261123100000`), un `INSERT` sans rôle échoue au lieu de créer un administrateur en silence.
+
+Relancé sur un e-mail **déjà existant**, le script sert de procédure de secours : il remplace le
+mot de passe, remet le compte en `SUPERADMIN`, **révoque toutes ses sessions ouvertes**
+(`sessionVersion` incrémenté), y compris celles d'un cookie volé, et **supprime ses liens de
+réinitialisation non utilisés** (un lien envoyé avant le secours ne doit pas redonner la main), le
+tout en une seule instruction SQL.
+
+**Il refuse un e-mail qui appartient à un login de portail** (`role = 'CLIENT'`) : un compte du
+portail est géré depuis son contact, et le promouvoir en `SUPERADMIN` par ici serait une
+élévation hors de toute règle de l'application. Dans ce cas rien n'est écrit, le script affiche
+l'erreur et sort avec un code non nul.
+
+L'e-mail est normalisé (`trim().toLowerCase()`, exactement comme `lib/normalizeEmail.ts`) avant
+l'`INSERT` : la base refuse toute autre forme (contrainte `User_email_normalized_check`), et c'est
+sous cette forme que la connexion cherche le compte.
+
 **1. Crée le script sur le VPS :**
 ```bash
 cat > /opt/fullstack-starter/create-admin.js <<'EOF'
@@ -385,7 +407,8 @@ require('dotenv/config');
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const email = process.env.ADMIN_EMAIL;
+// Same canonical form as lib/normalizeEmail.ts; the database refuses any other.
+const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const password = process.env.ADMIN_PASSWORD;
 const name = process.env.ADMIN_NAME || 'Admin';
 
@@ -398,15 +421,44 @@ if (!email || !password) {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   const hash = await bcrypt.hash(password, 10);
-  await client.query(
-    `INSERT INTO "User" (email, password, name)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, name = EXCLUDED.name`,
+  // ON CONFLICT (email) covers both unique indexes: every stored e-mail is
+  // normalized (CHECK), so a clash on lower(email) is a clash on email.
+  // The WHERE refuses a portal login: the row is then neither inserted nor
+  // updated, nothing is returned (rowCount 0) and the DELETE below has no id.
+  // `xmax <> 0` tells an UPDATE (existing row) from an INSERT (new row).
+  // One statement: the upsert and the purge of the unused reset links commit together.
+  const res = await client.query(
+    `WITH account AS (
+       INSERT INTO "User" (email, password, name, role)
+       VALUES ($1, $2, $3, 'SUPERADMIN')
+       ON CONFLICT (email) DO UPDATE SET
+         password = EXCLUDED.password,
+         name = EXCLUDED.name,
+         role = 'SUPERADMIN',
+         "sessionVersion" = "User"."sessionVersion" + 1
+       WHERE "User".role <> 'CLIENT'
+       RETURNING id, (xmax <> 0) AS existed
+     ), purge AS (
+       DELETE FROM "PasswordResetToken"
+       WHERE "userId" IN (SELECT id FROM account) AND "usedAt" IS NULL
+     )
+     SELECT id, existed FROM account`,
     [email, hash, name]
   );
-  console.log('✅ Compte prêt :', email);
   await client.end();
-})();
+  if (res.rowCount === 0) {
+    console.error('❌ Refusé :', email, 'est un login du portail client. Rien n\'a été modifié.');
+    process.exit(1);
+  }
+  console.log(
+    res.rows[0].existed
+      ? '✅ Compte existant mis à jour (mot de passe remplacé, sessions révoquées) : ' + email
+      : '✅ Compte créé : ' + email
+  );
+})().catch((err) => {
+  console.error('❌', err.message);
+  process.exit(1);
+});
 EOF
 ```
 
@@ -483,6 +535,44 @@ Pour restaurer une sauvegarde compressée :
 ```bash
 gunzip -c /opt/fullstack-starter/backups/app-20260101-030000.sql.gz \
   | docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db psql -U app app
+```
+
+#### Après une restauration : révoquer les sessions (obligatoire)
+
+`User.sessionVersion` est le compteur qui annule les cookies d'un compte dont le mot de passe ou
+le rôle a changé (`lib/sessionGate.ts`). Une sauvegarde le **fait reculer** : tout cookie révoqué
+depuis la date de la sauvegarde (mot de passe changé après une fuite, compte rétrogradé) porte à
+nouveau la version courante de la base, et **redevient valide**.
+
+**Procédure principale : faire tourner `AUTH_SECRET`** (nouvelle valeur dans le `.env` du
+serveur, puis redémarrer le conteneur). C'est la seule mesure complète : tous les jetons émis avec
+l'ancien secret deviennent invalides, quelle que soit la version qu'ils portent. Tout le monde
+devra se reconnecter (voir `docs/SECURITE-CHECKLIST.md`, V9). La rotation est **strictement plus
+forte** qu'un incrément, pas équivalente.
+
+**Repli, si la rotation est impossible** :
+
+```bash
+docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
+  psql -U app app -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1000000'
+```
+
+**Pourquoi pas `+ 1`** : la barrière compare par **égalité** (le jeton porte la version lue à la
+connexion). Une sauvegarde prise à V=0, restaurée alors que la base avait vu deux incréments depuis
+(V=2), serait ramenée à V=1 par un `+ 1` : un cookie émis à V=1 puis révoqué redevient valide.
+Un saut d'un million passe au-dessus de toute version déjà émise. La colonne est un `INT`
+(maximum 2 147 483 647) : cette marge ne tient qu'environ **2 000 restaurations**, après quoi le
+repli ne sert plus et seule la rotation reste.
+
+**Ce qu'une restauration ressuscite d'autre**, à défaire aussi :
+
+- les **comptes supprimés depuis la sauvegarde** reviennent avec leur ancien mot de passe :
+  supprimer de nouveau les comptes supprimés depuis la date de la sauvegarde ;
+- les **liens de réinitialisation** non utilisés qui existaient alors :
+
+```bash
+docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
+  psql -U app app -c 'DELETE FROM "PasswordResetToken" WHERE "usedAt" IS NULL'
 ```
 
 ### Health-check + monitoring externe

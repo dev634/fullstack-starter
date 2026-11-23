@@ -130,6 +130,7 @@ const fr = {
         resetLinkSent: "Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.",
         resetLinkInvalidOrExpired: "Ce lien de réinitialisation est invalide ou a expiré.",
         passwordUpdated: "Mot de passe mis à jour. Tu peux maintenant te connecter.",
+        credentialsChanged: "Tes identifiants ont changé : reconnecte-toi avec ton nouveau mot de passe.",
     },
     accessDenied: {
         title: "Accès refusé",
@@ -1022,6 +1023,8 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
+            passwordTooShort: "Le mot de passe doit contenir au moins {min} caractères.",
+            projectsSavedProfileNot: "Les chantiers ont été enregistrés, mais le profil ne l'a pas été :",
             // Equipment.ownerId et EquipmentLoan.borrowerId (prêts OUVERTS)
             // sont en onDelete: Restrict (migration 20260918120000) — les
             // prêts fermés, eux, sont purgés automatiquement à la suppression.

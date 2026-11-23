@@ -42,7 +42,7 @@ describe("e-mail lookups return the right account only", () => {
     for (const [email, id] of [[DOT, dotId], [UNDERSCORE, underscoreId]] as const) {
       expect((await findByEmail(email))?.id, email).toBe(id);
       expect(await findIdByEmail(email), email).toBe(id);
-      expect(await findSessionAccount(id, email), email).toEqual({ id });
+      expect(await findSessionAccount(id, email), email).toEqual({ id, role: "EDITOR", sessionVersion: 0 });
       expect(await findAccountJobFunctionByEmail(email), email).toEqual({ jobFunctionId: null });
       expect(await findAccessScopeByEmail(email), email).not.toBeNull();
     }

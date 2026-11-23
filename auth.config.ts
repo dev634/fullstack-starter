@@ -25,7 +25,14 @@ export const authConfig = {
   // boundary can never fire (a client would then reach the whole app).
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.role = user.role;
+      // Sign-in only: the token is stamped with the account's role AND its
+      // sessionVersion, which lib/sessionGate.ts compares to the row on every
+      // later read. Never rewritten afterwards: a refresh that adopted the
+      // current version would defeat the comparison.
+      if (user) {
+        token.role = user.role;
+        token.sessionVersion = user.sessionVersion;
+      }
       return token;
     },
     async session({ session, token }) {

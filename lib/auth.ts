@@ -15,7 +15,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorize: authorizeCredentials,
     }),
   ],
-  // authConfig's own `jwt` only carries the role onto the token at sign-in —
+  // authConfig's own `jwt` only carries the role and the sessionVersion onto the token at sign-in —
   // it has to stay Edge-safe (no DB access), since the proxy runs on
   // authConfig alone. Node can go further: the session-liveness check
   // (lib/sessionGate.ts) belongs HERE, not in authConfig, because it needs

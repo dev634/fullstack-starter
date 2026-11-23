@@ -273,3 +273,364 @@ export function accountActionsIn(
   }
   return { reports, dynamicRepositoryImports: dynamic.filter((m) => m.startsWith("repository/") || m === "<computed>") };
 }
+
+// --- Writers of the session-killing columns (lot 3) -------------------------
+
+const USER_WRITE_METHODS: ReadonlySet<string> = new Set(["create", "createMany", "update", "updateMany", "upsert"]);
+const CREDENTIAL_KEYS: ReadonlySet<string> = new Set(["password", "role"]);
+/** Keys of a Prisma argument that only READ (a `user` under them is a filter or a projection, not a write). */
+const READ_ONLY_KEYS: ReadonlySet<string> = new Set(["where", "select", "include", "omit", "orderBy"]);
+
+export type UserWriteSite = {
+  /** "repository/users.ts::updateProfile#update" — file, enclosing function, method. */
+  site: string;
+  /** `create`/`createMany`: a NEW row, nothing earlier to invalidate: no bump required. */
+  createOnly: boolean;
+  /**
+   * The data this write can touch `password` or `role` with on an EXISTING row:
+   * an explicit key, or a spread / data object the scan cannot read (an opaque
+   * value is assumed to carry them — what is not understood is refused, never
+   * normalised to "safe"). False for a pure create.
+   */
+  writesCredentials: boolean;
+  /**
+   * A NEW row (a `create`, a `createMany`, an upsert's create branch) is written
+   * with `password`/`role` (or data the scan cannot read). Allowed only by the
+   * `create` exemption, which the test must then actually hold.
+   */
+  createsCredentials: boolean;
+  /** The SAME data object carries a valid bump: `sessionVersion: { increment: 1 }` (or `cond ? { increment: 1 } : undefined`). */
+  bumps: boolean;
+  /** A `sessionVersion` key whose value is NOT a valid bump (`0`, `{ set: 0 }`, `{ decrement: 1 }`, a ternary with another else…): the counter must only ever grow. */
+  badVersionWrite: boolean;
+};
+
+type DataShape = { credentials: boolean; bumps: boolean; badVersion: boolean };
+
+function propertyName(n: ts.PropertyName): string | null {
+  return ts.isIdentifier(n) || ts.isStringLiteralLike(n) ? n.text : null;
+}
+
+function unparen(e: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
+}
+
+/** Exactly `{ increment: 1 }` — nothing else in the object. */
+function isIncrementOneObject(e: ts.Expression): boolean {
+  const x = unparen(e);
+  if (!ts.isObjectLiteralExpression(x) || x.properties.length !== 1) return false;
+  const p = x.properties[0];
+  return ts.isPropertyAssignment(p) && propertyName(p.name) === "increment" && ts.isNumericLiteral(p.initializer) && p.initializer.text === "1";
+}
+
+/** The ONLY accepted values of a `sessionVersion` key: `{ increment: 1 }`, or `<cond> ? { increment: 1 } : undefined`. */
+function isValidBump(e: ts.Expression): boolean {
+  const x = unparen(e);
+  if (isIncrementOneObject(x)) return true;
+  if (!ts.isConditionalExpression(x)) return false;
+  const whenFalse = unparen(x.whenFalse);
+  return isIncrementOneObject(x.whenTrue) && ts.isIdentifier(whenFalse) && whenFalse.text === "undefined";
+}
+
+function enclosingFunctionLike(n: ts.Node): ts.FunctionLikeDeclaration | null {
+  for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
+    if (ts.isFunctionLike(cur) && "body" in cur) return cur as ts.FunctionLikeDeclaration;
+  }
+  return null;
+}
+
+/** The root identifier of `a.b[c].d` (through parentheses, `!`, `as` and `satisfies`), or null. */
+function rootIdentifier(e: ts.Expression): ts.Identifier | null {
+  let cur: ts.Expression = e;
+  for (;;) {
+    if (ts.isIdentifier(cur)) return cur;
+    if (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur) || ts.isNonNullExpression(cur) || ts.isParenthesizedExpression(cur) || ts.isAsExpression(cur) || ts.isTypeAssertionExpression(cur) || ts.isSatisfiesExpression(cur)) cur = cur.expression;
+    else return null;
+  }
+}
+
+const OBJECT_MUTATORS: ReadonlySet<string> = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
+
+/** Is `n` a property write / delete / `Object.assign`-style mutation whose target is rooted at `name`? */
+function mutatesName(n: ts.Node, name: string): boolean {
+  const rootedAtName = (e: ts.Expression) => {
+    const root = rootIdentifier(e);
+    return root !== null && root.text === name && root !== e; // a property of it, not a rebinding of the name itself
+  };
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return rootedAtName(n.left);
+  if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) return rootedAtName(n.operand);
+  if (ts.isDeleteExpression(n)) return rootedAtName(n.expression);
+  if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "Object" && OBJECT_MUTATORS.has(n.expression.name.text)) {
+    const first = n.arguments[0];
+    return first !== undefined && rootIdentifier(first)?.text === name;
+  }
+  return false;
+}
+
+/** Every identifier a binding name introduces (`x`, `{ a, b: [c] }`, …). */
+function boundNames(b: ts.BindingName, out: string[] = []): string[] {
+  if (ts.isIdentifier(b)) out.push(b.text);
+  else for (const el of b.elements) if (!ts.isOmittedExpression(el)) boundNames(el.name, out);
+  return out;
+}
+
+/**
+ * The initializer of the one `const <name> = …` that `site` (an identifier)
+ * refers to, or null — and null means OPAQUE (assumed to write credentials).
+ *
+ * What the code does, exactly. The declaration is followed only when ALL hold:
+ *   - it is a `const` with an initializer, in a block that encloses the use,
+ *     BEFORE it, and in the SAME function as the use (a closure over an outer
+ *     function's variable is not followed);
+ *   - no parameter of that function (patterns included) has the name;
+ *   - that `const` is the ONLY binding of the name in the function, nested
+ *     blocks included: any other — `let`/`var`, a destructuring
+ *     (`const { data } = input`), a `for (const data of …)`, a `catch (data)`,
+ *     a function or class declaration, a second `const` in another block — makes
+ *     the name opaque rather than guess which one is nearer. (Bindings in
+ *     NESTED FUNCTIONS are other scopes and are ignored.)
+ *   - the name is never MUTATED anywhere in the function, nested functions
+ *     included: a property assignment (\`data.password = h\`, \`+=\`, \`++\`), a
+ *     \`delete data.x\`, or \`Object.assign(data, …)\` (also defineProperty /
+ *     defineProperties / setPrototypeOf) — the literal's keys no longer tell
+ *     what is written.
+ * Resolving to "the first declaration of that name in the file" let an
+ * unrelated \`const data = { name }\` elsewhere make a parameter \`data\` look harmless.
+ */
+function localInitializer(site: ts.Identifier): ts.Expression | null {
+  const fn = enclosingFunctionLike(site);
+  if (fn?.parameters.some((p) => boundNames(p.name).includes(site.text))) return null;
+  const file = site.getSourceFile();
+  const root: ts.Node = fn?.body ?? file;
+  const candidates: ts.VariableDeclaration[] = [];
+  let otherBindings = 0;
+  let mutated = false;
+  const countBinding = () => {
+    otherBindings++;
+  };
+  const visit = (n: ts.Node, sameFunction: boolean) => {
+    if (mutatesName(n, site.text)) mutated = true; // nested functions included
+    const nested = n !== root && ts.isFunctionLike(n);
+    if (nested) {
+      // another function's scope: only mutations (above) matter inside it
+      ts.forEachChild(n, (c) => visit(c, false));
+      return;
+    }
+    if (sameFunction) {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === site.text && n.initializer && ts.isVariableDeclarationList(n.parent) && (n.parent.flags & ts.NodeFlags.Const) !== 0 && ts.isVariableStatement(n.parent.parent)) {
+        candidates.push(n);
+      } else if (ts.isVariableDeclaration(n) && boundNames(n.name).includes(site.text)) {
+        countBinding(); // let / var / destructuring / for-of / catch / const without a followable shape
+      } else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name?.text === site.text) {
+        countBinding();
+      }
+    }
+    ts.forEachChild(n, (c) => visit(c, sameFunction));
+  };
+  visit(root, true);
+  if (mutated || otherBindings > 0) return null;
+  let best: ts.VariableDeclaration | null = null;
+  for (const n of candidates) {
+    const scope = n.parent.parent.parent; // VariableDeclarationList -> VariableStatement -> Block | SourceFile
+    if (scope.getStart() <= site.getStart() && site.getEnd() <= scope.getEnd() && n.getEnd() <= site.getStart() && (best === null || n.getStart() > best.getStart())) best = n;
+  }
+  if (candidates.length > 1) return null; // two consts of that name in the function: not guessed
+  return (best as ts.VariableDeclaration | null)?.initializer ?? null;
+}
+
+/** What a data expression writes. An identifier is followed to a local object literal; anything else is opaque. */
+function shapeOf(expr: ts.Expression, depth = 0): DataShape {
+  const opaque: DataShape = { credentials: true, bumps: false, badVersion: false };
+  if (depth > 5) return opaque;
+  if (ts.isParenthesizedExpression(expr)) return shapeOf(expr.expression, depth + 1);
+  if (ts.isIdentifier(expr)) {
+    const init = localInitializer(expr);
+    return init ? shapeOf(init, depth + 1) : opaque;
+  }
+  if (!ts.isObjectLiteralExpression(expr)) return opaque;
+  const shape: DataShape = { credentials: false, bumps: false, badVersion: false };
+  for (const p of expr.properties) {
+    if (ts.isSpreadAssignment(p)) {
+      const inner = shapeOf(p.expression, depth + 1);
+      shape.credentials ||= inner.credentials;
+      shape.bumps ||= inner.bumps;
+      shape.badVersion ||= inner.badVersion;
+    } else if (ts.isShorthandPropertyAssignment(p)) {
+      if (CREDENTIAL_KEYS.has(p.name.text)) shape.credentials = true;
+      if (p.name.text === "sessionVersion") shape.badVersion = true; // a bare variable is not a bump
+    } else if (ts.isPropertyAssignment(p)) {
+      const key = propertyName(p.name);
+      if (key === null) shape.credentials = true; // computed key: not understood
+      else if (CREDENTIAL_KEYS.has(key)) shape.credentials = true;
+      else if (key === "sessionVersion") {
+        if (isValidBump(p.initializer)) shape.bumps = true;
+        else shape.badVersion = true;
+      }
+    } else {
+      shape.credentials = true; // method / accessor: not understood
+    }
+  }
+  return shape;
+}
+
+/** Nested-write form (`user: { update: { data: { … } } }`): the shape is not a flat object, so search the whole subtree for the keys. */
+function deepShapeOf(node: ts.Node): DataShape {
+  const shape: DataShape = { credentials: false, bumps: false, badVersion: false };
+  const visit = (n: ts.Node) => {
+    if (ts.isPropertyAssignment(n)) {
+      const key = propertyName(n.name);
+      if (key !== null && CREDENTIAL_KEYS.has(key)) shape.credentials = true;
+      if (key === "sessionVersion") {
+        if (isValidBump(n.initializer)) shape.bumps = true;
+        else shape.badVersion = true;
+      }
+    } else if (ts.isShorthandPropertyAssignment(n)) {
+      if (CREDENTIAL_KEYS.has(n.name.text)) shape.credentials = true;
+      if (n.name.text === "sessionVersion") shape.badVersion = true;
+    } else if (ts.isSpreadAssignment(n)) shape.credentials = true; // not understood
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return shape;
+}
+
+/** Every `user: …` property under `node` at ANY depth (not under a read-only key, not inside another `user`), with its key path from `node`. */
+function nestedUserWrites(node: ts.Node): { path: string[]; value: ts.Expression }[] {
+  const out: { path: string[]; value: ts.Expression }[] = [];
+  const visit = (n: ts.Node, path: string[]) => {
+    if (ts.isPropertyAssignment(n)) {
+      const key = propertyName(n.name);
+      if (key !== null && READ_ONLY_KEYS.has(key)) return;
+      if (key === "user") {
+        out.push({ path: [...path, key], value: n.initializer });
+        return; // its whole subtree is read by deepShapeOf
+      }
+      ts.forEachChild(n, (c) => visit(c, key === null ? path : [...path, key]));
+      return;
+    }
+    ts.forEachChild(n, (c) => visit(c, path));
+  };
+  ts.forEachChild(node, (c) => visit(c, []));
+  return out;
+}
+
+/** The expression assigned to `key` in an object literal (a shorthand `key` counts as the identifier `key`). */
+function propertyOf(obj: ts.ObjectLiteralExpression, key: string): ts.Expression | null {
+  for (const p of obj.properties) {
+    if (ts.isPropertyAssignment(p) && propertyName(p.name) === key) return p.initializer;
+    if (ts.isShorthandPropertyAssignment(p) && p.name.text === key) return p.name;
+  }
+  return null;
+}
+
+function enclosingFunctionName(n: ts.Node): string {
+  for (let cur: ts.Node | undefined = n.parent; cur; cur = cur.parent) {
+    if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+    if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name) && cur.initializer && (ts.isArrowFunction(cur.initializer) || ts.isFunctionExpression(cur.initializer))) {
+      return cur.name.text;
+    }
+  }
+  return "<top>";
+}
+
+const UNREADABLE: DataShape = { credentials: true, bumps: false, badVersion: false };
+
+/**
+ * Every write of the `User` model in `src`, from the WRITE CALL — `prisma.user.<w>()` /
+ * `tx.user.<w>()`, and a nested `user: { … }` at ANY depth inside the argument of
+ * a write on another model (`prisma.client.update({ data: { contacts: { update:
+ * { data: { user: { update } } } } } })`) — never from a list of files. For each:
+ * does its data write `password`/`role`, and does that SAME data object carry
+ * `sessionVersion: { increment: 1 }`? Any `sessionVersion` value that is not a
+ * valid bump is flagged on its own (`badVersionWrite`), credentials or not.
+ *
+ * Followed: an inline object, a `const data = { … }` declared before the call in
+ * the SAME function (also when `data` is passed shorthand), spreads of either.
+ * Opaque (a parameter, a spread of one, a call result, a `let`, a name bound
+ * twice in the function, a name mutated by property assignment / delete /
+ * Object.assign — see localInitializer) counts as "writes credentials".
+ * REMAINING LIMITS, stated: an alias (`const d = data; d.password = h`) or a
+ * helper that mutates its argument (`fill(data)`) is not followed — the literal
+ * is still read as it was written; a `const` declared in an OUTER function and
+ * used in a closure is opaque (safe) but one mutated only through a reference
+ * held elsewhere is not seen. NOT seen by construction: a client under another name
+ * than `prisma`/`tx`, raw SQL (the only raw SQL of the app is a SELECT … FOR
+ * UPDATE), a writer passed as a value instead of called, a `sessionVersion`
+ * hidden inside an opaque spread, a User written through a relation FROM the
+ * User model itself (`prisma.user.update({ data: { contact: { update … } } })`).
+ */
+export function userWriteSites(src: Source): UserWriteSite[] {
+  const file = parse(src);
+  const out: UserWriteSite[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const method = n.expression.name.text;
+      const modelAccess = n.expression.expression;
+      if (
+        USER_WRITE_METHODS.has(method) &&
+        ts.isPropertyAccessExpression(modelAccess) &&
+        ts.isIdentifier(modelAccess.expression) &&
+        CLIENT_NAMES.has(modelAccess.expression.text)
+      ) {
+        const where = `${src.path}::${enclosingFunctionName(n)}`;
+        const arg = n.arguments[0];
+        const argObject = arg && ts.isObjectLiteralExpression(arg) ? arg : null;
+        const shapeAt = (key: string): DataShape => {
+          const data = argObject ? propertyOf(argObject, key) : null;
+          return data ? shapeOf(data) : UNREADABLE;
+        };
+        if (modelAccess.name.text === "user") {
+          if (method === "create" || method === "createMany") {
+            const created = shapeAt("data");
+            out.push({
+              site: `${where}#${method}`,
+              createOnly: true,
+              writesCredentials: false,
+              createsCredentials: created.credentials,
+              bumps: false,
+              badVersionWrite: created.badVersion,
+            });
+          } else if (method === "upsert") {
+            // The UPDATE branch can change an existing row; the create branch is a new row.
+            const updated = shapeAt("update");
+            const created = shapeAt("create");
+            out.push({
+              site: `${where}#upsert`,
+              createOnly: false,
+              writesCredentials: updated.credentials,
+              createsCredentials: created.credentials,
+              bumps: updated.bumps,
+              badVersionWrite: updated.badVersion || created.badVersion,
+            });
+          } else {
+            const updated = shapeAt("data");
+            out.push({
+              site: `${where}#${method}`,
+              createOnly: false,
+              writesCredentials: updated.credentials,
+              createsCredentials: false,
+              bumps: updated.bumps,
+              badVersionWrite: updated.badVersion,
+            });
+          }
+        } else if (argObject) {
+          // A write on ANOTHER model: a nested `user: { … }` anywhere in its argument.
+          for (const nested of nestedUserWrites(argObject)) {
+            const shape = deepShapeOf(nested.value);
+            out.push({
+              site: `${where}#${modelAccess.name.text}.${method}.${nested.path.join(".")}`,
+              createOnly: false,
+              writesCredentials: shape.credentials,
+              createsCredentials: false,
+              bumps: shape.bumps,
+              badVersionWrite: shape.badVersion,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(file);
+  return out;
+}

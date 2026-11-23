@@ -4,6 +4,8 @@ import type { Role } from "@/app/generated/prisma/client";
 declare module "next-auth" {
   interface User {
     role?: Role;
+    /** Required: an `authorize` that forgot it would loop sign-in on any account already bumped. */
+    sessionVersion: number;
   }
 
   interface Session {
@@ -16,5 +18,7 @@ declare module "next-auth" {
 declare module "@auth/core/jwt" {
   interface JWT {
     role?: Role;
+    /** User.sessionVersion at sign-in; absent on cookies issued before it existed (read as 0). */
+    sessionVersion?: number;
   }
 }

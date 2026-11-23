@@ -44,7 +44,9 @@ const PRISMA_WRITES: ReadonlySet<string> = new Set([
 ]);
 
 const EXPECTED_FILES = 29;
-const EXPECTED_FUNCTIONS = 235;
+// 235 -> 234 at lot 3: updatePassword and markResetTokenUsed (two functions)
+// became resetPasswordWithToken (one); none of them is read-named (110 unchanged).
+const EXPECTED_FUNCTIONS = 234;
 const EXPECTED_READ_NAMED = 110;
 
 type Fn = { name: string; body: ts.Node };
