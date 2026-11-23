@@ -6,6 +6,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
+import RowNote from "@/components/RowNote";
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
 import { assignableRoles, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import type { UserActionState } from "@/types/user";
@@ -195,7 +196,7 @@ export default function UsersManager({
             // is out of reach for a restricted ADMIN (edit, delete, assignments).
             const relayLocked = restriction?.unmanageableUserIds.includes(u.id) ?? false;
             return (
-              <li key={u.id} className="flex items-center gap-3 bg-[#f3f4f6] px-4 py-3 dark:bg-[#1f2937]">
+              <li key={u.id} className="flex flex-wrap items-center gap-3 bg-[#f3f4f6] px-4 py-3 dark:bg-[#1f2937]">
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -213,7 +214,7 @@ export default function UsersManager({
                     ) : null;
                   })()}
                 </span>
-                {relayLocked && <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{t.users.relayLocked}</span>}
+                {relayLocked && <RowNote>{t.users.relayLocked}</RowNote>}
                 {manageable && !relayLocked && (
                   <button
                     type="button"

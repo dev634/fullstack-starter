@@ -167,25 +167,10 @@ export function mayChangeHeldFunction(
   actor: AccountActor,
   current: readonly AppAreaKey[],
   next: readonly AppAreaKey[] | null
-): boolean;
-/**
- * @deprecated The pre-monotone absolute form, kept ONLY so the functions screen
- * (a client component, not rewired yet) still compiles: it demands that the
- * function cover the actor's rubriques after the write. Remove with that
- * screen's switch to the server-computed locks (heldFunctionLocks).
- */
-export function mayChangeHeldFunction(actor: AccountActor, resulting: readonly AppAreaKey[] | null): boolean;
-export function mayChangeHeldFunction(
-  actor: AccountActor,
-  currentOrResulting: readonly AppAreaKey[] | null,
-  next?: readonly AppAreaKey[] | null
 ): boolean {
   if (!isRestrictedAdmin(actor)) return true;
   const relevant = relevantHiddenAreas(actor);
-  if (next === undefined) {
-    return currentOrResulting !== null && coversHiddenAreas(currentOrResulting, relevant);
-  }
-  const before = coveredKeys(currentOrResulting ?? [], relevant);
+  const before = coveredKeys(current, relevant);
   const after = next === null ? [] : coveredKeys(next, relevant);
   return before.every((key) => after.includes(key));
 }

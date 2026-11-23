@@ -241,6 +241,7 @@ export default async function ClientPage({ params }: PageProps) {
                 canCreatePortalLogin={canCreatePortalLogin}
                 functions={jobFunctions}
                 projects={canLinkProjects ? projects.map((p) => ({ id: p.id, name: p.name })) : []}
+                canLinkProjects={canLinkProjects}
               />
             ))}
           </ul>

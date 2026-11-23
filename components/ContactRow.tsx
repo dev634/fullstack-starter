@@ -35,6 +35,7 @@ export default function ContactRow({
   canCreatePortalLogin,
   functions,
   projects,
+  canLinkProjects,
 }: {
   contact: ContactRowData;
   clientId: number;
@@ -45,6 +46,9 @@ export default function ContactRow({
   canCreatePortalLogin: boolean;
   functions: JobFunctionOption[];
   projects: { id: number; name: string }[];
+  // Explicit: an empty `projects` can mean "none to link" or "caller may not
+  // link projects at all"; only the second hides the section.
+  canLinkProjects: boolean;
 }) {
   const { t } = useTranslation();
   const { pending, run } = useRowAction();
@@ -94,6 +98,7 @@ export default function ContactRow({
             canCreatePortalLogin={canCreatePortalLogin}
             functions={functions}
             projects={projects}
+            canLinkProjects={canLinkProjects}
           />
           {canDelete && (
             <button

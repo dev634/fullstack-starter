@@ -1,5 +1,5 @@
 'use client'
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -33,7 +33,7 @@ import {
 import { PROJECT_SECTION_KEYS, type ProjectSectionKey } from "@/lib/projectSections";
 import { projectSectionLabels } from "@/lib/projectSectionLabels";
 import { APP_AREA_KEYS, normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
-import { mayChangeHeldFunction } from "@/lib/accountPolicy";
+import RowNote from "@/components/RowNote";
 import AreaAccessTree from "./AreaAccessTree";
 import type { JobFunctionActionState } from "@/types/jobFunction";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
@@ -86,19 +86,21 @@ function SortableRow({
   // the server refuses every change, so the controls are not offered.
   locked: boolean;
   lockedLabel: string;
-  // Held by accounts and the caller is a restricted ADMIN (relay rule): the
-  // function stays configurable (within limits) but cannot be deleted.
+  // Held by accounts and deleting it would reveal a rubrique the caller's
+  // function hides (monotone rule): configurable within limits, not deletable.
   deleteLocked: boolean;
   deleteLockedLabel: string;
   onConfigure: () => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: fn.id });
+  const noteId = useId();
+  const note = locked ? lockedLabel : deleteLocked ? deleteLockedLabel : null;
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-center gap-3 bg-[#f3f4f6] px-4 py-2.5 dark:bg-[#1f2937] ${
+      className={`flex flex-wrap items-center gap-3 bg-[#f3f4f6] px-4 py-2.5 dark:bg-[#1f2937] ${
         isDragging ? "z-10 shadow-lg ring-2 ring-blue-300 dark:ring-blue-600" : ""
       }`}
     >
@@ -113,15 +115,13 @@ function SortableRow({
         <Bars3Icon className="h-5 w-5" />
       </button>
       <span className="min-w-0 flex-1 truncate text-sm text-gray-900 dark:text-gray-100">{fn.name}</span>
-      {locked && <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{lockedLabel}</span>}
-      {!locked && deleteLocked && (
-        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{deleteLockedLabel}</span>
-      )}
+      {note && <RowNote id={noteId}>{note}</RowNote>}
       <button
         type="button"
         onClick={onConfigure}
         disabled={locked}
         aria-label={configureLabel}
+        aria-describedby={locked ? noteId : undefined}
         title={configureLabel}
         className={`relative shrink-0 rounded p-1 text-gray-500 dark:text-gray-400 ${
           locked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-gray-500/10"
@@ -139,7 +139,7 @@ function SortableRow({
         onClick={onDelete}
         disabled={locked || deleteLocked}
         aria-label={deleteLabel}
-        title={deleteLocked ? deleteLockedLabel : undefined}
+        aria-describedby={locked || deleteLocked ? noteId : undefined}
         className={`shrink-0 rounded p-1 text-red-500 dark:text-red-400 ${
           locked || deleteLocked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-red-500/10"
         }`}
@@ -153,14 +153,18 @@ function SortableRow({
 export default function JobFunctionsManager({
   functions,
   lockedFunctionIds,
-  restriction,
+  deleteLockedIds,
+  lockedAreasByFunctionId,
 }: {
   functions: JobFunction[];
   // Required, no permissive default: the functions this caller may not touch.
   lockedFunctionIds: number[];
-  // Required, no permissive default: set for a restricted ADMIN only (null for
-  // everyone else) — see app/.../fonctions/page.tsx.
-  restriction: { actorHiddenAreas: string[]; heldFunctionIds: number[] } | null;
+  // Required, no permissive default. Both are decided on the server with the
+  // rule the actions enforce (lib/accountPolicy.ts::heldFunctionLocks): the
+  // functions that cannot be deleted, and, per held function, the caller's own
+  // rubriques it covers and can no longer be made to reveal.
+  deleteLockedIds: number[];
+  lockedAreasByFunctionId: Record<number, AppAreaKey[]>;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -175,13 +179,7 @@ export default function JobFunctionsManager({
   // Local order for drag-and-drop; re-synced whenever the server list changes
   // (after add / delete / reorder revalidation).
   const locked = new Set(lockedFunctionIds);
-  // Relay rule (lot 5a), through the same pure function the actions enforce.
-  // The wire carries plain strings: keep the ones that are real area keys.
-  const actorHidden = new Set(APP_AREA_KEYS.filter((k) => restriction?.actorHiddenAreas.includes(k)));
-  const actor = { role: restriction ? "ADMIN" : undefined, hiddenAreas: actorHidden };
-  const held = new Set(restriction?.heldFunctionIds ?? []);
-  // A held function cannot be deleted by a restricted ADMIN (null = deletion).
-  const isDeleteLocked = (id: number) => held.has(id) && !mayChangeHeldFunction(actor, null);
+  const deleteLocked = new Set(deleteLockedIds);
   const [items, setItems] = useState(functions);
   const [lastFns, setLastFns] = useState(functions);
   if (functions !== lastFns) {
@@ -203,10 +201,12 @@ export default function JobFunctionsManager({
   const [visibleKeys, setVisibleKeys] = useState<Set<ProjectSectionKey>>(new Set());
   const [visibleAreas, setVisibleAreas] = useState<Set<AppAreaKey>>(new Set());
   const [scope, setScope] = useState<"ALL" | "ASSIGNED">("ALL");
-  // In a held function's configuration, the actor's own hidden rubriques stay
-  // hidden: unchecking one would be refused by saveFunctionConfig.
-  const lockedAreas: ReadonlySet<AppAreaKey> =
-    restriction && configuring && held.has(configuring.id) ? actorHidden : new Set();
+  // Only the rubriques this function can no longer be made to reveal are
+  // locked (their box is already unchecked: the function hides them); every
+  // other box is shown as stored and stays editable.
+  const lockedAreas: ReadonlySet<AppAreaKey> = new Set(
+    configuring ? (lockedAreasByFunctionId[configuring.id] ?? []) : []
+  );
   const [configStatus, setConfigStatus] = useState<"idle" | "saving" | "error">("idle");
   const [configError, setConfigError] = useState("");
 
@@ -214,8 +214,7 @@ export default function JobFunctionsManager({
     const hidden = new Set(fn.hiddenSections as ProjectSectionKey[]);
     setVisibleKeys(new Set(PROJECT_SECTION_KEYS.filter((k) => !hidden.has(k))));
     const hiddenAreas = new Set(normalizeHiddenAreas(fn.hiddenAreas));
-    const lockedOnOpen = restriction && held.has(fn.id) ? actorHidden : new Set<AppAreaKey>();
-    setVisibleAreas(new Set(APP_AREA_KEYS.filter((k) => !hiddenAreas.has(k) && !lockedOnOpen.has(k))));
+    setVisibleAreas(new Set(APP_AREA_KEYS.filter((k) => !hiddenAreas.has(k))));
     setScope(fn.projectScope === "ASSIGNED" ? "ASSIGNED" : "ALL");
     setConfigStatus("idle");
     setConfigError("");
@@ -359,7 +358,7 @@ export default function JobFunctionsManager({
                     hiddenCount={fn.hiddenSections.length + fn.hiddenAreas.length}
                     locked={locked.has(fn.id)}
                     lockedLabel={t.jobFunctions.superadminOnly}
-                    deleteLocked={isDeleteLocked(fn.id)}
+                    deleteLocked={deleteLocked.has(fn.id)}
                     deleteLockedLabel={t.jobFunctions.heldLocked}
                     onConfigure={() => openConfig(fn)}
                     onDelete={() => setToDelete(fn)}

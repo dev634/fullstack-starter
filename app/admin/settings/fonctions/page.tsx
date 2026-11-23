@@ -1,7 +1,7 @@
 import { requireAdminTab } from "@/lib/adminAccess";
 import { findAll } from "@/repository/jobFunctions";
 import { findFunctionIdsHeldByPrivileged, findHeldFunctionIds } from "@/repository/users";
-import { heldFunctionLocks, isRestrictedAdmin, relevantHiddenAreas } from "@/lib/accountPolicy";
+import { heldFunctionLocks, isRestrictedAdmin } from "@/lib/accountPolicy";
 import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
@@ -33,22 +33,17 @@ export default async function AdminFonctionsPage() {
     functions.map((f) => ({ id: f.id, hiddenAreas: normalizeHiddenAreas(f.hiddenAreas) })),
     heldFunctionIds
   );
-  // TRANSITIONAL: the screen still rebuilds a fake actor from this (and from
-  // mayChangeHeldFunction's deprecated form). Remove with the switch to the
-  // two server-computed props below.
-  const restriction = restricted
-    ? { actorHiddenAreas: relevantHiddenAreas(ctx), heldFunctionIds }
-    : null;
-  // JobFunctionsManager does not declare these two props yet (client
-  // component, rewired separately): passed through a spread so the page
-  // compiles and they are already on the wire when it does.
-  const serverLocks = locks;
   const t = getDictionary(await getLocale());
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">{t.jobFunctions.subtitle}</p>
-      <JobFunctionsManager functions={functions} lockedFunctionIds={lockedFunctionIds} restriction={restriction} {...serverLocks} />
+      <JobFunctionsManager
+        functions={functions}
+        lockedFunctionIds={lockedFunctionIds}
+        deleteLockedIds={locks.deleteLockedIds}
+        lockedAreasByFunctionId={locks.lockedAreasByFunctionId}
+      />
     </div>
   );
 }
