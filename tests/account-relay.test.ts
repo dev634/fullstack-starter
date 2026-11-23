@@ -21,8 +21,8 @@ vi.mock("@/repository/jobFunctions", () => ({
   reorder: vi.fn(),
   updateConfig: vi.fn(),
   findHiddenAreasById: vi.fn(),
+  isGuardRefusal: (e: unknown) => !!e && typeof e === "object" && (e as { type?: string }).type === "guardRefused",
 }));
-vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -273,6 +273,97 @@ describe("relay account: an ADMIN restricted by their function (lot 5a)", () => 
       as();
       vi.mocked(users.countHolders).mockResolvedValue(1);
       expect(type(await saveFunctionConfig(6, config([])))).toBe("success");
+    });
+  });
+});
+
+describe("relay account, lot 5a arbitration", () => {
+  const config = (hiddenAreas: string[]) => ({ hiddenSections: ["tasks"], hiddenAreas, projectScope: "ALL" });
+  const guardOf = (mock: unknown, index: number) => vi.mocked(mock as (...a: never[]) => unknown).mock.calls[0]?.[index] as
+    | ((state: { hiddenAreas: AppAreaKey[]; holders: number; privilegedHolders: number }) => string | null)
+    | null;
+
+  describe("point 2 — the admin.* rubriques do not count", () => {
+    it("an ADMIN whose function hides only admin.functions and admin.settings manages their team as before", async () => {
+      actor("ADMIN", ["admin.functions", "admin.settings"]);
+      const fields = { email: "e@x.com", name: "E", role: "EDITOR", password: "password123" };
+      expect((await addUser(initial, form(fields))).type).toBe("success");
+      target({ id: 7, role: "EDITOR", jobFunctionId: null });
+      expect((await updateUser(initial, form({ id: "7", role: "EDITOR", password: "newpassword1" }))).type).toBe("success");
+    });
+  });
+
+  describe("point 3 — monotone rule on a held function", () => {
+    it("a held function that covers NOTHING of the actor's: sections retouched, deleted — allowed", async () => {
+      restricted();
+      vi.mocked(users.countHolders).mockResolvedValue(3);
+      // 7 hides "loans" only; the actor hides clients.contacts.
+      expect(type(await saveFunctionConfig(7, config(["loans"])))).toBe("success");
+      expect(type(await saveFunctionConfig(7, config([])))).toBe("success");
+      vi.mocked(functions.remove).mockResolvedValue({ id: 7 } as never);
+      expect(type(await deleteJobFunction(7))).toBe("success");
+      // 8 hides nothing at all: the degenerate row.
+      expect(type(await saveFunctionConfig(8, config([])))).toBe("success");
+      expect(type(await deleteJobFunction(8))).toBe("success");
+    });
+    it("a held function that covers the actor's: retouching its sections only (same areas) stays allowed", async () => {
+      restricted();
+      vi.mocked(users.countHolders).mockResolvedValue(3);
+      expect(type(await saveFunctionConfig(6, config(["clients", "loans"])))).toBe("success");
+    });
+    it("the refusal is the same for a function that covers the actor's, deleted", async () => {
+      restricted();
+      vi.mocked(users.countHolders).mockResolvedValue(3);
+      expect(message(await deleteJobFunction(6))).toBe(fr.jobFunctions.messages.restrictedCannotDeleteHeld);
+    });
+  });
+
+  describe("point 1 — the authoritative check runs in the repository's transaction", () => {
+    it("hands the repository a guard that refuses on the LOCKED state, even when the early check passed", async () => {
+      restricted();
+      // Early reads: nobody holds function 6, so the early check lets it through...
+      vi.mocked(users.countHolders).mockResolvedValue(0);
+      vi.mocked(functions.updateConfig).mockImplementation(async (_id, _cfg, guard) => {
+        // ...but by the time the row is locked, an account has taken it.
+        const reason = guard?.({ hiddenAreas: ["clients"], holders: 1, privilegedHolders: 0 }) ?? null;
+        if (reason) throw { type: "guardRefused", reason };
+        return {} as never;
+      });
+      const res = await saveFunctionConfig(6, config([]));
+      expect(message(res)).toBe(fr.jobFunctions.messages.restrictedCannotLiftHeld);
+      expect(guardOf(functions.updateConfig, 2)).toBeTypeOf("function");
+    });
+    it("deleteJobFunction: same, with the deletion message", async () => {
+      restricted();
+      vi.mocked(users.countHolders).mockResolvedValue(0);
+      vi.mocked(functions.remove).mockImplementation(async (_id, guard) => {
+        const reason = guard?.({ hiddenAreas: ["clients"], holders: 1, privilegedHolders: 0 }) ?? null;
+        if (reason) throw { type: "guardRefused", reason };
+        return {} as never;
+      });
+      expect(message(await deleteJobFunction(6))).toBe(fr.jobFunctions.messages.restrictedCannotDeleteHeld);
+    });
+    it("addUser and updateUser hand the repository a relay predicate for a restricted ADMIN, none for the others", async () => {
+      restricted();
+      await addUser(initial, form({ email: "e@x.com", name: "E", role: "VIEWER", password: "password123", jobFunctionId: "5" }));
+      const relay = vi.mocked(users.create).mock.calls[0]?.[1];
+      expect(relay).toBeTypeOf("function");
+      expect(relay?.(["clients"])).toBe(true);
+      expect(relay?.(["loans"])).toBe(false);
+      expect(relay?.([])).toBe(false);
+      vi.clearAllMocks();
+      unrestrictedAdmin();
+      await addUser(initial, form({ email: "e@x.com", name: "E", role: "VIEWER", password: "password123" }));
+      expect(vi.mocked(users.create).mock.calls[0]?.[1]).toBeNull();
+    });
+    it("a refusal thrown by the transaction is answered like the early one", async () => {
+      restricted();
+      vi.mocked(users.create).mockRejectedValue({ type: "guardRefused", reason: "relay" });
+      const res = await addUser(initial, form({ email: "e@x.com", name: "E", role: "VIEWER", password: "password123", jobFunctionId: "5" }));
+      expect(res.message).toBe(REFUSED);
+      target({ id: 7, role: "EDITOR", jobFunctionId: 5 });
+      vi.mocked(users.updateProfile).mockRejectedValue({ type: "guardRefused", reason: "relay" });
+      expect((await updateUser(initial, form({ id: "7", role: "EDITOR", password: "newpassword1" }))).message).toBe(REFUSED);
     });
   });
 });

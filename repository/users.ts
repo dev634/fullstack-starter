@@ -2,7 +2,22 @@ import { prisma } from "@/lib/prisma";
 import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
+import type { AppAreaKey } from "@/lib/appAreas";
 import { normalizeEmail } from "@/lib/normalizeEmail";
+import { guardRefusal, isGuardRefusal, lockFunctionsForUpdate } from "@/repository/jobFunctions";
+
+/**
+ * The relay rule (lib/accountPolicy.ts::mayManageAccountWithFunction) for a
+ * restricted actor, as a predicate on what a function hides — handed by the
+ * action, evaluated HERE under the function's row lock, in the transaction that
+ * writes the account. `null` = nobody to guard (not a restricted ADMIN, or an
+ * account that cannot be a relay). Required on every writer below, never
+ * optional: skipping the guard has to be written.
+ */
+export type RelayCheck = (hiddenAreas: readonly AppAreaKey[]) => boolean;
+
+/** The reason a RelayCheck refusal carries (see isGuardRefusal). */
+export const RELAY_REFUSED = "relay";
 
 /**
  * THE filter every "who IS the caller" resolution applies to `User` — today,
@@ -20,7 +35,12 @@ import { normalizeEmail } from "@/lib/normalizeEmail";
  * `where: { user: sessionAccountWhere(email) }`).
  *
  * The e-mail is normalized here (lib/normalizeEmail.ts), as in `create` and
- * `findByEmail`: one canonical form on every write and every lookup.
+ * `findByEmail`: one canonical form on every write and every lookup, matched
+ * by EXACT equality. NOT case-insensitively: Prisma's `mode: "insensitive"`
+ * compiles to ILIKE without escaping `%` and `_`, so an address such as
+ * "jean_dupont@x.fr" would match "jean.dupont@x.fr" (and "%" any account) and a
+ * session could resolve to somebody else's row. Rows saved with capitals before
+ * normalization existed are normalized by a migration instead.
  *
  * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
  * (verifyCredentials) and password reset, a call this pass does not make, so
@@ -274,27 +294,45 @@ export async function findFunctionIdsHeldByPrivileged(): Promise<number[]> {
     }
 }
 
-export async function create(data: {
-    email: string;
-    name: string | null;
-    role: Role;
-    password: string;
-    jobFunctionId?: number | null;
-}) {
+const ACCOUNT_SELECT = {
+    id: true,
+    email: true,
+    name: true,
+    role: true,
+    createdAt: true,
+    jobFunctionId: true,
+    jobFunction: { select: { name: true } },
+} satisfies Prisma.UserSelect;
+
+/**
+ * Create an account. `relay` (null = unguarded) is checked against the hidden
+ * rubriques of `jobFunctionId` (`[]` for none) under that function's row lock,
+ * in the transaction that inserts: the caller hashes the password BEFORE
+ * calling, so no slow step sits between the check and the write. Refused ->
+ * throws a guard refusal (RELAY_REFUSED).
+ */
+export async function create(
+    data: {
+        email: string;
+        name: string | null;
+        role: Role;
+        password: string;
+        jobFunctionId?: number | null;
+    },
+    relay: RelayCheck | null
+) {
     try {
-        return await prisma.user.create({
-            data: { ...data, email: normalizeEmail(data.email), jobFunctionId: data.jobFunctionId ?? null },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                createdAt: true,
-                jobFunctionId: true,
-                jobFunction: { select: { name: true } },
-            },
+        const jobFunctionId = data.jobFunctionId ?? null;
+        const insert = (tx: Prisma.TransactionClient) =>
+            tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: ACCOUNT_SELECT });
+        if (!relay) return await insert(prisma);
+        return await prisma.$transaction(async (tx) => {
+            const locked = await lockFunctionsForUpdate(tx, jobFunctionId === null ? [] : [jobFunctionId]);
+            if (!relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
+            return insert(tx);
         });
     } catch (error) {
+        if (isGuardRefusal(error)) throw error;
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
             throw { type: "duplicate", message: "A user with this email already exists." };
         }
@@ -303,28 +341,42 @@ export async function create(data: {
     }
 }
 
+/**
+ * Update an account's profile — and its password, in the SAME statement, when
+ * one is given (`password` omitted = unchanged; the caller hashes BEFORE
+ * calling). `relay` (null = unguarded) is checked under the row locks of the
+ * account's CURRENT function and of the one it is about to get, in the
+ * transaction that writes: before (you do not take over an account that sees
+ * more) and, when the function changes, after. The current function is read
+ * just before the lock; if a parallel writer moves the account in between, the
+ * account still ends on this call's locked, checked `jobFunctionId`.
+ * Refused -> throws a guard refusal (RELAY_REFUSED).
+ */
 export async function updateProfile(
     id: number,
     // jobFunctionId is REQUIRED (number = set, null = clear): an optional one
     // collapsed to NULL here, so a caller that merely omitted it erased the
     // function. The caller resolves "omitted" to the current value first.
-    data: { name: string | null; role: Role; jobFunctionId: number | null }
+    data: { name: string | null; role: Role; jobFunctionId: number | null; password?: string },
+    relay: RelayCheck | null
 ) {
     try {
-        return await prisma.user.update({
-            where: { id },
-            data,
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                createdAt: true,
-                jobFunctionId: true,
-                jobFunction: { select: { name: true } },
-            },
+        const write = (tx: Prisma.TransactionClient) => tx.user.update({ where: { id }, data, select: ACCOUNT_SELECT });
+        if (!relay) return await write(prisma);
+        return await prisma.$transaction(async (tx) => {
+            const current = await tx.user.findUnique({ where: { id }, select: { jobFunctionId: true } });
+            const currentId = current?.jobFunctionId ?? null;
+            const locked = await lockFunctionsForUpdate(
+                tx,
+                [currentId, data.jobFunctionId].flatMap((fid) => (fid === null ? [] : [fid]))
+            );
+            const hiddenOf = (fid: number | null) => (fid === null ? [] : (locked.get(fid) ?? []));
+            if (!relay(hiddenOf(currentId))) throw guardRefusal(RELAY_REFUSED);
+            if (data.jobFunctionId !== currentId && !relay(hiddenOf(data.jobFunctionId))) throw guardRefusal(RELAY_REFUSED);
+            return write(tx);
         });
     } catch (error) {
+        if (isGuardRefusal(error)) throw error;
         console.log("Repository updateProfile (user) error:", error);
         throw { type: "repositoryError", message: "Database Error updating user." };
     }
@@ -367,7 +419,7 @@ export async function countSuperadmins() {
 export async function findByEmail(email: string) {
     try {
         const user = await prisma.user.findUnique({
-            where: { email: normalizeEmail(email) },
+            where: sessionAccountWhere(email),
         });
         return user;
     } catch (error) {

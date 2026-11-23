@@ -66,7 +66,7 @@ describe("createPortalLogin guards (lot 1, F3)", () => {
     asAdmin();
     const res = await createPortalLogin(3);
     expect(res.ok).toBe(true);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ role: "CLIENT", email: "j@d.com" }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ role: "CLIENT", email: "j@d.com" }), null);
     expect(attachLogin).toHaveBeenCalledWith(3, 50);
     expect(createResetToken).toHaveBeenCalledTimes(1);
   });
@@ -85,6 +85,22 @@ describe("createPortalLogin guards (lot 1, F3)", () => {
     expect(res.ok).toBe(false);
     expect(findById).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  // Lot 5a, point 4: the portal shows the `projects` rubrique and hands the reset
+  // link back to the caller — a relay for an ADMIN who hides it.
+  it("refuses a restricted ADMIN who hides what the portal shows (projects), before reading the contact", async () => {
+    asAdmin({ ...accountWithoutFunction(), hiddenAreas: ["projects"] });
+    const res = await createPortalLogin(3);
+    expect(res).toEqual({ ok: false, message: fr.portal.admin.restrictedCannotProvision });
+    expect(findById).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(createResetToken).not.toHaveBeenCalled();
+  });
+
+  it("allows an ADMIN whose function hides only other rubriques (loans)", async () => {
+    asAdmin({ ...accountWithoutFunction(), hiddenAreas: ["loans"] });
+    expect((await createPortalLogin(3)).ok).toBe(true);
   });
 
   it("refuses when the function hides clients.contacts", async () => {

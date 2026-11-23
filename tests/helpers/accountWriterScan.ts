@@ -155,13 +155,84 @@ function importBindings(file: ts.SourceFile, path: string): { bindings: Map<stri
   return { bindings, dynamic };
 }
 
+/** The lib/accountPolicy symbols a reached function calls, by binding. */
+function policySymbolsOf(r: FnInfo, bindings: Map<string, Binding>): string[] {
+  const out = new Set<string>();
+  for (const ident of r.idents) {
+    const b = bindings.get(ident);
+    if (b?.module === "lib/accountPolicy" && b.imported !== "*") out.add(b.imported);
+  }
+  for (const [obj, prop] of r.members) {
+    const b = bindings.get(obj);
+    if (b?.module === "lib/accountPolicy" && b.imported === "*") out.add(prop);
+  }
+  return [...out].sort();
+}
+
+/**
+ * What a LOCAL guard of `src` (e.g. refuseIfHeldByAdmin) itself reaches of
+ * lib/accountPolicy — so a guard whose body was emptied, or never applies the
+ * rule, is seen for what it is rather than trusted by its name. `null` if the
+ * file has no such function.
+ */
+export function localGuardPolicySymbols(src: Source, name: string): string[] | null {
+  const file = parse(src);
+  const { bindings } = importBindings(file, src.path);
+  const fns = topLevelFunctions(file);
+  const fn = fns.find((f) => f.name === name);
+  return fn ? policySymbolsOf(reach(fn, fns), bindings) : null;
+}
+
+/** Parse a reached source text (a function body, or several concatenated) as code: comments are not nodes. */
+function codeOf(text: string): ts.SourceFile {
+  return ts.createSourceFile("claim.ts", text, ts.ScriptTarget.Latest, true);
+}
+
+/** Does the CODE contain an object property `prop: "value"`? A comment mentioning it does not count. */
+export function hasLiteralProperty(text: string, prop: string, value: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (
+      ts.isPropertyAssignment(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === prop &&
+      ts.isStringLiteralLike(n.initializer) &&
+      n.initializer.text === value
+    ) {
+      found = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(codeOf(text));
+  return found;
+}
+
+/** Does the CODE compare something to the string literal `value` with ===, !==, == or !=? */
+export function hasComparisonWith(text: string, value: string): boolean {
+  let found = false;
+  const ops = new Set([ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken]);
+  const isValue = (e: ts.Expression) => ts.isStringLiteralLike(e) && e.text === value;
+  const visit = (n: ts.Node) => {
+    if (ts.isBinaryExpression(n) && ops.has(n.operatorToken.kind) && (isValue(n.left) || isValue(n.right))) found = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(codeOf(text));
+  return found;
+}
+
 export type ActionReport = {
   /** "actions/x/x.ts::fn" */
   action: string;
   /** Repository writers it reaches, "repository/users.ts::create". */
   writers: string[];
-  /** Did it (transitively, locally) call an import of lib/accountPolicy, or a local guard in `localGuards`? */
-  guarded: boolean;
+  /**
+   * The symbols of lib/accountPolicy it (transitively, locally) reaches, resolved by
+   * BINDING (an aliased import reports its real name; `ns.fn()` of a namespace
+   * import reports `fn`). Any call counts — which one is the test's business.
+   */
+  policySymbols: string[];
+  /** The local guards (`localGuards`) it reaches. */
+  localGuards: string[];
   /** The reached text, for the few exemptions that claim something about it. */
   text: string;
 };
@@ -192,11 +263,13 @@ export function accountActionsIn(
       if (b?.imported === "*" && writers.has(`${b.module}.ts::${prop}`)) hit.add(`${b.module}.ts::${prop}`);
     }
     if (hit.size === 0) continue;
-    const guarded =
-      [...r.idents].some((i) => bindings.get(i)?.module === "lib/accountPolicy") ||
-      r.members.some(([obj]) => bindings.get(obj)?.module === "lib/accountPolicy") ||
-      [...r.idents].some((i) => localGuards.has(i));
-    reports.push({ action: `${src.path}::${fn.name}`, writers: [...hit].sort(), guarded, text: r.text });
+    reports.push({
+      action: `${src.path}::${fn.name}`,
+      writers: [...hit].sort(),
+      policySymbols: policySymbolsOf(r, bindings),
+      localGuards: [...r.idents].filter((i) => localGuards.has(i)),
+      text: r.text,
+    });
   }
   return { reports, dynamicRepositoryImports: dynamic.filter((m) => m.startsWith("repository/") || m === "<computed>") };
 }

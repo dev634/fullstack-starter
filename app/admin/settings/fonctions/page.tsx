@@ -1,7 +1,8 @@
 import { requireAdminTab } from "@/lib/adminAccess";
 import { findAll } from "@/repository/jobFunctions";
 import { findFunctionIdsHeldByPrivileged, findHeldFunctionIds } from "@/repository/users";
-import { isRestrictedAdmin } from "@/lib/accountPolicy";
+import { heldFunctionLocks, isRestrictedAdmin, relevantHiddenAreas } from "@/lib/accountPolicy";
+import { normalizeHiddenAreas } from "@/lib/appAreas";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -18,21 +19,36 @@ export default async function AdminFonctionsPage() {
   // would refuse. A SUPERADMIN has nothing locked.
   const ctx = await getAccessContext();
   const lockedFunctionIds = hasMinRole(ctx.role, "SUPERADMIN") ? [] : await findFunctionIdsHeldByPrivileged();
-  // The relay rule for a restricted ADMIN (their function hides rubriques): a
-  // function held by any account cannot be deleted, nor stop hiding what they
-  // hide (actions/jobFunctions refuse both). The screen gets what it needs to
-  // say so with the same pure rule (mayChangeHeldFunction): the actor's own
-  // hidden rubriques (already theirs) and the ids of the held functions.
+  // The relay rule for a restricted ADMIN (their function hides rubriques a
+  // lower role can reach): a function held by any account may not be deleted
+  // if it hides one of theirs, nor stop hiding one it hides (actions/jobFunctions
+  // refuse both). The decision is taken HERE, with the rule the actions
+  // enforce (lib/accountPolicy.ts::heldFunctionLocks), and only its result goes
+  // to the browser: which functions cannot be deleted, and which of the actor's
+  // own rubriques each held function cannot be made to reveal.
   const restricted = isRestrictedAdmin(ctx);
+  const heldFunctionIds = restricted ? await findHeldFunctionIds() : [];
+  const locks = heldFunctionLocks(
+    ctx,
+    functions.map((f) => ({ id: f.id, hiddenAreas: normalizeHiddenAreas(f.hiddenAreas) })),
+    heldFunctionIds
+  );
+  // TRANSITIONAL: the screen still rebuilds a fake actor from this (and from
+  // mayChangeHeldFunction's deprecated form). Remove with the switch to the
+  // two server-computed props below.
   const restriction = restricted
-    ? { actorHiddenAreas: [...ctx.hiddenAreas], heldFunctionIds: await findHeldFunctionIds() }
+    ? { actorHiddenAreas: relevantHiddenAreas(ctx), heldFunctionIds }
     : null;
+  // JobFunctionsManager does not declare these two props yet (client
+  // component, rewired separately): passed through a spread so the page
+  // compiles and they are already on the wire when it does.
+  const serverLocks = locks;
   const t = getDictionary(await getLocale());
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">{t.jobFunctions.subtitle}</p>
-      <JobFunctionsManager functions={functions} lockedFunctionIds={lockedFunctionIds} restriction={restriction} />
+      <JobFunctionsManager functions={functions} lockedFunctionIds={lockedFunctionIds} restriction={restriction} {...serverLocks} />
     </div>
   );
 }

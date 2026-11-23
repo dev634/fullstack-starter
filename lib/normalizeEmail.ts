@@ -5,6 +5,16 @@
  * account. Without it the lookup was exact-match while password reset alone
  * lower-cased — an account saved with capitals could never reset its password.
  * (A unique index on lower(email) is the database half, planned separately.)
+ *
+ * Lower-casing the LOCAL part too is a decision, not a fact of the standard:
+ * RFC 5321 says the local part is case-sensitive. In practice no mainstream
+ * provider treats "Jean@" and "jean@" as two mailboxes, and keeping them apart
+ * would let two accounts coexist for what a person types as one address. The
+ * price — an address that really is case-sensitive cannot be told apart — is
+ * accepted. Rows saved before this existed may still hold capitals: lookups are
+ * exact on the canonical form (a case-insensitive match would be an unescaped
+ * ILIKE, see repository/users.ts::sessionAccountWhere), so such rows are
+ * normalized by a migration.
  */
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

@@ -18,7 +18,6 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
-vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
@@ -83,12 +82,21 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       expect(createMock).not.toHaveBeenCalled();
     });
 
-    it.each(["EDITOR", "VIEWER", "CLIENT"])("an ADMIN can still create a %s", async (role) => {
+    // A portal login is only created from its contact (createPortalLogin).
+    it.each([["ADMIN", "ADMIN" as const], ["SUPERADMIN", "SUPERADMIN" as const]])("%s cannot create a CLIENT here; answered invalidId, nothing written", async (_n, who) => {
+      actor(who);
+      const res = await addUser(initial, form({ email: "c@x.com", name: "C", role: "CLIENT", password: "password123" }));
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.errors.invalidId);
+      expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it.each(["EDITOR", "VIEWER"])("an ADMIN can still create a %s", async (role) => {
       actor("ADMIN");
       createMock.mockResolvedValue({ id: 5 } as never);
       const res = await addUser(initial, form({ email: "e@x.com", name: "E", role, password: "password123" }));
       expect(res.type).toBe("success");
-      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ role }));
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ role }), null);
     });
 
     it.each(["ADMIN", "SUPERADMIN"])("a SUPERADMIN can create a %s", async (role) => {
@@ -96,7 +104,7 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       createMock.mockResolvedValue({ id: 5 } as never);
       const res = await addUser(initial, form({ email: "a@x.com", name: "A", role, password: "password123" }));
       expect(res.type).toBe("success");
-      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ role }));
+      expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ role }), null);
     });
   });
 
@@ -132,8 +140,9 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       const res = await updateUser(initial, form({ id: "7", name: "Ed2", role: "VIEWER", password: "newpassword1" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ name: "Ed2", role: "VIEWER" }));
-      expect(updatePasswordMock).toHaveBeenCalledWith(7, "hashed");
+      // The password rides in the SAME write as the profile (one transaction).
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ name: "Ed2", role: "VIEWER", password: "hashed" }), null);
+      expect(updatePasswordMock).not.toHaveBeenCalled();
     });
 
     it("an ADMIN can change their OWN name and password", async () => {
@@ -149,9 +158,10 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       expect(res.type).toBe("success");
       expect(updateProfileMock).toHaveBeenCalledWith(
         1,
-        expect.objectContaining({ name: "Me Too", role: "ADMIN", jobFunctionId: 5 })
+        expect.objectContaining({ name: "Me Too", role: "ADMIN", jobFunctionId: 5, password: "hashed" }),
+        null
       );
-      expect(updatePasswordMock).toHaveBeenCalledWith(1, "hashed");
+      expect(updatePasswordMock).not.toHaveBeenCalled();
     });
 
     it.each(["EDITOR", "SUPERADMIN"])("an ADMIN cannot change their OWN role to %s", async (role) => {
@@ -172,7 +182,7 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       const res = await updateUser(initial, form({ id: "8", name: "Adm2", role: "EDITOR", password: "newpassword1" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(8, expect.objectContaining({ name: "Adm2", role: "EDITOR" }));
+      expect(updateProfileMock).toHaveBeenCalledWith(8, expect.objectContaining({ name: "Adm2", role: "EDITOR" }), null);
     });
   });
 
@@ -188,7 +198,7 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       const res = await updateUser(initial, form({ id: "7", role: "EDITOR" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: 5 }));
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: 5 }), null);
     });
 
     it("an explicit empty string still clears it", async () => {
@@ -199,7 +209,7 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       const res = await updateUser(initial, form({ id: "7", role: "EDITOR", jobFunctionId: "" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: null }));
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: null }), null);
     });
 
     it("an ADMIN editing their own account without the field is not read as changing their function", async () => {
@@ -210,7 +220,7 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       const res = await updateUser(initial, form({ id: "1", name: "Me2", role: "ADMIN" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 5 }));
+      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 5 }), null);
     });
 
     it("an ADMIN own function still cannot be cleared with an explicit empty value", async () => {

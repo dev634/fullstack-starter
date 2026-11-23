@@ -85,6 +85,7 @@ const fr = {
             creating: "Création…",
             hasLogin: "Accès portail actif",
             emailRequired: "Ce contact doit avoir un email pour créer un accès.",
+            restrictedCannotProvision: "Votre propre fonction masque des projets : vous ne pouvez pas créer d'accès portail, qui les affiche. Demandez à un super admin.",
             alreadyHasLogin: "Ce contact a déjà un accès portail.",
             emailInUse: "Un compte utilise déjà cet email.",
             resetLinkTitle: "Accès créé",
@@ -969,8 +970,8 @@ const fr = {
             cannotEditOwnFunction: "Vous ne pouvez pas modifier l'accès de votre propre fonction. Demandez à un super admin.",
             cannotDeleteOwnFunction: "Vous ne pouvez pas supprimer votre propre fonction. Demandez à un super admin.",
             heldByAdminRequiresSuperadmin: "Cette fonction est portée par un compte administrateur : seul un super admin peut la modifier ou la supprimer.",
-            restrictedCannotLiftHeld: "Votre propre fonction masque des rubriques : une fonction portée par des comptes doit continuer à masquer au moins les mêmes. Demandez à un super admin.",
-            restrictedCannotDeleteHeld: "Votre propre fonction masque des rubriques : vous ne pouvez pas supprimer une fonction portée par des comptes. Demandez à un super admin.",
+            restrictedCannotLiftHeld: "Votre propre fonction masque des rubriques : une fonction portée par des comptes doit continuer à masquer les rubriques que vous masquez et qu'elle masque déjà. Demandez à un super admin.",
+            restrictedCannotDeleteHeld: "Votre propre fonction masque des rubriques : vous ne pouvez pas supprimer une fonction portée par des comptes qui masque une des rubriques que vous masquez. Demandez à un super admin.",
         },
     },
     users: {
@@ -1019,7 +1020,6 @@ const fr = {
             cannotDeleteSelf: "Vous ne pouvez pas supprimer votre propre compte.",
             lastSuperadmin: "Impossible : il doit rester au moins un super admin.",
             cannotEditOwnFunction: "Vous ne pouvez pas changer votre propre fonction. Demandez à un super admin.",
-            cannotSetClientWhileAttached: "Ce compte est rattaché comme travailleur à au moins un projet. Détachez-le avant de le passer en client.",
             // Equipment.ownerId et EquipmentLoan.borrowerId (prêts OUVERTS)
             // sont en onDelete: Restrict (migration 20260918120000) — les
             // prêts fermés, eux, sont purgés automatiquement à la suppression.

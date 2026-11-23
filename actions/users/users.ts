@@ -25,10 +25,9 @@ import {
   countSuperadmins,
   setUserProjects,
   countOwnershipBlockers,
+  type RelayCheck,
 } from "@/repository/users";
-import { updatePassword } from "@/repository/users";
-import { findHiddenAreasById } from "@/repository/jobFunctions";
-import { hasAnyAttachment } from "@/repository/projectWorkers";
+import { findHiddenAreasById, isGuardRefusal } from "@/repository/jobFunctions";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -48,6 +47,19 @@ function manageRefusal(actorRole: Role, targetRole: Role, t: Dictionary): string
 /** The refusal to give when canAssignRole says no. */
 function assignRefusal(actorRole: Role, role: Role, t: Dictionary): string {
   return hasMinRole(actorRole, role) ? t.users.messages.adminRequiresSuperadmin : t.users.messages.cannotAssignHigher;
+}
+
+/**
+ * The same rule, as the predicate the repository evaluates INSIDE the
+ * transaction that writes the account, under the function's row lock
+ * (repository/users.ts::RelayCheck). `null` for anyone the rule never refuses.
+ * This is the authoritative check: the ones above it in each action read the
+ * function in a separate round trip and only refuse early (and before the
+ * password is hashed) — a parallel reconfiguration of the function can slip in
+ * after them, never past this one.
+ */
+function relayCheckFor(actor: AccountActor): RelayCheck | null {
+  return isRestrictedAdmin(actor) ? (hidden) => mayManageAccountWithFunction(actor, hidden) : null;
 }
 
 /**
@@ -92,6 +104,12 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
     return { ...prevState, type: "zodError", message: t.errors.validationError, fieldsForm: makeObjectFromZodError(parsed.error, t) };
   }
 
+  // A portal login is only ever created from its contact (createPortalLogin):
+  // never here, whoever asks. Answers like updateUser does for the same role.
+  if (parsed.data.role === "CLIENT") {
+    return { ...prevState, type: "error", message: t.errors.invalidId };
+  }
+
   // An actor may only grant a role at or below their own rank, and only a
   // SUPERADMIN may create an ADMIN or above (lib/accountPolicy.ts).
   if (!canAssignRole(actor.role, parsed.data.role)) {
@@ -103,19 +121,25 @@ export async function addUser(prevState: UserActionState, formData: FormData): P
   }
 
   try {
+    // Hashed BEFORE the repository's transaction: nothing slow sits between
+    // the relay check and the insert.
     const password = await bcrypt.hash(parsed.data.password, 10);
-    const user = await create({
-      email: parsed.data.email,
-      // createUserSchema's `name` is required (non-optional) — the `?? null`
-      // this replaced was dead: parsed.data.name can never be undefined here.
-      name: parsed.data.name,
-      role: parsed.data.role,
-      jobFunctionId: parsed.data.jobFunctionId ?? null,
-      password,
-    });
+    const user = await create(
+      {
+        email: parsed.data.email,
+        // createUserSchema's `name` is required (non-optional) — the `?? null`
+        // this replaced was dead: parsed.data.name can never be undefined here.
+        name: parsed.data.name,
+        role: parsed.data.role,
+        jobFunctionId: parsed.data.jobFunctionId ?? null,
+        password,
+      },
+      relayCheckFor(actor)
+    );
     revalidatePath("/admin/settings/utilisateurs");
     return { ...prevState, type: "success", message: t.users.messages.added, data: user };
   } catch (error) {
+    if (isGuardRefusal(error)) return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
       return { ...prevState, type: "error", message: t.users.messages.duplicate };
     }
@@ -140,11 +164,14 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     const target = await findById(parsed.data.id);
     if (!target) return { ...prevState, type: "error", message: t.errors.invalidId };
 
-    // A portal login is never turned into an employee: it is managed from its
-    // contact, and promoting it was an unguarded way to mint an account with no
-    // function (createPortalLogin -> reset link -> here). Answers like an
-    // absent account — the users screen does not list CLIENT accounts.
-    if (target.role === "CLIENT" && parsed.data.role !== "CLIENT") {
+    // A portal login is never turned into an employee, and an employee is never
+    // turned into a portal login — whoever asks: a login is provisioned from its
+    // contact (createPortalLogin), which is where the rules for it live.
+    // Promoting one was an unguarded way to mint an account with no function
+    // (createPortalLogin -> reset link -> here); making one hands the caller an
+    // account on a path none of those rules covers. Answers like an absent
+    // account — the users screen does not list CLIENT accounts.
+    if ((target.role === "CLIENT") !== (parsed.data.role === "CLIENT")) {
       return { ...prevState, type: "error", message: t.errors.invalidId };
     }
 
@@ -190,41 +217,30 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
       return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     }
 
-    // Personne ne modifie la contrainte qui le contraint, appliqué ici dans
-    // l'autre sens : un compte déjà RATTACHÉ à un projet comme travailleur
-    // (ProjectWorker) ne peut pas devenir un login client — un login portail
-    // n'est jamais un salarié (migration 20260920100000_project_workers,
-    // "WHAT THIS MIGRATION DELIBERATELY DOES NOT ENFORCE" §1). Refusé plutôt
-    // que détaché en silence : cette action modifie le rôle d'un compte, pas
-    // la composition d'un chantier — un admin qui change juste le nom d'un
-    // utilisateur ne doit jamais avoir pour effet de bord de le retirer de
-    // tous ses chantiers.
-    if (
-      target.role !== "CLIENT" &&
-      parsed.data.role === "CLIENT" &&
-      (await hasAnyAttachment(target.id))
-    ) {
-      return { ...prevState, type: "error", message: t.users.messages.cannotSetClientWhileAttached };
-    }
-
-    const user = await updateProfile(target.id, {
-      // Refactoring point 3 (revue + audit "travailleurs"): `name` is
-      // `.optional()` in updateUserSchema, so an omitted field parses to
-      // `undefined` — `?? null` here used to write NULL over an existing
-      // name whenever the field was left off the payload, instead of leaving
-      // it untouched. Falling back to the CURRENT name (read via findById
-      // above) preserves it; a blank string is still rejected upstream by
-      // Zod's `min(1)`, so this can never be used to erase a name either.
-      name: parsed.data.name ?? target.name,
-      role: parsed.data.role,
-      jobFunctionId: nextJobFunctionId,
-    });
-    if (parsed.data.password) {
-      await updatePassword(target.id, await bcrypt.hash(parsed.data.password, 10));
-    }
+    // Hashed BEFORE the repository's transaction (nothing slow between the
+    // relay check and the write); `undefined` = the password is left alone.
+    const password = parsed.data.password ? await bcrypt.hash(parsed.data.password, 10) : undefined;
+    const user = await updateProfile(
+      target.id,
+      {
+        // Refactoring point 3 (revue + audit "travailleurs"): `name` is
+        // `.optional()` in updateUserSchema, so an omitted field parses to
+        // `undefined` — `?? null` here used to write NULL over an existing
+        // name whenever the field was left off the payload, instead of leaving
+        // it untouched. Falling back to the CURRENT name (read via findById
+        // above) preserves it; a blank string is still rejected upstream by
+        // Zod's `min(1)`, so this can never be used to erase a name either.
+        name: parsed.data.name ?? target.name,
+        role: parsed.data.role,
+        jobFunctionId: nextJobFunctionId,
+        password,
+      },
+      relayCheckFor(actor)
+    );
     revalidatePath("/admin/settings/utilisateurs");
     return { ...prevState, type: "success", message: t.users.messages.updated, data: user };
   } catch (error) {
+    if (isGuardRefusal(error)) return { ...prevState, type: "error", message: t.users.messages.restrictedAdminAccount };
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }
 }
