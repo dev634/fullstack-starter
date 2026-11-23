@@ -348,9 +348,11 @@ sans échapper `%` ni `_`, et `jean_dupont@…` résolvait `jean.dupont@…` (so
 non-régression dans `tests-integration/email-lookup-wildcards.test.ts`). **La
 garantie en base est sur `main` depuis `2f8fbb6`** (lot 3, #251, migration
 `20261123100000`) : `CHECK "User_email_normalized_check"` (stocké = normalisé)
-et index unique `"User_email_lower_key"` sur `lower(email)`. Elle vaut en
-production à partir du premier déploiement qui contient ce commit (lu le
-2026-11-23 à 18:35 UTC : la sonde affichait encore `2347b47`, donc pas encore).
+et index unique `"User_email_lower_key"` sur `lower(email)`. En production
+depuis le déploiement de `2f8fbb6` (sonde lue le 2026-11-23 : `2347b47` à 18:35
+UTC, `2f8fbb6` à 18:48) : l'entrypoint (`set -e`) ne démarre l'application
+qu'après `prisma migrate deploy`, donc la migration est passée — déduit, pas
+lu dans `pg_constraint` de la base de prod.
 La migration réécrit les lignes ASCII et **refuse** (RAISE, ids seuls) une
 ligne non ASCII à réécrire ou une collision : `lower()`/`btrim` de PostgreSQL et
 `toLowerCase()`/`trim()` de JS ne sont pas la même fonction (29 points de code
