@@ -25,16 +25,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
-// Read by updateUser's CLIENT lever (an account already attached as a worker
-// to a project must not become a CLIENT portal login). Defaults to "not
-// attached" so every pre-existing test in this file, which never touches
-// this lever, keeps passing unchanged.
-vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 
 import { addUser, updateUser, deleteUser } from "@/actions/users/users";
 import { auth } from "@/lib/auth";
 import { create, updateProfile, remove, findById, countSuperadmins, countOwnershipBlockers, findAccessScopeByEmail } from "@/repository/users";
-import { hasAnyAttachment } from "@/repository/projectWorkers";
 import fr from "@/lib/i18n/dictionaries/fr";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
 
@@ -44,7 +38,6 @@ const updateProfileMock = vi.mocked(updateProfile);
 const removeMock = vi.mocked(remove);
 const findByIdMock = vi.mocked(findById);
 const countSuperMock = vi.mocked(countSuperadmins);
-const hasAnyAttachmentMock = vi.mocked(hasAnyAttachment);
 const countOwnershipBlockersMock = vi.mocked(countOwnershipBlockers);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
 const initial = { type: null, message: "" } as const;
@@ -120,7 +113,8 @@ describe("user management actions", () => {
     const res = await addUser(initial, form({ email: "ed@x.com", name: "Ed", role: "EDITOR", password: "password123" }));
     expect(res.type).toBe("success");
     expect(createMock).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "ed@x.com", name: "Ed", role: "EDITOR", password: "hashed" })
+      expect.objectContaining({ email: "ed@x.com", name: "Ed", role: "EDITOR", password: "hashed" }),
+      null
     );
   });
 
@@ -169,7 +163,7 @@ describe("user management actions", () => {
     const res = await updateUser(initial, form({ id: "9", role: "EDITOR" }));
 
     expect(res.type).toBe("success");
-    expect(updateProfileMock).toHaveBeenCalledWith(9, expect.objectContaining({ name: "Existing Name" }));
+    expect(updateProfileMock).toHaveBeenCalledWith(9, expect.objectContaining({ name: "Existing Name" }), null);
   });
 
   it("updateUser: cannot demote the last SUPERADMIN", async () => {
@@ -182,7 +176,7 @@ describe("user management actions", () => {
   });
 
   // Passe 3b, point 3: proven during this pass — the second lever (besides
-  // setFunctionAreas) that let an ADMIN lift every restriction their own
+  // saveFunctionConfig) that let an ADMIN lift every restriction their own
   // function imposes on them, in one call: repoint their OWN account at a
   // different (or no) function via this very action.
   describe("self-lock guard (passe 3b, point 3)", () => {
@@ -205,7 +199,7 @@ describe("user management actions", () => {
       const res = await updateUser(initial, form({ id: "1", name: "New Name", role: "ADMIN", jobFunctionId: "5" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ name: "New Name", jobFunctionId: 5 }));
+      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ name: "New Name", jobFunctionId: 5 }), null);
     });
 
     it("an ADMIN can still change ANOTHER user's jobFunctionId", async () => {
@@ -216,11 +210,11 @@ describe("user management actions", () => {
       const res = await updateUser(initial, form({ id: "7", role: "EDITOR", jobFunctionId: "9" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: 9 }));
+      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ jobFunctionId: 9 }), null);
     });
 
     // The anti-lockout guarantee: SUPERADMIN must always retain the ability
-    // to repoint its own account, same as setFunctionAreas' own escape
+    // to repoint its own account, same as saveFunctionConfig's own escape
     // hatch — it bypasses hiddenAreas unconditionally anyway
     // (lib/accessContext.ts), so this changes nothing it can't already do.
     it("a SUPERADMIN CAN change their own jobFunctionId — the anti-lockout escape hatch", async () => {
@@ -231,61 +225,60 @@ describe("user management actions", () => {
       const res = await updateUser(initial, form({ id: "1", role: "SUPERADMIN", jobFunctionId: "9" }));
 
       expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 9 }));
+      expect(updateProfileMock).toHaveBeenCalledWith(1, expect.objectContaining({ jobFunctionId: 9 }), null);
     });
   });
 
-  // "Personne ne modifie la contrainte qui le contraint", appliqué dans
-  // l'autre sens: a User already attached to a project as a worker
-  // (ProjectWorker) must not become a CLIENT portal login (migration
-  // 20260920100000_project_workers, "WHAT THIS MIGRATION DELIBERATELY DOES
-  // NOT ENFORCE" §1). Refused, not silently detached.
-  describe("CLIENT lever: switching an attached worker's role to CLIENT", () => {
-    it("refuses to switch an attached user's role to CLIENT", async () => {
-      actor("ADMIN", "me@x.com");
+  // Lot 5a, point 5: a portal login is provisioned from its contact
+  // (createPortalLogin), never made nor unmade here — in BOTH directions, with
+  // the SAME answer (an absent account) for every caller. These two cases
+  // asserted the opposite ("allows switching an UNattached user's role to
+  // CLIENT", and a dedicated message for the attached one): they locked the
+  // defect, so they are turned round, not deleted. (The attachment check that
+  // used to precede them was unreachable after this refusal and is gone.)
+  describe("CLIENT lever: an account is never made a CLIENT here, nor a CLIENT turned into anything else", () => {
+    it.each([
+      ["an ADMIN", "ADMIN" as const, "me@x.com"],
+      ["a SUPERADMIN", "SUPERADMIN" as const, "boss@x.com"],
+    ])("refuses %s switching another account's role TO client", async (_n, role, email) => {
+      actor(role, email);
       findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
-      hasAnyAttachmentMock.mockResolvedValue(true);
 
       const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
 
       expect(res.type).toBe("error");
-      expect(res.message).toBe(fr.users.messages.cannotSetClientWhileAttached);
+      expect(res.message).toBe(fr.errors.invalidId);
       expect(updateProfileMock).not.toHaveBeenCalled();
     });
 
-    it("allows switching an UNattached user's role to CLIENT", async () => {
-      actor("ADMIN", "me@x.com");
-      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
-      hasAnyAttachmentMock.mockResolvedValue(false);
-      updateProfileMock.mockResolvedValue({ id: 7 } as never);
-
-      const res = await updateUser(initial, form({ id: "7", role: "CLIENT" }));
-
-      expect(res.type).toBe("success");
-      expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ role: "CLIENT" }));
-    });
-
-    it("does not check attachments when the role isn't changing to CLIENT", async () => {
-      actor("ADMIN", "me@x.com");
-      findByIdMock.mockResolvedValue({ id: 7, email: "other@x.com", role: "EDITOR", jobFunctionId: null } as never);
-      updateProfileMock.mockResolvedValue({ id: 7 } as never);
-
-      const res = await updateUser(initial, form({ id: "7", role: "VIEWER" }));
-
-      expect(res.type).toBe("success");
-      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
-    });
-
-    it("does not re-check an account that is already CLIENT", async () => {
+    it("refuses switching a CLIENT's role to anything else, with the same answer", async () => {
       actor("SUPERADMIN", "boss@x.com");
       findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
-      updateProfileMock.mockResolvedValue({ id: 8 } as never);
 
-      const res = await updateUser(initial, form({ id: "8", role: "CLIENT" }));
+      const res = await updateUser(initial, form({ id: "8", role: "EDITOR" }));
 
-      expect(res.type).toBe("success");
-      expect(hasAnyAttachmentMock).not.toHaveBeenCalled();
+      expect(res.type).toBe("error");
+      expect(res.message).toBe(fr.errors.invalidId);
+      expect(updateProfileMock).not.toHaveBeenCalled();
     });
+
+
+    // A CLIENT -> CLIENT update (name, function, PASSWORD) used to pass: a
+    // restricted ADMIN who set a portal login's password read the projects they
+    // cannot see through the portal. Any CLIENT target is refused, for everyone.
+    it.each([["an ADMIN", "ADMIN" as const], ["a SUPERADMIN", "SUPERADMIN" as const]])(
+      "%s cannot update an account that is already CLIENT (password included): answered like an absent account, nothing written",
+      async (_n, role) => {
+        actor(role, "me@x.com");
+        findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
+
+        const res = await updateUser(initial, form({ id: "8", role: "CLIENT", name: "C", password: "newpassword1" }));
+
+        expect(res.type).toBe("error");
+        expect(res.message).toBe(fr.errors.invalidId);
+        expect(updateProfileMock).not.toHaveBeenCalled();
+      }
+    );
   });
 
   it("deleteUser: cannot delete your own account", async () => {

@@ -31,12 +31,16 @@ export default function EditContactForm({
   canCreatePortalLogin,
   functions,
   projects,
+  canLinkProjects,
 }: {
   contact: EditableContact;
   clientId: number;
   canCreatePortalLogin: boolean;
   functions: JobFunctionOption[];
   projects: { id: number; name: string }[];
+  // False: the caller does not reach the `projects` rubrique — the linked
+  // projects section is not offered at all (the action leaves the links as is).
+  canLinkProjects: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -84,6 +88,7 @@ export default function EditContactForm({
           <ContactFields t={t} state={state} functions={functions} defaults={contact} />
 
           {/* Portal: which company projects this contact may see once it has a login. */}
+          {canLinkProjects && (
           <fieldset className="rounded border border-gray-300 dark:border-gray-700 p-3">
             <legend className="px-1 text-xs font-medium text-gray-500 dark:text-gray-400">
               {t.portal.admin.linkedProjectsLabel}
@@ -109,6 +114,7 @@ export default function EditContactForm({
               <p className="text-xs text-gray-500 dark:text-gray-400">{t.portal.admin.noProjectsToLink}</p>
             )}
           </fieldset>
+          )}
 
           <div className="flex justify-end gap-3">
             <button

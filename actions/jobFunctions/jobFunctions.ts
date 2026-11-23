@@ -7,10 +7,20 @@ import { auth } from "@/lib/auth";
 import { getAccessContext } from "@/lib/accessContext";
 import { hasMinRole } from "@/lib/authz";
 import { createJobFunctionSchema, functionConfigSchema } from "@/schemas/jobFunction";
-import { create, remove, reorder, updateConfig } from "@/repository/jobFunctions";
-import { findAccountJobFunctionByEmail, countPrivilegedHolders } from "@/repository/users";
+import {
+  create,
+  remove,
+  reorder,
+  updateConfig,
+  findHiddenAreasById,
+  isGuardRefusal,
+  type FunctionGuard,
+  type HeldFunctionState,
+} from "@/repository/jobFunctions";
+import { findAccountJobFunctionByEmail, countPrivilegedHolders, countHolders } from "@/repository/users";
+import { mayChangeHeldFunction, isRestrictedAdmin, type AccountActor } from "@/lib/accountPolicy";
 import { isProjectSectionKey } from "@/lib/projectSections";
-import { normalizeHiddenAreas } from "@/lib/appAreas";
+import { normalizeHiddenAreas, type AppAreaKey } from "@/lib/appAreas";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -33,15 +43,67 @@ import type { JobFunctionActionState } from "@/types/jobFunction";
  * The refusal can be explicit: it does depend on rows (who holds the function),
  * but the caller already reads that whole domain — the functions page lists
  * every function and marks the ones held by an administrator.
+ *
+ * Second rule, same guard (the one every writer of a function calls): a
+ * RESTRICTED ADMIN (their own function hides rubriques an account below ADMIN
+ * can reach) may not make a function held by ANY account — an EDITOR included,
+ * who an ADMIN-only check missed — newly reveal one of their rubriques, nor
+ * delete it (SetNull would free its holders, who would then see everything):
+ * they would log in as the holder and see what they cannot. Monotone: a
+ * rubrique the function never covered is already seen by its holders, so
+ * touching the function (its sections, say) is free as far as that rubrique
+ * goes. `next` is the hiddenAreas the function will have after the call,
+ * `null` for a deletion. A function nobody holds stays free
+ * (lib/accountPolicy.ts::mayChangeHeldFunction).
+ *
+ * Two evaluations of ONE decision (refusalOf): this early one (refuseIfHeldByAdmin,
+ * separate reads, before anything is written) and the authoritative one, handed
+ * to the repository as a guard and run under the function's row lock in the
+ * transaction that writes (a parallel account creation or repoint can no longer
+ * slip between the check and the write).
  */
-async function refuseIfHeldByAdmin(id: number, t: Dictionary) {
-  // The role comes from getAccessContext (a session reader already probed for
-  // the no-session case) rather than a second auth() read: no session means no
-  // role, so the check applies and the call is refused.
+type HeldRefusal = "heldByAdmin" | "liftsHeld" | "deletesHeld";
+
+/** The decision, on a function's state (read however it was read). Null = may go on. */
+function refusalOf(actor: AccountActor, state: HeldFunctionState, next: readonly AppAreaKey[] | null): HeldRefusal | null {
+  if (state.privilegedHolders > 0) return "heldByAdmin";
+  if (isRestrictedAdmin(actor) && state.holders > 0 && !mayChangeHeldFunction(actor, state.hiddenAreas, next)) {
+    return next === null ? "deletesHeld" : "liftsHeld";
+  }
+  return null;
+}
+
+function refusalMessage(reason: string, t: Dictionary): string {
+  if (reason === "heldByAdmin") return t.jobFunctions.messages.heldByAdminRequiresSuperadmin;
+  if (reason === "deletesHeld") return t.jobFunctions.messages.restrictedCannotDeleteHeld;
+  return t.jobFunctions.messages.restrictedCannotLiftHeld;
+}
+
+/**
+ * The caller as the guards see them — or null for a SUPERADMIN, who is never
+ * guarded. The role comes from getAccessContext (a session reader already
+ * probed for the no-session case) rather than a second auth() read: no session
+ * means no role, so the guards apply and the call is refused.
+ */
+async function guardedActor(): Promise<AccountActor | null> {
   const ctx = await getAccessContext();
   if (hasMinRole(ctx.role, "SUPERADMIN")) return null;
-  if ((await countPrivilegedHolders(id)) === 0) return null;
-  return { type: "error" as const, message: t.jobFunctions.messages.heldByAdminRequiresSuperadmin };
+  return { role: ctx.role, hiddenAreas: ctx.hiddenAreas };
+}
+
+/** The guard for the repository's transaction (null = nobody to guard). */
+function guardFor(actor: AccountActor | null, next: readonly AppAreaKey[] | null): FunctionGuard | null {
+  return actor ? (state) => refusalOf(actor, state, next) : null;
+}
+
+async function refuseIfHeldByAdmin(actor: AccountActor | null, id: number, next: readonly AppAreaKey[] | null, t: Dictionary) {
+  if (!actor) return null;
+  const privilegedHolders = await countPrivilegedHolders(id);
+  const restricted = isRestrictedAdmin(actor);
+  const holders = restricted ? await countHolders(id) : 0;
+  const hiddenAreas = restricted && holders > 0 ? await findHiddenAreasById(id) : [];
+  const reason = refusalOf(actor, { privilegedHolders, holders, hiddenAreas }, next);
+  return reason ? { type: "error" as const, message: refusalMessage(reason, t) } : null;
 }
 
 /** Add a job function (ADMIN+). */
@@ -125,13 +187,15 @@ export async function deleteJobFunction(id: number) {
         return { type: "error" as const, message: t.jobFunctions.messages.cannotDeleteOwnFunction };
       }
     }
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    const actor = await guardedActor();
+    const heldByAdmin = await refuseIfHeldByAdmin(actor, id, null, t);
     if (heldByAdmin) return heldByAdmin;
 
-    const deleted = await remove(id);
+    const deleted = await remove(id, guardFor(actor, null));
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.deleted, data: deleted };
   } catch (error) {
+    if (isGuardRefusal(error)) return { type: "error" as const, message: refusalMessage(error.reason, t) };
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }
 }
@@ -184,17 +248,19 @@ export async function saveFunctionConfig(
         return { type: "error" as const, message: t.jobFunctions.messages.cannotEditOwnFunction };
       }
     }
-    const heldByAdmin = await refuseIfHeldByAdmin(id, t);
+    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
+    const actor = await guardedActor();
+    const heldByAdmin = await refuseIfHeldByAdmin(actor, id, hiddenAreas, t);
     if (heldByAdmin) return heldByAdmin;
 
     const hiddenSections = [...new Set(parsed.data.hiddenSections.filter(isProjectSectionKey))];
-    const hiddenAreas = normalizeHiddenAreas(parsed.data.hiddenAreas);
     const projectScope = parsed.data.projectScope;
 
-    await updateConfig(id, { hiddenSections, hiddenAreas, projectScope });
+    await updateConfig(id, { hiddenSections, hiddenAreas, projectScope }, guardFor(actor, hiddenAreas));
     revalidatePath("/admin/settings/fonctions");
     return { type: "success" as const, message: t.jobFunctions.messages.sectionsSaved };
   } catch (error) {
+    if (isGuardRefusal(error)) return { type: "error" as const, message: refusalMessage(error.reason, t) };
     return { type: "error" as const, message: getErrorMessage(error, t.errors.serverError) };
   }
 }

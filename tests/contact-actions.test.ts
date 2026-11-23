@@ -181,6 +181,35 @@ describe("contact actions", () => {
       vi.mocked(projectIdFilter).mockReturnValue(undefined);
       expect(vi.mocked(setContactProjects)).toHaveBeenCalledWith(1, [10, 99], [10]);
     });
+
+    // Lot 5a, point 4: the portal shows the content of the `projects` rubrique,
+    // so linking projects to a contact is a way of exposing them.
+    describe("editContact, a caller whose function hides the projects rubrique", () => {
+      afterEach(() => {
+        vi.mocked(getAccessContext).mockResolvedValue({ email: "test@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(), projectIds: null });
+      });
+      it("updates the contact's own fields but leaves the links UNCHANGED (absent, not emptied)", async () => {
+        requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
+        vi.mocked(getAccessContext).mockResolvedValue({ email: "a@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(["projects"]), projectIds: null } as never);
+        updateMock.mockResolvedValue({ id: 1 } as never);
+        const fd = edited();
+        fd.append("projectIds", "10");
+        const res = await editContact(initial, fd);
+        expect(res.type).toBe("success");
+        expect(updateMock).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(setContactProjects)).not.toHaveBeenCalled();
+        // The form of such a caller sends no checkbox at all: an empty set must not wipe the links either.
+        await editContact(initial, edited());
+        expect(vi.mocked(setContactProjects)).not.toHaveBeenCalled();
+      });
+      it("a caller who reaches projects (same context otherwise) still writes the links", async () => {
+        requireRoleMock.mockResolvedValue({ error: null, email: "e@example.com" });
+        vi.mocked(getAccessContext).mockResolvedValue({ email: "a@example.com", role: "ADMIN", hiddenSections: new Set(), hiddenAreas: new Set(["loans"]), projectIds: null } as never);
+        updateMock.mockResolvedValue({ id: 1 } as never);
+        await editContact(initial, edited());
+        expect(vi.mocked(setContactProjects)).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   // Deleting a contact also deletes its CLIENT portal login, cutting the

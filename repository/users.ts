@@ -2,6 +2,22 @@ import { prisma } from "@/lib/prisma";
 import { hashResetToken } from "@/lib/resetToken";
 import { Prisma, type Role } from "@/app/generated/prisma/client";
 import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
+import type { AppAreaKey } from "@/lib/appAreas";
+import { normalizeEmail } from "@/lib/normalizeEmail";
+import { guardRefusal, isGuardRefusal, lockFunctionsForUpdate } from "@/repository/jobFunctions";
+
+/**
+ * The relay rule (lib/accountPolicy.ts::mayManageAccountWithFunction) for a
+ * restricted actor, as a predicate on what a function hides — handed by the
+ * action, evaluated HERE under the function's row lock, in the transaction that
+ * writes the account. `null` = nobody to guard (not a restricted ADMIN, or an
+ * account that cannot be a relay). Required on every writer below, never
+ * optional: skipping the guard has to be written.
+ */
+export type RelayCheck = (hiddenAreas: readonly AppAreaKey[]) => boolean;
+
+/** The reason a RelayCheck refusal carries (see isGuardRefusal). */
+export const RELAY_REFUSED = "relay";
 
 /**
  * THE filter every "who IS the caller" resolution applies to `User` — today,
@@ -18,9 +34,20 @@ import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
  * `Prisma.UserWhereInput` (a nested relation filter, e.g.
  * `where: { user: sessionAccountWhere(email) }`).
  *
- * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
- * (verifyCredentials) and password reset, a call this pass does not make, so
- * both keep finding a deactivated row. What that does, once the column
+ * The e-mail is normalized here (lib/normalizeEmail.ts), as in `create` and
+ * `findByEmail`: one canonical form on every write and every lookup, matched
+ * by EXACT equality. NOT case-insensitively: Prisma's `mode: "insensitive"`
+ * compiles to ILIKE without escaping `%` and `_`, so an address such as
+ * "jean_dupont@x.fr" would match "jean.dupont@x.fr" (and "%" any account) and a
+ * session could resolve to somebody else's row. Rows saved with capitals before
+ * normalization existed will be normalized by a migration (lot 3,
+ * 20261123100000_user_session_version_and_email_ci); until it is applied such
+ * a row is not matched.
+ *
+ * `findByEmail` below uses the same email filter, but is deliberately NOT
+ * where a deactivation would plug in — it backs sign-in (verifyCredentials)
+ * and password reset, a call this pass does not make, so both keep finding a
+ * deactivated row. What that does, once the column
  * exists: the account CAN still sign in or reset its password; from the next
  * request on, every resolver above reads it as "introuvable" and the gate
  * (lib/sessionGate.ts) voids its token, so it lands back on /login. What it
@@ -29,7 +56,7 @@ import { PRIVILEGED_ROLES } from "@/lib/accountPolicy";
  * the reason would be a product decision, not made here.
  */
 export function sessionAccountWhere(email: string) {
-    return { email } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;
+    return { email: normalizeEmail(email) } satisfies Prisma.UserWhereUniqueInput satisfies Prisma.UserWhereInput;
 }
 
 /** App users for the management screen (without password hashes). Excludes
@@ -215,12 +242,12 @@ export async function findById(id: number) {
  * The raw jobFunctionId currently assigned to a user, by email — distinct
  * from findAccessScopeByEmail above, which returns what that function
  * RESOLVES to (hiddenSections/hiddenAreas/projectScope), not the id itself.
- * Passe 3b, point 3: setFunctionAreas (actions/jobFunctions/jobFunctions.ts)
+ * Passe 3b, point 3: saveFunctionConfig (actions/jobFunctions/jobFunctions.ts)
  * needs the caller's OWN function id to refuse editing it.
  *
  * `null` means "no account" (sessionAccountWhere found no row); `{
  * jobFunctionId: null }` means "account, no function". Collapsing the two —
- * the bug this rename closes — let deleteJobFunction/setFunctionAreas treat
+ * the bug this rename closes — let deleteJobFunction/saveFunctionConfig treat
  * a caller whose account just vanished as merely "has no function", i.e.
  * nothing stops it: `ownFunctionId === id` is `null === id`, always false,
  * so the self-lock guard silently let the call through instead of refusing
@@ -270,27 +297,44 @@ export async function findFunctionIdsHeldByPrivileged(): Promise<number[]> {
     }
 }
 
-export async function create(data: {
-    email: string;
-    name: string | null;
-    role: Role;
-    password: string;
-    jobFunctionId?: number | null;
-}) {
+const ACCOUNT_SELECT = {
+    id: true,
+    email: true,
+    name: true,
+    role: true,
+    createdAt: true,
+    jobFunctionId: true,
+    jobFunction: { select: { name: true } },
+} satisfies Prisma.UserSelect;
+
+/**
+ * Create an account. `relay` (null = unguarded) is checked against the hidden
+ * rubriques of `jobFunctionId` (`[]` for none) under that function's row lock,
+ * in the transaction that inserts: the caller hashes the password BEFORE
+ * calling, so no slow step sits between the check and the write. Refused ->
+ * throws a guard refusal (RELAY_REFUSED).
+ */
+export async function create(
+    data: {
+        email: string;
+        name: string | null;
+        role: Role;
+        password: string;
+        jobFunctionId?: number | null;
+    },
+    relay: RelayCheck | null
+) {
     try {
-        return await prisma.user.create({
-            data: { ...data, jobFunctionId: data.jobFunctionId ?? null },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                createdAt: true,
-                jobFunctionId: true,
-                jobFunction: { select: { name: true } },
-            },
+        const jobFunctionId = data.jobFunctionId ?? null;
+        return await prisma.$transaction(async (tx) => {
+            // ALWAYS locked, whoever the actor: the function row is locked before
+            // the account is written, the same order as every other writer.
+            const locked = await lockFunctionsForUpdate(tx, jobFunctionId === null ? [] : [jobFunctionId]);
+            if (relay && !relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
+            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: ACCOUNT_SELECT });
         });
     } catch (error) {
+        if (isGuardRefusal(error)) throw error;
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
             throw { type: "duplicate", message: "A user with this email already exists." };
         }
@@ -299,28 +343,47 @@ export async function create(data: {
     }
 }
 
+/**
+ * Update an account's profile — and its password, in the SAME statement, when
+ * one is given (`password` omitted = unchanged; the caller hashes BEFORE
+ * calling). The account's CURRENT function and the one it is about to get are
+ * ALWAYS locked (ids ascending), whoever the actor, BEFORE the account row is
+ * written: every writer takes function-then-account, so a guarded and an
+ * unguarded transaction on the same account cannot wait on each other crosswise
+ * (the foreign-key check on an update locks the function anyway), and a role
+ * change of a holder is serialised with the function's own writers. `relay`
+ * (null = unguarded) is then checked on what was locked, in the transaction
+ * that writes: before (you do not take over an account that sees more) and, when
+ * the function changes, after. The current function is read just before the
+ * lock; if a parallel writer moves the account in between, the account still
+ * ends on this call's locked `jobFunctionId`.
+ * Refused -> throws a guard refusal (RELAY_REFUSED).
+ */
 export async function updateProfile(
     id: number,
     // jobFunctionId is REQUIRED (number = set, null = clear): an optional one
     // collapsed to NULL here, so a caller that merely omitted it erased the
     // function. The caller resolves "omitted" to the current value first.
-    data: { name: string | null; role: Role; jobFunctionId: number | null }
+    data: { name: string | null; role: Role; jobFunctionId: number | null; password?: string },
+    relay: RelayCheck | null
 ) {
     try {
-        return await prisma.user.update({
-            where: { id },
-            data,
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                role: true,
-                createdAt: true,
-                jobFunctionId: true,
-                jobFunction: { select: { name: true } },
-            },
+        return await prisma.$transaction(async (tx) => {
+            const current = await tx.user.findUnique({ where: { id }, select: { jobFunctionId: true } });
+            const currentId = current?.jobFunctionId ?? null;
+            const locked = await lockFunctionsForUpdate(
+                tx,
+                [currentId, data.jobFunctionId].flatMap((fid) => (fid === null ? [] : [fid]))
+            );
+            const hiddenOf = (fid: number | null) => (fid === null ? [] : (locked.get(fid) ?? []));
+            if (relay) {
+                if (!relay(hiddenOf(currentId))) throw guardRefusal(RELAY_REFUSED);
+                if (data.jobFunctionId !== currentId && !relay(hiddenOf(data.jobFunctionId))) throw guardRefusal(RELAY_REFUSED);
+            }
+            return tx.user.update({ where: { id }, data, select: ACCOUNT_SELECT });
         });
     } catch (error) {
+        if (isGuardRefusal(error)) throw error;
         console.log("Repository updateProfile (user) error:", error);
         throw { type: "repositoryError", message: "Database Error updating user." };
     }
@@ -363,7 +426,7 @@ export async function countSuperadmins() {
 export async function findByEmail(email: string) {
     try {
         const user = await prisma.user.findUnique({
-            where: { email },
+            where: sessionAccountWhere(email),
         });
         return user;
     } catch (error) {
@@ -497,5 +560,30 @@ export async function setUserProjects(userId: number, projectIds: number[]) {
     } catch (error) {
         console.log("Repository setUserProjects error:", error);
         throw { type: "repositoryError", message: "Database Error assigning projects." };
+    }
+}
+
+/** How many accounts hold this job function (any role). */
+export async function countHolders(jobFunctionId: number): Promise<number> {
+    try {
+        return await prisma.user.count({ where: { jobFunctionId } });
+    } catch (error) {
+        console.log("Repository countHolders error:", error);
+        throw { type: "repositoryError", message: "Database Error counting function holders." };
+    }
+}
+
+/** The ids of the job functions held by at least one account — one query, for the functions screen. */
+export async function findHeldFunctionIds(): Promise<number[]> {
+    try {
+        const rows = await prisma.user.findMany({
+            where: { jobFunctionId: { not: null } },
+            select: { jobFunctionId: true },
+            distinct: ["jobFunctionId"],
+        });
+        return rows.flatMap((r) => (r.jobFunctionId === null ? [] : [r.jobFunctionId]));
+    } catch (error) {
+        console.log("Repository findHeldFunctionIds error:", error);
+        throw { type: "repositoryError", message: "Database Error listing function holders." };
     }
 }

@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { requireCapability, requireClientAccess } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
+import { getAccessContext } from "@/lib/accessContext";
+import { mayProvisionPortalLogin } from "@/lib/accountPolicy";
 import { getErrorMessage } from "@/lib/helpers";
 import { findById as findContactById, attachLogin } from "@/repository/contacts";
 import { create as createUser, createResetToken } from "@/repository/users";
@@ -21,6 +23,8 @@ const FIRST_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000;
  * (with a throwaway password) and a one-time reset token, returning the path
  * the admin sends the contact to choose their own password. Gated by
  * users.manage — creating an authenticated identity is a privileged action.
+ * Refused to a restricted ADMIN whose function hides what the portal shows
+ * (lib/accountPolicy.ts::mayProvisionPortalLogin): the portal is a relay.
  */
 export async function createPortalLogin(contactId: number): Promise<PortalLoginResult> {
   const roleCheck = await requireCapability("users.manage");
@@ -33,6 +37,12 @@ export async function createPortalLogin(contactId: number): Promise<PortalLoginR
   if (contactsArea.error) return { ok: false, message: contactsArea.error.message };
 
   const t = getDictionary(await getLocale());
+  // The reset link below is handed back to the caller, who could then sign in
+  // as this CLIENT and read the projects the contact is linked to.
+  const ctx = await getAccessContext();
+  if (!mayProvisionPortalLogin({ role: ctx.role, hiddenAreas: ctx.hiddenAreas })) {
+    return { ok: false, message: t.portal.admin.restrictedCannotProvision };
+  }
   try {
     if (!Number.isInteger(contactId) || contactId <= 0) return { ok: false, message: t.errors.invalidId };
     const contact = await findContactById(contactId);
@@ -48,7 +58,7 @@ export async function createPortalLogin(contactId: number): Promise<PortalLoginR
 
     const password = await bcrypt.hash(randomBytes(24).toString("hex"), 10);
     const name = `${contact.firstName} ${contact.lastName}`.trim() || null;
-    const user = await createUser({ email: contact.email, name, role: "CLIENT", password });
+    const user = await createUser({ email: contact.email, name, role: "CLIENT", password }, null);
     await attachLogin(contactId, user.id);
 
     const token = randomBytes(32).toString("hex");

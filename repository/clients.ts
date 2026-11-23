@@ -377,12 +377,32 @@ export async function restore(id: number) {
     }
 }
 
-/** Permanently remove a client (only meant to be called from the trash). */
+/**
+ * Permanently remove a client (only meant to be called from the trash).
+ *
+ * The contacts go by cascade, but their portal logins (`User`, role CLIENT) do
+ * not: a login outliving its company kept a valid password and valid sessions,
+ * invisible from the users screen. They are deleted in the SAME transaction —
+ * and only while still CLIENT, the same gesture as contacts.ts::remove: an
+ * account since promoted to a real role is left alone (Contact.userId is
+ * SetNull; the contact is gone anyway).
+ */
 export async function permanentlyRemove(id: number) {
     try{
-    const client = await prisma.client.delete({
-        where: { id },
-        select: { id: true },
+    const client = await prisma.$transaction(async (tx) => {
+        const linked = await tx.contact.findMany({
+            where: { clientId: id, userId: { not: null } },
+            select: { userId: true },
+        });
+        const userIds = linked.flatMap((c) => (c.userId === null ? [] : [c.userId]));
+        const deleted = await tx.client.delete({
+            where: { id },
+            select: { id: true },
+        });
+        if (userIds.length > 0) {
+            await tx.user.deleteMany({ where: { id: { in: userIds }, role: "CLIENT" } });
+        }
+        return deleted;
     });
     return client;
     }catch(error){

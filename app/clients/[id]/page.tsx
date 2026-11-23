@@ -3,6 +3,7 @@ import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
 import { can, canFullyAccessClient } from "@/lib/access";
 import { getAdminAccess } from "@/lib/adminAccess";
+import { mayProvisionPortalLogin } from "@/lib/accountPolicy";
 import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
@@ -86,8 +87,6 @@ export default async function ClientPage({ params }: PageProps) {
   // trash capability AND reach over every project (requireFullClientAccess).
   const canDeleteClient =
     (await can(session?.user?.role, "content.trash")) && (await canFullyAccessClient(clientId));
-  // Portal logins create an account: users.manage + the admin.users rubrique.
-  const canCreatePortalLogin = (await getAdminAccess(session?.user?.role)).users;
 
   // Sub-parts of this page, individually hideable by the caller's job
   // function (see lib/appAreas.ts). Data is only fetched for a block that
@@ -96,12 +95,22 @@ export default async function ClientPage({ params }: PageProps) {
   const showInfo = await canAccessArea("clients.info");
   const showContacts = await canAccessArea("clients.contacts");
   const showProjects = await canAccessArea("clients.projects");
+  // Linking projects to a contact exposes them through the client portal, which
+  // shows exactly what the `projects` rubrique holds: a caller who does not
+  // reach it is not offered the links (editContact leaves them untouched).
+  const canLinkProjects = await canAccessArea("projects");
 
   // Contacts' own "link to project" picker needs the project list even when
   // the Projects block itself is hidden — that's a different rubrique from
   // this feature, so its data dependency is OR'd rather than tied to it.
   const accessContext = await getAccessContext();
-  const projects = (showProjects || showContacts)
+  // Portal logins create an account: users.manage + the admin.users rubrique,
+  // and the portal rule (a caller who hides what the portal shows is refused by
+  // the action — never offer the button).
+  const canCreatePortalLogin =
+    (await getAdminAccess(session?.user?.role)).users &&
+    mayProvisionPortalLogin({ role: accessContext.role, hiddenAreas: accessContext.hiddenAreas });
+  const projects = (showProjects || (showContacts && canLinkProjects))
     ? await findByClient(clientId, projectIdFilter(accessContext))
     : [];
   const contacts = showContacts ? await findContactsByClient(clientId) : [];
@@ -226,7 +235,7 @@ export default async function ClientPage({ params }: PageProps) {
                   isPrimary: contact.isPrimary,
                   jobFunctionId: contact.jobFunctionId,
                   jobFunctionName: contact.jobFunction?.name ?? null,
-                  linkedProjectIds: contact.projects.map((p) => p.id).filter((id) => editableProjectIds.has(id)),
+                  linkedProjectIds: canLinkProjects ? contact.projects.map((p) => p.id).filter((id) => editableProjectIds.has(id)) : [],
                   hasLogin: contact.userId !== null,
                 }}
                 clientId={clientId}
@@ -236,7 +245,8 @@ export default async function ClientPage({ params }: PageProps) {
                 canDelete={canEdit && canRemoveContact(contact.projects.map((p) => p.id), accessContext.projectIds)}
                 canCreatePortalLogin={canCreatePortalLogin}
                 functions={jobFunctions}
-                projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+                projects={canLinkProjects ? projects.map((p) => ({ id: p.id, name: p.name })) : []}
+                canLinkProjects={canLinkProjects}
               />
             ))}
           </ul>

@@ -97,9 +97,10 @@ vi.mock("@/repository/jobFunctions", () => ({
   remove: vi.fn(),
   reorder: vi.fn(),
   updateConfig: vi.fn(),
+  findHiddenAreasById: vi.fn().mockResolvedValue([]),
+  isGuardRefusal: (e: unknown) => !!e && typeof e === "object" && (e as { type?: string }).type === "guardRefused",
 }));
 
-vi.mock("@/repository/projectWorkers", () => ({ hasAnyAttachment: vi.fn().mockResolvedValue(false) }));
 
 vi.mock("@/lib/appSettings", () => ({
   getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }),

@@ -20,7 +20,16 @@ vi.mock("@/lib/accessContext", () => ({
 // outside a request context in Vitest).
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/repository/users", () => ({ findAccountJobFunctionByEmail: vi.fn(), countPrivilegedHolders: vi.fn() }));
-vi.mock("@/repository/jobFunctions", () => ({ create: vi.fn(), remove: vi.fn(), reorder: vi.fn(), updateConfig: vi.fn() }));
+vi.mock("@/repository/jobFunctions", () => ({
+  create: vi.fn(),
+  remove: vi.fn(),
+  reorder: vi.fn(),
+  updateConfig: vi.fn(),
+  findHiddenAreasById: vi.fn().mockResolvedValue([]),
+  // The pure helper the actions use to recognise a refusal thrown by the
+  // repository's transaction — not a mock of behaviour.
+  isGuardRefusal: (e: unknown) => !!e && typeof e === "object" && (e as { type?: string }).type === "guardRefused",
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
@@ -118,7 +127,7 @@ describe("job function actions", () => {
       hiddenSections: ["tasks", "reserves"],
       hiddenAreas: ["clients", "admin.users"],
       projectScope: "ASSIGNED",
-    });
+    }, expect.any(Function));
   });
 
   // A payload that is not what the editor sends is refused, never repaired:
@@ -175,7 +184,7 @@ describe("job function actions", () => {
     const res = await deleteJobFunction(9);
 
     expect((res as { type: string }).type).toBe("success");
-    expect(removeMock).toHaveBeenCalledWith(9);
+    expect(removeMock).toHaveBeenCalledWith(9, expect.any(Function));
   });
 
   // Passe 3b, point 3: proven during this pass — an ADMIN whose OWN function
@@ -208,7 +217,7 @@ describe("job function actions", () => {
       const res = await saveFunctionConfig(9, config());
 
       expect(res.type).toBe("success");
-      expect(updateConfigMock).toHaveBeenCalledWith(9, { hiddenSections: ["tasks"], hiddenAreas: ["clients"], projectScope: "ALL" });
+      expect(updateConfigMock).toHaveBeenCalledWith(9, { hiddenSections: ["tasks"], hiddenAreas: ["clients"], projectScope: "ALL" }, expect.any(Function));
     });
 
     // The anti-lockout guarantee: SUPERADMIN must always retain the ability
@@ -225,7 +234,8 @@ describe("job function actions", () => {
       const res = await saveFunctionConfig(5, config({ hiddenAreas: [] }));
 
       expect(res.type).toBe("success");
-      expect(updateConfigMock).toHaveBeenCalledWith(5, expect.objectContaining({ hiddenAreas: [] }));
+      // A SUPERADMIN is never guarded: no guard handed to the repository.
+      expect(updateConfigMock).toHaveBeenCalledWith(5, expect.objectContaining({ hiddenAreas: [] }), null);
       // The SUPERADMIN bypass never even needs to resolve the actor's own
       // function id — hasMinRole short-circuits it.
       expect(findAccountJobFunctionByEmailMock).not.toHaveBeenCalled();
@@ -276,7 +286,7 @@ describe("job function actions", () => {
       const res = await deleteJobFunction(9);
 
       expect(res.type).toBe("success");
-      expect(removeMock).toHaveBeenCalledWith(9);
+      expect(removeMock).toHaveBeenCalledWith(9, expect.any(Function));
     });
 
     // The anti-lockout guarantee applies here too: SUPERADMIN must always
@@ -291,7 +301,7 @@ describe("job function actions", () => {
       const res = await deleteJobFunction(5);
 
       expect(res.type).toBe("success");
-      expect(removeMock).toHaveBeenCalledWith(5);
+      expect(removeMock).toHaveBeenCalledWith(5, null);
       // The SUPERADMIN bypass never even needs to resolve the actor's own
       // function id — hasMinRole short-circuits it.
       expect(findAccountJobFunctionByEmailMock).not.toHaveBeenCalled();

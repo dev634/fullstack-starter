@@ -83,6 +83,7 @@ const en: Dictionary = {
             creating: "Creating…",
             hasLogin: "Portal access active",
             emailRequired: "This contact needs an email to create access.",
+            restrictedCannotProvision: "Your own function hides projects: you cannot create portal access, which shows them. Ask a super admin.",
             alreadyHasLogin: "This contact already has portal access.",
             emailInUse: "An account already uses this email.",
             resetLinkTitle: "Access created",
@@ -909,6 +910,8 @@ const en: Dictionary = {
         deleteText: "Delete “{name}”? This action is irreversible.",
         configureLabel: "Configure {name}'s access",
         superadminOnly: "Super admin only",
+        heldLocked: "Held by accounts: deleting it would let them see rubriques your function hides. Super admin only.",
+        areaLockedByRestriction: "Your function also hides this rubrique: this function, held by accounts, can no longer make it visible.",
         configTitle: "Function access",
         configSubtitle: "Configure what users with the “{name}” function can access.",
         configSaveError: "Error while saving the configuration.",
@@ -946,6 +949,8 @@ const en: Dictionary = {
             cannotEditOwnFunction: "You can't edit your own function's access. Ask a super admin.",
             cannotDeleteOwnFunction: "You can't delete your own function. Ask a super admin.",
             heldByAdminRequiresSuperadmin: "This function is held by an administrator account: only a super admin can change or delete it.",
+            restrictedCannotLiftHeld: "Your own function hides rubriques: a function held by accounts must keep hiding the rubriques you hide that it already hides. Ask a super admin.",
+            restrictedCannotDeleteHeld: "Your own function hides rubriques: you can't delete a function that accounts hold and that hides one of the rubriques you hide. Ask a super admin.",
         },
     },
     users: {
@@ -956,6 +961,8 @@ const en: Dictionary = {
         nameLabel: "Name",
         roleLabel: "Role",
         ownAccountHint: "On your own account you can only change your name and password. Ask a super admin to change your role or function.",
+        relayLocked: "This account sees rubriques your function hides: super admin only.",
+        functionNoneAssignable: "No function hides at least the same rubriques as yours: ask a super admin to create or adjust one.",
         functionLabel: "Function",
         functionNone: "None",
         assignedProjectsLabel: "Assigned projects",
@@ -988,10 +995,10 @@ const en: Dictionary = {
             cannotAssignHigher: "You can't grant a role higher than your own.",
             cannotManageHigher: "You can't manage a user with a role higher than yours.",
             adminRequiresSuperadmin: "Only a super admin can create or change an administrator account.",
+            restrictedAdminAccount: "Your own function hides rubriques: you can only manage accounts whose function hides at least the same ones. Ask a super admin.",
             cannotDeleteSelf: "You can't delete your own account.",
             lastSuperadmin: "Not allowed: there must remain at least one super admin.",
             cannotEditOwnFunction: "You can't change your own function. Ask a super admin.",
-            cannotSetClientWhileAttached: "This account is attached as an employee to at least one project. Detach it before switching it to client.",
             // Equipment.ownerId and EquipmentLoan.borrowerId (OPEN loans) are
             // onDelete: Restrict (migration 20260918120000) — closed loans
             // are purged automatically when the user is deleted.

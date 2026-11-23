@@ -3,7 +3,7 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { requireCapability, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
-import { requireAreaAccess } from "@/lib/areaAccess";
+import { canAccessArea, requireAreaAccess } from "@/lib/areaAccess";
 import { canRemoveContact } from "@/lib/contactPolicy";
 import { getAccessContext, projectIdFilter, type AccessContext } from "@/lib/accessContext";
 import { createContactSchema, updateContactSchema } from "@/schemas/contact";
@@ -89,17 +89,24 @@ export async function editContact(
     const found = await findContactInScope(parsed.data.id, t.contacts.messages.invalidId);
     if (!found.contact) return { ...prevState, type: "error", message: found.message };
     await update(parsed.data.id, parsed.data);
-    // Portal project links (checkbox group). The repository only touches the
-    // links THIS caller can edit — live projects of the contact's company
-    // inside the caller's scope, computed server-side from `scope` — and
-    // keeps every other link as it is. The form only ever shows that set, so
-    // saving must not erase what it never displayed, nor link a project the
-    // caller cannot reach.
-    const projectIds = formData
-      .getAll("projectIds")
-      .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n) && n > 0);
-    await setContactProjects(parsed.data.id, projectIds, projectIdFilter(found.ctx));
+    // Portal project links (checkbox group) — only for a caller who reaches the
+    // `projects` rubrique: what the portal shows IS that rubrique's content
+    // (lib/accountPolicy.ts::PORTAL_EXPOSED_AREAS), so linking projects to a
+    // contact is a way of exposing them. Without it the links are left as they
+    // are (absent, not emptied): the form is not offered the checkboxes, and
+    // would otherwise send an empty set that wipes them.
+    // For a caller who does: the repository only touches the links THIS caller
+    // can edit — live projects of the contact's company inside the caller's
+    // scope, computed server-side from `scope` — and keeps every other link as
+    // it is. The form only ever shows that set, so saving must not erase what
+    // it never displayed, nor link a project the caller cannot reach.
+    if (await canAccessArea("projects")) {
+      const projectIds = formData
+        .getAll("projectIds")
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      await setContactProjects(parsed.data.id, projectIds, projectIdFilter(found.ctx));
+    }
     revalidatePath(`/clients/${parsed.data.clientId}`);
     return { ...prevState, type: "success", message: t.contacts.messages.updated };
   } catch (error) {

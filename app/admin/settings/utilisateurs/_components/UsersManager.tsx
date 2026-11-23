@@ -6,6 +6,7 @@ import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import Modal from "@/components/Modal";
 import ModalShell from "@/components/ModalShell";
+import RowNote from "@/components/RowNote";
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
 import { assignableRoles, canManageAccount, isOwnAccountLocked } from "@/lib/accountPolicy";
 import type { UserActionState } from "@/types/user";
@@ -43,12 +44,16 @@ export default function UsersManager({
   actorEmail,
   functions,
   projects,
+  restriction,
 }: {
   users: ManagedUser[];
   actorRole: Role;
   actorEmail: string;
   functions: JobFunctionOption[];
   projects: AssignableProject[];
+  // Required, no permissive default: set for a restricted ADMIN only (null for
+  // everyone else) — see app/.../utilisateurs/page.tsx.
+  restriction: { assignableFunctionIds: number[]; unmanageableUserIds: number[] } | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -79,13 +84,19 @@ export default function UsersManager({
   // Project assignments follow canManageAccount(…, false) server-side: an ADMIN
   // never manages an ADMIN account's assignments, not even their own.
   const canAssignProjects = editingUser === null || canManageAccount(actorRole, editingUser.role, false);
+  // Relay rule (lot 5a): a restricted ADMIN may only assign the functions the
+  // server accepts, and never "none". Same list the action enforces.
+  const offeredFunctions = restriction
+    ? functions.filter((f) => restriction.assignableFunctionIds.includes(f.id))
+    : functions;
+  const noAssignableFunction = restriction !== null && offeredFunctions.length === 0;
   const roleOptions = ownAccountLocked && editingUser ? [editingUser.role] : offeredRoles;
 
   function openAdd() {
     setEmail("");
     setName("");
     setRole(offeredRoles[offeredRoles.length - 1] ?? "VIEWER");
-    setJobFunctionId(null);
+    setJobFunctionId(restriction ? (offeredFunctions[0]?.id ?? null) : null);
     setPassword("");
     setError(null);
     setFieldErrors(undefined);
@@ -181,8 +192,11 @@ export default function UsersManager({
             const manageable = canManageAccount(actorRole, u.role, isSelf);
             // Deletion and assignments are never allowed on an ADMIN+ row for an ADMIN, even their own.
             const deletable = !isSelf && canManageAccount(actorRole, u.role, false);
+            // Relay rule: an account whose function hides less than the actor's
+            // is out of reach for a restricted ADMIN (edit, delete, assignments).
+            const relayLocked = restriction?.unmanageableUserIds.includes(u.id) ?? false;
             return (
-              <li key={u.id} className="flex items-center gap-3 bg-[#f3f4f6] px-4 py-3 dark:bg-[#1f2937]">
+              <li key={u.id} className="flex flex-wrap items-center gap-3 bg-[#f3f4f6] px-4 py-3 dark:bg-[#1f2937]">
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -200,7 +214,8 @@ export default function UsersManager({
                     ) : null;
                   })()}
                 </span>
-                {manageable && (
+                {relayLocked && <RowNote>{t.users.relayLocked}</RowNote>}
+                {manageable && !relayLocked && (
                   <button
                     type="button"
                     onClick={() => openEdit(u)}
@@ -210,7 +225,7 @@ export default function UsersManager({
                     <PencilIcon className="h-4 w-4" />
                   </button>
                 )}
-                {deletable && (
+                {deletable && !relayLocked && (
                   <button
                     type="button"
                     onClick={() => setToDelete(u)}
@@ -267,9 +282,13 @@ export default function UsersManager({
               disabled={ownAccountLocked}
               className={`${inputClass} disabled:opacity-60`}
             >
-              <JobFunctionOptions functions={functions} noneLabel={t.users.functionNone} />
+              <JobFunctionOptions
+                functions={offeredFunctions}
+                noneLabel={restriction ? undefined : t.users.functionNone}
+              />
             </select>
             {ownAccountLocked && <p className="mt-1 text-xs text-gray-400">{t.users.ownAccountHint}</p>}
+            {noAssignableFunction && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t.users.functionNoneAssignable}</p>}
           </div>
           {canAssignProjects && (
           <div>
@@ -338,7 +357,7 @@ export default function UsersManager({
             <button
               type="button"
               onClick={submit}
-              disabled={pending}
+              disabled={pending || (noAssignableFunction && editing?.mode === "add")}
               className={`rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer ${pending ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {editing?.mode === "edit" ? t.users.save : t.users.add}

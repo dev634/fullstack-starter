@@ -24,6 +24,10 @@ type AreaAccessTreeProps = {
   sectionsCaption: string;
   visibleSections: ReadonlySet<ProjectSectionKey>;
   onToggleSection: (key: ProjectSectionKey) => void;
+  // Rubriques that must stay hidden (relay rule, lot 5a): their box is
+  // disabled, unchecked, and explained by `lockedNote`.
+  lockedAreas?: ReadonlySet<AppAreaKey>;
+  lockedNote?: string;
 };
 
 const rowLabelClass = (enabled: boolean) =>
@@ -39,7 +43,14 @@ export default function AreaAccessTree({
   sectionsCaption,
   visibleSections,
   onToggleSection,
+  lockedAreas,
+  lockedNote,
 }: AreaAccessTreeProps) {
+  const isLocked = (key: AppAreaKey) => lockedAreas?.has(key) ?? false;
+  const lockedHint = (key: AppAreaKey) =>
+    isLocked(key) && lockedNote ? (
+      <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">{lockedNote}</span>
+    ) : null;
   return (
     <ul className="flex flex-col gap-1.5">
       {TOP_LEVEL_APP_AREAS.map((areaKey) => {
@@ -48,14 +59,22 @@ export default function AreaAccessTree({
         const showSections = areaKey === "projects";
         return (
           <li key={areaKey} className="overflow-hidden rounded border border-gray-200 dark:border-gray-700">
-            <label className="flex cursor-pointer items-center gap-2 bg-gray-500/5 px-2 py-1.5 text-sm font-medium hover:bg-gray-500/10">
+            <label
+              className={`flex items-center gap-2 bg-gray-500/5 px-2 py-1.5 text-sm font-medium ${
+                isLocked(areaKey) ? "cursor-not-allowed" : "cursor-pointer hover:bg-gray-500/10"
+              }`}
+            >
               <input
                 type="checkbox"
                 checked={areaChecked}
+                disabled={isLocked(areaKey)}
                 onChange={() => onToggleArea(areaKey)}
-                className="h-4 w-4 accent-[var(--primary)]"
+                className="h-4 w-4 accent-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
               />
-              <span>{areaLabels[areaKey]}</span>
+              <span>
+                {areaLabels[areaKey]}
+                {lockedHint(areaKey)}
+              </span>
             </label>
             {(children.length > 0 || showSections) && (
               <ul className="flex flex-col gap-0.5 py-1.5 pl-7 pr-2">
@@ -68,15 +87,18 @@ export default function AreaAccessTree({
                   const childEnabled = isAreaEffectivelyVisible(areaKey, visibleAreas);
                   return (
                     <li key={childKey}>
-                      <label className={rowLabelClass(childEnabled)}>
+                      <label className={rowLabelClass(childEnabled && !isLocked(childKey))}>
                         <input
                           type="checkbox"
                           checked={visibleAreas.has(childKey)}
-                          disabled={!childEnabled}
+                          disabled={!childEnabled || isLocked(childKey)}
                           onChange={() => onToggleArea(childKey)}
                           className="h-4 w-4 accent-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
                         />
-                        <span>{areaLabels[childKey]}</span>
+                        <span>
+                          {areaLabels[childKey]}
+                          {lockedHint(childKey)}
+                        </span>
                       </label>
                     </li>
                   );

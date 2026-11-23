@@ -1,4 +1,5 @@
 import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit";
+import { normalizeEmail } from "@/lib/normalizeEmail";
 
 // Per-email (targeted) and per-IP (spray) caps for credential sign-in.
 // Shared between the custom `login` server action (fast-fail UX message)
@@ -7,8 +8,16 @@ import { isRateLimited, registerFailure, clearRateLimit } from "@/lib/rate-limit
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 };
 const LOGIN_IP_LIMIT = { limit: 20, windowMs: 15 * 60 * 1000 };
 
+// The e-mail is keyed in its canonical form (lib/normalizeEmail.ts), the one
+// the account lookup matches: "Jean@X.fr " and "jean@x.fr" are ONE account, so
+// they share ONE attempt budget (a trailing space or a capital must not buy a
+// fresh set of guesses).
+function emailKey(email: string) {
+  return `login:${normalizeEmail(email)}`;
+}
+
 function keysFor(email: string, ip: string) {
-  return { emailKey: `login:${email.toLowerCase()}`, ipKey: `login-ip:${ip}` };
+  return { emailKey: emailKey(email), ipKey: `login-ip:${ip}` };
 }
 
 /** Read-only check — safe to call speculatively for a fast-fail UX message. */
@@ -28,5 +37,5 @@ export async function registerLoginFailure(email: string, ip: string): Promise<v
 }
 
 export async function clearLoginRateLimit(email: string): Promise<void> {
-  await clearRateLimit(`login:${email.toLowerCase()}`);
+  await clearRateLimit(emailKey(email));
 }
