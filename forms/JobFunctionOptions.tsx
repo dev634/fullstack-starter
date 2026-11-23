@@ -9,11 +9,12 @@ export default function JobFunctionOptions({
   noneLabel,
 }: {
   functions: JobFunctionOption[];
-  noneLabel: string;
+  /** Omit to offer no "none" choice (a restricted ADMIN may never assign no function). */
+  noneLabel?: string;
 }) {
   return (
     <>
-      <option value="">{noneLabel}</option>
+      {noneLabel !== undefined && <option value="">{noneLabel}</option>}
       {functions.map((f) => (
         <option key={f.id} value={f.id}>{f.name}</option>
       ))}
