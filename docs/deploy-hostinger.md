@@ -386,8 +386,15 @@ erreur. Le rôle est écrit **explicitement** : la colonne n'a plus de valeur pa
 `20261123100000`), un `INSERT` sans rôle échoue au lieu de créer un administrateur en silence.
 
 Relancé sur un e-mail **déjà existant**, le script sert de procédure de secours : il remplace le
-mot de passe, remet le compte en `SUPERADMIN` et **révoque toutes ses sessions ouvertes**
-(`sessionVersion` incrémenté), y compris celles d'un cookie volé.
+mot de passe, remet le compte en `SUPERADMIN`, **révoque toutes ses sessions ouvertes**
+(`sessionVersion` incrémenté), y compris celles d'un cookie volé, et **supprime ses liens de
+réinitialisation non utilisés** (un lien envoyé avant le secours ne doit pas redonner la main), le
+tout en une seule instruction SQL.
+
+**Il refuse un e-mail qui appartient à un login de portail** (`role = 'CLIENT'`) : un compte du
+portail est géré depuis son contact, et le promouvoir en `SUPERADMIN` par ici serait une
+élévation hors de toute règle de l'application. Dans ce cas rien n'est écrit, le script affiche
+l'erreur et sort avec un code non nul.
 
 L'e-mail est normalisé (`trim().toLowerCase()`, exactement comme `lib/normalizeEmail.ts`) avant
 l'`INSERT` : la base refuse toute autre forme (contrainte `User_email_normalized_check`), et c'est
@@ -416,19 +423,37 @@ if (!email || !password) {
   const hash = await bcrypt.hash(password, 10);
   // ON CONFLICT (email) covers both unique indexes: every stored e-mail is
   // normalized (CHECK), so a clash on lower(email) is a clash on email.
-  await client.query(
-    `INSERT INTO "User" (email, password, name, role)
-     VALUES ($1, $2, $3, 'SUPERADMIN')
-     ON CONFLICT (email) DO UPDATE SET
-       password = EXCLUDED.password,
-       name = EXCLUDED.name,
-       role = 'SUPERADMIN',
-       "sessionVersion" = "User"."sessionVersion" + 1`,
+  // The WHERE refuses a portal login: the row is then neither inserted nor
+  // updated, nothing is returned (rowCount 0) and the DELETE below has no id.
+  // One statement: the upsert and the purge of the unused reset links commit together.
+  const res = await client.query(
+    `WITH account AS (
+       INSERT INTO "User" (email, password, name, role)
+       VALUES ($1, $2, $3, 'SUPERADMIN')
+       ON CONFLICT (email) DO UPDATE SET
+         password = EXCLUDED.password,
+         name = EXCLUDED.name,
+         role = 'SUPERADMIN',
+         "sessionVersion" = "User"."sessionVersion" + 1
+       WHERE "User".role <> 'CLIENT'
+       RETURNING id
+     ), purge AS (
+       DELETE FROM "PasswordResetToken"
+       WHERE "userId" IN (SELECT id FROM account) AND "usedAt" IS NULL
+     )
+     SELECT id FROM account`,
     [email, hash, name]
   );
-  console.log('✅ Compte SUPERADMIN prêt :', email);
   await client.end();
-})();
+  if (res.rowCount === 0) {
+    console.error('❌ Refusé :', email, 'est un login du portail client. Rien n\'a été modifié.');
+    process.exit(1);
+  }
+  console.log('✅ Compte SUPERADMIN prêt :', email);
+})().catch((err) => {
+  console.error('❌', err.message);
+  process.exit(1);
+});
 EOF
 ```
 
@@ -506,6 +531,23 @@ Pour restaurer une sauvegarde compressée :
 gunzip -c /opt/fullstack-starter/backups/app-20260101-030000.sql.gz \
   | docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db psql -U app app
 ```
+
+#### Après une restauration : révoquer les sessions (obligatoire)
+
+`User.sessionVersion` est le compteur qui annule les cookies d'un compte dont le mot de passe ou
+le rôle a changé (`lib/sessionGate.ts`). Une sauvegarde le **fait reculer** : tout cookie révoqué
+depuis la date de la sauvegarde (mot de passe changé après une fuite, compte rétrogradé) porte à
+nouveau la version courante de la base, et **redevient valide**. Juste après la restauration :
+
+```bash
+docker compose -f /opt/fullstack-starter/docker-compose.prod.yml exec -T db \
+  psql -U app app -c 'UPDATE "User" SET "sessionVersion" = "sessionVersion" + 1'
+```
+
+Tout le monde devra se reconnecter. À défaut, faire tourner `AUTH_SECRET` (même effet, voir
+`docs/SECURITE-CHECKLIST.md`, V9 : tous les jetons deviennent invalides). Un compte supprimé
+depuis la sauvegarde est de retour avec son ancien mot de passe : à traiter avec la même
+procédure.
 
 ### Health-check + monitoring externe
 

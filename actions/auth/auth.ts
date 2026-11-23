@@ -26,9 +26,7 @@ import {
 import {
   findByEmail,
   createResetToken,
-  findValidResetToken,
-  markResetTokenUsed,
-  updatePassword,
+  resetPasswordWithToken,
 } from "@/repository/users";
 import type { AuthActionState } from "@/types/auth";
 
@@ -193,18 +191,17 @@ export async function resetPassword(
     };
   }
 
-  const record = await findValidResetToken(parsed.data.token);
-  if (!record) {
+  // Hashed BEFORE the repository's transaction (nothing slow inside it); the
+  // link is claimed and the password written there, atomically.
+  const hashed = await bcrypt.hash(parsed.data.password, 10);
+  const done = await resetPasswordWithToken(parsed.data.token, hashed);
+  if (!done) {
     return {
       ...prevState,
       type: "error",
       message: t.auth.resetLinkInvalidOrExpired,
     };
   }
-
-  const hashed = await bcrypt.hash(parsed.data.password, 10);
-  await updatePassword(record.userId, hashed);
-  await markResetTokenUsed(record.id);
 
   return { ...prevState, type: "success", message: t.auth.passwordUpdated };
 }

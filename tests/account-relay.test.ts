@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(), signOut: vi.fn() }));
 vi.mock("@/repository/users", () => ({
   create: vi.fn(),
   updateProfile: vi.fn(),
   remove: vi.fn(),
   findById: vi.fn(),
   countSuperadmins: vi.fn(),
-  updatePassword: vi.fn(),
   findAccessScopeByEmail: vi.fn(),
   countOwnershipBlockers: vi.fn(),
   setUserProjects: vi.fn(),
@@ -133,7 +132,6 @@ describe("relay account: an ADMIN restricted by their function (lot 5a)", () => 
       const renamed = await updateUser(initial, form({ id: "7", role: "VIEWER", name: "X" }));
       expect(renamed.message).toBe(REFUSED);
       expect(users.updateProfile).not.toHaveBeenCalled();
-      expect(users.updatePassword).not.toHaveBeenCalled();
     });
     it("refused: an account whose function hides less", async () => {
       restricted();

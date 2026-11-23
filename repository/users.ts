@@ -40,9 +40,10 @@ export const RELAY_REFUSED = "relay";
  * compiles to ILIKE without escaping `%` and `_`, so an address such as
  * "jean_dupont@x.fr" would match "jean.dupont@x.fr" (and "%" any account) and a
  * session could resolve to somebody else's row. Rows saved with capitals before
- * normalization existed will be normalized by a migration (lot 3,
- * 20261123100000_user_session_version_and_email_ci); until it is applied such
- * a row is not matched.
+ * normalization existed were normalized by a migration (lot 3,
+ * 20261123100000_user_session_version_and_email_ci), which also added the CHECK
+ * that keeps every stored e-mail in that form. Before it was applied such a row
+ * was not matched (historical: no row of that kind can exist any more).
  *
  * `findByEmail` below uses the same email filter, but is deliberately NOT
  * where a deactivation would plug in — it backs sign-in (verifyCredentials)
@@ -390,12 +391,22 @@ export async function updateProfile(
             // so there is no instant where the write is visible and the old
             // cookies still pass. A name or a function alone does not bump: the
             // function is re-read on every request, it is not in the token.
+            //
+            // `current` is deliberately NOT read FOR UPDATE: the increment is
+            // atomic, and under READ COMMITTED the first writer that changes the
+            // role read the committed role and bumps; a concurrent loser at worst
+            // bumps once more (harmless — it only grows). The gate's role
+            // comparison (lib/sessionGate.ts) is the net. Do not add a lock "to be safe".
             const invalidatesSessions = data.password !== undefined || (current !== null && current.role !== data.role);
-            return tx.user.update({
+            const updated = await tx.user.update({
                 where: { id },
                 data: { ...data, sessionVersion: invalidatesSessions ? { increment: 1 } : undefined },
                 select: ACCOUNT_SELECT,
             });
+            // A new password voids the links minted for the old situation, in
+            // the same transaction (same rule as resetPasswordWithToken).
+            if (data.password !== undefined) await tx.passwordResetToken.deleteMany({ where: { userId: id, usedAt: null } });
+            return updated;
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;
@@ -475,13 +486,15 @@ export async function createResetToken(userId: number, token: string, expiresAt:
     }
 }
 
-/** A token that hasn't been used yet and hasn't expired, with its user. */
+/**
+ * A token that hasn't been used yet and hasn't expired, with its user. A READ
+ * only: no production caller consumes a link through it any more (the reset
+ * action claims it inside resetPasswordWithToken, atomically) — it stays for
+ * the integration tests that probe how tokens are stored.
+ */
 export async function findValidResetToken(token: string) {
     try {
         // Look up by the hash of the presented token — never the token itself.
-        // The nested user select excludes password; callers only ever read
-        // userId/id off the token row itself, but the relation is kept (id
-        // only) since it's part of the established return shape.
         return await prisma.passwordResetToken.findFirst({
             where: { token: hashResetToken(token), usedAt: null, expiresAt: { gt: new Date() } },
             include: { user: { select: { id: true } } },
@@ -495,36 +508,40 @@ export async function findValidResetToken(token: string) {
     }
 }
 
-export async function markResetTokenUsed(id: number) {
+/**
+ * Consume a reset link and set the new password — ONE transaction. The token
+ * is claimed by a conditional update (unused AND unexpired; the row count is
+ * the answer), so two concurrent submissions of the same link cannot both
+ * pass, and a failure further down rolls the claim back with everything else.
+ * The bump rides in the same statement as the password (every session opened
+ * with the old one dies), and the account's other unused links are deleted.
+ * Returns false for an invalid, used or expired link (nothing written).
+ */
+export async function resetPasswordWithToken(token: string, hashedPassword: string): Promise<boolean> {
     try {
-        return await prisma.passwordResetToken.update({
-            where: { id },
-            data: { usedAt: new Date() },
-            select: { id: true },
+        return await prisma.$transaction(async (tx) => {
+            // Look up by the hash of the presented token — never the token itself.
+            const tokenHash = hashResetToken(token);
+            const claimed = await tx.passwordResetToken.updateMany({
+                where: { token: tokenHash, usedAt: null, expiresAt: { gt: new Date() } },
+                data: { usedAt: new Date() },
+            });
+            if (claimed.count !== 1) return false;
+            const row = await tx.passwordResetToken.findUniqueOrThrow({ where: { token: tokenHash }, select: { userId: true } });
+            await tx.user.update({
+                where: { id: row.userId },
+                // The bump kills every session opened with the old password.
+                data: { password: hashedPassword, sessionVersion: { increment: 1 } },
+                select: { id: true },
+            });
+            await tx.passwordResetToken.deleteMany({ where: { userId: row.userId, usedAt: null } });
+            return true;
         });
     } catch (error) {
-        console.log("Repository markResetTokenUsed error:", error);
+        console.log("Repository resetPasswordWithToken error:", error);
         throw {
             type: "repositoryError",
-            message: "Database Error updating reset token."
-        };
-    }
-}
-
-export async function updatePassword(userId: number, hashedPassword: string) {
-    try {
-        return await prisma.user.update({
-            where: { id: userId },
-            // The bump kills every session opened with the old password.
-            data: { password: hashedPassword, sessionVersion: { increment: 1 } },
-            // No caller reads the row; never hand back the password hash.
-            select: { id: true },
-        });
-    } catch (error) {
-        console.log("Repository updatePassword error:", error);
-        throw {
-            type: "repositoryError",
-            message: "Database Error updating password."
+            message: "Database Error resetting password."
         };
     }
 }

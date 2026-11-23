@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { verifyCredentials } from "@/service/auth";
-import { findByEmail, createResetToken, findValidResetToken, updatePassword, create } from "@/repository/users";
+import { findByEmail, createResetToken, findValidResetToken, resetPasswordWithToken, create } from "@/repository/users";
 
 /**
  * Lookups by e-mail are EXACT on the canonical form (trimmed, lower-cased):
@@ -41,7 +41,7 @@ describe("e-mail lookups are exact on the canonical form (lot 5a, point 6)", () 
     expect(row).not.toBeNull();
     await createResetToken(row!.id, "tok-exact-email", new Date(Date.now() + 60_000));
     expect((await findValidResetToken("tok-exact-email"))?.userId).toBe(row!.id);
-    await updatePassword(row!.id, await bcrypt.hash("another-password1", 10));
+    expect(await resetPasswordWithToken("tok-exact-email", await bcrypt.hash("another-password1", 10))).toBe(true);
     expect(await verifyCredentials({ email: `new.person${DOMAIN}`, password: "another-password1" })).not.toBeNull();
   });
 

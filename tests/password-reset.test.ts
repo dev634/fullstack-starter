@@ -17,9 +17,7 @@ vi.mock("@/lib/appSettings", () => ({
 vi.mock("@/repository/users", () => ({
   findByEmail: vi.fn(),
   createResetToken: vi.fn(),
-  findValidResetToken: vi.fn(),
-  markResetTokenUsed: vi.fn(),
-  updatePassword: vi.fn(),
+  resetPasswordWithToken: vi.fn(),
 }));
 
 // Stateful in-memory fake of the DB repository so the rate-limit tests below
@@ -47,17 +45,13 @@ import { sendPasswordResetEmail } from "@/lib/email";
 import {
   findByEmail,
   createResetToken,
-  findValidResetToken,
-  markResetTokenUsed,
-  updatePassword,
+  resetPasswordWithToken,
 } from "@/repository/users";
 
 const sendEmailMock = vi.mocked(sendPasswordResetEmail);
 const findByEmailMock = vi.mocked(findByEmail);
 const createResetTokenMock = vi.mocked(createResetToken);
-const findValidResetTokenMock = vi.mocked(findValidResetToken);
-const markResetTokenUsedMock = vi.mocked(markResetTokenUsed);
-const updatePasswordMock = vi.mocked(updatePassword);
+const resetPasswordWithTokenMock = vi.mocked(resetPasswordWithToken);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -143,7 +137,7 @@ describe("resetPassword", () => {
       formOf({ token: "abc", password: "short", confirmPassword: "short" })
     );
     expect(res.type).toBe("zodError");
-    expect(updatePasswordMock).not.toHaveBeenCalled();
+    expect(resetPasswordWithTokenMock).not.toHaveBeenCalled();
   });
 
   it("rejects mismatched passwords", async () => {
@@ -153,27 +147,26 @@ describe("resetPassword", () => {
     );
     expect(res.type).toBe("zodError");
     expect(res.fieldsForm?.confirmPassword).toBeTruthy();
-    expect(updatePasswordMock).not.toHaveBeenCalled();
+    expect(resetPasswordWithTokenMock).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid or expired token", async () => {
-    findValidResetTokenMock.mockResolvedValue(null);
+    resetPasswordWithTokenMock.mockResolvedValue(false);
     const res = await resetPassword(
       initial,
       formOf({ token: "bad-token", password: "longenough1", confirmPassword: "longenough1" })
     );
     expect(res.type).toBe("error");
-    expect(updatePasswordMock).not.toHaveBeenCalled();
+    expect(res.message).toMatch(/invalide ou a expiré/i);
   });
 
-  it("updates the password and marks the token used for a valid token", async () => {
-    findValidResetTokenMock.mockResolvedValue({ id: 5, userId: 1 } as never);
+  it("hands the raw token and a hash to the one atomic repository call for a valid token", async () => {
+    resetPasswordWithTokenMock.mockResolvedValue(true);
     const res = await resetPassword(
       initial,
       formOf({ token: "good-token", password: "longenough1", confirmPassword: "longenough1" })
     );
-    expect(updatePasswordMock).toHaveBeenCalledWith(1, expect.any(String));
-    expect(markResetTokenUsedMock).toHaveBeenCalledWith(5);
+    expect(resetPasswordWithTokenMock).toHaveBeenCalledWith("good-token", expect.any(String));
     expect(res.type).toBe("success");
   });
 });

@@ -23,8 +23,11 @@ import { findSessionAccount } from "@/repository/users";
  *   - the account does not exist (or its id/email pair no longer matches);
  *   - `User.sessionVersion` differs from the token's. The counter is bumped, in
  *     the same statement as the write, by every writer of the password
- *     (repository/users.ts::updateProfile and ::updatePassword — locked by
- *     tests/account-writers-coverage.test.ts);
+ *     (repository/users.ts::updateProfile and ::resetPasswordWithToken — checked by
+ *     tests/account-writers-coverage.test.ts, within the limits stated on its
+ *     helper's `userWriteSites`: a client not named `prisma`/`tx`, raw SQL and
+ *     an opaque spread are not seen, and the CONDITION of the bump is judged
+ *     only by tests-integration/session-version-bump.test.ts);
  *   - `User.role` differs from the token's. This one covers EVERY writer of the
  *     role by construction — a SQL script included — without relying on that
  *     writer remembering to bump.

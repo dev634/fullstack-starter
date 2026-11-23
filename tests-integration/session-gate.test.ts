@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { remove, updatePassword, updateProfile } from "@/repository/users";
+import { remove, resetPasswordWithToken, createResetToken, updateProfile } from "@/repository/users";
 import { authConfig } from "@/auth.config";
 
 /**
@@ -107,13 +107,14 @@ describe("lib/auth.ts's real jwt callback, against a real Postgres", () => {
       expect(await jwt()({ token: stamped })).toEqual(stamped);
     });
 
-    it("voids the token after a password reset (updatePassword), legacy and stamped alike", async () => {
+    it("voids the token after a password reset (resetPasswordWithToken), legacy and stamped alike", async () => {
       const email = uniqueEmail("pwd");
       const user = await makeUser(email);
       const legacy: SessionToken = { sub: String(user.id), email, role: "EDITOR" };
       const stamped: SessionToken = { ...legacy, sessionVersion: 0 };
 
-      await updatePassword(user.id, "new-hash");
+      await createResetToken(user.id, "gate-reset-token", new Date(Date.now() + 60_000));
+      expect(await resetPasswordWithToken("gate-reset-token", "new-hash")).toBe(true);
 
       expect(await jwt()({ token: legacy })).toBeNull();
       expect(await jwt()({ token: stamped })).toBeNull();

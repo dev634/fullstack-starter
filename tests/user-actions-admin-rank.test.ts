@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(), signOut: vi.fn() }));
 // Same surface as tests/user-actions.test.ts: every repository function the
 // actions call, directly or through the access context.
 vi.mock("@/repository/users", () => ({
@@ -9,7 +9,6 @@ vi.mock("@/repository/users", () => ({
   remove: vi.fn(),
   findById: vi.fn(),
   countSuperadmins: vi.fn(),
-  updatePassword: vi.fn(),
   findAccessScopeByEmail: vi.fn(),
   countOwnershipBlockers: vi.fn(),
   setUserProjects: vi.fn(),
@@ -20,14 +19,14 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn().mockResolvedValue("hashed") } }));
 
 import { addUser, updateUser, deleteUser, setUserProjectAssignments } from "@/actions/users/users";
-import { auth } from "@/lib/auth";
+import { auth, signOut } from "@/lib/auth";
 import {
   create,
   updateProfile,
-  updatePassword,
   remove,
   findById,
   countOwnershipBlockers,
+  countSuperadmins,
   findAccessScopeByEmail,
   setUserProjects,
 } from "@/repository/users";
@@ -37,7 +36,6 @@ import { accountWithoutFunction } from "./helpers/accessFixtures";
 const authMock = vi.mocked(auth);
 const createMock = vi.mocked(create);
 const updateProfileMock = vi.mocked(updateProfile);
-const updatePasswordMock = vi.mocked(updatePassword);
 const removeMock = vi.mocked(remove);
 const findByIdMock = vi.mocked(findById);
 const setUserProjectsMock = vi.mocked(setUserProjects);
@@ -118,7 +116,6 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       expect(res.type).toBe("error");
       expect(res.message).toBe(fr.users.messages.adminRequiresSuperadmin);
       expect(updateProfileMock).not.toHaveBeenCalled();
-      expect(updatePasswordMock).not.toHaveBeenCalled();
     });
 
     it("an ADMIN cannot promote an EDITOR to ADMIN", async () => {
@@ -142,7 +139,6 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
       expect(res.type).toBe("success");
       // The password rides in the SAME write as the profile (one transaction).
       expect(updateProfileMock).toHaveBeenCalledWith(7, expect.objectContaining({ name: "Ed2", role: "VIEWER", password: "hashed" }), null);
-      expect(updatePasswordMock).not.toHaveBeenCalled();
     });
 
     it("an ADMIN can change their OWN name and password", async () => {
@@ -161,7 +157,57 @@ describe("accounts of rank ADMIN and above need a SUPERADMIN (lot 1, F2)", () =>
         expect.objectContaining({ name: "Me Too", role: "ADMIN", jobFunctionId: 5, password: "hashed" }),
         null
       );
-      expect(updatePasswordMock).not.toHaveBeenCalled();
+    });
+
+    // Lot 3: the write bumped sessionVersion, so the caller's own cookie is dead:
+    // sign them out WITH the reason instead of an unexplained bounce to /login.
+    describe("changing one's OWN credentials signs the caller out, with the reason", () => {
+      const SIGN_OUT = { redirectTo: "/login?raison=identifiants-modifies" };
+      beforeEach(() => vi.mocked(signOut).mockClear());
+
+      it("own password: signed out", async () => {
+        actor("ADMIN", "me@x.com");
+        target({ id: 1, email: "me@x.com", role: "ADMIN" });
+        updateProfileMock.mockResolvedValue({ id: 1 } as never);
+        await updateUser(initial, form({ id: "1", name: "Me", role: "ADMIN", password: "newpassword1" }));
+        expect(signOut).toHaveBeenCalledWith(SIGN_OUT);
+      });
+
+      it("own role (SUPERADMIN): signed out", async () => {
+        actor("SUPERADMIN", "boss@x.com");
+        target({ id: 2, email: "boss@x.com", role: "SUPERADMIN" });
+        updateProfileMock.mockResolvedValue({ id: 2 } as never);
+        vi.mocked(countSuperadmins).mockResolvedValue(2);
+        await updateUser(initial, form({ id: "2", name: "Boss", role: "ADMIN" }));
+        expect(signOut).toHaveBeenCalledWith(SIGN_OUT);
+      });
+
+      it("own name or function only: NOT signed out (the session survives, nothing was bumped)", async () => {
+        actor("SUPERADMIN", "boss@x.com");
+        target({ id: 2, email: "boss@x.com", role: "SUPERADMIN" });
+        updateProfileMock.mockResolvedValue({ id: 2 } as never);
+        const res = await updateUser(initial, form({ id: "2", name: "Boss 2", role: "SUPERADMIN" }));
+        expect(res.type).toBe("success");
+        expect(signOut).not.toHaveBeenCalled();
+      });
+
+      it("ANOTHER account's password: the caller stays signed in", async () => {
+        actor("SUPERADMIN", "boss@x.com");
+        target({ id: 3, email: "other@x.com", role: "EDITOR" });
+        updateProfileMock.mockResolvedValue({ id: 3 } as never);
+        const res = await updateUser(initial, form({ id: "3", name: "Other", role: "EDITOR", password: "newpassword1" }));
+        expect(res.type).toBe("success");
+        expect(signOut).not.toHaveBeenCalled();
+      });
+
+      it("a refused write signs nobody out", async () => {
+        actor("ADMIN", "me@x.com");
+        target({ id: 1, email: "me@x.com", role: "ADMIN" });
+        updateProfileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+        const res = await updateUser(initial, form({ id: "1", name: "Me", role: "ADMIN", password: "newpassword1" }));
+        expect(res.type).toBe("error");
+        expect(signOut).not.toHaveBeenCalled();
+      });
     });
 
     it.each(["EDITOR", "SUPERADMIN"])("an ADMIN cannot change their OWN role to %s", async (role) => {

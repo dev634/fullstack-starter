@@ -45,9 +45,12 @@ Ne jamais les croiser en matrice.
 
 **Le quatrième axe est arrivé avec la rubrique Prêts (PR #230)** et ne
 ressemble pas aux trois autres : il ne vient pas de la fonction mais de la
-**ligne** (`Equipment.ownerId`, `EquipmentLoan.borrowerId`). La session ne
-porte que `{email, role}`, jamais d'id numérique : l'id du « moi » se résout
-**en base** par e-mail (`getCurrentUserId`), jamais depuis le formulaire.
+**ligne** (`Equipment.ownerId`, `EquipmentLoan.borrowerId`). Le jeton
+porte `email`, `role`, `sub` (l'id) et `sessionVersion`, mais la session exposée
+au client (`auth()`, `useSession`) ne porte que `{email, role}` (plus les champs
+d'affichage d'Auth.js) : jamais d'id numérique ni de version côté application.
+L'id du « moi » se résout **en base** par e-mail (`getCurrentUserId`), jamais
+depuis le formulaire.
 `getLoansActor()` rend `{userId, isAdmin}` d'un coup — la page décide la
 visibilité et les actions décident l'autorisation avec la **même** source,
 sinon un bouton affiché et une action refusée divergent. Ordre dans une

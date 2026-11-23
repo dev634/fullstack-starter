@@ -14,7 +14,7 @@ import {
 } from "@/repository/clients";
 import { setContactProjects, findLinkedProjectIds } from "@/repository/contacts";
 import { canRemoveContact } from "@/lib/contactPolicy";
-import { remove as removeUser, updatePassword, setUserProjects, createResetToken, markResetTokenUsed } from "@/repository/users";
+import { remove as removeUser, setUserProjects, createResetToken } from "@/repository/users";
 
 /**
  * Lot 2, against a real Postgres: the new repository reads that the guards in
@@ -335,13 +335,11 @@ describe("user repository writes never hand back a credential (F5)", () => {
     expect(json).not.toMatch(/"token"/);
   };
 
-  it("remove, updatePassword, setUserProjects, createResetToken and markResetTokenUsed return no password or token", async () => {
+  it("remove, setUserProjects and createResetToken return no password or token", async () => {
     const u = await makeUser();
-    noCredential(await updatePassword(u.id, "$2b$10$secrethashsecrethash"));
     noCredential(await setUserProjects(u.id, []));
     const token = await createResetToken(u.id, "raw-token", new Date(Date.now() + 60_000));
     noCredential(token);
-    noCredential(await markResetTokenUsed(token.id));
     const removed = await removeUser(u.id);
     noCredential(removed);
     expect(await prisma.user.findUnique({ where: { id: u.id } })).toBeNull();

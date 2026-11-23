@@ -119,7 +119,19 @@ export default function UsersManager({
     if (!editing) return;
     setError(null);
     setFieldErrors(undefined);
+    // Editing MY OWN account with a new password or role: that write kills my
+    // session (sessionVersion), and updateUser then signs me out. So it goes
+    // LAST — the assignments are saved first, while the cookie still works.
+    const endsOwnSession =
+      editing.mode === "edit" && isSelfRow(editing.user) && (password !== "" || role !== editing.user.role);
     startTransition(async () => {
+      if (endsOwnSession && editing.mode === "edit" && canAssignProjects) {
+        const assignRes = await setUserProjectAssignments(editing.user.id, [...assigned]);
+        if (assignRes.type === "error") {
+          setError(assignRes.message);
+          return;
+        }
+      }
       const fd = new FormData();
       fd.set("name", name.trim());
       fd.set("role", role);
@@ -136,7 +148,7 @@ export default function UsersManager({
       // Assignments are stored on the user, not in the profile form, so they
       // are saved right after — only once the profile itself succeeded, to
       // avoid assigning projects to a user whose creation just failed.
-      if (res.type === "success" && canAssignProjects) {
+      if (res.type === "success" && canAssignProjects && !endsOwnSession) {
         const targetId = editing.mode === "edit" ? editing.user.id : (res.data as { id?: number } | undefined)?.id;
         if (targetId) {
           const assignRes = await setUserProjectAssignments(targetId, [...assigned]);
@@ -339,7 +351,13 @@ export default function UsersManager({
           )}
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t.users.passwordLabel}</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClass}
+            />
             <p className="mt-1 text-xs text-gray-400">
               {editing?.mode === "edit" ? t.users.passwordEditHint : t.users.passwordCreateHint}
             </p>

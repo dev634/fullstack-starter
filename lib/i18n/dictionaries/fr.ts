@@ -130,6 +130,7 @@ const fr = {
         resetLinkSent: "Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.",
         resetLinkInvalidOrExpired: "Ce lien de réinitialisation est invalide ou a expiré.",
         passwordUpdated: "Mot de passe mis à jour. Tu peux maintenant te connecter.",
+        credentialsChanged: "Tes identifiants ont changé : reconnecte-toi avec ton nouveau mot de passe.",
     },
     accessDenied: {
         title: "Accès refusé",

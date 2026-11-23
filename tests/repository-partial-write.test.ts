@@ -47,24 +47,38 @@ import {
 
 /**
  * "<file> <finding kind> <finding text>" -> why it is not a fold, and when the
- * entry goes away. Exactly one, asserted below.
+ * entry goes away. Exactly two, asserted below (both on updateProfile; they
+ * replaced the single "opaque data data" one when lot 3 spread the typed
+ * parameter next to the session bump).
  */
 const EXEMPT: ReadonlyMap<string, string> = new Map([
   [
-    "repository/users.ts opaque data data",
-    "updateProfile(id, data: { name: string | null; role: Role; jobFunctionId: number | null }) hands its typed parameter to Prisma: " +
-      "every column is REQUIRED in that type (null = clear, never optional), so nothing can be absent. " +
-      "Disappears the day updateProfile writes its columns one by one, or its type gains an optional field. " +
-      "(Lot 5a file: left as is by lot 5b.)",
+    "repository/users.ts opaque spread ...data",
+    "updateProfile(id, data: { name: string | null; role: Role; jobFunctionId: number | null; password?: string }) spreads its typed parameter into Prisma's data: " +
+      "name, role and jobFunctionId are REQUIRED in that type (null = clear, never optional), so nothing can be absent; " +
+      "the one optional field, password, reaches Prisma as undefined = \"unchanged\", never as null. " +
+      "Disappears the day updateProfile writes its columns one by one, or the type gains an optional field other than a never-cleared one.",
+  ],
+  [
+    "repository/users.ts ? … : <literal> invalidatesSessions ? { increment: 1 } : undefined",
+    "the else branch is undefined, which Prisma reads as \"leave the column alone\": it is the opposite of a fold (no null, no default). " +
+      "The only value the condition picks is the atomic bump of sessionVersion. " +
+      "Disappears if the else branch becomes anything but undefined (tests/account-writers-coverage.test.ts also refuses it on this key).",
   ],
 ]);
 const isExempt = (file: string, f: { kind: string; text: string }) => EXEMPT.has(`${file} ${f.kind} ${f.text}`);
 
 const EXPECTED_FILES_WITH_UPDATES = 16;
-const EXPECTED_UPDATE_FUNCTIONS = 42;
+// 42 -> 41 at lot 3: updatePassword (user.update) and markResetTokenUsed
+// (passwordResetToken.update) became one function, resetPasswordWithToken, which
+// still holds both calls (43 calls, 16 files unchanged).
+const EXPECTED_UPDATE_FUNCTIONS = 41;
 const EXPECTED_UPDATE_CALLS = 43;
-const EXPECTED_ACTION_FILES_WITH_UPDATES = 13;
-const EXPECTED_ACTION_UPDATE_CALLS = 19;
+// 13 -> 12 files, 19 -> 18 calls at lot 3: actions/auth/auth.ts called
+// updatePassword (an update*); it now calls resetPasswordWithToken, which is
+// not one, so that file leaves the walk (the write is in repository/users.ts).
+const EXPECTED_ACTION_FILES_WITH_UPDATES = 12;
+const EXPECTED_ACTION_UPDATE_CALLS = 18;
 
 type Scanned = { file: string; scan: WriteScan };
 type ScannedAction = { file: string; scan: ActionScan };
@@ -100,7 +114,7 @@ describe("repository updates never fold an absent field into null or a default",
   });
 
   it("keeps its exemptions honest: exactly the published ones, each still matching a finding", () => {
-    expect(EXEMPT.size).toBe(1);
+    expect(EXEMPT.size).toBe(2);
     const live = new Set(scanned.flatMap(({ file, scan }) => scan.findings.map((f) => `${file} ${f.kind} ${f.text}`)));
     for (const key of EXEMPT.keys()) expect(live.has(key), `${key} is exempt but no longer found — remove the entry`).toBe(true);
   });

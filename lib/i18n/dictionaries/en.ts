@@ -128,6 +128,7 @@ const en: Dictionary = {
         resetLinkSent: "If an account exists for this email, a reset link has been sent.",
         resetLinkInvalidOrExpired: "This reset link is invalid or has expired.",
         passwordUpdated: "Password updated. You can now sign in.",
+        credentialsChanged: "Your credentials have changed: sign in again with your new password.",
     },
     accessDenied: {
         title: "Access denied",

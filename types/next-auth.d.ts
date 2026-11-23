@@ -4,7 +4,8 @@ import type { Role } from "@/app/generated/prisma/client";
 declare module "next-auth" {
   interface User {
     role?: Role;
-    sessionVersion?: number;
+    /** Required: an `authorize` that forgot it would loop sign-in on any account already bumped. */
+    sessionVersion: number;
   }
 
   interface Session {

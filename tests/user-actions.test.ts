@@ -7,7 +7,6 @@ vi.mock("@/repository/users", () => ({
   remove: vi.fn(),
   findById: vi.fn(),
   countSuperadmins: vi.fn(),
-  updatePassword: vi.fn(),
   // Read by requireAreaAccess (via getAccessContext) for every ADMIN actor —
   // defaulted in beforeEach below to the scope of a real, existing account
   // with no job function. getAccessContext now resolves an UNRESOLVED mock

@@ -937,8 +937,10 @@ model User {
   role          Role
   // Revocation counter for the JWT sessions (Auth.js, no session table): the
   // token carries the value read at sign-in, and lib/sessionGate.ts voids it
-  // when it no longer equals this column. Incremented (never set) on every
-  // password change and role change. 0 = never bumped, and also what a token
+  // when it no longer equals this column. Incremented (never set) by every
+  // application writer of the password or the role and by the bootstrap script
+  // (docs/deploy-hostinger.md); a raw SQL write of the role is caught by the
+  // gate's role comparison, not by this counter. 0 = never bumped, and also what a token
   // issued BEFORE this column existed is read as — so deploying it signs
   // nobody out. Must only ever grow: writing back a value already issued
   // (e.g. a reset to 0) revives every cookie revoked since. Not a user-facing
