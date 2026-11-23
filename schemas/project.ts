@@ -39,11 +39,13 @@ export const projectTypeSchema = z.enum([
 // invalid_type issue has no field-specific i18n hook and would fall back to
 // the generic "this field is required" message (lib/i18n/zodErrors.ts) for a
 // field that isn't actually empty, just malformed.
+// The finiteness predicate and its "notANumber" issue live in ONE place,
+// finiteNumberText (schemas/fields.ts); this only folds blank into "absent".
 const optionalNumber = z
     .string()
     .optional()
-    .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
-    .refine((v) => v === undefined || Number.isFinite(v), { message: "Must be a number", params: { i18n: "notANumber" } });
+    .transform((v) => (v && v.trim() !== "" ? v : undefined))
+    .pipe(finiteNumberText.optional());
 
 // Adversarial pass 2, point 5: none of the free-text fields below had an
 // upper bound before — see schemas/fields.ts for the tier constants.

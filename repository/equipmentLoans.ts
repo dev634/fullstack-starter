@@ -113,7 +113,7 @@ export async function markReturned(id: number, returnedAt: string): Promise<numb
     try {
         const result = await prisma.equipmentLoan.updateMany({
             where: { id, returnedAt: null },
-            data: { returnedAt: new Date(returnedAt) },
+            data: { returnedAt: dateColumn(returnedAt) },
         });
         return result.count;
     } catch (error) {

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import z from "zod";
 import { updateProjectSchema } from "@/schemas/project";
 import { updateClientSchema } from "@/schemas/client";
@@ -291,27 +293,65 @@ describe("updateTaskSchema", () => {
   });
 });
 
+// Every `update*Schema` / `edit*Schema` EXPORTED by schemas/ — discovered from
+// the directory, not listed by hand: four of them (updateUserSchema,
+// updateMaterialCategorySchema, updateAppSettingsSchema, updateTaskQuantitySchema)
+// escaped the hand-written list this replaces. Each discovered schema needs a
+// row below: the minimal VALID payload and the keys that payload legitimately
+// makes defined (its ids and its required fields). A schema with no row, or a
+// row with no schema, fails — the table cannot drift from the directory.
+const IDS3 = { id: "1", projectId: "1", clientId: "1" };
+const MINIMAL: Record<string, { input: Record<string, unknown>; defined: string[] }> = {
+  updateProjectSchema: { input: { id: "1", clientId: "1" }, defined: ["id", "clientId"] },
+  updateClientSchema: { input: { id: "1" }, defined: ["id"] },
+  updateContactSchema: { input: { id: "1", clientId: "1" }, defined: ["id", "clientId"] },
+  updateEquipmentSchema: { input: { id: "1" }, defined: ["id"] },
+  editLoanSchema: { input: { id: "1" }, defined: ["id"] },
+  updateInterventionSchema: { input: IDS3, defined: ["id", "projectId", "clientId"] },
+  updateReserveSchema: { input: { id: "1" }, defined: ["id"] },
+  updateReserveStatusStyleSchema: { input: { projectId: "1" }, defined: ["projectId"] },
+  updateMaterialSchema: { input: IDS3, defined: ["id", "projectId", "clientId"] },
+  updateTaskSchema: { input: IDS3, defined: ["id", "projectId", "clientId"] },
+  // Required fields (not optional by design): they are the ONLY keys allowed defined.
+  updateUserSchema: { input: { id: "1", role: "EDITOR" }, defined: ["id", "role"] },
+  updateMaterialCategorySchema: { input: { ...IDS3, name: "Câbles" }, defined: ["id", "projectId", "clientId", "name"] },
+  updateAppSettingsSchema: {
+    input: { appName: "App", primaryColor: "#000000", accentColor: "#ffffff" },
+    defined: ["appName", "primaryColor", "accentColor"],
+  },
+  updateTaskQuantitySchema: { input: { ...IDS3, quantityDone: "3" }, defined: ["id", "projectId", "clientId", "quantityDone"] },
+};
+// Recounted at lot 5b (on 09fbd0b + the lot 5b changes): exports of schemas/*.ts
+// whose name matches ^(update|edit).*Schema$, by this very discovery.
+const EXPECTED_UPDATE_SCHEMAS = 14;
+const UPDATE_SCHEMA_NAME = /^(update|edit)[A-Za-z]*Schema$/;
+
+async function discoverUpdateSchemas(): Promise<Map<string, z.ZodType>> {
+  const found = new Map<string, z.ZodType>();
+  for (const file of readdirSync(join(process.cwd(), "schemas")).filter((f) => f.endsWith(".ts"))) {
+    const mod: Record<string, unknown> = await import(`../schemas/${file.slice(0, -3)}.ts`);
+    for (const [name, value] of Object.entries(mod)) {
+      if (UPDATE_SCHEMA_NAME.test(name) && value instanceof z.ZodType) found.set(name, value);
+    }
+  }
+  return found;
+}
+
 describe("no update schema declares a default", () => {
-  it("an empty parse of each one that has no required field besides ids yields only undefined / the ids", () => {
-    // Redundant with the per-schema degenerate cases above on purpose: this is
-    // the one place that names every update schema, so a new `.default()` on
-    // any of them is a one-line failure here.
-    const cases: [string, z.ZodType, Record<string, unknown>, string[]][] = [
-      ["project", updateProjectSchema, { id: "1", clientId: "1" }, ["id", "clientId"]],
-      ["client", updateClientSchema, { id: "1" }, ["id"]],
-      ["contact", updateContactSchema, { id: "1", clientId: "1" }, ["id", "clientId"]],
-      ["equipment", updateEquipmentSchema, { id: "1" }, ["id"]],
-      ["loan", editLoanSchema, { id: "1" }, ["id"]],
-      ["intervention", updateInterventionSchema, { id: "1", projectId: "1", clientId: "1" }, ["id", "projectId", "clientId"]],
-      ["reserve", updateReserveSchema, { id: "1" }, ["id"]],
-      ["reserve status style", updateReserveStatusStyleSchema, { projectId: "1" }, ["projectId"]],
-      ["material", updateMaterialSchema, { id: "1", projectId: "1", clientId: "1" }, ["id", "projectId", "clientId"]],
-      ["task", updateTaskSchema, { id: "1", projectId: "1", clientId: "1" }, ["id", "projectId", "clientId"]],
-    ];
-    for (const [name, schema, input, ids] of cases) {
-      const result = schema.safeParse(input);
+  it("discovers exactly the published update schemas, each with a row in the table (and no row without a schema)", async () => {
+    const found = await discoverUpdateSchemas();
+    expect(found.size).toBe(EXPECTED_UPDATE_SCHEMAS);
+    expect([...found.keys()].sort()).toEqual(Object.keys(MINIMAL).sort());
+  });
+
+  it("the minimal parse of every discovered schema leaves every other key undefined", async () => {
+    // Redundant with the per-schema degenerate cases above on purpose: a new
+    // `.default()` on any update schema shows up here as a defined value.
+    for (const [name, schema] of await discoverUpdateSchemas()) {
+      const row = MINIMAL[name];
+      const result = schema.safeParse(row.input);
       expect(result.success, name).toBe(true);
-      if (result.success) expect(definedKeys(result.data as object, ids), name).toEqual([]);
+      if (result.success) expect(definedKeys(result.data as object, row.defined), name).toEqual([]);
     }
   });
 });

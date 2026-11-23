@@ -380,6 +380,11 @@ export async function permanentlyDeleteClient(id: number) {
   if (roleCheck.error) return roleCheck.error;
   const areaCheck = await requireAreaAccess("clients");
   if (areaCheck.error) return areaCheck.error;
+  // Project.client is onDelete: Cascade: destroying a company destroys its
+  // chantiers, so an account whose function hides the `projects` rubrique
+  // must not be able to do it. (Trashing, reversible, stays on `clients`.)
+  const projectsAreaCheck = await requireAreaAccess("projects");
+  if (projectsAreaCheck.error) return projectsAreaCheck.error;
 
   const t = getDictionary(await getLocale());
   try {

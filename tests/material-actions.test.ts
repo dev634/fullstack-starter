@@ -19,6 +19,7 @@ vi.mock("@/repository/projectMaterials", () => ({
   remove: vi.fn(),
   findByProject: vi.fn(),
   findProjectId: vi.fn().mockResolvedValue(2),
+  isLinked: vi.fn().mockResolvedValue(false),
 }));
 // Passe 3b (C2), point 1: addMaterial/editMaterial now cross-check a
 // task/group/category link against the material's own project (see
@@ -46,7 +47,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { addMaterial, editMaterial, deleteMaterial } from "@/actions/projectMaterials/projectMaterials";
 import { requireRole } from "@/lib/authz";
 import { canReachProject } from "@/lib/accessContext";
-import { createOrAccumulate, update, remove, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
+import { createOrAccumulate, update, remove, isLinked, findProjectId as findMaterialProjectId } from "@/repository/projectMaterials";
 import { findProjectId as findTaskProjectId } from "@/repository/tasks";
 import { findProjectId as findTaskGroupProjectId } from "@/repository/taskGroups";
 import { findProjectId as findTaskCategoryProjectId } from "@/repository/taskCategories";
@@ -468,6 +469,46 @@ describe("material actions", () => {
       formOf({ id: "1", clientId: "1", projectId: "2", name: "Panneau 500W", quantity: "15", link: "" })
     );
     expect(res.type).toBe("success");
+  });
+
+  // Lot 5b: a payload with no `link` cannot show the schema the STORED link.
+  it("editMaterial refuses to clear the requiredQuantity of a stored-linked material when the payload carries no link", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    vi.mocked(isLinked).mockResolvedValueOnce(true);
+    const res = await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "2", requiredQuantity: "" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.requiredQuantity).toBe(fr.errors.requiredQuantityMissing);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("editMaterial clears the requiredQuantity of an UNLINKED material when the payload carries no link", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    const res = await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "2", requiredQuantity: "" }));
+    expect(res.type).toBe("success");
+    expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ requiredQuantity: null }));
+  });
+
+  // Lot 5b: z.coerce.number() turned "", "  " and null into 0 — a cleared input zeroed the stock.
+  it.each(["", "   "])("a blank quantity (%j) is refused on create AND on update, never read as 0", async (blank) => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    const created = await addMaterial(initial, formOf({ clientId: "1", projectId: "2", name: "Panneau", quantity: blank }));
+    expect(created.type).toBe("zodError");
+    expect(created.fieldsForm?.quantity).toBeTruthy();
+    expect(createMock).not.toHaveBeenCalled();
+    const edited = await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "2", quantity: blank }));
+    expect(edited.type).toBe("zodError");
+    expect(edited.fieldsForm?.quantity).toBeTruthy();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("an explicit 0 stays a valid quantity, and an ABSENT quantity on update is left alone", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    updateMock.mockResolvedValue({ id: 1 } as never);
+    await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "2", quantity: "0" }));
+    expect(updateMock).toHaveBeenLastCalledWith(1, expect.objectContaining({ quantity: 0 }));
+    await editMaterial(initial, formOf({ id: "1", clientId: "1", projectId: "2", name: "X" }));
+    expect(updateMock.mock.calls.at(-1)![1].quantity).toBeUndefined();
   });
 
   it("editMaterial links the material to a task, passing the FK through to update", async () => {

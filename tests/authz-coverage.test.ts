@@ -90,6 +90,44 @@ const OWNED_BY_SECTION = [
 ];
 
 /**
+ * The section each OWNED_BY_SECTION file belongs to, which every exported
+ * action of it must name in requireSectionAccess (lot 5b). Recounted at the
+ * source (the requireSectionAccess("…") calls of each file, on 09fbd0b + the lot
+ * 5b changes): tasks/taskGroups/taskCategories/taskAssignee -> tasks;
+ * projectMaterials/materialCategories/deliveryNoteScan -> materials;
+ * interventions -> interventions; subcontractors -> subcontractors;
+ * interims/projectWorkers -> interims (workers have no section key of their
+ * own); projectFiles -> files; reserves -> reserves. 13 files, 10 distinct
+ * calls of the table's own keys. The table is checked equal to
+ * OWNED_BY_SECTION: a file added to one and not the other fails.
+ */
+const SECTION_BY_FILE: Readonly<Record<string, readonly string[]>> = {
+  "actions/tasks/tasks.ts": ["tasks"],
+  "actions/taskGroups/taskGroups.ts": ["tasks"],
+  "actions/taskCategories/taskCategories.ts": ["tasks"],
+  "actions/taskAssignee/taskAssignee.ts": ["tasks"],
+  "actions/projectMaterials/projectMaterials.ts": ["materials"],
+  "actions/materialCategories/materialCategories.ts": ["materials"],
+  "actions/deliveryNoteScan/deliveryNoteScan.ts": ["materials"],
+  "actions/interventions/interventions.ts": ["interventions"],
+  "actions/subcontractors/subcontractors.ts": ["subcontractors"],
+  "actions/interims/interims.ts": ["interims"],
+  "actions/projectWorkers/projectWorkers.ts": ["interims"],
+  "actions/projectFiles/projectFiles.ts": ["files"],
+  "actions/reserves/reserves.ts": ["reserves"],
+};
+
+/**
+ * setAssignee assigns a task (tasks) to a subcontractor company (subcontractors)
+ * or to a workforce member (interims): the two latter checks are CONDITIONAL on
+ * the kind of assignee, so the action names all three. Disappears the day the
+ * assignee kinds are split into their own actions.
+ */
+const SECTION_OVERRIDES: Readonly<Record<string, readonly string[]>> = {
+  "actions/taskAssignee/taskAssignee.ts::setAssignee": ["tasks", "subcontractors", "interims"],
+};
+
+/**
  * "Resolved by import" helpers for lib/areaAccess.ts exports (requireAreaOrRedirect,
  * canAccessArea), used by the page-level and report-route tests below. Same
  * technique as tests/project-section-authz-coverage.test.ts's
@@ -204,24 +242,6 @@ function bodyCallsAnyOf(node: ts.Node, guardNames: ReadonlySet<string>): boolean
   return found;
 }
 
-/** Like bodyCallsAnyOf, but the call's first argument must be the string literal `expectedArg`. */
-function bodyCallsAnyOfWithFirstArg(node: ts.Node, guardNames: ReadonlySet<string>, expectedArg: string): boolean {
-  let found = false;
-  const visit = (n: ts.Node) => {
-    if (found) return;
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && guardNames.has(n.expression.text)) {
-      const first = n.arguments[0];
-      if (first && ts.isStringLiteral(first) && first.text === expectedArg) {
-        found = true;
-        return;
-      }
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(node);
-  return found;
-}
-
 /**
  * AREA ARGUMENT, function by function (lot 5b). The tests below used to check
  * that a file calls `requireAreaAccess` / `canAccessArea` SOMEWHERE — the
@@ -266,17 +286,73 @@ function areaViolationsIn(
   file: string,
   guardExport: string,
   pick: (fn: PageFn) => boolean,
-  expectedFor: (fnName: string) => readonly string[]
+  expectedFor: (fnName: string) => readonly string[],
+  libFile: string = AREA_ACCESS_LIB_FILE
 ): string[] {
-  const guardNames = collectAreaGuardNames(source, file, guardExport);
+  const guardNames = collectImportedNames(source, file, libFile, guardExport);
   const violations: string[] = [];
+  // requireAreaAccess RETURNS a refusal: it protects nothing unless the action
+  // tests the result and leaves, in its own body, before any effect (lot 5b).
+  // The other area guards (canAccessArea in a route, requireAreaOrRedirect in a
+  // page) decide by their own control flow and stay on the by-argument check.
+  const mustRefuse = guardExport === REQUIRE_AREA_ACCESS || guardExport === REQUIRE_SECTION_ACCESS;
+  const bindings = new Map([...guardNames].map((local) => [local, guardExport] as const));
+  const effects = effectCallNames(source);
   for (const fn of pageFunctionsIn(source).filter(pick)) {
     const named = areasNamedIn(fn.body, guardNames);
+    const sites = mustRefuse ? guardCallSites(fn.body, bindings) : [];
+    const effectPos = mustRefuse ? firstEffectPos(fn.body, effects) : Infinity;
     for (const area of expectedFor(fn.name)) {
-      if (!named.has(area)) violations.push(`${file}::${fn.name} — never calls ${guardExport}("${area}")`);
+      if (!named.has(area)) {
+        violations.push(`${file}::${fn.name} — never calls ${guardExport}("${area}")`);
+      } else if (mustRefuse) {
+        const honoured = sites.some(
+          (site) => site.firstArg === area && site.refused && !site.nested && site.refusalPos !== undefined && site.refusalPos < effectPos
+        );
+        if (!honoured) {
+          violations.push(
+            `${file}::${fn.name} — calls ${guardExport}("${area}") but does not REFUSE on it ` +
+              `(result bound, its .error tested by an if that exits, in the action body, before any repository/service write)`
+          );
+        }
+      }
     }
   }
   return violations;
+}
+
+/**
+ * Local names bound to the WRITING functions imported from the layers that
+ * write (repository, service, the Cloudinary wrapper). A read — an imported
+ * name starting with find/get/count/has/is/list/search/exists — is not an
+ * effect: a guard may legitimately wait for a read it depends on (setAssignee
+ * resolves the target, parses the assignee, THEN asks for the second section
+ * the assignee implies). What it may not do is wait for a write.
+ */
+function effectCallNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const stmt of source.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    if (!(spec.startsWith("@/repository/") || spec.startsWith("@/service/") || spec === "@/lib/cloudinary")) continue;
+    const bindings = stmt.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const el of bindings.elements) {
+      if (!/^(find|get|count|has|is|list|search|exists)/.test((el.propertyName ?? el.name).text)) names.add(el.name.text);
+    }
+  }
+  return names;
+}
+
+/** Source position of the first call to one of `names` inside `body` (Infinity when none). */
+function firstEffectPos(body: ts.Node, names: ReadonlySet<string>): number {
+  let first = Infinity;
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && names.has(n.expression.text)) first = Math.min(first, n.getStart());
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return first;
 }
 
 /** The same, over every file of a table read from disk. `overrides` keys are "file::function". */
@@ -284,19 +360,22 @@ function areaViolations(
   table: AreaTable,
   guardExport: string,
   pick: (fn: PageFn) => boolean,
-  overrides: AreaTable = {}
+  overrides: AreaTable = {},
+  libFile: string = AREA_ACCESS_LIB_FILE
 ): string[] {
   const violations: string[] = [];
   for (const [file, expected] of Object.entries(table)) {
     const source = ts.createSourceFile(file, readFileSync(join(process.cwd(), file), "utf8"), ts.ScriptTarget.Latest, true);
     const picked = pageFunctionsIn(source).filter(pick);
     expect(picked.length, `${file} has nothing to check — did it move?`).toBeGreaterThan(0);
-    violations.push(...areaViolationsIn(source, file, guardExport, pick, (name) => overrides[`${file}::${name}`] ?? expected));
+    violations.push(...areaViolationsIn(source, file, guardExport, pick, (name) => overrides[`${file}::${name}`] ?? expected, libFile));
   }
   return violations;
 }
 
 const REQUIRE_AREA_ACCESS = "requireAreaAccess";
+const REQUIRE_SECTION_ACCESS = "requireSectionAccess";
+const SECTION_ACCESS_LIB_FILE = resolve(ROOT, "lib", "sectionAccess.ts").toLowerCase();
 const exportedFn = (fn: PageFn) => fn.exported;
 const exportedGet = (fn: PageFn) => fn.exported && fn.name === "GET";
 
@@ -342,7 +421,17 @@ function exitsFunction(stmt: ts.Statement): boolean {
   return ts.isBlock(stmt) && stmt.statements.some((s) => ts.isReturnStatement(s) || ts.isThrowStatement(s));
 }
 
-type GuardCallSite = { exportName: string; line: number; refused: boolean };
+type GuardCallSite = {
+  exportName: string;
+  line: number;
+  refused: boolean;
+  /** Where the refusing `if` starts (source position), when `refused`. */
+  refusalPos: number | undefined;
+  /** The guard call sits in a function nested in the action (a closure that may never run), not in the action itself. */
+  nested: boolean;
+  /** The string-literal first argument of the call (the area / section it names), if it is one. */
+  firstArg: string | undefined;
+};
 
 /**
  * Every call to a guard (`guardNames`: local name -> the lib/access export it
@@ -359,6 +448,10 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
       let parent: ts.Node = n.parent;
       while (ts.isAwaitExpression(parent) || ts.isParenthesizedExpression(parent)) parent = parent.parent;
       let refused = false;
+      let refusalPos: number | undefined;
+      let nested = false;
+      const firstArgNode = n.arguments[0];
+      const firstArg = firstArgNode && ts.isStringLiteralLike(firstArgNode) ? firstArgNode.text : undefined;
       if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
         const varName = parent.name.text;
         const after = n.end;
@@ -368,6 +461,7 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
         // nested function.
         let scope: ts.Node = n.parent;
         while (scope !== body && scope.parent && !ts.isFunctionLike(scope)) scope = scope.parent;
+        nested = scope !== body;
         const searchRoot =
           (ts.isFunctionDeclaration(scope) || ts.isArrowFunction(scope) || ts.isFunctionExpression(scope) || ts.isMethodDeclaration(scope)) && scope.body
             ? scope.body
@@ -382,13 +476,14 @@ function guardCallSites(body: ts.Node, guardNames: ReadonlyMap<string, string>):
             exitsFunction(m.thenStatement)
           ) {
             refused = true;
+            refusalPos = m.getStart();
             return;
           }
           ts.forEachChild(m, find);
         };
         find(searchRoot);
       }
-      sites.push({ exportName, line, refused });
+      sites.push({ exportName, line, refused, refusalPos, nested, firstArg });
     }
     ts.forEachChild(n, visit);
   };
@@ -498,34 +593,27 @@ describe("authorization coverage across server actions", () => {
     ).toEqual([]);
   });
 
-  it("gates every section-owned action behind its section, not just a role", () => {
+  it("gates every section-owned action behind ITS section (by argument, resolved by import), and refuses on it", () => {
     // The capability matrix answers "may I write?"; it says nothing about
     // "may I touch Matériel at all?". Without this, a job function barred from
     // a section still reaches every mutation in it — which is what
     // JobFunction.hiddenSections used to be: a filter on one page's render.
-    const ungated: string[] = [];
-    for (const file of OWNED_BY_SECTION) {
-      const source = ts.createSourceFile(
-        file,
-        readFileSync(join(process.cwd(), file), "utf8"),
-        ts.ScriptTarget.Latest,
-        true
-      );
-      const fns = functionsIn(source);
-      expect(fns.length, `${file} has no exported action — did it move?`).toBeGreaterThan(0);
-      for (const fn of fns) {
-        if (!fn.exported) continue;
-        if (!fn.calls.has("requireSectionAccess")) ungated.push(`${file}::${fn.name}`);
-      }
-    }
+    // Lot 5b: the section is READ, not just the name of the guard —
+    // requireSectionAccess("materials") pasted into actions/tasks used to be
+    // "a call to requireSectionAccess" and stayed green. The table below says
+    // which section each file owns; the guard must be imported from
+    // lib/sectionAccess and the action must REFUSE on its result (same control
+    // as requireAreaAccess above).
+    expect(Object.keys(SECTION_BY_FILE).sort(), "SECTION_BY_FILE and OWNED_BY_SECTION name different files").toEqual([...OWNED_BY_SECTION].sort());
+    const ungated = areaViolations(SECTION_BY_FILE, REQUIRE_SECTION_ACCESS, exportedFn, SECTION_OVERRIDES, SECTION_ACCESS_LIB_FILE);
 
     expect(
       ungated,
       ungated.length
-        ? `These actions belong to a project section but never check it:\n` +
+        ? `These actions belong to a project section but never check it (or never refuse on it):\n` +
           ungated.map((k) => `  - ${k}`).join("\n") +
-          `\n\nAdd requireSectionAccess("<section>") from @/lib/sectionAccess, ` +
-          `next to the existing capability check.`
+          `\n\nAdd the section the table assigns, bound and tested: const sectionCheck = await requireSectionAccess("<section>"); ` +
+          `if (sectionCheck.error) return ..., from @/lib/sectionAccess, next to the existing capability check.`
         : undefined
     ).toEqual([]);
   });
@@ -573,7 +661,8 @@ describe("authorization coverage across server actions", () => {
     // login (admin.users) for a contact (clients.contacts), and both are also
     // proven by tests/portal-actions.test.ts. The portal file has ONE exported
     // action; a second one added there must name both too, or be given its own
-    // entry in the overrides below.
+    // entry in the `overrides` argument of areaViolations (as
+    // permanentlyDeleteClient is, just below).
     const AREA_BY_FILE: AreaTable = {
       "actions/clients/clients.ts": ["clients"],
       "actions/projects/projects.ts": ["projects"],
@@ -591,7 +680,12 @@ describe("authorization coverage across server actions", () => {
     // that the guard actually exists; every exported function in these three
     // files, reads included, must call requireAreaAccess.
 
-    const ungated = areaViolations(AREA_BY_FILE, REQUIRE_AREA_ACCESS, exportedFn);
+    // permanentlyDeleteClient destroys a company AND, by onDelete: Cascade, its
+    // chantiers: it needs the `projects` rubrique too (lot 5b). Only this action
+    // — trashing is reversible and stays on `clients`.
+    const ungated = areaViolations(AREA_BY_FILE, REQUIRE_AREA_ACCESS, exportedFn, {
+      "actions/clients/clients.ts::permanentlyDeleteClient": ["clients", "projects"],
+    });
 
     expect(
       ungated,
@@ -670,15 +764,13 @@ describe("authorization coverage across server actions", () => {
         ts.ScriptTarget.Latest,
         true
       );
-      const guardNames = collectAreaGuardNames(source, file, AREA_CAN_ACCESS_EXPORT_NAME);
-      const fns = pageFunctionsIn(source);
-      const getFn = fns.find((f) => f.exported && f.name === "GET");
+      const getFn = pageFunctionsIn(source).find((f) => f.exported && f.name === "GET");
       expect(getFn, `${file} has no exported GET handler — did it move?`).toBeDefined();
       // The call must be resolved by import AND name this rubrique:
       // canAccessArea("clients") pasted into a project report route would
-      // still be "a call to canAccessArea" (the bare-name check this
-      // replaces) while checking the wrong rubrique.
-      if (!bodyCallsAnyOfWithFirstArg(getFn!.body, guardNames, "projects")) ungated.push(`${file}::GET`);
+      // still be "a call to canAccessArea" while checking the wrong rubrique.
+      // The ONE mechanism for that control is areaViolationsIn (areasNamedIn).
+      ungated.push(...areaViolationsIn(source, file, AREA_CAN_ACCESS_EXPORT_NAME, exportedGet, () => ["projects"]));
     }
 
     expect(
@@ -766,8 +858,12 @@ describe("authorization coverage across server actions", () => {
       `${file} never checks canAccessArea("projects") — a job function with the ` +
         `rubrique hidden can still reach a project's dashboard directly.`
     ).toEqual([]);
+    // Resolved by IMPORT from lib/sectionAccess, not by the bare name: a local
+    // function called getHiddenSections would satisfy the name alone.
+    const hiddenSectionsNames = collectImportedNames(source, file, SECTION_ACCESS_LIB_FILE, "getHiddenSections");
+    const dashboardFn = pageFunctionsIn(source).find((f) => f.exported && f.name === "ProjectDashboardPage");
     expect(
-      pageFn!.calls.has("getHiddenSections"),
+      dashboardFn !== undefined && bodyCallsAnyOf(dashboardFn.body, hiddenSectionsNames),
       `${file} never checks getHiddenSections() — a function hiding the tasks/materials ` +
         `sections on the detail page can still see them on the dashboard.`
     ).toBe(true);
@@ -841,7 +937,7 @@ describe("authorization coverage across server actions", () => {
       // The call must name THIS rubrique: requireAreaOrRedirect("projects")
       // pasted into app/loans/page.tsx would still be "a call to the guard"
       // while gating the wrong area (delta audit, Low).
-      const resolved = fns.some((f) => bodyCallsAnyOfWithFirstArg(f.body, guardNames, area));
+      const resolved = fns.some((f) => areasNamedIn(f.body, guardNames).has(area));
       if (!resolved) ungated.push(`${file} (rubrique "${area}")`);
     }
 
@@ -1262,7 +1358,13 @@ describe("authorization coverage across server actions", () => {
 // each way of being wrong must go red, the one correct form must stay green.
 // ---------------------------------------------------------------------------
 describe("the area-argument guard check (probes)", () => {
+  const REFUSAL_MESSAGE = (fn: string) =>
+    `actions/probe/probe.ts::${fn} — calls requireAreaAccess("loans") but does not REFUSE on it (result bound, its .error tested by an if that exits, in the action body, before any repository/service write)`;
+
   const IMPORT = `import { requireAreaAccess } from "@/lib/areaAccess";\n`;
+
+  /** The one accepted form: result bound, `.error` tested by an `if` that exits. */
+  const REFUSE = (area: string, guard = "requireAreaAccess", v = "check") => `const ${v} = await ${guard}("${area}"); if (${v}.error) return ${v}.error;`;
 
   function violationsOf(code: string, expected: readonly string[], guardExport = REQUIRE_AREA_ACCESS): string[] {
     const file = "actions/probe/probe.ts";
@@ -1271,9 +1373,9 @@ describe("the area-argument guard check (probes)", () => {
   }
 
   it("stays green on the correct form, aliased or not", () => {
-    expect(violationsOf(`${IMPORT}export async function a() { await requireAreaAccess("loans"); }`, ["loans"])).toEqual([]);
+    expect(violationsOf(`${IMPORT}export async function a() { ${REFUSE("loans")} }`, ["loans"])).toEqual([]);
     expect(
-      violationsOf(`import { requireAreaAccess as guard } from "@/lib/areaAccess";\nexport async function a() { await guard("loans"); }`, ["loans"])
+      violationsOf(`import { requireAreaAccess as guard } from "@/lib/areaAccess";\nexport async function a() { ${REFUSE("loans", "guard")} }`, ["loans"])
     ).toEqual([]);
   });
 
@@ -1285,7 +1387,7 @@ describe("the area-argument guard check (probes)", () => {
 
   it("goes red on the right rubrique guarded in ANOTHER function of the same file", () => {
     const code = `${IMPORT}
-      export async function guarded() { await requireAreaAccess("loans"); }
+      export async function guarded() { ${REFUSE("loans")} }
       export async function unguarded() { return 1; }`;
     expect(violationsOf(code, ["loans"])).toEqual(['actions/probe/probe.ts::unguarded — never calls requireAreaAccess("loans")']);
   });
@@ -1308,12 +1410,46 @@ describe("the area-argument guard check (probes)", () => {
   });
 
   it("accepts SEVERAL rubriques for one function, and names the missing one", () => {
-    const both = `${IMPORT}export async function createPortalLogin() { await requireAreaAccess("admin.users"); await requireAreaAccess("clients.contacts"); }`;
+    const both = `${IMPORT}export async function createPortalLogin() { ${REFUSE("admin.users", "requireAreaAccess", "u")} ${REFUSE("clients.contacts", "requireAreaAccess", "c")} }`;
     expect(violationsOf(both, ["admin.users", "clients.contacts"])).toEqual([]);
-    const one = `${IMPORT}export async function createPortalLogin() { await requireAreaAccess("clients.contacts"); }`;
+    const one = `${IMPORT}export async function createPortalLogin() { ${REFUSE("clients.contacts")} }`;
     expect(violationsOf(one, ["admin.users", "clients.contacts"])).toEqual([
       'actions/probe/probe.ts::createPortalLogin — never calls requireAreaAccess("admin.users")',
     ]);
+  });
+
+  // lot 5b: the four forms of a guard that is CALLED but refuses nothing. Each
+  // was green under the by-name-and-argument check; each must now go red.
+  it("goes red on a guard whose RESULT IS IGNORED", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { await requireAreaAccess("loans"); }`, ["loans"])).toEqual([REFUSAL_MESSAGE("a")]);
+  });
+
+  it("goes red on a guard placed in a CLOSURE that is never called", () => {
+    const code = `${IMPORT}export async function a() { const never = async () => { ${REFUSE("loans")} }; return 1; }`;
+    expect(violationsOf(code, ["loans"])).toEqual([REFUSAL_MESSAGE("a")]);
+  });
+
+  it("goes red on a guard placed AFTER the mutation", () => {
+    const code = `import { requireAreaAccess } from "@/lib/areaAccess";
+      import { update } from "@/repository/x";
+      export async function a() { await update(1); ${REFUSE("loans")} }`;
+    expect(violationsOf(code, ["loans"])).toEqual([REFUSAL_MESSAGE("a")]);
+  });
+
+  it("goes red on a result bound but never tested with .error, or tested by an if that does not exit", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { const c = await requireAreaAccess("loans"); return c; }`, ["loans"])).toEqual([REFUSAL_MESSAGE("a")]);
+    expect(violationsOf(`${IMPORT}export async function a() { const c = await requireAreaAccess("loans"); if (c.error) { console.log(1); } }`, ["loans"])).toEqual([REFUSAL_MESSAGE("a")]);
+  });
+
+  it("stays green when the guard sits before the mutation, inside a try, with a throw, or before a repository READ", () => {
+    const before = `import { requireAreaAccess } from "@/lib/areaAccess";
+      import { update } from "@/repository/x";
+      export async function a() { ${REFUSE("loans")} await update(1); }`;
+    expect(violationsOf(before, ["loans"])).toEqual([]);
+    expect(violationsOf(`${IMPORT}export async function a() { try { ${REFUSE("loans")} } catch { return 1; } }`, ["loans"])).toEqual([]);
+    expect(
+      violationsOf(`${IMPORT}export async function a() { const c = await requireAreaAccess("loans"); if (c.error !== null) throw c.error; }`, ["loans"])
+    ).toEqual([]);
   });
 
   it("works the same for canAccessArea on a route handler", () => {
@@ -1323,5 +1459,44 @@ describe("the area-argument guard check (probes)", () => {
       areaViolationsIn(ts.createSourceFile(file, route(arg), ts.ScriptTarget.Latest, true), file, AREA_CAN_ACCESS_EXPORT_NAME, exportedGet, () => ["projects"]);
     expect(check("projects")).toEqual([]);
     expect(check("clients")).toHaveLength(1);
+  });
+});
+
+// Probes (lot 5b) — requireSectionAccess by ARGUMENT, resolved by import, with a
+// refusal. Same four wrong forms as the area probes, plus the one specific to
+// sections: the right guard with ANOTHER file's section.
+describe("the section-argument guard check (probes)", () => {
+  const IMPORT = `import { requireSectionAccess } from "@/lib/sectionAccess";\n`;
+  const REFUSE = (section: string) => `const c = await requireSectionAccess("${section}"); if (c.error) return c.error;`;
+
+  function violationsOf(code: string, expected: readonly string[]): string[] {
+    const file = "actions/probe/probe.ts";
+    const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+    return areaViolationsIn(source, file, REQUIRE_SECTION_ACCESS, exportedFn, () => expected, SECTION_ACCESS_LIB_FILE);
+  }
+
+  it("goes red on the right guard with ANOTHER file's section (materials pasted into a tasks action)", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { ${REFUSE("materials")} }`, ["tasks"])).toEqual([
+      'actions/probe/probe.ts::a — never calls requireSectionAccess("tasks")',
+    ]);
+  });
+
+  it("goes red on a guard whose result is ignored, a local homonym, and a same-named import from elsewhere", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { await requireSectionAccess("tasks"); }`, ["tasks"])).toHaveLength(1);
+    expect(violationsOf(`async function requireSectionAccess(_s: string) { return { error: null }; }\nexport async function a() { ${REFUSE("tasks")} }`, ["tasks"])).toHaveLength(1);
+    expect(violationsOf(`import { requireSectionAccess } from "@/lib/areaAccess";\nexport async function a() { ${REFUSE("tasks")} }`, ["tasks"])).toHaveLength(1);
+  });
+
+  it("stays green on the right section, and on a CONDITIONAL second section that waits for a read but not for a write", () => {
+    expect(violationsOf(`${IMPORT}export async function a() { ${REFUSE("tasks")} }`, ["tasks"])).toEqual([]);
+    const conditional = `${IMPORT}import { findTaskProjectId, setAssignee } from "@/repository/x";
+      export async function a(k: number) {
+        const c = await requireSectionAccess("tasks"); if (c.error) return c.error;
+        await findTaskProjectId(1);
+        if (k) { const d = await requireSectionAccess("interims"); if (d.error) return d.error; }
+        await setAssignee(1);
+      }`;
+    expect(violationsOf(conditional, ["tasks", "interims"])).toEqual([]);
+    expect(violationsOf(conditional.replace("await setAssignee(1);", "").replace("await findTaskProjectId(1);", "await setAssignee(1);"), ["tasks", "interims"])).toHaveLength(1);
   });
 });

@@ -247,6 +247,23 @@ describe("client action auth guard + delegation", () => {
     expect(permanentlyRemoveMock).not.toHaveBeenCalled();
   });
 
+  // Project.client is onDelete: Cascade: destroying a company destroys its
+  // chantiers, so hiding only the `projects` rubrique must refuse it too.
+  it("permanentlyDeleteClient refuses an account whose function hides the projects rubrique", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    findAccessScopeByEmailMock.mockResolvedValue({
+      hiddenSections: [],
+      hiddenAreas: ["projects"],
+      projectScope: "ALL",
+      assignedProjectIds: [],
+    });
+    findByIdMock.mockResolvedValue({ id: 1, deletedAt: new Date(), photoUrl: null } as never);
+    const res = await permanentlyDeleteClient(1);
+    expect(res.type).toBe("error");
+    expect(permanentlyRemoveMock).not.toHaveBeenCalled();
+    expect(findPublicIdsByClientMock).not.toHaveBeenCalled();
+  });
+
   it("permanentlyDeleteClient removes the client and its photo when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
     findByIdMock.mockResolvedValue({

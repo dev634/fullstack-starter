@@ -8,7 +8,7 @@ import { requireAreaAccess } from "@/lib/areaAccess";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { projectTrashState } from "@/lib/projectTrash";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
-import { create, findById, update, remove, softDelete, restore } from "@/repository/projects";
+import { create, findById, findDates, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
 import { findByEmail } from "@/repository/clients";
 import { findPublicIdsByProject } from "@/repository/projectFiles";
@@ -108,6 +108,26 @@ export async function updateProject(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
+    // A payload carrying only ONE bound is compared to nothing by the schema
+    // (no database read there): read the stored other one and apply the same
+    // ordering rule, same message, on endDate. An explicit null on the other
+    // bound clears it — nothing left to compare against.
+    const { startDate, endDate } = parsed.data;
+    const onlyStart = typeof startDate === "string" && endDate === undefined;
+    const onlyEnd = typeof endDate === "string" && startDate === undefined;
+    if (onlyStart || onlyEnd) {
+      const stored = await findDates(parsed.data.id);
+      const start = onlyStart ? startDate : stored?.startDate;
+      const end = onlyEnd ? endDate : stored?.endDate;
+      if (start && end && end < start) {
+        return {
+          ...prevState,
+          type: "zodError",
+          message: t.errors.validationError,
+          fieldsForm: { endDate: t.errors.endBeforeStart },
+        };
+      }
+    }
     const project = await update(parsed.data.id, parsed.data);
     await logActivity({
       action: "UPDATED",

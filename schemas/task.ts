@@ -1,5 +1,5 @@
 import z from "zod";
-import { MAX_NAME_LENGTH, optionalDateField, clearable, clearableDateField } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, optionalDateField, clearable, clearableDateField, finiteNumberText } from "@/schemas/fields";
 
 // Empty string (nothing picked) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -38,12 +38,7 @@ export const updateTaskSchema = z.object({
     clientId: z.coerce.number().int().positive(),
     title: z.string().min(1, "Le titre de la tâche est requis").max(MAX_NAME_LENGTH).optional(),
     dueDate: clearableDateField,
-    quantityTarget: clearable(
-        z
-            .string()
-            .transform((v) => Number(v))
-            .refine(isPositiveInt, POSITIVE_INT_ISSUE)
-    ),
+    quantityTarget: clearable(finiteNumberText.refine(isPositiveInt, POSITIVE_INT_ISSUE)),
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

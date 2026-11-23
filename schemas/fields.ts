@@ -157,8 +157,11 @@ export const requiredDateTimeField = z
 // right for a create and wrong for an update: there, `undefined` then meant
 // both "the user emptied the field" and "the caller never sent it", and the
 // repository's `?? null` wrote NULL over a value nobody had asked to touch.
-// The forms always send every field, so no form can show the difference — a
-// direct call to the action can. The update schemas below therefore use
+// Every form but one always sends every field, so it cannot show the
+// difference — a direct call to the action can. The exception is
+// EditMaterialForm, which renders the requiredQuantity input (and so sends
+// it) only while a link is picked: a legitimate unlink arrives with no
+// requiredQuantity at all (see schemas/projectMaterial.ts). The update schemas below therefore use
 // these primitives instead, and carry no `.default()`.
 // ---------------------------------------------------------------------------
 

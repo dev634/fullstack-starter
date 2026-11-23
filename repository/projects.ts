@@ -324,6 +324,26 @@ export async function findClientIdsAmong(projectIds: number[]): Promise<number[]
 }
 
 /**
+ * The two stored bounds of a project as "AAAA-MM-JJ" (null = not set), or
+ * `undefined` when the project does not exist. Minimal `select`: read by
+ * updateProject to compare a partial update that sends only ONE bound against
+ * the stored other one (no CHECK in the database orders them).
+ */
+export async function findDates(id: number): Promise<{ startDate: string | null; endDate: string | null } | undefined> {
+    try {
+        const row = await prisma.project.findUnique({ where: { id }, select: { startDate: true, endDate: true } });
+        if (!row) return undefined;
+        return {
+            startDate: row.startDate ? row.startDate.toISOString().slice(0, 10) : null,
+            endDate: row.endDate ? row.endDate.toISOString().slice(0, 10) : null,
+        };
+    } catch (error) {
+        console.log("Repository findDates (project) error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching project dates." };
+    }
+}
+
+/**
  * A PARTIAL write: `field?: T` is "absent = leave the column alone",
  * `field: null` is "clear it" (only for the nullable columns), a value sets
  * it. Prisma ignores `undefined`, so nothing here folds absent into null or

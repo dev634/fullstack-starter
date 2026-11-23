@@ -32,7 +32,7 @@ import { MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 // materiau cree par scan impossible a re-enregistrer a la main, sur un champ
 // que l`utilisateur n`a meme pas touche — meme signature que le plafond de
 // telephone a 30 qui bloquait des fiches existantes en production.
-import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiveIntId, clearable } from "@/schemas/fields";
+import { MAX_NAME_LENGTH, MAX_CODE_LENGTH, MAX_REFERENCE_LENGTH, optionalPositiveIntId, clearable, finiteNumberText } from "@/schemas/fields";
 
 // Empty string (nothing picked/typed) means "not provided" rather than a
 // validation error — same convention as schemas/project.ts's optionalNumber.
@@ -57,6 +57,20 @@ const optionalPositiveNumber = z
     .optional()
     .transform((v) => (v && v.trim() !== "" ? Number(v) : undefined))
     .refine((v) => v === undefined || isUsableRequiredQuantity(v), REQUIRED_QUANTITY_ISSUE);
+
+// The quantity in stock, NOT NULL in the database. z.coerce.number() alone
+// turns "", "  " and null into 0 (Number("") === 0), so a cleared input used to
+// set the stock to 0 without a word: blank and null are sent to NaN BEFORE the
+// coercion, which refuses them exactly as it refuses "abc". Same ceiling and
+// same messages as before. On an update the field stays `.optional()`: an
+// absent key is "leave alone", only a PRESENT-but-empty one is refused.
+const stockQuantity = z.preprocess(
+    (v) => (v === null || (typeof v === "string" && v.trim() === "") ? Number.NaN : v),
+    z.coerce
+        .number()
+        .nonnegative("La quantité doit être un nombre positif ou nul")
+        .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée")
+);
 
 // The picker submits a single field encoding what's linked: "" (nothing),
 // "task:<id>" (an individual standalone task), "group:<id>" (a whole task
@@ -86,10 +100,7 @@ export const createMaterialSchema = z
         // it's what drives the "out of stock" (red) indicator for a linked task.
         // .max(MAX_SCAN_QUANTITY): see this file's import comment — same
         // ceiling as the scan path, for the same Float `increment` column.
-        quantity: z.coerce
-            .number()
-            .nonnegative("La quantité doit être un nombre positif ou nul")
-            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée"),
+        quantity: stockQuantity,
         unit: z.string().max(MAX_CODE_LENGTH).optional(),
         supplierName: z.string().max(MAX_NAME_LENGTH).optional(),
         reference: z.string().max(MAX_REFERENCE_LENGTH).optional(),
@@ -159,21 +170,12 @@ export const updateMaterialSchema = z
         projectId: z.coerce.number().int().positive(),
         clientId: z.coerce.number().int().positive(),
         name: z.string().min(1, "Le nom du matériel est requis").max(MAX_NAME_LENGTH).optional(),
-        quantity: z.coerce
-            .number()
-            .nonnegative("La quantité doit être un nombre positif ou nul")
-            .max(MAX_SCAN_QUANTITY, "La quantité est trop élevée")
-            .optional(),
+        quantity: stockQuantity.optional(),
         unit: clearable(z.string().max(MAX_CODE_LENGTH)),
         supplierName: clearable(z.string().max(MAX_NAME_LENGTH)),
         reference: clearable(z.string().max(MAX_REFERENCE_LENGTH)),
         link: updateLinkTarget,
-        requiredQuantity: clearable(
-            z
-                .string()
-                .transform((v) => Number(v))
-                .refine(isUsableRequiredQuantity, REQUIRED_QUANTITY_ISSUE)
-        ),
+        requiredQuantity: clearable(finiteNumberText.refine(isUsableRequiredQuantity, REQUIRED_QUANTITY_ISSUE)),
         // See createMaterialSchema's own comment: independent of `link`, and
         // clearable back to "non classé" the same way a job function picker
         // clears back to "none".

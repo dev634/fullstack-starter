@@ -50,7 +50,8 @@ const GUARD_EXPORT_NAME = "resolveProjectSectionAccess";
 /** Next.js entry-point filenames for a page route. */
 const ENTRY_FILENAMES = new Set(["page.tsx", "page.ts"]);
 
-type SectionPage = { file: string; sectionKey: string };
+/** `sections`: the keys the route depends on, straight from PROJECT_SECTION_ROUTES. */
+type SectionPage = { file: string; sections: readonly string[] };
 
 /** Whether `value` names an entry of `PROJECT_SECTION_ROUTES` — a real type guard, not a cast, so `discoverSectionPages` below can index the table with it safely. */
 function isProjectSectionRouteSegment(value: string): value is keyof typeof PROJECT_SECTION_ROUTES {
@@ -74,7 +75,7 @@ function discoverSectionPages(): SectionPage[] {
     if (segments.length < 2) continue; // the hub's own page.tsx — no route segment
     const [routeSegment] = segments;
     if (isProjectSectionRouteSegment(routeSegment)) {
-      pages.push({ file, sectionKey: PROJECT_SECTION_ROUTES[routeSegment].join("+") });
+      pages.push({ file, sections: PROJECT_SECTION_ROUTES[routeSegment] });
     }
   }
   return pages;
@@ -143,6 +144,46 @@ function bodyCallsGuard(node: ts.Node, bindings: GuardBindings): boolean {
   return found;
 }
 
+/**
+ * The section keys named by each call to the shared guard in `source`
+ * (resolved by import): its second argument is a string literal or an array
+ * of string literals; anything else reads as an empty set, which matches no
+ * route. `resolveProjectSectionAccess({ id, projectId }, "files")` ->
+ * {"files"}; `..., ["tasks", "materials"])` -> {"tasks", "materials"}.
+ */
+function guardCallSections(source: ts.SourceFile, bindings: GuardBindings): Set<string>[] {
+  const calls: Set<string>[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const isGuard =
+        (ts.isIdentifier(callee) && bindings.guardNames.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          bindings.namespaceNames.has(callee.expression.text) &&
+          callee.name.text === GUARD_EXPORT_NAME);
+      if (isGuard) {
+        const arg = n.arguments[1];
+        const keys = new Set<string>();
+        if (arg && ts.isStringLiteralLike(arg)) keys.add(arg.text);
+        if (arg && ts.isArrayLiteralExpression(arg)) {
+          for (const el of arg.elements) if (ts.isStringLiteralLike(el)) keys.add(el.text);
+        }
+        calls.push(keys);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(source);
+  return calls;
+}
+
+/** Whether some guard call of `source` names exactly the section keys `expected` (the route's own, from the table). */
+function namesTheRouteSections(source: ts.SourceFile, bindings: GuardBindings, expected: readonly string[]): boolean {
+  const want = [...expected].sort().join("+");
+  return guardCallSections(source, bindings).some((keys) => [...keys].sort().join("+") === want);
+}
+
 type FnNode = { name: string; exported: boolean; body: ts.Node; calls: Set<string> };
 
 /** Top-level named functions in `source`, with their body node kept (unlike tests/helpers/astScan.ts's functionsIn, which only keeps bare call names — not enough to tell an import-resolved call from a same-named local declaration). */
@@ -204,7 +245,7 @@ describe("every project-section page resolves access through the shared project-
 
   it("requires every project-section page to call resolveProjectSectionAccess, imported from @/lib/projectSectionGuard", () => {
     const ungated: string[] = [];
-    for (const { file, sectionKey } of pages) {
+    for (const { file, sections } of pages) {
       const rel = relative(process.cwd(), file).split(sep).join("/");
       const source = parseSource(rel, file);
       const bindings = collectGuardBindings(source, rel);
@@ -219,8 +260,14 @@ describe("every project-section page resolves access through the shared project-
       const resolvedNames = functionsCallingGuard(fns, bindings);
       for (const fn of entryFns) {
         if (!resolvedNames.has(fn.name)) {
-          ungated.push(`${rel}::${fn.name} (section "${sectionKey}")`);
+          ungated.push(`${rel}::${fn.name} (sections "${sections.join("+")}")`);
         }
+      }
+      // By ARGUMENT, not just by name: the guard must be asked for THIS route's
+      // section(s). resolveProjectSectionAccess(…, "files") pasted into the
+      // réserves page would still be "a call to the shared guard".
+      if (!namesTheRouteSections(source, bindings, sections)) {
+        ungated.push(`${rel} (calls the guard, but never with the route's sections "${sections.join("+")}")`);
       }
     }
 
@@ -235,5 +282,29 @@ describe("every project-section page resolves access through the shared project-
           `export does.`
         : undefined
     ).toEqual([]);
+  });
+});
+
+// Probes (lot 5b) — the by-argument check on sources written for the occasion.
+describe("the section-argument check (probes)", () => {
+  const FILE = "app/clients/[id]/projects/[projectId]/probe/page.tsx";
+  const IMPORT = `import { resolveProjectSectionAccess } from "@/lib/projectSectionGuard";\n`;
+
+  function names(code: string, expected: readonly string[]): boolean {
+    const source = ts.createSourceFile(FILE, code, ts.ScriptTarget.Latest, true);
+    return namesTheRouteSections(source, collectGuardBindings(source, FILE), expected);
+  }
+
+  it("stays green on the route's own section, single or several, in any order", () => {
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, "files"); }`, ["files"])).toBe(true);
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, ["interims", "subcontractors"]); }`, ["subcontractors", "interims"])).toBe(true);
+  });
+
+  it("goes red on ANOTHER route's section, a partial set, a superset, a non-literal and a local homonym", () => {
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, "reserves"); }`, ["files"])).toBe(false);
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, ["interims"]); }`, ["subcontractors", "interims"])).toBe(false);
+    expect(names(`${IMPORT}export default async function P() { await resolveProjectSectionAccess({}, ["files", "reserves"]); }`, ["files"])).toBe(false);
+    expect(names(`${IMPORT}const S = "files";\nexport default async function P() { await resolveProjectSectionAccess({}, S); }`, ["files"])).toBe(false);
+    expect(names(`async function resolveProjectSectionAccess(_a: unknown, _s: string) { return 1; }\nexport default async function P() { await resolveProjectSectionAccess({}, "files"); }`, ["files"])).toBe(false);
   });
 });
