@@ -182,13 +182,16 @@ describe("relay account: an ADMIN restricted by their function (lot 5a)", () => 
       expect(users.updateProfile).not.toHaveBeenCalled();
     });
     it.each([["an unrestricted ADMIN", unrestrictedAdmin], ["a SUPERADMIN", superadmin]])(
-      "%s can still change an EDITOR, and a CLIENT's name while it stays CLIENT",
+      "%s can still change an EDITOR, but never a CLIENT (even name or password while it stays CLIENT)",
       async (_n, as) => {
         as();
         target({ id: 7, role: "EDITOR" });
         expect((await updateUser(initial, form({ id: "7", role: "VIEWER" }))).type).toBe("success");
+        vi.mocked(users.updateProfile).mockClear();
         target({ id: 9, role: "CLIENT" });
-        expect((await updateUser(initial, form({ id: "9", role: "CLIENT", name: "C" }))).type).toBe("success");
+        const res = await updateUser(initial, form({ id: "9", role: "CLIENT", name: "C", password: "newpassword1" }));
+        expect(res.message).toBe(fr.errors.invalidId);
+        expect(users.updateProfile).not.toHaveBeenCalled();
       }
     );
     it("setUserProjectAssignments refuses a CLIENT, for a SUPERADMIN too", async () => {

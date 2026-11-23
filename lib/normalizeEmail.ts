@@ -13,8 +13,9 @@
  * price — an address that really is case-sensitive cannot be told apart — is
  * accepted. Rows saved before this existed may still hold capitals: lookups are
  * exact on the canonical form (a case-insensitive match would be an unescaped
- * ILIKE, see repository/users.ts::sessionAccountWhere), so such rows are
- * normalized by a migration.
+ * ILIKE, see repository/users.ts::sessionAccountWhere), so such rows will be
+ * normalized by the lot 3 migration (20261123100000_user_session_version_and_email_ci);
+ * until it is applied they are not matched.
  */
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

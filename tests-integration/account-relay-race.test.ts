@@ -22,6 +22,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { auth } from "@/lib/auth";
 import { addUser, updateUser } from "@/actions/users/users";
 import { saveFunctionConfig, deleteJobFunction } from "@/actions/jobFunctions/jobFunctions";
+import { updateProfile, create } from "@/repository/users";
 
 const TAG = `race-${Date.now()}`;
 const DOMAIN = `@${TAG}.local`;
@@ -96,6 +97,24 @@ describe("relay rule under concurrency (real actions, real database)", () => {
       expect(after.jobFunctionId, `round ${i}`).not.toBeNull();
       const stillThere = await prisma.jobFunction.findUnique({ where: { id: fn.id } });
       if (after.jobFunctionId === fn.id) expect(stillThere, `round ${i}`).not.toBeNull();
+    }
+  }, 120_000);
+
+  it("a guarded and an unguarded update of the SAME account never deadlock (always function-then-account)", async () => {
+    const a = await makeFunction([]);
+    const b = await makeFunction([]);
+    const user = await prisma.user.create({ data: { email: `dual${DOMAIN}`, name: "D", password: "x", role: "EDITOR", jobFunctionId: a.id } });
+    for (let i = 0; i < ROUNDS; i++) {
+      // Three of each kind at once, to give the lock orders every chance to cross.
+      const attempts = [0, 1, 2].flatMap((k) => [
+        () => updateProfile(user.id, { name: "D", role: "EDITOR", jobFunctionId: b.id }, null), // SUPERADMIN / free ADMIN
+        () => updateProfile(user.id, { name: "D", role: "EDITOR", jobFunctionId: a.id }, () => true), // guarded
+        () => updateProfile(user.id, { name: "D", role: "ADMIN", jobFunctionId: b.id }, null), // promotion of a holder
+        () => create({ email: `dual-new${i}-${k}${DOMAIN}`, name: "N", role: "VIEWER", password: "x", jobFunctionId: a.id }, null),
+      ]);
+      const results = await Promise.allSettled(attempts.map((run) => run()));
+      expect(results.map((r) => (r.status === "rejected" ? JSON.stringify(r.reason) : "ok")), `round ${i}`).toEqual(attempts.map(() => "ok"));
+      await prisma.user.update({ where: { id: user.id }, data: { role: "EDITOR", jobFunctionId: a.id } });
     }
   }, 120_000);
 

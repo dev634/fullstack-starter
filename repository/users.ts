@@ -40,11 +40,14 @@ export const RELAY_REFUSED = "relay";
  * compiles to ILIKE without escaping `%` and `_`, so an address such as
  * "jean_dupont@x.fr" would match "jean.dupont@x.fr" (and "%" any account) and a
  * session could resolve to somebody else's row. Rows saved with capitals before
- * normalization existed are normalized by a migration instead.
+ * normalization existed will be normalized by a migration (lot 3,
+ * 20261123100000_user_session_version_and_email_ci); until it is applied such
+ * a row is not matched.
  *
- * Deliberately NOT applied to `findByEmail` below — that one backs sign-in
- * (verifyCredentials) and password reset, a call this pass does not make, so
- * both keep finding a deactivated row. What that does, once the column
+ * `findByEmail` below uses the same email filter, but is deliberately NOT
+ * where a deactivation would plug in — it backs sign-in (verifyCredentials)
+ * and password reset, a call this pass does not make, so both keep finding a
+ * deactivated row. What that does, once the column
  * exists: the account CAN still sign in or reset its password; from the next
  * request on, every resolver above reads it as "introuvable" and the gate
  * (lib/sessionGate.ts) voids its token, so it lands back on /login. What it
@@ -323,13 +326,12 @@ export async function create(
 ) {
     try {
         const jobFunctionId = data.jobFunctionId ?? null;
-        const insert = (tx: Prisma.TransactionClient) =>
-            tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: ACCOUNT_SELECT });
-        if (!relay) return await insert(prisma);
         return await prisma.$transaction(async (tx) => {
+            // ALWAYS locked, whoever the actor: the function row is locked before
+            // the account is written, the same order as every other writer.
             const locked = await lockFunctionsForUpdate(tx, jobFunctionId === null ? [] : [jobFunctionId]);
-            if (!relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
-            return insert(tx);
+            if (relay && !relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
+            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: ACCOUNT_SELECT });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;
@@ -344,12 +346,17 @@ export async function create(
 /**
  * Update an account's profile — and its password, in the SAME statement, when
  * one is given (`password` omitted = unchanged; the caller hashes BEFORE
- * calling). `relay` (null = unguarded) is checked under the row locks of the
- * account's CURRENT function and of the one it is about to get, in the
- * transaction that writes: before (you do not take over an account that sees
- * more) and, when the function changes, after. The current function is read
- * just before the lock; if a parallel writer moves the account in between, the
- * account still ends on this call's locked, checked `jobFunctionId`.
+ * calling). The account's CURRENT function and the one it is about to get are
+ * ALWAYS locked (ids ascending), whoever the actor, BEFORE the account row is
+ * written: every writer takes function-then-account, so a guarded and an
+ * unguarded transaction on the same account cannot wait on each other crosswise
+ * (the foreign-key check on an update locks the function anyway), and a role
+ * change of a holder is serialised with the function's own writers. `relay`
+ * (null = unguarded) is then checked on what was locked, in the transaction
+ * that writes: before (you do not take over an account that sees more) and, when
+ * the function changes, after. The current function is read just before the
+ * lock; if a parallel writer moves the account in between, the account still
+ * ends on this call's locked `jobFunctionId`.
  * Refused -> throws a guard refusal (RELAY_REFUSED).
  */
 export async function updateProfile(
@@ -361,8 +368,6 @@ export async function updateProfile(
     relay: RelayCheck | null
 ) {
     try {
-        const write = (tx: Prisma.TransactionClient) => tx.user.update({ where: { id }, data, select: ACCOUNT_SELECT });
-        if (!relay) return await write(prisma);
         return await prisma.$transaction(async (tx) => {
             const current = await tx.user.findUnique({ where: { id }, select: { jobFunctionId: true } });
             const currentId = current?.jobFunctionId ?? null;
@@ -371,9 +376,11 @@ export async function updateProfile(
                 [currentId, data.jobFunctionId].flatMap((fid) => (fid === null ? [] : [fid]))
             );
             const hiddenOf = (fid: number | null) => (fid === null ? [] : (locked.get(fid) ?? []));
-            if (!relay(hiddenOf(currentId))) throw guardRefusal(RELAY_REFUSED);
-            if (data.jobFunctionId !== currentId && !relay(hiddenOf(data.jobFunctionId))) throw guardRefusal(RELAY_REFUSED);
-            return write(tx);
+            if (relay) {
+                if (!relay(hiddenOf(currentId))) throw guardRefusal(RELAY_REFUSED);
+                if (data.jobFunctionId !== currentId && !relay(hiddenOf(data.jobFunctionId))) throw guardRefusal(RELAY_REFUSED);
+            }
+            return tx.user.update({ where: { id }, data, select: ACCOUNT_SELECT });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;

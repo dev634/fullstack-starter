@@ -164,14 +164,15 @@ export async function updateUser(prevState: UserActionState, formData: FormData)
     const target = await findById(parsed.data.id);
     if (!target) return { ...prevState, type: "error", message: t.errors.invalidId };
 
-    // A portal login is never turned into an employee, and an employee is never
-    // turned into a portal login — whoever asks: a login is provisioned from its
-    // contact (createPortalLogin), which is where the rules for it live.
-    // Promoting one was an unguarded way to mint an account with no function
-    // (createPortalLogin -> reset link -> here); making one hands the caller an
-    // account on a path none of those rules covers. Answers like an absent
-    // account — the users screen does not list CLIENT accounts.
-    if ((target.role === "CLIENT") !== (parsed.data.role === "CLIENT")) {
+    // A portal login is NEVER managed here, and never made here either —
+    // whoever asks, whatever the field (name, function, password, role): it is
+    // provisioned and managed from its contact (createPortalLogin). The portal
+    // ignores hiddenAreas, so a restricted ADMIN who set its password could read
+    // the projects they cannot see; promoting one minted an account with no
+    // function; making one hands the caller an account on a path none of the
+    // rules covers. Answers like an absent account — the users screen does not
+    // list CLIENT accounts.
+    if (target.role === "CLIENT" || parsed.data.role === "CLIENT") {
       return { ...prevState, type: "error", message: t.errors.invalidId };
     }
 

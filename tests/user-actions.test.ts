@@ -263,15 +263,22 @@ describe("user management actions", () => {
     });
 
 
-    it("does not re-check an account that is already CLIENT", async () => {
-      actor("SUPERADMIN", "boss@x.com");
-      findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
-      updateProfileMock.mockResolvedValue({ id: 8 } as never);
+    // A CLIENT -> CLIENT update (name, function, PASSWORD) used to pass: a
+    // restricted ADMIN who set a portal login's password read the projects they
+    // cannot see through the portal. Any CLIENT target is refused, for everyone.
+    it.each([["an ADMIN", "ADMIN" as const], ["a SUPERADMIN", "SUPERADMIN" as const]])(
+      "%s cannot update an account that is already CLIENT (password included): answered like an absent account, nothing written",
+      async (_n, role) => {
+        actor(role, "me@x.com");
+        findByIdMock.mockResolvedValue({ id: 8, email: "portal@x.com", role: "CLIENT", jobFunctionId: null } as never);
 
-      const res = await updateUser(initial, form({ id: "8", role: "CLIENT" }));
+        const res = await updateUser(initial, form({ id: "8", role: "CLIENT", name: "C", password: "newpassword1" }));
 
-      expect(res.type).toBe("success");
-    });
+        expect(res.type).toBe("error");
+        expect(res.message).toBe(fr.errors.invalidId);
+        expect(updateProfileMock).not.toHaveBeenCalled();
+      }
+    );
   });
 
   it("deleteUser: cannot delete your own account", async () => {

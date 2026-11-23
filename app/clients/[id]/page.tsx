@@ -3,6 +3,7 @@ import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
 import { can, canFullyAccessClient } from "@/lib/access";
 import { getAdminAccess } from "@/lib/adminAccess";
+import { mayProvisionPortalLogin } from "@/lib/accountPolicy";
 import { blockClientFromApp } from "@/lib/portal";
 import { canAccessArea, requireAreaOrRedirect } from "@/lib/areaAccess";
 import { findByClient } from '@/repository/projects';
@@ -86,8 +87,6 @@ export default async function ClientPage({ params }: PageProps) {
   // trash capability AND reach over every project (requireFullClientAccess).
   const canDeleteClient =
     (await can(session?.user?.role, "content.trash")) && (await canFullyAccessClient(clientId));
-  // Portal logins create an account: users.manage + the admin.users rubrique.
-  const canCreatePortalLogin = (await getAdminAccess(session?.user?.role)).users;
 
   // Sub-parts of this page, individually hideable by the caller's job
   // function (see lib/appAreas.ts). Data is only fetched for a block that
@@ -105,6 +104,12 @@ export default async function ClientPage({ params }: PageProps) {
   // the Projects block itself is hidden — that's a different rubrique from
   // this feature, so its data dependency is OR'd rather than tied to it.
   const accessContext = await getAccessContext();
+  // Portal logins create an account: users.manage + the admin.users rubrique,
+  // and the portal rule (a caller who hides what the portal shows is refused by
+  // the action — never offer the button).
+  const canCreatePortalLogin =
+    (await getAdminAccess(session?.user?.role)).users &&
+    mayProvisionPortalLogin({ role: accessContext.role, hiddenAreas: accessContext.hiddenAreas });
   const projects = (showProjects || (showContacts && canLinkProjects))
     ? await findByClient(clientId, projectIdFilter(accessContext))
     : [];
