@@ -1,4 +1,4 @@
-import { getClient } from "@/actions/clients/clients";
+import { getClient } from "@/lib/loaders/clientLoader";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import Title from "@/components/Title";

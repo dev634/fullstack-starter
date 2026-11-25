@@ -1,4 +1,4 @@
-import { getProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { getAccessContext, canReachProject } from "@/lib/accessContext";
 import { getHiddenSections } from "@/lib/sectionAccess";
 import { canAccessArea } from "@/lib/areaAccess";

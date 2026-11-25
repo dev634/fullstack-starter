@@ -24,7 +24,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addProject, updateProject, deleteProject, getProject } from "@/actions/projects/projects";
+import { addProject, updateProject, deleteProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
 import { create, update, remove, softDelete, findById, findTrashState } from "@/repository/projects";

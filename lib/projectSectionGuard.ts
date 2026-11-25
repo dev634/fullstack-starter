@@ -1,4 +1,4 @@
-import { getProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { canAccessArea } from "@/lib/areaAccess";
 import { canAccessSection } from "@/lib/sectionAccess";
 import type { ProjectSectionKey } from "@/lib/projectSections";
@@ -132,7 +132,7 @@ export async function resolveProjectSectionAccess(
     return { ok: false, reason: "not-found" };
   }
 
-  // getProject (actions/projects/projects.ts) already applies
+  // getProject (lib/loaders/projectLoader.ts) already applies
   // canReachProject internally before ever returning non-null `data` — a
   // project outside the caller's scope comes back as `data: null`, caught
   // by the `!result.data` branch above. Re-running canReachProject here

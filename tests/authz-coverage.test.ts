@@ -17,6 +17,14 @@ import { AREA_HREFS } from "@/lib/appAreas";
  */
 
 const ACTIONS_DIR = join(process.cwd(), "actions");
+/**
+ * Server-side reads that USED to be Server Actions (getClient, getProject): moved
+ * out of their `"use server"` files so the build no longer registers them as
+ * browser-callable endpoints, with their gates unchanged. They stay in the gated
+ * domain below (collectActions, AREA_BY_FILE): leaving the actions/ tree must not
+ * be a way of leaving the gate.
+ */
+const LOADERS_DIR = join(process.cwd(), "lib", "loaders");
 const APP_DIR = join(process.cwd(), "app");
 
 /** Calls that constitute an authorization gate. */
@@ -680,7 +688,7 @@ type Action = { key: string; file: string; name: string; guarded: boolean };
 
 function collectActions(): Action[] {
   const actions: Action[] = [];
-  for (const file of sourceFilesIn(ACTIONS_DIR, [".ts"])) {
+  for (const file of [...sourceFilesIn(ACTIONS_DIR, [".ts"]), ...sourceFilesIn(LOADERS_DIR, [".ts"])]) {
     const rel = relative(process.cwd(), file).split(sep).join("/");
     const source = ts.createSourceFile(rel, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
     const fns = functionsIn(source);
@@ -861,6 +869,9 @@ describe("authorization coverage across server actions", () => {
       "actions/portal/portal.ts": ["admin.users", "clients.contacts"],
       "actions/equipment/equipment.ts": ["loans"],
       "actions/equipmentLoans/equipmentLoans.ts": ["loans"],
+      // getClient / getProject, moved out of the two action files above (LOADERS_DIR).
+      "lib/loaders/clientLoader.ts": ["clients"],
+      "lib/loaders/projectLoader.ts": ["projects"],
     };
     // Passe 3b, point 1: getClient/getProjectsForClient/getProject used to be
     // exempted here as "reads are exempt — only mutations must check the
@@ -1311,17 +1322,11 @@ describe("authorization coverage across server actions", () => {
    * longer exists.
    */
   const FREEZE_EXEMPT: Record<string, string> = {
-    "actions/projects/projects.ts::getProject":
-      "a read: nothing to freeze. Its visibility rule is projectTrashState (lib/projectTrash.ts), the same formula " +
-      "requireProjectAccess reads, pinned by the 'visibility reads' test below. Disappears the day it writes.",
     "actions/clients/clients.ts::addClient":
       "creates a NEW company: no existing row is under a trash to respect. Disappears the day it updates an existing company.",
     "actions/clients/clients.ts::importClients":
       "creates new companies (an existing email is reported as a duplicate, never updated): no existing row is " +
       "written. Disappears the day an import updates an existing company.",
-    "actions/clients/clients.ts::getClient":
-      "a read: nothing to freeze. It answers 'not found' for a company in the trash (client.deletedAt) and for one " +
-      "out of scope. Disappears the day it writes.",
     "actions/clients/clients.ts::deleteClients":
       "bulk TRASHING of companies: guarded by fullyAccessibleClientIds (a filter over the batch, not a refusal " +
       "to test) and it skips a row already in the trash (existing.deletedAt) — it writes the company's own " +
@@ -1383,9 +1388,11 @@ describe("authorization coverage across server actions", () => {
    * before any commit of this change: 4 files, 21 exported actions, 5 exempt,
    * 16 covered (getProjectsForClient was removed: no caller). An EXACT count: a file leaving the discovery (its guard import
    * removed) or an action disappearing must fail here, not shrink the domain.
+   * 19 actions, 3 exempt, 16 covered since getClient and getProject (two exempt reads) left their `"use server"`
+   * files for lib/loaders (branch fix/retours-actions): no longer actions, so no longer here.
    */
   const FREEZE_FILES_EXPECTED = 4;
-  const FREEZE_ACTIONS_EXPECTED = 21;
+  const FREEZE_ACTIONS_EXPECTED = 19;
 
   it("every write outside OWNED_BY_SECTION (project row, company, contacts, portal) reaches a trash-aware scope guard and REFUSES on its result", () => {
     const files = freezeFiles();
@@ -1495,10 +1502,11 @@ describe("authorization coverage across server actions", () => {
     // deleteProject / permanentlyDeleteProject for the activity-log name, applyDeliveryNoteScan for the
     // clientId to revalidate — each behind its own guard (the freeze test above). Exact: a reader added
     // anywhere changes this list; in app/ and lib/ it also has to use the formula (offenders above).
+    // getProject now lives in lib/loaders (no longer a Server Action): same reader, same count, and as a lib/
+    // file it is now held to the formula by the offenders check above too.
     expect(readers.sort()).toEqual([
       "actions/deliveryNoteScan/deliveryNoteScan.ts::applyDeliveryNoteScan",
       "actions/projects/projects.ts::deleteProject",
-      "actions/projects/projects.ts::getProject",
       "actions/projects/projects.ts::permanentlyDeleteProject",
       "app/api/assets/[kind]/[id]/route.ts::GET",
       "app/clients/[id]/projects/[projectId]/dashboard/report/companies/route.ts::GET",
@@ -1509,6 +1517,7 @@ describe("authorization coverage across server actions", () => {
       "app/clients/[id]/projects/[projectId]/dashboard/report/workers/route.ts::GET",
       "app/clients/[id]/projects/[projectId]/reserves/report/route.ts::GET",
       "app/portail/projets/[projectId]/page.tsx::PortalProjectPage",
+      "lib/loaders/projectLoader.ts::getProject",
     ]);
   });
 

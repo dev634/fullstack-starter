@@ -40,7 +40,7 @@ const ROOT = process.cwd();
 
 /** Exact sizes of the discovered domain. A new action file or action is a deliberate edit here. */
 const SERVER_ACTION_FILES_EXPECTED = 24;
-const SERVER_ACTIONS_EXPECTED = 93;
+const SERVER_ACTIONS_EXPECTED = 91;
 
 /**
  * Actions allowed to return a row. Each carries its REASON and the CONDITION
@@ -49,27 +49,7 @@ const SERVER_ACTIONS_EXPECTED = 93;
  */
 type ReturnException = { file: string; action: string; reason: string; until: string };
 
-const EXCEPTIONS: readonly ReturnException[] = [
-  {
-    file: "actions/clients/clients.ts",
-    action: "getClient",
-    reason:
-      "A read, not a write: the Server Components that call it (clients/[id], clients/[id]/edit, clients/[id]/projects/add) read the company row. " +
-      "The only Client Component fed from it (UpdateClientForm) receives a literal built by the edit page, deletedAt excluded.",
-    until:
-      "getClient moves out of the `\"use server\"` module (a plain server function: its callers are all Server Components, none is a form action), " +
-      "or its callers stop needing the whole row.",
-  },
-  {
-    file: "actions/projects/projects.ts",
-    action: "getProject",
-    reason:
-      "A read, not a write: the project pages and lib/projectSectionGuard.ts read the row on the server; the Client Component feeds " +
-      "(project edit page, section guard) are literals built at the call site. The same guards as the pages apply to the call itself.",
-    until:
-      "getProject moves out of the `\"use server\"` module, or its callers stop needing the whole row.",
-  },
-];
+const EXCEPTIONS: readonly ReturnException[] = [];
 
 const EXCEPTION_KEY = (file: string, action: string) => `${file}::${action}`;
 const excepted = new Set(EXCEPTIONS.map((e) => EXCEPTION_KEY(e.file, e.action)));
@@ -110,7 +90,7 @@ describe("Server Actions return no repository row", () => {
       expect(e.until.length).toBeGreaterThan(20);
     }
     // The size of the exemption list is part of the contract: adding one is a deliberate edit.
-    expect(EXCEPTIONS.length).toBe(2);
+    expect(EXCEPTIONS.length).toBe(0);
   });
 });
 

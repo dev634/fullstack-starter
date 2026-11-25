@@ -1,4 +1,4 @@
-import { getProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/access";
 import Title from "@/components/Title";

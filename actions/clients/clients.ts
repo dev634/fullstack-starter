@@ -3,12 +3,9 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
-import { requireRole } from "@/lib/authz";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
-import { getAccessContext } from "@/lib/accessContext";
-import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
@@ -82,49 +79,6 @@ export async function addClient(
       ...prevState,
       type: "error",
       message: getErrorMessage(error, t.errors.serverError, t),
-    };
-  }
-}
-
-export async function getClient(id: number) {
-  const roleCheck = await requireRole("VIEWER");
-  if (roleCheck.error) return roleCheck.error;
-  // Passe 3b, point 1: this used to only check the role, not the rubrique —
-  // a function whose hiddenAreas hides "clients" could still read the full
-  // company row (including fields the portail deliberately never exposes)
-  // straight off this action. tests/authz-coverage.test.ts's READS allowlist
-  // used to exempt this file's reads for exactly that reason; the exemption
-  // is gone now that this guard actually exists.
-  const areaCheck = await requireAreaAccess("clients");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    if (isNaN(id)) {
-      throw {
-        type: "error",
-        message: t.errors.invalidId,
-      };
-    }
-
-    const client = await findById(id);
-    // A trashed client is invisible to the normal detail page (looks like
-    // "not found"); the trash page reads the repository directly instead. A
-    // client outside the caller's scope reads the same way — a distinct
-    // response would confirm it exists to someone who shouldn't know that.
-    const access = await getAccessContext();
-    const reachable =
-      access.projectIds === null || (await hasProjectAmong(id, [...access.projectIds]));
-    const visible = client && !client.deletedAt && reachable;
-    return {
-      type: "success",
-      data: visible ? client : null,
-    };
-  } catch (error) {
-    console.log("Action getClient error:", error);
-    return {
-      type: "error",
-      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
