@@ -63,7 +63,10 @@ export async function getDashboardStats(projectIds?: number[]) {
 
 export async function create({email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id" | "deletedAt">) {
     try {
-        const clients = await prisma.client.create({
+        // Only the id: the callers (the service, then the action) need nothing
+        // else, and a full row is what a Server Action must not be handed.
+        return await prisma.client.create({
+            select: { id: true },
             data: {
                 email,
                 companyName,
@@ -77,7 +80,6 @@ export async function create({email, companyName, address, city, zipCode, countr
                 status
             }
         });
-        return clients;
     } catch (error) {
         if(error instanceof Prisma.PrismaClientKnownRequestError ) {
             if (error.code === "P2002") {

@@ -54,7 +54,7 @@ export async function addClient(
     const client = await createClient({ ...clientDatas, photoUrl });
     await logActivity({
       action: "CREATED",
-      clientId: client.data?.id ?? null,
+      clientId: client.id,
       clientName: clientDatas.companyName,
       actorEmail: roleCheck.email,
     });

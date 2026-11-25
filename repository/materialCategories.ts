@@ -74,12 +74,12 @@ export async function rename(id: number, name: string) {
  * and the caller needs the true count to say so (see
  * actions/materialCategories/materialCategories.ts's deleteMaterialCategory).
  */
-export async function remove(id: number): Promise<{ category: Awaited<ReturnType<typeof create>>; unfiledCount: number }> {
+export async function remove(id: number): Promise<{ unfiledCount: number }> {
     try {
         return await prisma.$transaction(async (tx) => {
             const unfiledCount = await tx.projectMaterial.count({ where: { materialCategoryId: id } });
-            const category = await tx.projectMaterialCategory.delete({ where: { id }, select: { id: true } });
-            return { category, unfiledCount };
+            await tx.projectMaterialCategory.delete({ where: { id }, select: { id: true } });
+            return { unfiledCount };
         });
     } catch (error) {
         console.log("Repository remove material category error:", error);

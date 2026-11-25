@@ -32,6 +32,11 @@ async function countMaterials(projectId: number) {
   return prisma.projectMaterial.count({ where: { projectId } });
 }
 
+/** The project's lines, read back from the base (the repository returns no row). */
+async function materialsOf(projectId: number) {
+  return prisma.projectMaterial.findMany({ where: { projectId }, select: { id: true, quantity: true } });
+}
+
 afterEach(async () => {
   const clients = await prisma.client.findMany({ where: { email: { endsWith: TAG } } });
   const ids = clients.map((c) => c.id);
@@ -49,13 +54,15 @@ describe("createOrAccumulate against a real Postgres", () => {
 
     const first = await createOrAccumulate({ ...base, quantity: 10 });
     expect(first.accumulated).toBe(false);
+    const [created] = await materialsOf(project.id);
 
     const second = await createOrAccumulate({ ...base, quantity: 5 });
     expect(second.accumulated).toBe(true);
-    expect(second.material.id).toBe(first.material.id);
-    expect(second.material.quantity).toBe(15);
 
-    expect(await countMaterials(project.id)).toBe(1);
+    const lines = await materialsOf(project.id);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].id).toBe(created.id);
+    expect(lines[0].quantity).toBe(15);
   });
 
   it("keeps a different supplier as its own line, same reference notwithstanding", async () => {
@@ -93,8 +100,7 @@ describe("createOrAccumulate against a real Postgres", () => {
     const second = await createOrAccumulate({ projectId: project.id, name: "Item", reference: "REF-X", quantity: 3 });
 
     expect(second.accumulated).toBe(true);
-    expect(second.material.quantity).toBe(5);
-    expect(await countMaterials(project.id)).toBe(1);
+    expect((await materialsOf(project.id)).map((m) => m.quantity)).toEqual([5]);
   });
 
   it("scopes the match to the project — the same reference in another project is separate", async () => {

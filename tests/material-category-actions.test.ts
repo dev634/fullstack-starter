@@ -211,7 +211,7 @@ describe("deleteMaterialCategory", () => {
 
   it("deletes the category and reports how many materials fell back to non classé", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    removeMock.mockResolvedValue({ category: { id: 1 }, unfiledCount: 3 } as never);
+    removeMock.mockResolvedValue({ unfiledCount: 3 } as never);
     const res = await deleteMaterialCategory(1, 1, 2);
     expect(removeMock).toHaveBeenCalledWith(1);
     expect(res.type).toBe("success");
@@ -220,7 +220,7 @@ describe("deleteMaterialCategory", () => {
 
   it("reports the plain deleted message when the category had no material to unfile", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    removeMock.mockResolvedValue({ category: { id: 1 }, unfiledCount: 0 } as never);
+    removeMock.mockResolvedValue({ unfiledCount: 0 } as never);
     const res = await deleteMaterialCategory(1, 1, 2);
     expect(res.message).toBe(fr.materials.category.messages.deleted);
   });

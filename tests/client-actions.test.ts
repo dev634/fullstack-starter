@@ -91,7 +91,7 @@ describe("client action auth guard + delegation", () => {
 
   it("addClient delegates to the service when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
-    createClientMock.mockResolvedValue({ type: "success", message: "ok", data: { id: 42 } } as never);
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 42 } as never);
     const res = await addClient(initial, new FormData());
     expect(createClientMock).toHaveBeenCalledTimes(1);
     expect(res.type).toBe("success");

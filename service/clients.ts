@@ -28,7 +28,7 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
         return {
             type: "success",
             message: t.clients.messages.created,
-            data: created,
+            id: created.id,
         }
 
     } catch (error) {
