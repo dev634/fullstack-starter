@@ -57,6 +57,10 @@ export default function ClientAvatar({
       alt={name?.trim() || t.clients.list.title}
       width={size}
       height={size}
+      // The URL already points at Cloudinary's own transformation (f_auto, q_auto,
+      // c_fill, w, h): Next's optimizer would only re-fetch and re-decode it, and
+      // is closed to remote URLs (next.config.ts).
+      unoptimized
       onError={() => setFailed(true)}
       style={box}
       className={`shrink-0 rounded-full object-cover ${className}`}

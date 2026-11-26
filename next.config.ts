@@ -57,14 +57,16 @@ const nextConfig: NextConfig = {
       bodySizeLimit: 25 * 1024 * 1024,
     },
   },
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "res.cloudinary.com",
-      },
-    ],
-  },
+  // No `images.remotePatterns`, on purpose: /_next/image is reachable WITHOUT
+  // authentication (proxy.ts excludes it) and, given a remote pattern, fetches
+  // and decodes whatever the URL points at (Next's own ceiling is ~268 Mpx, a
+  // fifth sharp decode outside the queue of lib/imageMetadata.ts). A pattern
+  // for "res.cloudinary.com" with no pathname admitted ANY Cloudinary account.
+  // Its only user, components/ClientAvatar.tsx, already asks Cloudinary for the
+  // transformed image (lib/cloudinary-url.ts::optimizedClientPhoto) and renders
+  // it `unoptimized`. Without a pattern the optimizer answers 400 to every
+  // remote URL and only the local images of public/ stay optimizable.
+  // tests/next-config-images.test.ts keeps it that way.
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

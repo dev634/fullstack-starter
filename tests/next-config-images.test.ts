@@ -1,0 +1,21 @@
+import { describe, it, expect } from "vitest";
+import nextConfig from "@/next.config";
+
+// /_next/image is reachable without authentication (proxy.ts excludes it). With a remote
+// pattern it fetches and decodes what the URL designates, outside the sharp queue of
+// lib/imageMetadata.ts; a "res.cloudinary.com" pattern without pathname admitted ANY
+// Cloudinary account. The optimizer stays closed to remote URLs: components/ClientAvatar.tsx,
+// its only user, renders Cloudinary's own transformation `unoptimized`.
+describe("next.config images — the optimizer is closed to remote URLs", () => {
+  it("opens no remotePattern", () => {
+    expect(nextConfig.images?.remotePatterns ?? []).toEqual([]);
+  });
+
+  it("opens no legacy `domains` allowlist either", () => {
+    expect(nextConfig.images?.domains ?? []).toEqual([]);
+  });
+
+  it("does not enable dangerouslyAllowSVG", () => {
+    expect(nextConfig.images?.dangerouslyAllowSVG ?? false).toBe(false);
+  });
+});
