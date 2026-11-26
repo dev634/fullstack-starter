@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/service/clients", () => ({ createClient: vi.fn() }));
 vi.mock("@/repository/clients", () => ({
+  DUPLICATE_CLIENT_EMAIL_CODE: "duplicateClientEmail",
+  isPhotoUrlReferenced: vi.fn(),
   findById: vi.fn(),
   softDelete: vi.fn(),
   restore: vi.fn(),
@@ -31,11 +33,12 @@ import { addClient, updateClient, deleteClient, deleteClients, restoreClient, pe
 import { getClient } from "@/lib/loaders/clientLoader";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
-import { findById, softDelete, restore, permanentlyRemove, update, isFullyInScope, findFullyInScopeIds } from "@/repository/clients";
+import { findById, softDelete, restore, permanentlyRemove, update, isFullyInScope, findFullyInScopeIds, isPhotoUrlReferenced } from "@/repository/clients";
+import { revalidatePath } from "next/cache";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { hasProjectAmong } from "@/repository/projects";
-import { destroyProjectFile } from "@/lib/cloudinary";
+import { destroyProjectFile, uploadClientPhoto, destroyClientPhoto } from "@/lib/cloudinary";
 import { logActivity } from "@/repository/activity";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
 import fr from "@/lib/i18n/dictionaries/fr";
@@ -53,7 +56,11 @@ const permanentlyRemoveMock = vi.mocked(permanentlyRemove);
 const updateMock = vi.mocked(update);
 const findPublicIdsByClientMock = vi.mocked(findPublicIdsByClient);
 const destroyProjectFileMock = vi.mocked(destroyProjectFile);
+const uploadClientPhotoMock = vi.mocked(uploadClientPhoto);
+const destroyClientPhotoMock = vi.mocked(destroyClientPhoto);
 const logActivityMock = vi.mocked(logActivity);
+const isPhotoUrlReferencedMock = vi.mocked(isPhotoUrlReferenced);
+const revalidatePathMock = vi.mocked(revalidatePath);
 const initial = { type: null, message: "" } as const;
 
 function formOf(fields: Record<string, string>): FormData {
@@ -551,5 +558,175 @@ describe("client action auth guard + delegation", () => {
       expect(res.type).toBe("success");
       expect(res.data).toEqual(expect.objectContaining({ id: 489 }));
     });
+  });
+});
+
+// An orphan photo: the upload to Cloudinary succeeded, then the database write
+// was refused. The photo of THIS call is destroyed; a previous one never is.
+describe("client photo compensation when the write fails after the upload", () => {
+  const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
+  const OLD_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/old.jpg";
+  const DUPLICATE = {
+    type: "databaseError",
+    message: "A client with this email already exists. Please use a different email.",
+    i18n: "duplicateClientEmail",
+  };
+
+  function withPhoto(fields: Record<string, string>): FormData {
+    const fd = formOf(fields);
+    fd.set("photo", new File([new Uint8Array([1, 2, 3])], "photo.jpg", { type: "image/jpeg" }));
+    return fd;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // clearAllMocks keeps implementations: a rejection set by one test would leak into the next.
+    for (const m of [createClientMock, updateMock, destroyClientPhotoMock, logActivityMock, isPhotoUrlReferencedMock, revalidatePathMock]) m.mockReset();
+    // Default: no company references the uploaded URL (the write did not happen).
+    isPhotoUrlReferencedMock.mockResolvedValue(false);
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    uploadClientPhotoMock.mockResolvedValue(NEW_URL);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: OLD_URL } as never);
+  });
+
+  it("addClient: a refused write destroys the photo it just uploaded and returns the localized refusal", async () => {
+    createClientMock.mockRejectedValue(DUPLICATE);
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
+
+  it("addClient: the duplicate-email refusal destroys WITHOUT reading the database (the write provably did not happen)", async () => {
+    createClientMock.mockRejectedValue(DUPLICATE);
+    await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(isPhotoUrlReferencedMock).not.toHaveBeenCalled();
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+  });
+
+  it("addClient: another failure with NO row referencing the URL destroys it, and answers the generic server error", async () => {
+    createClientMock.mockRejectedValue({ type: "error", message: fr.errors.serverError });
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(isPhotoUrlReferencedMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+  });
+
+  it("addClient: another failure while a row DOES reference the URL (the write committed, then the connection dropped) keeps the photo", async () => {
+    createClientMock.mockRejectedValue({ type: "error", message: fr.errors.serverError });
+    isPhotoUrlReferencedMock.mockResolvedValue(true);
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+  });
+
+  it("addClient: when the reference lookup fails too, the photo is KEPT and the case is logged", async () => {
+    createClientMock.mockRejectedValue({ type: "error", message: fr.errors.serverError });
+    isPhotoUrlReferencedMock.mockRejectedValue({ type: "repositoryError", message: "Database Error fetching client." });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation skipped"), expect.anything());
+    expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+    errorSpy.mockRestore();
+  });
+
+  it("updateClient: another failure while a row references the NEW URL keeps it (and the old one is untouched)", async () => {
+    updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error update client" });
+    isPhotoUrlReferencedMock.mockResolvedValue(true);
+    await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClient: another failure with no reference destroys the NEW photo only", async () => {
+    updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error update client" });
+    await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+  });
+
+  it("addClient: without a photo, a refused write destroys nothing", async () => {
+    createClientMock.mockRejectedValue(DUPLICATE);
+    await addClient(initial, formOf(VALID_CREATE_FIELDS));
+    expect(uploadClientPhotoMock).not.toHaveBeenCalled();
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+  });
+
+  it("addClient: a destruction that THROWS is logged and does not mask the refusal", async () => {
+    createClientMock.mockRejectedValue(DUPLICATE);
+    destroyClientPhotoMock.mockRejectedValue(new Error("cloudinary down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("addClient: success destroys nothing", async () => {
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res.type).toBe("success");
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+  });
+
+  // A path that can really happen: logActivity swallows its own errors, but revalidatePath
+  // runs after the write and the journal and can throw. The row exists: nothing is destroyed,
+  // and the compensation (which only wraps the write) is not even consulted.
+  it("addClient: a failure AFTER the write (revalidatePath throws) does not destroy the photo of a row that exists", async () => {
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    revalidatePathMock.mockImplementationOnce(() => {
+      throw new Error("revalidate failed");
+    });
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res.type).toBe("error");
+    expect(createClientMock).toHaveBeenCalledTimes(1);
+    expect(isPhotoUrlReferencedMock).not.toHaveBeenCalled();
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClient: a failure AFTER the write (revalidatePath throws) destroys neither photo", async () => {
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    revalidatePathMock.mockImplementationOnce(() => {
+      throw new Error("revalidate failed");
+    });
+    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(res.type).toBe("error");
+    expect(destroyClientPhotoMock).not.toHaveBeenCalledWith(NEW_URL);
+  });
+
+  it("updateClient: a refused write destroys the NEW photo only — the previous one stays", async () => {
+    updateMock.mockRejectedValue(DUPLICATE);
+    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).not.toHaveBeenCalledWith(OLD_URL);
+    expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
+  });
+
+  it("updateClient: a refused write with a photo REMOVAL (no new upload) destroys nothing — the old photo is still the row's", async () => {
+    updateMock.mockRejectedValue(DUPLICATE);
+    const res = await updateClient(initial, formOf({ ...VALID_UPDATE_FIELDS, removePhoto: "true" }));
+    expect(destroyClientPhotoMock).not.toHaveBeenCalled();
+    expect(res.type).toBe("error");
+  });
+
+  it("updateClient: a destruction that throws is logged and the refusal is still returned", async () => {
+    updateMock.mockRejectedValue(DUPLICATE);
+    destroyClientPhotoMock.mockRejectedValue(new Error("cloudinary down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("updateClient: success destroys only the REPLACED photo, never the new one", async () => {
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(res.type).toBe("success");
+    expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(OLD_URL);
   });
 });

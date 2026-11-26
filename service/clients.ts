@@ -1,4 +1,3 @@
-import { Prisma } from "@/app/generated/prisma/client";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { create } from "@/repository/clients";
 import { CreateClientInput, createClientSchema } from "@/schemas/client";
@@ -33,15 +32,6 @@ export async function createClient(data: CreateClientInput & { photoUrl?: string
 
     } catch (error) {
         console.log(error)
-        if(error instanceof Prisma.PrismaClientKnownRequestError ) {
-            if(error.code === "P2002") {
-                throw {
-                    type: "error",
-                    message: t.clients.messages.duplicateEmail
-                }
-            }
-        }
-
         if (error && typeof error === "object" && "type" in error && (error.type === "zodError" || error.type === "databaseError")) {
             throw error;
         }

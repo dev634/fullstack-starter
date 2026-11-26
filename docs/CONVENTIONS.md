@@ -602,6 +602,65 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   sans lui ni rotation ni strip) mais **pas sur un HEIC réel** — voir l'en-tête
   d'`uploadEquipmentPhoto` pour lever l'exception le jour où un fichier
   d'iPhone est disponible.
+  **Photo d'entreprise (publique), état à `1fed10d`** : JPEG, PNG, WebP et
+  GIF sont ré-encodés dans leur format, orientation appliquée puis métadonnées
+  retirées (`stripArchivedPhotoMetadata`) ; **AVIF et TIFF sont convertis en
+  JPEG nettoyé** (`convertToStrippedJpeg`, mêmes plafonds) ; **HEIC et BMP
+  partent tels quels**. BMP : le format n'a pas de bloc EXIF/GPS (en-tête de
+  fichier, en-tête DIB, pixels), il n'y a rien à retirer. ⚠️ **HEIC ouvert** :
+  sharp ne le décode pas, son GPS peut rester lisible sur l'URL publique tant
+  qu'un vrai HEIC d'iPhone n'a pas été déposé sur un compte Cloudinary de test
+  puis passé à `exiftool` sur la `secure_url`. Un GIF ou un WebP animé est
+  réduit à sa première image (choix délibéré : un avatar).
+  **Coût d'un décodage sharp, ce qui le borne** (`lib/imageMetadata.ts`, quatre
+  chemins applicatifs : photo d'entreprise, photo d'équipement, archive du
+  bulletin, image du bulletin pour le modèle) :
+  - **une file unique du processus**, de concurrence 1, **bornée à 8 tâches en
+    attente** (la suivante est refusée tout de suite, code `imageBusy`, traduit
+    par chaque appelant : `uploadBusy` pour les photos, `scan.errors.imageBusy`
+    pour le bulletin — jamais d'envoi de l'original). Elle vit sur `globalThis`
+    sous un `Symbol.for(...)` : le build embarque le décodeur dans **deux**
+    chunks, et un état de module aurait donné une file par chunk (concurrence
+    réelle de 2). Tout nouveau chemin sharp passe par `runExclusive` et
+    `decodeOriented`, pas par un `sharp(...)` direct ;
+  - **un délai de 10 s** par pipeline (`.timeout`), qui **ne borne pas la tâche** :
+    il n'arrête qu'un pipeline traité ligne à ligne. `metadata()` (lue avant le
+    budget) n'a aucun délai, et une étape faite en un seul appel natif (décodage
+    libheif, parcours des images d'un GIF) n'est vérifiée qu'à son retour — un GIF
+    de 10 Mo à 690 000 images 2×2 a passé 60 s dans `metadata()` et 119 s au
+    total, puis a **réussi** (mesuré sous Windows). Une borne réelle demande un
+    comptage des images / pages lu en JS avant sharp, ou un décodage dans un
+    processus qu'on tue : lot suivant. Ouvert ;
+  - **le cache de libvips est désactivé** (`sharp.cache(false)`) : il retenait
+    chaque décodage (20 décodages d'un GIF 6000×6600 : ~3 070 Mo résidents, ~47
+    Mo cache coupé, mesuré sous Windows) ;
+  - **un budget de 160 Mo décodés**, lu dans l'en-tête (`metadata()`, rien
+    n'est décodé) : largeur × hauteur × canaux × octets par échantillon, soit le
+    raster que le plafond de 40 Mpx admet déjà en RGBA 8 bits ; il ne refuse
+    rien de ce que ce plafond admet en 8 bits et ne contraint que la haute
+    profondeur et les canaux nombreux. TIFF : seulement `uchar`/`ushort`, 4
+    canaux au plus. **Non calibré sur de vrais AVIF 10 bits de téléphone (non
+    prouvé)** : éprouvé sur des fichiers synthétiques seulement ;
+  - **l'optimiseur `/_next/image` est fermé aux URL distantes** (aucun
+    `remotePattern` dans `next.config.ts`, gardé par
+    `tests/next-config-images.test.ts`) : il est sans authentification et
+    décodait hors de la file ; `ClientAvatar` rend en `unoptimized` l'URL que
+    Cloudinary a déjà transformée. Côté même origine, `images.localPatterns`
+    n'admet que `/_next/static/media/**` (au lieu de `**` par défaut, qui
+    laissait l'optimiseur aller chercher n'importe quel chemin, sans session).
+  Le plafond de 40 Mpx borne ce qu'on alloue au pire mais pas ce qui passe
+  juste en dessous. **Pire cas mesuré par décodage, sous Windows seulement
+  (l'image Linux n'a pas été mesurée)** : pic de ~530 Mo pour un GIF
+  6000×6600 (27 Ko), ~655 Mo pour un AVIF 12 bits au budget, ~170 Mo pour un
+  JPEG de 24 Mpx — le budget borne le raster, pas le pic. Le « ~1,05 Go
+  après la file » publié avant était la **rétention du cache**, pas une borne.
+  **Reste à faire (lot suivant)** : limite de débit par utilisateur (la file
+  borne la mémoire, pas qui l'occupe), erreurs de SDK relayées, compensations
+  des autres téléversements. **`failOn: "none"`** : un JPEG
+  tronqué (marqueur de fin absent, transfert interrompu) est décodé et
+  nettoyé au lieu d'être refusé — Cloudinary l'acceptait avant ; un en-tête
+  réellement corrompu reste refusé. Même comportement pour les quatre
+  appelants, à dessein.
 - Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer
   `Infinity` ; une date non validée laisse écrire `+275760-09-12`, que Prisma
   relit en `Invalid Date` et qui a rendu `/projects/export` en 500 **pour tout
@@ -675,12 +734,24 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   (`@prisma/adapter-pg`, `lib/prisma.ts`) — sondé sur la base locale, PR #230 :
   les colonnes sont sous `meta.driverAdapterError.cause.constraint.fields`,
   non documenté, et le nom de l'index seulement dans `…originalMessage`. Les
-  quatre `catch` P2002 du dépôt (`repository/{clients,jobFunctions,users,
-  equipmentLoans}.ts`) traitent donc tout P2002 de leur table comme **le seul
-  unique qu'elle porte** — vrai aujourd'hui, faux le jour où une de ces
-  tables gagne une seconde contrainte unique : ce jour-là, lire la structure
-  de l'adaptateur (et l'épingler par un test), sinon un doublon sur la
-  nouvelle contrainte sera annoncé comme un doublon sur l'ancienne.
+  **cinq fichiers et six `catch`** (`repository/{clients,equipmentLoans,
+  jobFunctions,projectWorkers,users}.ts` ; `clients.ts` en compte deux,
+  `create` et `update`, qui passent par le même prédicat) traitent donc
+  tout P2002 de leur table comme **le seul unique qu'elle porte** — vrai
+  aujourd'hui, faux le jour où une de ces tables gagne une seconde contrainte
+  unique : ce jour-là, lire la structure de l'adaptateur (et l'épingler par
+  un test), sinon un doublon sur la nouvelle contrainte sera annoncé comme un
+  doublon sur l'ancienne. Compte relevé à `05e4b2c` (`fix/photo-entreprise`,
+  base `fd719e2`) par `git grep -n "P2002" -- '*.ts' ':!tests*'
+  ':!app/generated'`, en ne gardant que les lignes de code (les commentaires
+  de `clients.ts` et `equipmentLoans.ts` citent aussi P2002) puis en
+  comptant les sites d'appel du prédicat de `clients.ts`. **Seule
+  l'hypothèse « un seul unique » de `Client` est épinglée par un test**
+  (`tests-integration/client-duplicate-email.test.ts`, par `pg_indexes`) ;
+  les quatre autres tables ne le sont pas. **Tables qui portent un unique sans
+  aucun `catch` P2002** : `Reserve(projectId, number)`, `Contact.userId`,
+  `PasswordResetToken.token` — un doublon y remonterait en erreur serveur
+  générique ; à reprendre le jour où un chemin utilisateur peut les provoquer.
   `User` porte **deux** uniques depuis le lot 3 (`User_email_key` et
   `User_email_lower_key`), tous deux sur l'e-mail : l'hypothèse tient encore
   pour cette table, par ce seul fait.

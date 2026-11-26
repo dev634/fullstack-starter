@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import sharp from "sharp";
 import { scannedDeliveryNoteSchema, MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import {
@@ -8,14 +7,16 @@ import {
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
 } from "@/lib/fileSignature";
 import {
-    isDeliveryNoteMediaType,
+    decodeOriented,
+    isImageBusyError,
+    isStrippableMediaType,
+    runExclusive,
     stripArchivedPhotoMetadata,
-    SHARP_MAX_INPUT_PIXELS,
     type DeliveryNoteMediaType,
 } from "@/lib/imageMetadata";
 
 // stripArchivedPhotoMetadata (used below, in the apply step's own doc) and
-// its DeliveryNoteMediaType/isDeliveryNoteMediaType/SHARP_MAX_INPUT_PIXELS
+// its DeliveryNoteMediaType/isStrippableMediaType/SHARP_MAX_INPUT_PIXELS
 // now live in lib/imageMetadata.ts — lib/cloudinary.ts::uploadEquipmentPhoto
 // needed the identical re-encode-and-strip step for an unrelated upload
 // path, so a shared, generic module is the right home for both rather than
@@ -57,6 +58,7 @@ export type ScanErrorCode =
     | "fileTooLarge"
     | "invalidFileType"
     | "corruptedImage"
+    | "imageBusy"
     | "unreadableNote"
     | "noItemsRead";
 
@@ -65,6 +67,7 @@ const SCAN_ERROR_CODES: readonly string[] = [
     "fileTooLarge",
     "invalidFileType",
     "corruptedImage",
+    "imageBusy",
     "unreadableNote",
     "noItemsRead",
 ];
@@ -201,7 +204,7 @@ export async function readAndValidateDeliveryNoteImage(
     const detected = detectRasterImageMediaType(buffer);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
-    if (!detected || !isDeliveryNoteMediaType(detected) || RASTER_IMAGE_EXTENSION_MEDIA_TYPES[ext] !== detected) {
+    if (!detected || !isStrippableMediaType(detected) || RASTER_IMAGE_EXTENSION_MEDIA_TYPES[ext] !== detected) {
         throw scanError("invalidFileType");
     }
 
@@ -277,18 +280,26 @@ const MODEL_JPEG_QUALITY = 85;
  */
 async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
     try {
-        return await sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true })
-            .rotate()
-            .resize({
-                width: MODEL_MAX_LONG_EDGE,
-                height: MODEL_MAX_LONG_EDGE,
-                fit: "inside",
-                withoutEnlargement: true,
-            })
-            .jpeg({ quality: MODEL_JPEG_QUALITY })
-            .toBuffer();
-    } catch {
-        throw scanError("corruptedImage");
+        // Same opener (pixel ceiling, orientation, `failOn: "none"`) and same
+        // one-at-a-time queue as every other sharp path of the app
+        // (lib/imageMetadata.ts): a truncated photo the archive accepts is not
+        // refused one step earlier here, and this decode counts against the
+        // same memory bound.
+        return await runExclusive(async () =>
+            (await decodeOriented(buffer))
+                .resize({
+                    width: MODEL_MAX_LONG_EDGE,
+                    height: MODEL_MAX_LONG_EDGE,
+                    fit: "inside",
+                    withoutEnlargement: true,
+                })
+                .jpeg({ quality: MODEL_JPEG_QUALITY })
+                .toBuffer()
+        );
+    } catch (error) {
+        // A full queue is "try again in a moment", not a corrupted photo —
+        // and, like the corrupted case, never a fallback to the original.
+        throw scanError(isImageBusyError(error) ? "imageBusy" : "corruptedImage");
     }
 }
 

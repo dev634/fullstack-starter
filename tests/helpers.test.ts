@@ -74,6 +74,13 @@ describe("getErrorMessage", () => {
       expect(getErrorMessage(error, "fallback", fr)).toBe(fr.errors.uploadNotImage);
     });
 
+    it("translates the 'decode queue is full, try again' refusal in both languages", () => {
+      const error = { type: "error", message: "The server is already processing images. Try again in a moment.", i18n: "uploadBusy" };
+      expect(getErrorMessage(error, "fallback", fr)).toBe(fr.errors.uploadBusy);
+      expect(getErrorMessage(error, "fallback", getDictionary("en"))).toBe(getDictionary("en").errors.uploadBusy);
+      expect(fr.errors.uploadBusy).not.toBe(fr.errors.uploadNotImage);
+    });
+
     it("falls back to the raw English message when no dictionary is given", () => {
       const error = { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
       expect(getErrorMessage(error, "fallback")).toBe("The photo must be an image file.");

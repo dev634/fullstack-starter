@@ -47,8 +47,16 @@ function isClientModelWrite(callee: ts.PropertyAccessExpression): boolean {
 const EXPECTED_FILES = 29;
 // 235 -> 234 at lot 3: updatePassword and markResetTokenUsed (two functions)
 // became resetPasswordWithToken (one); none of them is read-named (110 unchanged).
-const EXPECTED_FUNCTIONS = 234;
-const EXPECTED_READ_NAMED = 110;
+// 234 -> 236 (fix/photo-entreprise): repository/clients.ts gains isDuplicateEmailConflict
+// (read-named: `is`, 110 -> 111, a pure predicate, no write) and duplicateEmailError.
+// 2026-11-26 (fix/photo-entreprise, points 4 and 6): repository/clients.ts gains
+// isPhotoUrlReferenced (read-named, a findFirst, no write) while lib/cloudinary.ts loses
+// isStrippableEquipmentPhoto (read-named, merged into lib/imageMetadata.ts::isStrippableMediaType,
+// a file this test does not walk): +1 and -1, the totals do not move.
+// 236 -> 237 (fix/photo-entreprise, decode queue): lib/cloudinary.ts gains busyUploadError, the refusal
+// thrown when lib/imageMetadata.ts's queue is full (not read-named, 111 unchanged; it writes nothing).
+const EXPECTED_FUNCTIONS = 237;
+const EXPECTED_READ_NAMED = 111;
 
 type Fn = { name: string; body: ts.Node };
 

@@ -9,7 +9,15 @@ import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, createClientSchema, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
+import {
+  DUPLICATE_CLIENT_EMAIL_CODE,
+  findById,
+  isPhotoUrlReferenced,
+  softDelete,
+  restore,
+  permanentlyRemove,
+  update,
+} from "@/repository/clients";
 import { readCsvUpload, CLIENT_CSV_COLUMNS } from "@/lib/csv";
 import { csvRefusalResult } from "@/lib/csvRefusal";
 import { revalidatePath } from "next/cache";
@@ -62,7 +70,15 @@ export async function addClient(
 
   try {
     const photoUrl = await extractPhotoUrl(formData);
-    const client = await createClient({ ...parsed.data, photoUrl });
+    // Only THE WRITE is compensated: once the row exists the photo is its
+    // photo, and a later failure (the journal) must not destroy it.
+    let client;
+    try {
+      client = await createClient({ ...parsed.data, photoUrl });
+    } catch (error) {
+      await discardUploadedPhoto(photoUrl, error);
+      throw error;
+    }
     await logActivity({
       action: "CREATED",
       clientId: client.id,
@@ -124,11 +140,15 @@ export async function updateClient(
     if (uploadedUrl) photoUrl = uploadedUrl;
     else if (removePhoto) photoUrl = null;
 
-    const client = await update({
-      ...clientDatas,
-      id,
-      photoUrl,
-    });
+    // The write failed: the photo uploaded by THIS call (and only it — never
+    // existing.photoUrl, which the row still points at) is now an orphan.
+    let client;
+    try {
+      client = await update({ ...clientDatas, id, photoUrl });
+    } catch (error) {
+      await discardUploadedPhoto(uploadedUrl, error);
+      throw error;
+    }
 
     // Drop the previous asset once it has been replaced or removed.
     if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {
@@ -156,6 +176,55 @@ export async function updateClient(
       type: "error",
       message: getErrorMessage(error, t.errors.serverError, t),
     };
+  }
+}
+
+/**
+ * Whether the write was REFUSED for a duplicate e-mail — the one refusal that
+ * proves the write did not happen (the unique index rejected it).
+ */
+function isDuplicateEmailRefusal(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    error.type === "databaseError" &&
+    "i18n" in error &&
+    error.i18n === DUPLICATE_CLIENT_EMAIL_CODE
+  );
+}
+
+/**
+ * Compensation for a write that failed AFTER its photo was uploaded; the caller
+ * then re-throws the ORIGINAL refusal — whatever this did.
+ *
+ * Destroys the photo without condition only for the duplicate-email refusal
+ * (the write did not happen). On ANY other error the write may have been
+ * committed anyway (connection cut after the commit, a post-write step that
+ * raised): destroying then would turn the public avatar of a row that exists
+ * into a 404. So the photo is destroyed only when no company references its
+ * URL — and when that read fails too, it is KEPT and the case is logged: one
+ * file too many rather than a broken image.
+ *
+ * destroyClientPhoto reads Cloudinary's report and logs a non-confirmation
+ * itself; the try/catch here is for a destruction (or a read) that throws
+ * anyway, which must neither mask the refusal nor turn it into a success.
+ * `undefined` (no photo was uploaded by this call) destroys nothing.
+ */
+async function discardUploadedPhoto(uploadedUrl: string | undefined, writeError: unknown): Promise<void> {
+  if (!uploadedUrl) return;
+  if (!isDuplicateEmailRefusal(writeError)) {
+    try {
+      if (await isPhotoUrlReferenced(uploadedUrl)) return;
+    } catch (readError) {
+      console.error("Compensation skipped: could not tell whether the uploaded client photo is still referenced, kept:", readError);
+      return;
+    }
+  }
+  try {
+    await destroyClientPhoto(uploadedUrl);
+  } catch (destroyError) {
+    console.error("Compensation failed: could not destroy the orphaned client photo:", destroyError);
   }
 }
 
@@ -451,7 +520,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
       errors.push({
         row: rowNumber,
         email: record.Email,
-        message: getErrorMessage(error, t.clients.messages.invalidRow),
+        message: getErrorMessage(error, t.clients.messages.invalidRow, t),
       });
     }
   }

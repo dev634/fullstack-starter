@@ -14,6 +14,7 @@ vi.mock("openai", () => ({
 }));
 
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
+import { MAX_WAITING_TASKS, runExclusive } from "@/lib/imageMetadata";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 
 const originalEnv = { ...process.env };
@@ -85,6 +86,23 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     expect(meta.height).toBe(120);
   });
 
+  it("fails with imageBusy (not corruptedImage), without calling the provider, when the shared decode queue is full", async () => {
+    // Fill the real, process-wide queue: one task running, MAX_WAITING_TASKS waiting.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, () => runExclusive(() => gate));
+    try {
+      const file = await realJpegFile({ width: 200, height: 120 });
+      await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "imageBusy" });
+      expect(anthropicCreateMock).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await Promise.all(held);
+    }
+  });
+
   it("fails with a generic app error, without ever calling the provider, when the image buffer is corrupted", async () => {
     // Real JPEG signature — passes readAndValidateDeliveryNoteImage's
     // magic-byte check — but truncated right after, so sharp cannot decode
@@ -96,5 +114,22 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     await expect(extractDeliveryNoteItems(corrupted)).rejects.toMatchObject({ type: "error", code: "corruptedImage" });
     // Must fail closed, not fall back to sending the untouched original.
     expect(anthropicCreateMock).not.toHaveBeenCalled();
+  });
+
+  // Same opener as every sharp path (lib/imageMetadata.ts::decodeOriented,
+  // `failOn: "none"`): a photo that merely lacks its two end-of-image bytes —
+  // an interrupted transfer — is reduced and sent, not refused one step before
+  // the archive that already accepts it.
+  it("reduces and sends a JPEG that only lacks its end-of-image marker, instead of refusing it", async () => {
+    const whole = Buffer.from(await (await realJpegFile({ width: 40, height: 20 })).arrayBuffer());
+    const truncated = whole.subarray(0, whole.length - 2);
+    // Precondition, or the test would prove nothing: sharp's default refuses it.
+    await expect(sharp(truncated).toBuffer()).rejects.toThrow();
+
+    await extractDeliveryNoteItems(new File([truncated], "note.jpg", { type: "image/jpeg" }));
+
+    expect(anthropicCreateMock).toHaveBeenCalledTimes(1);
+    const sent = await sharp(Buffer.from(base64SentToAnthropic(), "base64")).metadata();
+    expect(sent.format).toBe("jpeg");
   });
 });

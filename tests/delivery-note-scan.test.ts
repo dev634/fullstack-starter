@@ -369,6 +369,24 @@ describe("applyDeliveryNoteScan", () => {
     expect(createFileMock).not.toHaveBeenCalled();
   });
 
+  it("answers 'the server is already processing images' (not 'corrupted photo') and writes nothing when the decode queue is full", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "imageBusy" });
+    const res = await applyDeliveryNoteScan(
+      initialApply,
+      formOf(
+        { clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) },
+        fileOf("note.jpg")
+      )
+    );
+    expect(res.type).toBe("error");
+    expect(res.message).toBe(fr.materials.scan.errors.imageBusy);
+    expect(res.message).not.toBe(fr.materials.scan.errors.corruptedImage);
+    expect(applyScanItemsMock).not.toHaveBeenCalled();
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(createFileMock).not.toHaveBeenCalled();
+  });
+
   // Passe 3a, point 2: repository/projectMaterials.ts's applyScanItems rolls
   // the WHOLE batch back (nothing applied) when one of the reviewed lines'
   // materialId matches no row in this project — this must surface as an
