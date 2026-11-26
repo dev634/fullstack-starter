@@ -11,7 +11,7 @@ import {
   looksLikeDangerousMarkup,
   looksLikePdf,
 } from "@/lib/fileSignature";
-import { convertToStrippedJpeg, isStrippableMediaType, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { convertToStrippedJpeg, isImageBusyError, isStrippableMediaType, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -118,6 +118,16 @@ function isRealImage(buffer: Buffer): boolean {
   return detectRasterImageMediaType(buffer) !== null;
 }
 
+// Refusal when lib/imageMetadata.ts's decode queue is full (nothing is sent to
+// Cloudinary, the original included): the user is told to try again.
+function busyUploadError() {
+  return {
+    type: "error",
+    message: "The server is already processing images. Try again in a moment.",
+    i18n: "uploadBusy",
+  };
+}
+
 export const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /**
@@ -179,7 +189,9 @@ export async function uploadClientPhoto(file: File): Promise<string> {
       outgoing = isStrippableMediaType(mediaType)
         ? await stripArchivedPhotoMetadata(buffer, mediaType)
         : await convertToStrippedJpeg(buffer);
-    } catch {
+    } catch (error) {
+      // The decode queue is full: say so, instead of calling the photo bad.
+      if (isImageBusyError(error)) throw busyUploadError();
       // sharp could not decode it: never fall back to sending the original,
       // which would quietly undo the stripping. Same refusal as
       // uploadEquipmentPhoto, in this module's own error shape.
@@ -704,7 +716,8 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; p
   let stripped: Buffer;
   try {
     stripped = await stripArchivedPhotoMetadata(buffer, mediaType);
-  } catch {
+  } catch (error) {
+    if (isImageBusyError(error)) throw busyUploadError();
     // stripArchivedPhotoMetadata throws its own ScanError shape
     // ({type, code}, no i18n field) on a sharp decode failure — re-thrown
     // here in this module's own upload-error shape so getErrorMessage

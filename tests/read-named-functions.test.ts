@@ -53,7 +53,9 @@ const EXPECTED_FILES = 29;
 // isPhotoUrlReferenced (read-named, a findFirst, no write) while lib/cloudinary.ts loses
 // isStrippableEquipmentPhoto (read-named, merged into lib/imageMetadata.ts::isStrippableMediaType,
 // a file this test does not walk): +1 and -1, the totals do not move.
-const EXPECTED_FUNCTIONS = 236;
+// 236 -> 237 (fix/photo-entreprise, decode queue): lib/cloudinary.ts gains busyUploadError, the refusal
+// thrown when lib/imageMetadata.ts's queue is full (not read-named, 111 unchanged; it writes nothing).
+const EXPECTED_FUNCTIONS = 237;
 const EXPECTED_READ_NAMED = 111;
 
 type Fn = { name: string; body: ts.Node };

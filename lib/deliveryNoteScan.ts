@@ -8,6 +8,7 @@ import {
 } from "@/lib/fileSignature";
 import {
     decodeOriented,
+    isImageBusyError,
     isStrippableMediaType,
     runExclusive,
     stripArchivedPhotoMetadata,
@@ -57,6 +58,7 @@ export type ScanErrorCode =
     | "fileTooLarge"
     | "invalidFileType"
     | "corruptedImage"
+    | "imageBusy"
     | "unreadableNote"
     | "noItemsRead";
 
@@ -65,6 +67,7 @@ const SCAN_ERROR_CODES: readonly string[] = [
     "fileTooLarge",
     "invalidFileType",
     "corruptedImage",
+    "imageBusy",
     "unreadableNote",
     "noItemsRead",
 ];
@@ -282,8 +285,8 @@ async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
         // (lib/imageMetadata.ts): a truncated photo the archive accepts is not
         // refused one step earlier here, and this decode counts against the
         // same memory bound.
-        return await runExclusive(() =>
-            decodeOriented(buffer)
+        return await runExclusive(async () =>
+            (await decodeOriented(buffer))
                 .resize({
                     width: MODEL_MAX_LONG_EDGE,
                     height: MODEL_MAX_LONG_EDGE,
@@ -293,8 +296,10 @@ async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
                 .jpeg({ quality: MODEL_JPEG_QUALITY })
                 .toBuffer()
         );
-    } catch {
-        throw scanError("corruptedImage");
+    } catch (error) {
+        // A full queue is "try again in a moment", not a corrupted photo —
+        // and, like the corrupted case, never a fallback to the original.
+        throw scanError(isImageBusyError(error) ? "imageBusy" : "corruptedImage");
     }
 }
 

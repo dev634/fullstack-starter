@@ -14,6 +14,7 @@ vi.mock("openai", () => ({
 }));
 
 import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
+import { MAX_WAITING_TASKS, runExclusive } from "@/lib/imageMetadata";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 
 const originalEnv = { ...process.env };
@@ -83,6 +84,23 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     const meta = await sharp(sentBuffer).metadata();
     expect(meta.width).toBe(200);
     expect(meta.height).toBe(120);
+  });
+
+  it("fails with imageBusy (not corruptedImage), without calling the provider, when the shared decode queue is full", async () => {
+    // Fill the real, process-wide queue: one task running, MAX_WAITING_TASKS waiting.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, () => runExclusive(() => gate));
+    try {
+      const file = await realJpegFile({ width: 200, height: 120 });
+      await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "imageBusy" });
+      expect(anthropicCreateMock).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await Promise.all(held);
+    }
   });
 
   it("fails with a generic app error, without ever calling the provider, when the image buffer is corrupted", async () => {

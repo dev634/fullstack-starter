@@ -32,6 +32,9 @@ const UPLOAD_ERROR_CODES = [
     "uploadTypeNotAllowed",
     "uploadNotPdf",
     "uploadFailed",
+    // lib/imageMetadata.ts's queue is full (imageBusy): a photo upload is
+    // refused at once, without ever sending the original.
+    "uploadBusy",
 ] as const;
 type UploadErrorCode = (typeof UPLOAD_ERROR_CODES)[number];
 

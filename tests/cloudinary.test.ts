@@ -232,6 +232,23 @@ describe("uploadClientPhoto — metadata stripping by format", () => {
     ).rejects.toMatchObject({ i18n: "uploadNotImage" });
     expect(uploadStreamMock).not.toHaveBeenCalled();
   });
+
+  it("tells the user to try again (uploadBusy, not uploadNotImage) when the decode queue is full, and never sends the original", async () => {
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "imageBusy" });
+    await expect(
+      uploadClientPhoto(new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" }))
+    ).rejects.toMatchObject({ i18n: "uploadBusy" });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("same for the AVIF/TIFF converter: a full queue is uploadBusy, nothing is sent", async () => {
+    const avif = new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31]);
+    convertToStrippedJpegMock.mockRejectedValueOnce({ type: "error", code: "imageBusy" });
+    await expect(uploadClientPhoto(new File([avif], "photo.avif", { type: "image/avif" }))).rejects.toMatchObject({
+      i18n: "uploadBusy",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("destroyClientPhoto — reads Cloudinary's report", () => {
@@ -425,6 +442,15 @@ describe("uploadEquipmentPhoto — content-based validation, routed through stri
       message: "The photo must be an image file.",
       i18n: "uploadNotImage",
     });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("uploadEquipmentPhoto — a full decode queue", () => {
+  it("refuses with uploadBusy and never sends the original", async () => {
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "imageBusy" });
+    const file = new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+    await expect(uploadEquipmentPhoto(file)).rejects.toMatchObject({ i18n: "uploadBusy" });
     expect(uploadStreamMock).not.toHaveBeenCalled();
   });
 });
