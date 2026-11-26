@@ -47,11 +47,13 @@
     "GHSA-f88m-g3jw-g9cj, the libvips CVEs). No published Next release ships",
     "patched versions, so `npm audit fix --force` proposes next@9.3.3 — a",
     "seven-major downgrade that would destroy the app. NEVER run it here.",
-    "sharp matters in production: Next optimises remote images at runtime and",
-    "users upload their own images to the allowed Cloudinary host, so a",
-    "crafted upload would reach libvips. These overrides are the surgical fix;",
-    "sharp is pushed past next's declared ^0.34.5, which is why the build and",
-    "the /_next/image path are verified whenever they change."
+    "sharp matters in production: the app decodes uploaded photos itself",
+    "(company photo, equipment photo, delivery-note scan, lib/imageMetadata.ts),",
+    "so a crafted upload reaches libvips. /_next/image no longer accepts remote",
+    "URLs (no images.remotePatterns since fix/photo-entreprise), so the Next",
+    "optimiser only sees local public/ files. These overrides are the surgical",
+    "fix; sharp is pushed past next's declared ^0.34.5, which is why the build",
+    "and the photo paths are verified whenever they change."
   ],
   "overrides": {
     "sharp": "^0.35.5",
