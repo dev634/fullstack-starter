@@ -59,9 +59,9 @@ export async function create(data: ReserveCreateData) {
                     latitude: data.latitude ?? null,
                     longitude: data.longitude ?? null,
                 },
-                // The action reads nothing back; tests-integration/reserve-numbering
-                // asserts the stable number and the owning project on the created row.
-                select: { id: true, number: true, projectId: true },
+                // The action reads nothing back: the id only. A test that needs the
+                // number reads the row again (tests-integration/reserve-numbering).
+                select: { id: true },
             });
         });
     } catch (error) {

@@ -32,7 +32,7 @@ import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
-import type { UserActionState } from "@/types/user";
+import type { AddUserActionState, UserActionState } from "@/types/user";
 import type { Role } from "@/app/generated/prisma/client";
 
 type Actor = { role: Role; email: string; hiddenAreas: ReadonlySet<AppAreaKey> };
@@ -91,7 +91,7 @@ async function requireManager(): Promise<{ actor: Actor } | { error: { type: "er
   return { actor: { role: role as Role, email: session.user?.email ?? "", hiddenAreas: ctx.hiddenAreas } };
 }
 
-export async function addUser(prevState: UserActionState, formData: FormData): Promise<UserActionState> {
+export async function addUser(prevState: AddUserActionState, formData: FormData): Promise<AddUserActionState> {
   const gate = await requireManager();
   if ("error" in gate) return { ...prevState, ...gate.error };
   const { actor } = gate;

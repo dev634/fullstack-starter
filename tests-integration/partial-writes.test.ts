@@ -38,10 +38,12 @@ describe("projects.update against a real Postgres", () => {
       email: uniqueEmail("client"), companyName: "PartialCo", address: "1 Test St", city: "Testville",
       zipCode: "00000", country: "Testland", photoUrl: null, phone: null, website: null, status: "PROSPECT",
     });
-    return createProject({
+    const { id } = await createProject({
       clientId: client.id, name: "Toiture", status: "EN_COURS", type: "OMBRIERE", businessNumber: "AFF-1",
       power: 9.5, budget: 1000, address: "2 rue X", startDate: "2026-06-01", endDate: "2026-06-30", notes: "note",
     });
+    // The repository hands back the id only: the baseline is what the base stored.
+    return prisma.project.findUniqueOrThrow({ where: { id }, select: { id: true, startDate: true, endDate: true } });
   }
 
   it("absent -> every column unchanged (type and status keep their value, no default is written)", async () => {

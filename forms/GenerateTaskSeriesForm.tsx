@@ -4,9 +4,9 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { Squares2X2Icon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
-import type { CreatedTaskData, TaskActionState } from "@/types/task";
+import type { CreatedTaskActionState } from "@/types/task";
 
-const initialState: TaskActionState<CreatedTaskData> = {
+const initialState: CreatedTaskActionState = {
   type: null,
   message: "",
 }
@@ -26,7 +26,7 @@ export default function GenerateTaskSeriesForm({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [state, formAction, isPending] = useActionState<TaskActionState<CreatedTaskData>, FormData>(
+  const [state, formAction, isPending] = useActionState<CreatedTaskActionState, FormData>(
     addTaskSeries,
     initialState
   );

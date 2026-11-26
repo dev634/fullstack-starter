@@ -147,9 +147,13 @@ export default function UsersManager({
       fd.set("jobFunctionId", jobFunctionId ? String(jobFunctionId) : "");
       if (password) fd.set("password", password);
       let res: UserActionState;
+      // Only addUser hands back an id (the new account's); updateUser carries no `data`.
+      let createdId: number | undefined;
       if (editing.mode === "add") {
         fd.set("email", email.trim());
-        res = await addUser(initialState, fd);
+        const added = await addUser(initialState, fd);
+        res = added;
+        createdId = added.data?.id;
       } else {
         fd.set("id", String(editing.user.id));
         res = await updateUser(initialState, fd);
@@ -158,7 +162,7 @@ export default function UsersManager({
       // are saved right after — only once the profile itself succeeded, to
       // avoid assigning projects to a user whose creation just failed.
       if (res.type === "success" && canAssignProjects && !endsOwnSession) {
-        const targetId = editing.mode === "edit" ? editing.user.id : res.data?.id;
+        const targetId = editing.mode === "edit" ? editing.user.id : createdId;
         if (targetId) {
           const assignRes = await setUserProjectAssignments(targetId, [...assigned]);
           if (assignRes.type === "error") {

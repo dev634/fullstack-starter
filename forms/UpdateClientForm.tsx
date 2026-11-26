@@ -1,26 +1,18 @@
 'use client'
 import { updateClient } from "@/actions/clients/clients";
 import { useEffect, useActionState, useState } from 'react';
-import { Client } from "@/app/generated/prisma/client";
 import { ClientFields } from "@/forms/ClientFields";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { ClientActionState } from "@/types/client";
+import type { UpdateClientFormValues } from "@/forms/updateClientFormValues";
 
 const initialState: ClientActionState = {
   type: null,
   message: "",
 }
-
-/**
- * Every column of the company the form edits — all of `Client` except
- * `deletedAt`, which no field reads. The page builds this as a literal: a
- * narrower prop type alone would not stop a wider row from being serialised
- * to the browser (structural typing), only not passing the column does.
- */
-export type UpdateClientFormValues = Omit<Client, "deletedAt">;
 
 export default function UpdateClientForm({ client }: { client: UpdateClientFormValues }) {
   const { t } = useTranslation();

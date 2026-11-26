@@ -4,10 +4,10 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import ModalShell from "@/components/ModalShell";
-import type { CreatedTaskData, TaskActionState } from "@/types/task";
+import type { CreatedTaskActionState } from "@/types/task";
 import type { TaskCategoryOption } from "@/forms/GenerateTaskSeriesForm";
 
-const initialState: TaskActionState<CreatedTaskData> = {
+const initialState: CreatedTaskActionState = {
   type: null,
   message: "",
 }
@@ -25,7 +25,7 @@ export default function AddTaskForm({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [state, formAction, isPending] = useActionState<TaskActionState<CreatedTaskData>, FormData>(
+  const [state, formAction, isPending] = useActionState<CreatedTaskActionState, FormData>(
     addTask,
     initialState
   );

@@ -86,7 +86,7 @@ describe("project actions", () => {
     expect(res.type).toBe("success");
   });
 
-  it("addProject returns no row: budget, notes and the reserve counter never reach the browser", async () => {
+  it("addProject: the action's response carries no row (no data, none of budget / notes / reserveCounter)", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
     createMock.mockResolvedValue({ id: 1, budget: 123456, notes: "confidentiel", reserveCounter: 4, deletedAt: null } as never);
     const res = await addProject(initial, formOf({ clientId: "1", name: "Toiture principale" }));

@@ -42,8 +42,10 @@ async function makeProjectWithPlan() {
   return { client, project, plan };
 }
 
-function pin(planId: number, description: string) {
-  return createReserve({ planId, x: 0.5, y: 0.5, description });
+/** Pin a réserve, then read back what the base stored: the repository hands back the id only. */
+async function pin(planId: number, description: string) {
+  const { id } = await createReserve({ planId, x: 0.5, y: 0.5, description });
+  return prisma.reserve.findUniqueOrThrow({ where: { id }, select: { id: true, number: true, projectId: true } });
 }
 
 afterEach(async () => {

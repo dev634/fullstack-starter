@@ -129,7 +129,7 @@ describe("reserve actions", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
-  it("addReserve returns no row: the GPS position never reaches the browser", async () => {
+  it("addReserve: the action's response carries no row (no data, none of the GPS columns)", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
     createMock.mockResolvedValue({ id: 9, latitude: 48.8566, longitude: 2.3522 } as never);
     const res = await addReserve(initial, form(validFields));

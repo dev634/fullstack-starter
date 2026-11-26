@@ -1,20 +1,15 @@
-type TaskActionBase = {
+/** The state every task action returns: type and message, field errors on a refused parse — no `data`. */
+export type TaskActionState = {
   type: "error" | "success" | "zodError" | null;
   message: string;
   fieldsForm?: Record<string, string>;
 };
 
 /**
- * `data` is what a form reads back from the action — nothing else. Without a
- * `TData` the field does not exist on the type at all (not `data?: never`), so
- * a reader of a field no action returns is a compile error. A Server Action
- * never serialises a repository row it has no reader for.
+ * The state of the two task create actions (addTask, addTaskSeries) and of
+ * their forms. The ONE thing those forms read back is the category the new task
+ * or series landed in, so the page can reveal it — a literal built by the
+ * action, never the created row. No other task action carries `data`: a reader
+ * of it elsewhere is a compile error.
  */
-export type TaskActionState<TData = never> = [TData] extends [never] ? TaskActionBase : TaskActionBase & { data?: TData };
-
-/**
- * The one thing the task create forms read back (AddTaskForm,
- * GenerateTaskSeriesForm): the category the new task / series landed in, so the
- * page can reveal it. A literal built by the action, never the created row.
- */
-export type CreatedTaskData = { categoryId: number | null };
+export type CreatedTaskActionState = TaskActionState & { data?: { categoryId: number | null } };

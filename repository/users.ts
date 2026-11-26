@@ -327,8 +327,9 @@ export async function create(
             // the account is written, the same order as every other writer.
             const locked = await lockFunctionsForUpdate(tx, jobFunctionId === null ? [] : [jobFunctionId]);
             if (relay && !relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
-            // addUser reads the id back; tests-integration/legacy-email-case asserts the stored (normalized) e-mail.
-            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: { id: true, email: true } });
+            // addUser and createPortalLogin read the id back, nothing else. A test that needs the stored
+            // (normalized) e-mail reads the row again (tests-integration/legacy-email-case).
+            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: { id: true } });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;

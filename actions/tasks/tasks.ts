@@ -22,12 +22,12 @@ import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
-import type { CreatedTaskData, TaskActionState } from "@/types/task";
+import type { CreatedTaskActionState, TaskActionState } from "@/types/task";
 
 export async function addTask(
-  prevState: TaskActionState<CreatedTaskData>,
+  prevState: CreatedTaskActionState,
   formData: FormData
-): Promise<TaskActionState<CreatedTaskData>> {
+): Promise<CreatedTaskActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const areaCheck = await requireAreaAccess("projects");
@@ -95,9 +95,9 @@ export async function addTask(
  * validation rules (placeholder required, range bounds).
  */
 export async function addTaskSeries(
-  prevState: TaskActionState<CreatedTaskData>,
+  prevState: CreatedTaskActionState,
   formData: FormData
-): Promise<TaskActionState<CreatedTaskData>> {
+): Promise<CreatedTaskActionState> {
   const roleCheck = await requireCapability("content.edit");
   if (roleCheck.error) return { ...prevState, ...roleCheck.error };
   const areaCheck = await requireAreaAccess("projects");

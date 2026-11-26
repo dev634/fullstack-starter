@@ -126,9 +126,9 @@ export async function create(data: ProjectData) {
                 endDate: data.endDate ? new Date(data.endDate) : null,
                 notes: data.notes || null,
             },
-            // addProject reads the id (activity log, revalidation) and nothing else;
-            // tests-integration/partial-writes reads the stored dates back as its baseline.
-            select: { id: true, startDate: true, endDate: true },
+            // addProject reads the id (default folders, activity log) and nothing
+            // else. A test that needs the stored dates reads the row again.
+            select: { id: true },
         });
         return project;
     } catch (error) {
@@ -345,9 +345,10 @@ export type ProjectUpdateData = {
     notes?: string | null;
 };
 
-/** The two stored bounds of a project as "AAAA-MM-JJ" (null = not set). */
 /** What updateProject reads back (the name, for the activity journal) — not the row. */
 export type UpdatedProject = { id: number; name: string };
+
+/** The two stored bounds of a project as "AAAA-MM-JJ" (null = not set). */
 export type StoredProjectDates = { startDate: string | null; endDate: string | null };
 
 const isoDay = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
