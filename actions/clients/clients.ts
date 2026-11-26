@@ -9,7 +9,15 @@ import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { logActivity } from "@/repository/activity";
 import { CreateClientInput, createClientSchema, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
+import {
+  DUPLICATE_CLIENT_EMAIL_CODE,
+  findById,
+  isPhotoUrlReferenced,
+  softDelete,
+  restore,
+  permanentlyRemove,
+  update,
+} from "@/repository/clients";
 import { readCsvUpload, CLIENT_CSV_COLUMNS } from "@/lib/csv";
 import { csvRefusalResult } from "@/lib/csvRefusal";
 import { revalidatePath } from "next/cache";
@@ -68,7 +76,7 @@ export async function addClient(
     try {
       client = await createClient({ ...parsed.data, photoUrl });
     } catch (error) {
-      await discardUploadedPhoto(photoUrl);
+      await discardUploadedPhoto(photoUrl, error);
       throw error;
     }
     await logActivity({
@@ -138,7 +146,7 @@ export async function updateClient(
     try {
       client = await update({ ...clientDatas, id, photoUrl });
     } catch (error) {
-      await discardUploadedPhoto(uploadedUrl);
+      await discardUploadedPhoto(uploadedUrl, error);
       throw error;
     }
 
@@ -172,20 +180,51 @@ export async function updateClient(
 }
 
 /**
- * Compensation for a write that failed AFTER its photo was uploaded: destroys
- * that photo; the caller then re-throws the ORIGINAL refusal — whatever the
- * destruction did. destroyClientPhoto reads Cloudinary's report and logs a
- * non-confirmation itself; the try/catch here is for a destruction that throws
+ * Whether the write was REFUSED for a duplicate e-mail — the one refusal that
+ * proves the write did not happen (the unique index rejected it).
+ */
+function isDuplicateEmailRefusal(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    error.type === "databaseError" &&
+    "i18n" in error &&
+    error.i18n === DUPLICATE_CLIENT_EMAIL_CODE
+  );
+}
+
+/**
+ * Compensation for a write that failed AFTER its photo was uploaded; the caller
+ * then re-throws the ORIGINAL refusal — whatever this did.
+ *
+ * Destroys the photo without condition only for the duplicate-email refusal
+ * (the write did not happen). On ANY other error the write may have been
+ * committed anyway (connection cut after the commit, a post-write step that
+ * raised): destroying then would turn the public avatar of a row that exists
+ * into a 404. So the photo is destroyed only when no company references its
+ * URL — and when that read fails too, it is KEPT and the case is logged: one
+ * file too many rather than a broken image.
+ *
+ * destroyClientPhoto reads Cloudinary's report and logs a non-confirmation
+ * itself; the try/catch here is for a destruction (or a read) that throws
  * anyway, which must neither mask the refusal nor turn it into a success.
  * `undefined` (no photo was uploaded by this call) destroys nothing.
  */
-async function discardUploadedPhoto(uploadedUrl: string | undefined): Promise<void> {
-  if (uploadedUrl) {
+async function discardUploadedPhoto(uploadedUrl: string | undefined, writeError: unknown): Promise<void> {
+  if (!uploadedUrl) return;
+  if (!isDuplicateEmailRefusal(writeError)) {
     try {
-      await destroyClientPhoto(uploadedUrl);
-    } catch (destroyError) {
-      console.error("Compensation failed: could not destroy the orphaned client photo:", destroyError);
+      if (await isPhotoUrlReferenced(uploadedUrl)) return;
+    } catch (readError) {
+      console.error("Compensation skipped: could not tell whether the uploaded client photo is still referenced, kept:", readError);
+      return;
     }
+  }
+  try {
+    await destroyClientPhoto(uploadedUrl);
+  } catch (destroyError) {
+    console.error("Compensation failed: could not destroy the orphaned client photo:", destroyError);
   }
 }
 

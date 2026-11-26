@@ -27,8 +27,15 @@ const DELIVERY_NOTE_MEDIA_TYPES: ReadonlySet<RasterImageMediaType> = new Set<Ras
   "image/gif",
 ]);
 
-/** Exported for lib/deliveryNoteScan.ts::readAndValidateDeliveryNoteImage, the one caller outside this module. */
-export function isDeliveryNoteMediaType(value: RasterImageMediaType): value is DeliveryNoteMediaType {
+/**
+ * Whether stripArchivedPhotoMetadata below can re-encode this format in place:
+ * the single predicate for every caller (lib/deliveryNoteScan.ts's
+ * readAndValidateDeliveryNoteImage, lib/cloudinary.ts's uploadClientPhoto and
+ * uploadEquipmentPhoto). It replaces two byte-identical copies, one in each
+ * module (isDeliveryNoteMediaType / isStrippableEquipmentPhoto): no behavior
+ * change, only one place to widen.
+ */
+export function isStrippableMediaType(value: RasterImageMediaType): value is DeliveryNoteMediaType {
   return DELIVERY_NOTE_MEDIA_TYPES.has(value);
 }
 
@@ -52,14 +59,41 @@ export const SHARP_MAX_INPUT_PIXELS = 40_000_000;
 // the quality that re-encoding step uses.
 const ARCHIVE_JPEG_QUALITY = 95;
 
+// One decode at a time, process-wide. A small file can decode into hundreds of
+// megabytes of raw pixels just under SHARP_MAX_INPUT_PIXELS (measured on
+// Windows: a 27 KB GIF of 6000x6600 costs ~580 MB of RSS; four in parallel,
+// ~2.2 GB), and the container has neither a memory limit nor a rate limit in
+// front of the photo paths. Lowering the pixel ceiling would refuse real
+// 24 Mpx phone photos, so the cost is bounded here instead: every sharp path
+// of the app (company photo, equipment photo, bulletin archive) goes through
+// this queue. A failed task never blocks the next one.
+let queueTail: Promise<unknown> = Promise.resolve();
+
+function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const result = queueTail.then(task);
+  queueTail = result.catch(() => undefined);
+  return result;
+}
+
+// `failOn: "none"`: sharp's default ("warning") refuses a JPEG that merely
+// lacks its two end-of-image bytes or is cut short by an interrupted transfer
+// — files Cloudinary used to accept — so a legitimate upload would start
+// failing. "none" decodes what is decodable; a header that is really
+// corrupted is still refused (sharp throws on it whatever `failOn` says).
+// Shared by every caller on purpose: one function, one behavior.
+function decodeOriented(buffer: Buffer): ReturnType<typeof sharp> {
+  return sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true, failOn: "none" }).rotate();
+}
+
 /**
  * Strips privacy-sensitive metadata (EXIF — GPS coordinates, capture
  * timestamp, device model; also ICC profile, XMP) from an uploaded photo,
  * per an explicit product decision. Used by lib/deliveryNoteScan.ts (the
  * delivery-note photo archived on a project — crossed with "who scanned
  * this", GPS + timestamp is a presence trail of employees on a job site,
- * personal data for close to zero evidentiary value) and by
- * lib/cloudinary.ts::uploadEquipmentPhoto (a phone photo of a tool).
+ * personal data for close to zero evidentiary value), by
+ * lib/cloudinary.ts::uploadEquipmentPhoto (a phone photo of a tool) and by
+ * lib/cloudinary.ts::uploadClientPhoto (the company photo, public).
  *
  * Never resized: full resolution in, full resolution out. It also never
  * changes format: a JPEG stays a JPEG, a PNG stays a PNG, a WEBP stays a
@@ -77,6 +111,13 @@ const ARCHIVE_JPEG_QUALITY = 95;
  *     PNG, WEBP and GIF are re-encoded with sharp's own defaults for that
  *     format. Metadata is dropped as a side effect of NOT calling
  *     `.withMetadata()` on the pipeline in any branch — do not add it.
+ *
+ * Only one call runs at a time (runExclusive above), and a truncated JPEG is
+ * decoded rather than refused (decodeOriented above).
+ *
+ * An animated GIF or WebP is reduced to its FIRST frame (sharp's default:
+ * `animated: true` is deliberately not set). Acceptable for a thumbnail or an
+ * archived photo, and it keeps the output small and the decode bounded.
  *
  * `limitInputPixels` reuses SHARP_MAX_INPUT_PIXELS above, for the same
  * reason as lib/deliveryNoteScan.ts::reduceImageForModel: a byte-size
@@ -98,19 +139,38 @@ export async function stripArchivedPhotoMetadata(
     buffer: Buffer,
     mediaType: DeliveryNoteMediaType
 ): Promise<Buffer> {
-    try {
-        const pipeline = sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true }).rotate();
-        if (mediaType === "image/jpeg") {
-            return await pipeline.jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
+    return runExclusive(async () => {
+        try {
+            const pipeline = decodeOriented(buffer);
+            if (mediaType === "image/jpeg") {
+                return await pipeline.jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
+            }
+            if (mediaType === "image/png") {
+                return await pipeline.png().toBuffer();
+            }
+            if (mediaType === "image/webp") {
+                return await pipeline.webp().toBuffer();
+            }
+            return await pipeline.gif().toBuffer();
+        } catch {
+            throw { type: "error" as const, code: "corruptedImage" as const };
         }
-        if (mediaType === "image/png") {
-            return await pipeline.png().toBuffer();
+    });
+}
+
+/**
+ * AVIF and TIFF are not re-encoded in their own format here, but both decode:
+ * this decodes, applies the orientation, and encodes a JPEG without any
+ * metadata. Same pixel ceiling, same queue, same refusal shape as
+ * stripArchivedPhotoMetadata. Used by lib/cloudinary.ts::uploadClientPhoto
+ * only; the equipment photo keeps refusing both formats.
+ */
+export async function convertToStrippedJpeg(buffer: Buffer): Promise<Buffer> {
+    return runExclusive(async () => {
+        try {
+            return await decodeOriented(buffer).jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
+        } catch {
+            throw { type: "error" as const, code: "corruptedImage" as const };
         }
-        if (mediaType === "image/webp") {
-            return await pipeline.webp().toBuffer();
-        }
-        return await pipeline.gif().toBuffer();
-    } catch {
-        throw { type: "error" as const, code: "corruptedImage" as const };
-    }
+    });
 }

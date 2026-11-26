@@ -10,9 +10,8 @@ import {
   detectRasterImageMediaType,
   looksLikeDangerousMarkup,
   looksLikePdf,
-  type RasterImageMediaType,
 } from "@/lib/fileSignature";
-import { stripArchivedPhotoMetadata, type DeliveryNoteMediaType } from "@/lib/imageMetadata";
+import { convertToStrippedJpeg, isStrippableMediaType, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -103,15 +102,17 @@ async function destroyGuardedAsset(
 }
 
 /**
- * Confirms `buffer` really is one of the four raster image formats this app
- * accepts — sniffed from its magic bytes (lib/fileSignature.ts), never the
+ * Confirms `buffer` really is one of the eight raster image formats this app
+ * recognizes (RasterImageMediaType) — sniffed from its magic bytes (lib/fileSignature.ts), never the
  * client-declared `file.type`, which a request can set to anything. Used by
- * every upload path that is ALWAYS supposed to be a photo (client photo, the
- * branding logo, réserve photos): unlike uploadProjectFile below (an
- * open-ended set of document types, which can't enforce a full allowlist),
- * these three can and do — an SVG or an HTML file renamed to "photo.png" and
- * declared "image/png" has no binary magic number for any of the four and is
- * rejected here regardless of its label.
+ * the paths that only need a yes/no on "is this a photo" (the branding logo,
+ * réserve photos, and uploadProjectFile's image check below): unlike
+ * uploadProjectFile (an open-ended set of document types, which can't enforce
+ * a full allowlist), these can and do — an SVG or an HTML file renamed to
+ * "photo.png" and declared "image/png" has no binary magic number for any of
+ * the four and is rejected here regardless of its label. The company photo
+ * and the equipment photo no longer use it: they need the detected FORMAT
+ * (to clean the metadata), so they call detectRasterImageMediaType directly.
  */
 function isRealImage(buffer: Buffer): boolean {
   return detectRasterImageMediaType(buffer) !== null;
@@ -122,8 +123,9 @@ export const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 /**
  * Upload a client photo to Cloudinary and return its secure URL. Validates
  * the size first (cheap, no need to buffer an oversized file just to reject
- * it), then that the CONTENT is really an image — never the client-declared
- * `file.type` alone (see isRealImage above). This asset is served from a
+ * it), then that the CONTENT is really an image — sniffed from its bytes,
+ * never the client-declared `file.type` (detectRasterImageMediaType; the
+ * detected format also decides how the metadata is cleaned, below). This asset is served from a
  * PUBLIC Cloudinary URL on purpose (unlike project files/plans/photos,
  * guarded — see app/api/assets), so an unvalidated upload here would be
  * directly reachable.
@@ -150,23 +152,33 @@ export async function uploadClientPhoto(file: File): Promise<string> {
   }
 
   // The photo is served from a PUBLIC URL and a phone photo routinely carries
-  // GPS coordinates in its EXIF: for the formats stripArchivedPhotoMetadata
-  // handles (JPEG, PNG, WebP, GIF) the buffer that leaves is the cleaned one —
-  // orientation applied to the pixels first, metadata dropped after.
+  // GPS coordinates in its EXIF. The buffer that leaves is a cleaned one —
+  // orientation applied to the pixels first, metadata dropped after — for:
+  //  - JPEG, PNG, WebP, GIF: re-encoded in their own format
+  //    (stripArchivedPhotoMetadata). An animated GIF/WebP keeps only its first
+  //    frame: acceptable for an avatar.
+  //  - AVIF and TIFF: sharp decodes both, so they leave as a cleaned JPEG
+  //    (convertToStrippedJpeg).
+  // Both go through one queue, one decode at a time (lib/imageMetadata.ts).
   //
-  // OPEN POINT — HEIC, AVIF, BMP and TIFF are still accepted (HEIC is the
-  // iPhone default; refusing it would turn away the most common legitimate
-  // upload) but are sent UNMODIFIED: their metadata, GPS included, is NOT
-  // stripped here, because sharp cannot safely re-encode them in this
-  // pipeline (no sharp HEIC encoder, and orientation lives in the container
-  // for HEIC/AVIF — see isStrippableEquipmentPhoto's doc below, which records
-  // the live probes and what stays unproven). Whether Cloudinary removes it on
-  // its side is NOT proven — do not assume it does. Closing this needs either
-  // a proven sharp path for those formats or a product decision to refuse them.
+  // OPEN POINT — HEIC and BMP are still accepted but sent UNMODIFIED.
+  //  - HEIC (the iPhone default; refusing it would turn away the most common
+  //    legitimate upload): sharp cannot decode it (no HEVC), and its
+  //    orientation lives in the container (see isStrippableMediaType's use in
+  //    uploadEquipmentPhoto's doc below, which records the live probes). Its
+  //    GPS stays readable on the public URL unless Cloudinary removes it on its
+  //    side — NOT proven, do not assume it does. Closing it needs a real iPhone
+  //    HEIC dropped on a test Cloudinary account, then exiftool on the
+  //    secure_url, or a product decision to refuse the format.
+  //  - BMP: the format has no EXIF/GPS block (a file header, a DIB header and
+  //    pixels), so there is nothing to strip; sharp's build here does not read
+  //    it either.
   let outgoing: Buffer = buffer;
-  if (isStrippableEquipmentPhoto(mediaType)) {
+  if (isStrippableMediaType(mediaType) || mediaType === "image/avif" || mediaType === "image/tiff") {
     try {
-      outgoing = await stripArchivedPhotoMetadata(buffer, mediaType);
+      outgoing = isStrippableMediaType(mediaType)
+        ? await stripArchivedPhotoMetadata(buffer, mediaType)
+        : await convertToStrippedJpeg(buffer);
     } catch {
       // sharp could not decode it: never fall back to sending the original,
       // which would quietly undo the stripping. Same refusal as
@@ -617,13 +629,24 @@ export async function destroyReservePhoto(photo: GuardedAssetRef | null | undefi
 export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
 
 /**
- * stripArchivedPhotoMetadata (lib/imageMetadata.ts — shared with
- * lib/deliveryNoteScan.ts, its first caller) only knows how to re-encode the
- * 4 raster types it accepts (DeliveryNoteMediaType) — anything else silently
- * falls through its `.gif()` default, a mis-encode bug, not a rejection (see
- * that function's header comment). So, unlike uploadClientPhoto/
- * uploadReservePhoto's full 8-format allowlist, the equipment photo path
- * narrows to these same 4 formats.
+ * Upload a piece of equipment's photo to Cloudinary and return its secure
+ * URL + public id — same shape and size ceiling as uploadLogo, but the
+ * buffer is re-encoded through stripArchivedPhotoMetadata BEFORE it ever
+ * reaches Cloudinary: this asset is served from a PUBLIC URL (like
+ * Client.photoUrl, Equipment has no guarded delivery — it's a thumbnail of a
+ * tool, not a project asset), and a phone photo routinely carries GPS
+ * coordinates in its EXIF. stripArchivedPhotoMetadata applies the EXIF
+ * orientation to the pixels BEFORE stripping the tag that describes it, so
+ * the archived copy doesn't come out sideways (see that function's header).
+ *
+ * Accepted formats: JPEG, PNG, WebP, GIF (isStrippableMediaType,
+ * lib/imageMetadata.ts — the formats stripArchivedPhotoMetadata re-encodes in
+ * place; anything else would silently fall through its `.gif()` default, a
+ * mis-encode bug, not a rejection). HEIC, AVIF, BMP and TIFF are REFUSED here
+ * with a message that names what IS accepted (decision B below) rather than
+ * the generic "must be an image file". Unlike this path, the company photo
+ * (uploadClientPhoto) converts AVIF and TIFF to a cleaned JPEG and accepts
+ * HEIC/BMP as they are: that is its own product decision, not this one's.
  *
  * Decision B (delivery report) considered delegating HEIC/AVIF/BMP/TIFF to
  * Cloudinary instead — an incoming `transformation: [{ format: "jpg" }]`
@@ -658,29 +681,6 @@ export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
  * `EXIF orientation → sideways photo` bug this whole app already paid for
  * once (docs/CONVENTIONS.md) is worse than a narrower accepted-format list.
  */
-function isStrippableEquipmentPhoto(mediaType: RasterImageMediaType): mediaType is DeliveryNoteMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/webp" ||
-    mediaType === "image/gif"
-  );
-}
-
-/**
- * Upload a piece of equipment's photo to Cloudinary and return its secure
- * URL + public id — same shape and size ceiling as uploadLogo, but the
- * buffer is re-encoded through stripArchivedPhotoMetadata BEFORE it ever
- * reaches Cloudinary: this asset is served from a PUBLIC URL (like
- * Client.photoUrl, Equipment has no guarded delivery — it's a thumbnail of a
- * tool, not a project asset), and a phone photo routinely carries GPS
- * coordinates in its EXIF. stripArchivedPhotoMetadata applies the EXIF
- * orientation to the pixels BEFORE stripping the tag that describes it, so
- * the archived copy doesn't come out sideways (see that function's header).
- * A refused format gets a message that names what IS accepted
- * (isStrippableEquipmentPhoto's doc — decision B) rather than the generic
- * "must be an image file" the other 4 refusal-only reasons below still use.
- */
 export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; publicId: string }> {
   if (file.size > MAX_EQUIPMENT_PHOTO_BYTES) {
     throw {
@@ -693,7 +693,7 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; p
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const mediaType = detectRasterImageMediaType(buffer);
-  if (!mediaType || !isStrippableEquipmentPhoto(mediaType)) {
+  if (!mediaType || !isStrippableMediaType(mediaType)) {
     throw {
       type: "error",
       message: "Accepted formats: JPEG, PNG, WebP, GIF.",

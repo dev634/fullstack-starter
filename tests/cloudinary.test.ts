@@ -38,12 +38,16 @@ vi.mock("cloudinary", () => ({
 // sharp-decodable image (every other fixture in this file is just a magic-
 // number prefix) and can assert the new path actually calls it, rather than
 // re-deriving its own metadata-stripping logic.
-vi.mock("@/lib/imageMetadata", () => ({
+// isStrippableMediaType stays the REAL predicate (the routing decision is part of
+// what these tests check); only the two sharp-running functions are replaced.
+vi.mock("@/lib/imageMetadata", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/imageMetadata")>()),
   stripArchivedPhotoMetadata: vi.fn(async (buffer: Buffer) => buffer),
+  convertToStrippedJpeg: vi.fn(async (buffer: Buffer) => buffer),
 }));
 
 import { v2 as cloudinarySdk } from "cloudinary";
-import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { convertToStrippedJpeg, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import {
   publicIdFromUrl,
   optimizedClientPhoto,
@@ -61,6 +65,7 @@ import {
 const uploadStreamMock = vi.mocked(cloudinarySdk.uploader.upload_stream);
 const destroyMock = vi.mocked(cloudinarySdk.uploader.destroy);
 const stripArchivedPhotoMetadataMock = vi.mocked(stripArchivedPhotoMetadata);
+const convertToStrippedJpegMock = vi.mocked(convertToStrippedJpeg);
 
 // Real magic-number prefixes — enough bytes for detectRasterImageMediaType
 // (lib/fileSignature.ts) to recognize the format, no need for a fully valid,
@@ -135,6 +140,7 @@ beforeEach(() => {
   uploadStreamMock.mockClear();
   destroyMock.mockClear();
   stripArchivedPhotoMetadataMock.mockClear();
+  convertToStrippedJpegMock.mockClear();
 });
 
 describe("uploadClientPhoto — content-based image validation", () => {
@@ -184,6 +190,39 @@ describe("uploadClientPhoto — metadata stripping by format", () => {
   it("does NOT route a HEIC through it (open point: its metadata is sent as-is)", async () => {
     await uploadClientPhoto(new File([REAL_HEIC_BYTES], "photo.heic", { type: "image/heic" }));
     expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+  });
+
+  it("routes an AVIF and a TIFF through convertToStrippedJpeg (not the in-place stripper) and sends ITS buffer", async () => {
+    const avif = new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31]);
+    const tiff = new Uint8Array([0x49, 0x49, 0x2a, 0x00, 8, 0, 0, 0]);
+    for (const [bytes, name, type] of [
+      [avif, "photo.avif", "image/avif"],
+      [tiff, "photo.tif", "image/tiff"],
+    ] as const) {
+      convertToStrippedJpegMock.mockClear();
+      const cleaned = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 7, 7]);
+      convertToStrippedJpegMock.mockResolvedValueOnce(cleaned);
+      let sent: Buffer | null = null;
+      uploadStreamMock.mockImplementationOnce(((_o: unknown, cb: (e: unknown, r: unknown) => void) => ({
+        end: (b: Buffer) => {
+          sent = b;
+          cb(null, { secure_url: "https://res.cloudinary.com/demo/image/upload/v1/clients/x.jpg" });
+        },
+      })) as never);
+      await uploadClientPhoto(new File([bytes], name, { type }));
+      expect(convertToStrippedJpegMock).toHaveBeenCalledTimes(1);
+      expect(sent).toBe(cleaned);
+    }
+    expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an AVIF the converter cannot decode, without sending the original", async () => {
+    const avif = new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31]);
+    convertToStrippedJpegMock.mockRejectedValueOnce({ type: "error", code: "corruptedImage" });
+    await expect(uploadClientPhoto(new File([avif], "photo.avif", { type: "image/avif" }))).rejects.toMatchObject({
+      i18n: "uploadNotImage",
+    });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
   });
 
   it("refuses, without ever sending the original, a photo the stripper cannot decode", async () => {
@@ -353,7 +392,7 @@ describe("uploadEquipmentPhoto — content-based validation, routed through stri
   // considered and REJECTED after a live proof against the real Cloudinary
   // account — every combination tried left a fabricated AVIF's EXIF
   // orientation and GPS/Make metadata untouched or the format unconverted
-  // (see lib/cloudinary.ts::isStrippableEquipmentPhoto's doc for the full
+  // (see lib/cloudinary.ts::uploadEquipmentPhoto's doc for the full
   // account). So, unlike uploadClientPhoto/uploadReservePhoto (which accept
   // HEIC — passe 3b, point 0), this path still narrows to the 4 formats
   // stripArchivedPhotoMetadata itself accepts. HEIC/AVIF/BMP/TIFF fall

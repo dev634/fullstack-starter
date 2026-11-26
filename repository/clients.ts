@@ -75,7 +75,7 @@ export async function getDashboardStats(projectIds?: number[]) {
  * same pattern as repository/equipmentLoans.ts ("alreadyLent"). The English
  * `message` is only the fallback for a caller that passes no dictionary.
  */
-const DUPLICATE_CLIENT_EMAIL_CODE = "duplicateClientEmail";
+export const DUPLICATE_CLIENT_EMAIL_CODE = "duplicateClientEmail";
 
 function isDuplicateEmailConflict(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -338,6 +338,30 @@ export async function findById(id: number) {
             type: "repositoryError",
             message: "Database Error fetching client."
            }
+    }
+}
+
+/**
+ * Whether ANY company row (trashed ones included: a trashed company keeps its
+ * photo for the restore) still points at this photo URL. Read by
+ * actions/clients/clients.ts to decide whether an upload can be destroyed after
+ * a write that raised an error nobody could classify (the write may have been
+ * committed). Minimal `select`: only existence is read. A failure is thrown,
+ * not answered "no": the caller keeps the photo when it cannot tell.
+ */
+export async function isPhotoUrlReferenced(url: string): Promise<boolean> {
+    try {
+        const row = await prisma.client.findFirst({
+            where: { photoUrl: url },
+            select: { id: true },
+        });
+        return row !== null;
+    } catch (error) {
+        console.log("Repository isPhotoUrlReferenced error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching client."
+        };
     }
 }
 

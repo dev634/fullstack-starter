@@ -8,14 +8,14 @@ import {
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
 } from "@/lib/fileSignature";
 import {
-    isDeliveryNoteMediaType,
+    isStrippableMediaType,
     stripArchivedPhotoMetadata,
     SHARP_MAX_INPUT_PIXELS,
     type DeliveryNoteMediaType,
 } from "@/lib/imageMetadata";
 
 // stripArchivedPhotoMetadata (used below, in the apply step's own doc) and
-// its DeliveryNoteMediaType/isDeliveryNoteMediaType/SHARP_MAX_INPUT_PIXELS
+// its DeliveryNoteMediaType/isStrippableMediaType/SHARP_MAX_INPUT_PIXELS
 // now live in lib/imageMetadata.ts — lib/cloudinary.ts::uploadEquipmentPhoto
 // needed the identical re-encode-and-strip step for an unrelated upload
 // path, so a shared, generic module is the right home for both rather than
@@ -201,7 +201,7 @@ export async function readAndValidateDeliveryNoteImage(
     const detected = detectRasterImageMediaType(buffer);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
-    if (!detected || !isDeliveryNoteMediaType(detected) || RASTER_IMAGE_EXTENSION_MEDIA_TYPES[ext] !== detected) {
+    if (!detected || !isStrippableMediaType(detected) || RASTER_IMAGE_EXTENSION_MEDIA_TYPES[ext] !== detected) {
         throw scanError("invalidFileType");
     }
 

@@ -49,6 +49,10 @@ const EXPECTED_FILES = 29;
 // became resetPasswordWithToken (one); none of them is read-named (110 unchanged).
 // 234 -> 236 (fix/photo-entreprise): repository/clients.ts gains isDuplicateEmailConflict
 // (read-named: `is`, 110 -> 111, a pure predicate, no write) and duplicateEmailError.
+// 2026-11-26 (fix/photo-entreprise, points 4 and 6): repository/clients.ts gains
+// isPhotoUrlReferenced (read-named, a findFirst, no write) while lib/cloudinary.ts loses
+// isStrippableEquipmentPhoto (read-named, merged into lib/imageMetadata.ts::isStrippableMediaType,
+// a file this test does not walk): +1 and -1, the totals do not move.
 const EXPECTED_FUNCTIONS = 236;
 const EXPECTED_READ_NAMED = 111;
 
