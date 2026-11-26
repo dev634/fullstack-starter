@@ -97,4 +97,21 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     // Must fail closed, not fall back to sending the untouched original.
     expect(anthropicCreateMock).not.toHaveBeenCalled();
   });
+
+  // Same opener as every sharp path (lib/imageMetadata.ts::decodeOriented,
+  // `failOn: "none"`): a photo that merely lacks its two end-of-image bytes —
+  // an interrupted transfer — is reduced and sent, not refused one step before
+  // the archive that already accepts it.
+  it("reduces and sends a JPEG that only lacks its end-of-image marker, instead of refusing it", async () => {
+    const whole = Buffer.from(await (await realJpegFile({ width: 40, height: 20 })).arrayBuffer());
+    const truncated = whole.subarray(0, whole.length - 2);
+    // Precondition, or the test would prove nothing: sharp's default refuses it.
+    await expect(sharp(truncated).toBuffer()).rejects.toThrow();
+
+    await extractDeliveryNoteItems(new File([truncated], "note.jpg", { type: "image/jpeg" }));
+
+    expect(anthropicCreateMock).toHaveBeenCalledTimes(1);
+    const sent = await sharp(Buffer.from(base64SentToAnthropic(), "base64")).metadata();
+    expect(sent.format).toBe("jpeg");
+  });
 });

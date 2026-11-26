@@ -65,11 +65,13 @@ const ARCHIVE_JPEG_QUALITY = 95;
 // ~2.2 GB), and the container has neither a memory limit nor a rate limit in
 // front of the photo paths. Lowering the pixel ceiling would refuse real
 // 24 Mpx phone photos, so the cost is bounded here instead: every sharp path
-// of the app (company photo, equipment photo, bulletin archive) goes through
-// this queue. A failed task never blocks the next one.
+// of the app goes through this queue — company photo, equipment photo,
+// bulletin archive (here) and the bulletin's image for the model
+// (lib/deliveryNoteScan.ts::reduceImageForModel, which imports it). A failed
+// task never blocks the next one.
 let queueTail: Promise<unknown> = Promise.resolve();
 
-function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
   const result = queueTail.then(task);
   queueTail = result.catch(() => undefined);
   return result;
@@ -80,8 +82,9 @@ function runExclusive<T>(task: () => Promise<T>): Promise<T> {
 // — files Cloudinary used to accept — so a legitimate upload would start
 // failing. "none" decodes what is decodable; a header that is really
 // corrupted is still refused (sharp throws on it whatever `failOn` says).
-// Shared by every caller on purpose: one function, one behavior.
-function decodeOriented(buffer: Buffer): ReturnType<typeof sharp> {
+// Shared by every caller on purpose: one function, one behavior (the
+// bulletin's image for the model, lib/deliveryNoteScan.ts, included).
+export function decodeOriented(buffer: Buffer): ReturnType<typeof sharp> {
   return sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true, failOn: "none" }).rotate();
 }
 

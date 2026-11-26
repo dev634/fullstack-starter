@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import sharp from "sharp";
 import { scannedDeliveryNoteSchema, MAX_SCAN_QUANTITY } from "@/schemas/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import {
@@ -8,9 +7,10 @@ import {
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
 } from "@/lib/fileSignature";
 import {
+    decodeOriented,
     isStrippableMediaType,
+    runExclusive,
     stripArchivedPhotoMetadata,
-    SHARP_MAX_INPUT_PIXELS,
     type DeliveryNoteMediaType,
 } from "@/lib/imageMetadata";
 
@@ -277,16 +277,22 @@ const MODEL_JPEG_QUALITY = 85;
  */
 async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
     try {
-        return await sharp(buffer, { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true })
-            .rotate()
-            .resize({
-                width: MODEL_MAX_LONG_EDGE,
-                height: MODEL_MAX_LONG_EDGE,
-                fit: "inside",
-                withoutEnlargement: true,
-            })
-            .jpeg({ quality: MODEL_JPEG_QUALITY })
-            .toBuffer();
+        // Same opener (pixel ceiling, orientation, `failOn: "none"`) and same
+        // one-at-a-time queue as every other sharp path of the app
+        // (lib/imageMetadata.ts): a truncated photo the archive accepts is not
+        // refused one step earlier here, and this decode counts against the
+        // same memory bound.
+        return await runExclusive(() =>
+            decodeOriented(buffer)
+                .resize({
+                    width: MODEL_MAX_LONG_EDGE,
+                    height: MODEL_MAX_LONG_EDGE,
+                    fit: "inside",
+                    withoutEnlargement: true,
+                })
+                .jpeg({ quality: MODEL_JPEG_QUALITY })
+                .toBuffer()
+        );
     } catch {
         throw scanError("corruptedImage");
     }
