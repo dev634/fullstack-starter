@@ -139,13 +139,40 @@ export async function uploadClientPhoto(file: File): Promise<string> {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  const mediaType = detectRasterImageMediaType(buffer);
 
-  if (!isRealImage(buffer)) {
+  if (!mediaType) {
     throw {
       type: "error",
       message: "The photo must be an image file.",
       i18n: "uploadNotImage",
     };
+  }
+
+  // The photo is served from a PUBLIC URL and a phone photo routinely carries
+  // GPS coordinates in its EXIF: for the formats stripArchivedPhotoMetadata
+  // handles (JPEG, PNG, WebP, GIF) the buffer that leaves is the cleaned one —
+  // orientation applied to the pixels first, metadata dropped after.
+  //
+  // OPEN POINT — HEIC, AVIF, BMP and TIFF are still accepted (HEIC is the
+  // iPhone default; refusing it would turn away the most common legitimate
+  // upload) but are sent UNMODIFIED: their metadata, GPS included, is NOT
+  // stripped here, because sharp cannot safely re-encode them in this
+  // pipeline (no sharp HEIC encoder, and orientation lives in the container
+  // for HEIC/AVIF — see isStrippableEquipmentPhoto's doc below, which records
+  // the live probes and what stays unproven). Whether Cloudinary removes it on
+  // its side is NOT proven — do not assume it does. Closing this needs either
+  // a proven sharp path for those formats or a product decision to refuse them.
+  let outgoing: Buffer = buffer;
+  if (isStrippableEquipmentPhoto(mediaType)) {
+    try {
+      outgoing = await stripArchivedPhotoMetadata(buffer, mediaType);
+    } catch {
+      // sharp could not decode it: never fall back to sending the original,
+      // which would quietly undo the stripping. Same refusal as
+      // uploadEquipmentPhoto, in this module's own error shape.
+      throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+    }
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -164,22 +191,32 @@ export async function uploadClientPhoto(file: File): Promise<string> {
           resolve(result.secure_url);
         }
       )
-      .end(buffer);
+      .end(outgoing);
   });
 }
 
 /**
  * Best-effort deletion of a previously uploaded photo. Never throws so it
- * can't break the surrounding mutation if the asset is already gone.
+ * can't break the surrounding mutation if the asset is already gone — but it
+ * reads `destroy`'s own report (`{ result: "ok" | "not found" | ... }`) and
+ * logs anything else: an operation that doesn't throw hasn't necessarily
+ * acted. An unparseable URL (no public id) is logged too, since nothing was
+ * destroyed.
  */
 export async function destroyClientPhoto(
   url: string | null | undefined
 ): Promise<void> {
   if (!url) return;
   const publicId = publicIdFromUrl(url);
-  if (!publicId) return;
+  if (!publicId) {
+    console.error(`Cloudinary destroy skipped: no public id in client photo url "${url}"`);
+    return;
+  }
   try {
-    await cloudinary.uploader.destroy(publicId);
+    const response: { result?: string } = await cloudinary.uploader.destroy(publicId);
+    if (response.result !== "ok" && response.result !== "not found") {
+      console.error(`Cloudinary destroy for client photo "${publicId}" did not confirm deletion: "${response.result}"`);
+    }
   } catch (error) {
     console.error("Cloudinary destroy failed:", error);
   }

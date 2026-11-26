@@ -20,6 +20,7 @@ import { logActivity } from "@/repository/activity";
 import { findAccessScopeByEmail } from "@/repository/users";
 import { MAX_IMPORT_ROWS, MAX_IMPORT_BYTES } from "@/lib/csv";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
+import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
 const createClientMock = vi.mocked(createClient);
@@ -141,7 +142,13 @@ describe("importClients", () => {
     authMock.mockResolvedValue(adminSession());
     createClientMock
       .mockResolvedValueOnce({ type: "success", message: "ok" } as never)
-      .mockRejectedValueOnce({ type: "error", message: "A client with this email already exists." })
+      // What repository/clients.ts::create really throws on the unique index: an
+      // English fallback message AND the i18n code the importer must resolve.
+      .mockRejectedValueOnce({
+        type: "databaseError",
+        message: "A client with this email already exists. Please use a different email.",
+        i18n: "duplicateClientEmail",
+      })
       .mockResolvedValueOnce({ type: "success", message: "ok" } as never);
 
     const res = await importClients(
@@ -154,9 +161,12 @@ describe("importClients", () => {
 
     expect(createClientMock).toHaveBeenCalledTimes(3);
     expect(res.created).toBe(2);
+    // The locale here is "fr": the row shows the dictionary string, not the
+    // hard-coded English fallback (this assertion used to LOCK the English one).
     expect(res.errors).toEqual([
-      { row: 3, email: "dup@x.com", message: "A client with this email already exists." },
+      { row: 3, email: "dup@x.com", message: fr.clients.messages.duplicateEmail },
     ]);
+    expect(res.errors[0].message).not.toContain("A client with this email");
   });
 
   it("omits a blank Status cell instead of passing an empty string", async () => {

@@ -49,6 +49,7 @@ import {
   optimizedClientPhoto,
   uploadProjectFile,
   uploadClientPhoto,
+  destroyClientPhoto,
   uploadLogo,
   uploadReservePhoto,
   uploadReservePlan,
@@ -161,6 +162,75 @@ describe("uploadClientPhoto — content-based image validation", () => {
       "https://res.cloudinary.com/demo/raw/authenticated/projects/1/devis.pdf"
     );
     expect(uploadStreamMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("uploadClientPhoto — metadata stripping by format", () => {
+  it("routes a JPEG/PNG through stripArchivedPhotoMetadata and sends ITS buffer, not the original", async () => {
+    const cleaned = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 9, 9]);
+    stripArchivedPhotoMetadataMock.mockResolvedValueOnce(cleaned);
+    let sent: Buffer | null = null;
+    uploadStreamMock.mockImplementationOnce(((_o: unknown, cb: (e: unknown, r: unknown) => void) => ({
+      end: (b: Buffer) => {
+        sent = b;
+        cb(null, { secure_url: "https://res.cloudinary.com/demo/image/upload/v1/clients/x.jpg" });
+      },
+    })) as never);
+    await uploadClientPhoto(new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" }));
+    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(Buffer), "image/jpeg");
+    expect(sent).toBe(cleaned);
+  });
+
+  it("does NOT route a HEIC through it (open point: its metadata is sent as-is)", async () => {
+    await uploadClientPhoto(new File([REAL_HEIC_BYTES], "photo.heic", { type: "image/heic" }));
+    expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses, without ever sending the original, a photo the stripper cannot decode", async () => {
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce({ type: "error", code: "corruptedImage" });
+    await expect(
+      uploadClientPhoto(new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" }))
+    ).rejects.toMatchObject({ i18n: "uploadNotImage" });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("destroyClientPhoto — reads Cloudinary's report", () => {
+  const URL = "https://res.cloudinary.com/demo/image/upload/v1699999999/clients/abcd1234.png";
+
+  it("does not log when Cloudinary confirms (ok / not found)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "ok" });
+    await destroyClientPhoto(URL);
+    destroyMock.mockResolvedValueOnce({ result: "not found" });
+    await destroyClientPhoto(URL);
+    expect(destroyMock).toHaveBeenCalledWith("clients/abcd1234");
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("logs a report that is neither (a no-op that threw nothing), and does not throw", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "error" });
+    await expect(destroyClientPhoto(URL)).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("did not confirm deletion"));
+    errorSpy.mockRestore();
+  });
+
+  it("logs a destroy that throws, and does not throw", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockRejectedValueOnce(new Error("network"));
+    await expect(destroyClientPhoto(URL)).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary destroy failed:", expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("logs a url it cannot extract a public id from, and calls nothing", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await destroyClientPhoto("not a url");
+    expect(destroyMock).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
 

@@ -53,6 +53,9 @@ const OTHER_I18N_RESOLVERS: Record<string, (t: Dictionary) => string> = {
     // with a message naming the accepted formats, not the generic
     // "must be an image file" the upload codes above use.
     equipmentPhotoUnsupportedFormat: (t) => t.equipment.messages.unsupportedPhotoFormat,
+    // repository/clients.ts (create AND update) throws this on the unique
+    // index on Client.email; the importer and both forms show the same string.
+    duplicateClientEmail: (t) => t.clients.messages.duplicateEmail,
 };
 
 export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary): string {

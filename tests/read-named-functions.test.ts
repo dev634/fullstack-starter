@@ -47,8 +47,10 @@ function isClientModelWrite(callee: ts.PropertyAccessExpression): boolean {
 const EXPECTED_FILES = 29;
 // 235 -> 234 at lot 3: updatePassword and markResetTokenUsed (two functions)
 // became resetPasswordWithToken (one); none of them is read-named (110 unchanged).
-const EXPECTED_FUNCTIONS = 234;
-const EXPECTED_READ_NAMED = 110;
+// 234 -> 236 (fix/photo-entreprise): repository/clients.ts gains isDuplicateEmailConflict
+// (read-named: `is`, 110 -> 111, a pure predicate, no write) and duplicateEmailError.
+const EXPECTED_FUNCTIONS = 236;
+const EXPECTED_READ_NAMED = 111;
 
 type Fn = { name: string; body: ts.Node };
 

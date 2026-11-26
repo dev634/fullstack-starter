@@ -61,6 +61,34 @@ export async function getDashboardStats(projectIds?: number[]) {
     }
 }
 
+/**
+ * `Client` carries exactly ONE unique constraint besides its primary key: the
+ * unique index on `email` ("Client_email_key", migration 20260411144434 — no
+ * later migration adds or drops one; the others on this table are plain GIN
+ * trigram indexes). The primary key is never written. So a P2002 on this table
+ * can only mean "this email is already taken" — which is why it is recognised
+ * here without reading `meta.target` (empty with the pg driver adapter this app
+ * uses, see docs/CONVENTIONS.md). A second unique constraint added to Client
+ * later MUST narrow this function, or it would misattribute its conflict.
+ *
+ * Thrown as an i18n code, resolved by lib/helpers.ts::getErrorMessage — the
+ * same pattern as repository/equipmentLoans.ts ("alreadyLent"). The English
+ * `message` is only the fallback for a caller that passes no dictionary.
+ */
+const DUPLICATE_CLIENT_EMAIL_CODE = "duplicateClientEmail";
+
+function isDuplicateEmailConflict(error: unknown): boolean {
+    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function duplicateEmailError() {
+    return {
+        type: "databaseError" as const,
+        message: "A client with this email already exists. Please use a different email.",
+        i18n: DUPLICATE_CLIENT_EMAIL_CODE,
+    };
+}
+
 export async function create({email, companyName, address, city, zipCode, country, photoUrl, phone, website, status}: Omit<Client, "id" | "deletedAt">) {
     try {
         // Only the id: the callers (the service, then the action) need nothing
@@ -81,15 +109,8 @@ export async function create({email, companyName, address, city, zipCode, countr
             }
         });
     } catch (error) {
-        if(error instanceof Prisma.PrismaClientKnownRequestError ) {
-            if (error.code === "P2002") {
-                throw {
-                    type: "databaseError",
-                    message: "A client with this email already exists. Please use a different email."
-                }
-            }
-        }
-        
+        if (isDuplicateEmailConflict(error)) throw duplicateEmailError();
+
         throw {
             type: "repositoryError",
             message: "Database Error creating client."
@@ -354,6 +375,7 @@ export async function update({ id, email, companyName, address, city, zipCode, c
         });
         return client;
     }catch(error){
+        if (isDuplicateEmailConflict(error)) throw duplicateEmailError();
         console.log("Repository update error:", error);
         throw {
             type: "repositoryError",

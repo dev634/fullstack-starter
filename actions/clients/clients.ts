@@ -62,7 +62,15 @@ export async function addClient(
 
   try {
     const photoUrl = await extractPhotoUrl(formData);
-    const client = await createClient({ ...parsed.data, photoUrl });
+    // Only THE WRITE is compensated: once the row exists the photo is its
+    // photo, and a later failure (the journal) must not destroy it.
+    let client;
+    try {
+      client = await createClient({ ...parsed.data, photoUrl });
+    } catch (error) {
+      await discardUploadedPhoto(photoUrl);
+      throw error;
+    }
     await logActivity({
       action: "CREATED",
       clientId: client.id,
@@ -124,11 +132,15 @@ export async function updateClient(
     if (uploadedUrl) photoUrl = uploadedUrl;
     else if (removePhoto) photoUrl = null;
 
-    const client = await update({
-      ...clientDatas,
-      id,
-      photoUrl,
-    });
+    // The write failed: the photo uploaded by THIS call (and only it — never
+    // existing.photoUrl, which the row still points at) is now an orphan.
+    let client;
+    try {
+      client = await update({ ...clientDatas, id, photoUrl });
+    } catch (error) {
+      await discardUploadedPhoto(uploadedUrl);
+      throw error;
+    }
 
     // Drop the previous asset once it has been replaced or removed.
     if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {
@@ -156,6 +168,24 @@ export async function updateClient(
       type: "error",
       message: getErrorMessage(error, t.errors.serverError, t),
     };
+  }
+}
+
+/**
+ * Compensation for a write that failed AFTER its photo was uploaded: destroys
+ * that photo; the caller then re-throws the ORIGINAL refusal — whatever the
+ * destruction did. destroyClientPhoto reads Cloudinary's report and logs a
+ * non-confirmation itself; the try/catch here is for a destruction that throws
+ * anyway, which must neither mask the refusal nor turn it into a success.
+ * `undefined` (no photo was uploaded by this call) destroys nothing.
+ */
+async function discardUploadedPhoto(uploadedUrl: string | undefined): Promise<void> {
+  if (uploadedUrl) {
+    try {
+      await destroyClientPhoto(uploadedUrl);
+    } catch (destroyError) {
+      console.error("Compensation failed: could not destroy the orphaned client photo:", destroyError);
+    }
   }
 }
 
@@ -451,7 +481,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
       errors.push({
         row: rowNumber,
         email: record.Email,
-        message: getErrorMessage(error, t.clients.messages.invalidRow),
+        message: getErrorMessage(error, t.clients.messages.invalidRow, t),
       });
     }
   }
