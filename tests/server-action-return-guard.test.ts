@@ -42,8 +42,11 @@ import {
  *   - 455cbff (the branch's first two commits): 93 actions — 3 / 3 (getClient,
  *     getProject, addClient);
  *   - 385d7d0 (getClient / getProject moved to lib/loaders): 91 actions — 1 / 1,
- *     the one exception below. The commit that brings this test changes no
- *     action: same count.
+ *     addClient's `...error`, then pinned as the one exception. The commit that
+ *     brings this test changes no action: same count;
+ *   - the commit where addClient parses its form itself (as updateClient does)
+ *     instead of relaying the refusal its service THROWS: 91 actions — 0 / 0, and
+ *     the exception list below is empty.
  * The first version of this scan, replayed on the same files, counts 56 at
  * fec63b6 and 0 at 385d7d0: it did not see a field of an envelope (addMaterial's
  * `data: material`, deleteMaterialCategory's `data: category`), a field outside
@@ -68,20 +71,11 @@ const CLOSED_LIST_EXPECTED = 25;
  */
 type ReturnException = { file: string; action: string; text: string; reason: string; until: string };
 
-const EXCEPTIONS: readonly ReturnException[] = [
-  {
-    file: "actions/clients/clients.ts",
-    action: "addClient",
-    text: "{ ...prevState, ...error, }",
-    reason:
-      "Relays the object service/clients.ts::createClient THROWS on a failed parse — today `{ type: \"zodError\", message, " +
-      "fieldsForm: makeObjectFromZodError(…) }`, narrowed here by `type === \"zodError\"`. A thrown value is out of the scan's " +
-      "reach (what reaches a catch is whatever any call of the try threw), so this spread is unproven, not proven safe.",
-    until:
-      "createClient RETURNS its refusal instead of throwing it, or addClient parses the form itself (as updateClient does) " +
-      "and builds the zodError state from its own parse.",
-  },
-];
+// Empty since addClient parses its own form: its former exception (`{ ...prevState,
+// ...error }`, the refusal service/clients.ts::createClient THROWS, relayed by
+// spreading it) disappeared with the condition it named. A new entry here is a
+// deliberate, argued edit — not a way to turn a red finding green.
+const EXCEPTIONS: readonly ReturnException[] = [];
 
 const EXCEPTION_KEY = (f: { file: string; action: string; text: string }) => `${f.file}::${f.action}::${f.text}`;
 const excepted = new Set(EXCEPTIONS.map(EXCEPTION_KEY));
@@ -137,7 +131,7 @@ describe("Server Actions return only what the closed list admits", () => {
       expect(e.reason.length).toBeGreaterThan(80);
       expect(e.until.length).toBeGreaterThan(40);
     }
-    expect(EXCEPTIONS).toHaveLength(1);
+    expect(EXCEPTIONS).toHaveLength(0);
   });
 
   it("every entry of the closed list admits at least one real return (none is dead), and says why", () => {

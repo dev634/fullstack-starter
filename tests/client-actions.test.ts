@@ -62,6 +62,15 @@ function formOf(fields: Record<string, string>): FormData {
   return fd;
 }
 
+const VALID_CREATE_FIELDS = {
+  email: "alice@example.com",
+  companyName: "Acme",
+  address: "1 St",
+  city: "NYC",
+  zipCode: "10001",
+  country: "US",
+};
+
 const VALID_UPDATE_FIELDS = {
   id: "1",
   email: "alice@example.com",
@@ -90,10 +99,26 @@ describe("client action auth guard + delegation", () => {
     expect(createClientMock).not.toHaveBeenCalled();
   });
 
+  it("addClient rejects an invalid email with a zod error built from its OWN parse, without calling the service", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await addClient(initial, formOf({ ...VALID_CREATE_FIELDS, email: "not-an-email" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.email).toBeTruthy();
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
+  it("addClient rejects a blank required field (companyName) before any upload or service call", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await addClient(initial, formOf({ ...VALID_CREATE_FIELDS, companyName: "" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.companyName).toBeTruthy();
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
   it("addClient delegates to the service when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
     createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 42 } as never);
-    const res = await addClient(initial, new FormData());
+    const res = await addClient(initial, formOf(VALID_CREATE_FIELDS));
     expect(createClientMock).toHaveBeenCalledTimes(1);
     expect(res.type).toBe("success");
     expect(logActivityMock).toHaveBeenCalledWith(

@@ -90,9 +90,13 @@ export async function createOrAccumulate(
     }
 }
 
-export async function create(data: MaterialData) {
+// Internal: its one caller, createOrAccumulate (above), discards the row — so
+// it is not exported and hands back the id only, never a full row an action
+// could forward to the browser (tests/server-action-return-guard.test.ts).
+async function create(data: MaterialData) {
     try {
         return await prisma.projectMaterial.create({
+            select: { id: true },
             data: {
                 projectId: data.projectId,
                 name: data.name,

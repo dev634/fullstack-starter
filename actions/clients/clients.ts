@@ -7,7 +7,7 @@ import { requireCapability, requireClientAccess, requireFullClientAccess, fullyA
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
 import { logActivity } from "@/repository/activity";
-import { CreateClientInput, updateClientSchema } from "@/schemas/client";
+import { CreateClientInput, createClientSchema, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { readCsvUpload, CLIENT_CSV_COLUMNS } from "@/lib/csv";
@@ -44,15 +44,29 @@ export async function addClient(
   if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
-  const clientDatas = formDataToObject(formData) as CreateClientInput;
+  // Parsed HERE, as updateClient does — not left to the service, whose refusal
+  // came back as a THROWN object this action relayed by spreading it
+  // (`...error`): the one return tests/server-action-return-guard.test.ts could
+  // not prove. The service still parses (importClients calls it too); with the
+  // same schema on the same fields its refusal is now unreachable from here.
+  // Parsing first also means an invalid form no longer uploads its photo.
+  const parsed = createClientSchema.safeParse(formDataToObject(formData));
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
 
   try {
     const photoUrl = await extractPhotoUrl(formData);
-    const client = await createClient({ ...clientDatas, photoUrl });
+    const client = await createClient({ ...parsed.data, photoUrl });
     await logActivity({
       action: "CREATED",
       clientId: client.id,
-      clientName: clientDatas.companyName,
+      clientName: parsed.data.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
@@ -62,19 +76,6 @@ export async function addClient(
       message: client.message,
     };
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      Object.keys(error).includes("type") &&
-      Object.keys(error).includes("message") &&
-      (error as { type?: unknown }).type === "zodError"
-    ) {
-      return {
-        ...prevState,
-        ...error,
-      };
-    }
-
     return {
       ...prevState,
       type: "error",
