@@ -602,7 +602,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   sans lui ni rotation ni strip) mais **pas sur un HEIC réel** — voir l'en-tête
   d'`uploadEquipmentPhoto` pour lever l'exception le jour où un fichier
   d'iPhone est disponible.
-  **Photo d'entreprise (publique), état à `05e4b2c`** : JPEG, PNG, WebP et
+  **Photo d'entreprise (publique), état à `1fed10d`** : JPEG, PNG, WebP et
   GIF sont ré-encodés dans leur format, orientation appliquée puis métadonnées
   retirées (`stripArchivedPhotoMetadata`) ; **AVIF et TIFF sont convertis en
   JPEG nettoyé** (`convertToStrippedJpeg`, mêmes plafonds) ; **HEIC et BMP
@@ -611,16 +611,47 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   sharp ne le décode pas, son GPS peut rester lisible sur l'URL publique tant
   qu'un vrai HEIC d'iPhone n'a pas été déposé sur un compte Cloudinary de test
   puis passé à `exiftool` sur la `secure_url`. Un GIF ou un WebP animé est
-  réduit à sa première image (choix délibéré : un avatar). **Un seul décodage
-  sharp à la fois**, pour les trois chemins (photo d'entreprise, photo
-  d'équipement, archive du bulletin) : file d'attente de concurrence 1 dans
-  `lib/imageMetadata.ts`, parce que le plafond de 40 Mpx borne ce qu'on
-  alloue au pire mais pas ce qui passe juste en dessous (un GIF de 27 Ko en
-  6000×6600 : ~584 Mo de RSS, quatre en parallèle ~2,2 Go ; mesuré sous
-  Windows, l'image Linux n'a pas été mesurée). **`failOn: "none"`** : un JPEG
+  réduit à sa première image (choix délibéré : un avatar).
+  **Coût d'un décodage sharp, ce qui le borne** (`lib/imageMetadata.ts`, quatre
+  chemins applicatifs : photo d'entreprise, photo d'équipement, archive du
+  bulletin, image du bulletin pour le modèle) :
+  - **une file unique du processus**, de concurrence 1, **bornée à 8 tâches en
+    attente** (la suivante est refusée tout de suite, code `imageBusy`, traduit
+    par chaque appelant : `uploadBusy` pour les photos, `scan.errors.imageBusy`
+    pour le bulletin — jamais d'envoi de l'original). Elle vit sur `globalThis`
+    sous un `Symbol.for(...)` : le build embarque le décodeur dans **deux**
+    chunks, et un état de module aurait donné une file par chunk (concurrence
+    réelle de 2). Tout nouveau chemin sharp passe par `runExclusive` et
+    `decodeOriented`, pas par un `sharp(...)` direct ;
+  - **un délai de 10 s** par pipeline (`.timeout`) : un décodage trop long
+    échoue comme n'importe quel échec de décodage et libère la file ;
+  - **le cache de libvips est désactivé** (`sharp.cache(false)`) : il retenait
+    chaque décodage (20 décodages d'un GIF 6000×6600 : ~3 070 Mo résidents, ~47
+    Mo cache coupé, mesuré sous Windows) ;
+  - **un budget de 160 Mo décodés**, lu dans l'en-tête (`metadata()`, rien
+    n'est décodé) : largeur × hauteur × canaux × octets par échantillon, soit le
+    raster que le plafond de 40 Mpx admet déjà en RGBA 8 bits ; il ne refuse
+    rien de ce que ce plafond admet en 8 bits et ne contraint que la haute
+    profondeur et les canaux nombreux. TIFF : seulement `uchar`/`ushort`, 4
+    canaux au plus. **Non calibré sur de vrais AVIF 10 bits de téléphone (non
+    prouvé)** : éprouvé sur des fichiers synthétiques seulement ;
+  - **l'optimiseur `/_next/image` est fermé aux URL distantes** (aucun
+    `remotePattern` dans `next.config.ts`, gardé par
+    `tests/next-config-images.test.ts`) : il est sans authentification et
+    décodait hors de la file ; `ClientAvatar` rend en `unoptimized` l'URL que
+    Cloudinary a déjà transformée.
+  Le plafond de 40 Mpx borne ce qu'on alloue au pire mais pas ce qui passe
+  juste en dessous. **Pire cas mesuré par décodage, sous Windows seulement
+  (l'image Linux n'a pas été mesurée)** : pic de ~530 Mo pour un GIF
+  6000×6600 (27 Ko), ~655 Mo pour un AVIF 12 bits au budget, ~170 Mo pour un
+  JPEG de 24 Mpx — le budget borne le raster, pas le pic. Le « ~1,05 Go
+  après la file » publié avant était la **rétention du cache**, pas une borne.
+  **Reste à faire (lot suivant)** : limite de débit par utilisateur (la file
+  borne la mémoire, pas qui l'occupe), erreurs de SDK relayées, compensations
+  des autres téléversements. **`failOn: "none"`** : un JPEG
   tronqué (marqueur de fin absent, transfert interrompu) est décodé et
   nettoyé au lieu d'être refusé — Cloudinary l'acceptait avant ; un en-tête
-  réellement corrompu reste refusé. Même comportement pour les trois
+  réellement corrompu reste refusé. Même comportement pour les quatre
   appelants, à dessein.
 - Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer
   `Infinity` ; une date non validée laisse écrire `+275760-09-12`, que Prisma
