@@ -65,8 +65,16 @@ const nextConfig: NextConfig = {
   // Its only user, components/ClientAvatar.tsx, already asks Cloudinary for the
   // transformed image (lib/cloudinary-url.ts::optimizedClientPhoto) and renders
   // it `unoptimized`. Without a pattern the optimizer answers 400 to every
-  // remote URL and only the local images of public/ stay optimizable.
-  // tests/next-config-images.test.ts keeps it that way.
+  // remote URL.
+  // `localPatterns` closes the same-origin side: left at Next's default (`**`)
+  // the optimizer fetches ANY path of this origin, without the caller's session
+  // (it sends no cookie) — harmless today, no anonymous route serves a raster
+  // image, but nothing kept it so. Only the build's static media stay
+  // optimizable (delta audit of fix/photo-entreprise, F4).
+  // tests/next-config-images.test.ts keeps both that way.
+  images: {
+    localPatterns: [{ pathname: "/_next/static/media/**" }],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

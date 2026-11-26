@@ -50,8 +50,8 @@
     "sharp matters in production: the app decodes uploaded photos itself",
     "(company photo, equipment photo, delivery-note scan, lib/imageMetadata.ts),",
     "so a crafted upload reaches libvips. /_next/image no longer accepts remote",
-    "URLs (no images.remotePatterns since fix/photo-entreprise), so the Next",
-    "optimiser only sees local public/ files. These overrides are the surgical",
+    "URLs (no images.remotePatterns since fix/photo-entreprise) and only the",
+    "build's static media locally (images.localPatterns). These overrides are the surgical",
     "fix; sharp is pushed past next's declared ^0.34.5, which is why the build",
     "and the photo paths are verified whenever they change."
   ],

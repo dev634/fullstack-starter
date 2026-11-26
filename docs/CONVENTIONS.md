@@ -623,8 +623,14 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     chunks, et un état de module aurait donné une file par chunk (concurrence
     réelle de 2). Tout nouveau chemin sharp passe par `runExclusive` et
     `decodeOriented`, pas par un `sharp(...)` direct ;
-  - **un délai de 10 s** par pipeline (`.timeout`) : un décodage trop long
-    échoue comme n'importe quel échec de décodage et libère la file ;
+  - **un délai de 10 s** par pipeline (`.timeout`), qui **ne borne pas la tâche** :
+    il n'arrête qu'un pipeline traité ligne à ligne. `metadata()` (lue avant le
+    budget) n'a aucun délai, et une étape faite en un seul appel natif (décodage
+    libheif, parcours des images d'un GIF) n'est vérifiée qu'à son retour — un GIF
+    de 10 Mo à 690 000 images 2×2 a passé 60 s dans `metadata()` et 119 s au
+    total, puis a **réussi** (mesuré sous Windows). Une borne réelle demande un
+    comptage des images / pages lu en JS avant sharp, ou un décodage dans un
+    processus qu'on tue : lot suivant. Ouvert ;
   - **le cache de libvips est désactivé** (`sharp.cache(false)`) : il retenait
     chaque décodage (20 décodages d'un GIF 6000×6600 : ~3 070 Mo résidents, ~47
     Mo cache coupé, mesuré sous Windows) ;
@@ -639,7 +645,9 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     `remotePattern` dans `next.config.ts`, gardé par
     `tests/next-config-images.test.ts`) : il est sans authentification et
     décodait hors de la file ; `ClientAvatar` rend en `unoptimized` l'URL que
-    Cloudinary a déjà transformée.
+    Cloudinary a déjà transformée. Côté même origine, `images.localPatterns`
+    n'admet que `/_next/static/media/**` (au lieu de `**` par défaut, qui
+    laissait l'optimiseur aller chercher n'importe quel chemin, sans session).
   Le plafond de 40 Mpx borne ce qu'on alloue au pire mais pas ce qui passe
   juste en dessous. **Pire cas mesuré par décodage, sous Windows seulement
   (l'image Linux n'a pas été mesurée)** : pic de ~530 Mo pour un GIF

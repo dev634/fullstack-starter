@@ -166,9 +166,16 @@ export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
     });
 }
 
-// A decode is abandoned by libvips after this long and the task fails like any
-// other decode failure, which frees the queue. 10 s is far above a real 24 Mpx
-// photo (well under a second) and below the point where a waiting upload gives up.
+// libvips abandons a STREAMED pipeline after this long and the task fails like
+// any other decode failure, which frees the queue. It is NOT a deadline on the
+// task: `metadata()` (read before the decoded-bytes budget) has no timeout, and
+// a stage done in one native call (a libheif decode, a GIF's frame walk) is only
+// checked once it returns — a 10 MB GIF of 690,000 2x2 frames spent 60 s in
+// `metadata()` alone and 119 s in the whole strip, then SUCCEEDED (delta audit
+// of fix/photo-entreprise, F1, measured on Windows). Bounding that needs a frame
+// / page count read in JS before sharp, or a decode in a child process that can
+// be killed — next lot. 10 s is above a real 24 Mpx JPEG (~0.4 s here) but a
+// noisy 24 Mpx WebP took 4.8 s on this machine: not calibrated on the VPS.
 export const SHARP_TIMEOUT_SECONDS = 10;
 
 // The pixel ceiling above bounds the pixel COUNT, not the decoded BYTES: bytes =

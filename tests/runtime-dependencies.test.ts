@@ -259,4 +259,18 @@ describe("runtime dependencies", () => {
       expect(runtimePackagesIn(parse("probe.ts", `import { type A, b } from "pdfkit";`))).toEqual(new Set(["pdfkit"]));
     });
   });
+
+  // Every decode of an uploaded image goes through lib/imageMetadata.ts: one
+  // process-wide queue (runExclusive), one opener with the pixel ceiling, the
+  // decoded-bytes budget and the timeout (decodeOriented), libvips' cache off.
+  // A second module importing sharp would decode outside all of that — the
+  // docs said so (docs/CONVENTIONS.md, photos section) but nothing held it
+  // (delta audit of fix/photo-entreprise, F3). Same discovery as above: every
+  // shipped file, all four import shapes.
+  it("sharp is imported by lib/imageMetadata.ts alone among shipped files", () => {
+    const importers = shippedSourceFiles()
+      .map(rel)
+      .filter((relPath) => runtimePackagesIn(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).has("sharp"));
+    expect(importers).toEqual(["lib/imageMetadata.ts"]);
+  });
 });

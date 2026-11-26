@@ -18,4 +18,10 @@ describe("next.config images — the optimizer is closed to remote URLs", () => 
   it("does not enable dangerouslyAllowSVG", () => {
     expect(nextConfig.images?.dangerouslyAllowSVG ?? false).toBe(false);
   });
+
+  // Left at Next's default (`**`), the optimizer fetches any path of this
+  // origin without the caller's session. Only the build's static media.
+  it("restricts same-origin sources to the build's static media", () => {
+    expect(nextConfig.images?.localPatterns).toEqual([{ pathname: "/_next/static/media/**" }]);
+  });
 });
