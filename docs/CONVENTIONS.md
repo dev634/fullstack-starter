@@ -480,11 +480,14 @@ Liaisons résolues par le vérificateur TypeScript, écritures suivies
 découvert par la directive parsée, de `.ts` à `.cjs` (seuls `app/generated`,
 `node_modules`, `.next`, `.claude` et `.git` sont sautés), à tailles exactes
 recoupées par la table d'exports du compilateur — pas par le manifeste, que la CI
-ne construit qu'après les tests. À `f685ef9` : 24 fichiers, 91 actions (égales une
-à une aux 91 entrées du manifeste), une exception épinglée au texte exact (le
-`...error` d'`addClient`, objet levé par le service). Limites déclarées en tête du
+ne construit qu'après les tests. À `f308d51` : 24 fichiers, 91 actions (égales une
+à une aux 91 entrées du manifeste), **aucune exception** — la seule qu'il y ait eue
+(le `...error` d'`addClient`, objet levé par le service, épinglé à `f685ef9`) a
+disparu quand l'action a parsé elle-même son formulaire. Limites déclarées en tête du
 helper : le test d'une conditionnelle, une valeur rangée dans une autre puis
-écrite par elle, une fonction importée qui écrit dans son argument. **Ajouter une
+écrite par elle, une fonction importée qui écrit dans son argument, et ce qu'un
+`throw` du `try` porte jusqu'à `getErrorMessage` (qui relaie le `.message` de
+tout objet levé). **Ajouter une
 source à la liste fermée est une décision** : sa raison dit ce que la source
 rend, et l'instrument la croit sans lire son corps.
 

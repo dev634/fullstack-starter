@@ -17,8 +17,10 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
  * A read that returns the whole project row (budget, notes, address included)
  * has no business being a client-callable endpoint when nothing but the server
  * calls it. Its guards moved with it, unchanged: role, rubrique, scope, trash
- * (projectTrashState) — tests/authz-coverage.test.ts holds this file to the
- * same gates as the action file it left.
+ * (projectTrashState). What pins each one: role and rubrique,
+ * tests/authz-coverage.test.ts (by argument, "projects"); the trash, the
+ * projectTrashState test; the scope, behaviour tests in
+ * tests/project-actions.test.ts.
  */
 export async function getProject(id: number) {
   const roleCheck = await requireRole("VIEWER");

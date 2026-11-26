@@ -18,8 +18,11 @@ import { getDictionary } from "@/lib/i18n/dictionaries";
  * business being a client-callable endpoint when nothing but the server calls
  * it. Living here keeps it an ordinary server-side function (same move as
  * lib/revalidateFiles.ts). Its guards moved with it, unchanged: role, rubrique,
- * scope, trash — tests/authz-coverage.test.ts holds this file to the same
- * gates as the action file it left.
+ * scope, trash. What pins each one (a guard is only as good as the test that
+ * turns red without it): role and rubrique, tests/authz-coverage.test.ts (by
+ * argument, "clients"); scope and trash, behaviour tests in
+ * tests/client-actions.test.ts (a company with no project in scope, a company
+ * in the trash — both answered like an absent one).
  */
 export async function getClient(id: number) {
   const roleCheck = await requireRole("VIEWER");

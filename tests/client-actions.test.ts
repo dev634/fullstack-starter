@@ -384,6 +384,25 @@ describe("client action auth guard + delegation", () => {
       expect(hasProjectAmongMock).toHaveBeenCalledWith(490, [202]);
     });
 
+    // Audit of the follow-up B refactor (F3): nothing pinned getClient's trash
+    // filter — removing `!client.deletedAt` from lib/loaders/clientLoader.ts
+    // left every test green, and a trashed company would then render on its
+    // normal detail page. The trash page reads the repository directly; this
+    // read must answer a trashed company exactly like an absent one.
+    it("getClient masks a company in the trash, as not found — the same company out of the trash resolves", async () => {
+      authMock.mockResolvedValue({ user: { role: "VIEWER", email: "viewer@example.com" } } as never);
+      findByIdMock.mockResolvedValue({ id: 491, companyName: "Entreprise en corbeille", deletedAt: new Date("2026-11-01") } as never);
+
+      const trashed = await getClient(491);
+
+      expect(trashed.type).toBe("success");
+      expect(trashed.data).toBeNull();
+
+      findByIdMock.mockResolvedValue({ id: 491, companyName: "Entreprise en corbeille", deletedAt: null } as never);
+      const restored = await getClient(491);
+      expect(restored.data).toEqual(expect.objectContaining({ id: 491 }));
+    });
+
     it("deleteClient refuses a client the caller has no project under", async () => {
       authMock.mockResolvedValue(scopedEditor as never);
       findAccessScopeByEmailMock.mockResolvedValue({

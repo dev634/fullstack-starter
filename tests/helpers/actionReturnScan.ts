@@ -55,7 +55,20 @@ import { FOREIGN_TREE_DIRS } from "./astScan";
  *     callback but those of `map` / `flatMap` / `replace`) are unbound: a value
  *     they carry into the return is red, not followed;
  *   - the reasons of CLOSED_LIST: they say what the entry returns, the scan
- *     trusts them (it does not read lib/ or repository/ bodies).
+ *     trusts them (it does not read lib/ or repository/ bodies);
+ *   - what a `throw` inside the action's `try` carries to its `catch`:
+ *     `getErrorMessage(error)` relays the `.message` of ANY thrown object, so
+ *     `throw { message: row.email }`, `throw row` or a local helper that throws
+ *     a field pass green (probed by the delta audit of f308d51). The repository's
+ *     own throws carry literal messages today, and no action throws a field —
+ *     but nothing here checks it;
+ *   - a literal that CAPTURES a value and is written through later (`const box =
+ *     { errors }; box.errors.push(row.email)`, `holder.state.leak = row`,
+ *     `list[0].leak`), and an imported helper that writes into its argument
+ *     (`fill(state, row)`), are the first limit's most natural forms (same probe);
+ *   - `data: { id: x.id }` admits `.id` off any base: `const x = { id: u.passwordHash }`
+ *     would launder a field through the name (improbable — every id of the schema
+ *     is an Int — but not refused).
  * Budgets: MAX_DEPTH nested calls, MAX_STEPS steps per action — past either, red.
  */
 
