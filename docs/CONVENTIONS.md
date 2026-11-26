@@ -602,6 +602,26 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   sans lui ni rotation ni strip) mais **pas sur un HEIC réel** — voir l'en-tête
   d'`uploadEquipmentPhoto` pour lever l'exception le jour où un fichier
   d'iPhone est disponible.
+  **Photo d'entreprise (publique), état à `05e4b2c`** : JPEG, PNG, WebP et
+  GIF sont ré-encodés dans leur format, orientation appliquée puis métadonnées
+  retirées (`stripArchivedPhotoMetadata`) ; **AVIF et TIFF sont convertis en
+  JPEG nettoyé** (`convertToStrippedJpeg`, mêmes plafonds) ; **HEIC et BMP
+  partent tels quels**. BMP : le format n'a pas de bloc EXIF/GPS (en-tête de
+  fichier, en-tête DIB, pixels), il n'y a rien à retirer. ⚠️ **HEIC ouvert** :
+  sharp ne le décode pas, son GPS peut rester lisible sur l'URL publique tant
+  qu'un vrai HEIC d'iPhone n'a pas été déposé sur un compte Cloudinary de test
+  puis passé à `exiftool` sur la `secure_url`. Un GIF ou un WebP animé est
+  réduit à sa première image (choix délibéré : un avatar). **Un seul décodage
+  sharp à la fois**, pour les trois chemins (photo d'entreprise, photo
+  d'équipement, archive du bulletin) : file d'attente de concurrence 1 dans
+  `lib/imageMetadata.ts`, parce que le plafond de 40 Mpx borne ce qu'on
+  alloue au pire mais pas ce qui passe juste en dessous (un GIF de 27 Ko en
+  6000×6600 : ~584 Mo de RSS, quatre en parallèle ~2,2 Go ; mesuré sous
+  Windows, l'image Linux n'a pas été mesurée). **`failOn: "none"`** : un JPEG
+  tronqué (marqueur de fin absent, transfert interrompu) est décodé et
+  nettoyé au lieu d'être refusé — Cloudinary l'acceptait avant ; un en-tête
+  réellement corrompu reste refusé. Même comportement pour les trois
+  appelants, à dessein.
 - Une coercition écrite à la main (`Number(v)` puis `refine`) laisse passer
   `Infinity` ; une date non validée laisse écrire `+275760-09-12`, que Prisma
   relit en `Invalid Date` et qui a rendu `/projects/export` en 500 **pour tout
@@ -675,12 +695,24 @@ le brief `~/.claude/agents/db-specialist.md` — pas recopiées ici. Propre à c
   (`@prisma/adapter-pg`, `lib/prisma.ts`) — sondé sur la base locale, PR #230 :
   les colonnes sont sous `meta.driverAdapterError.cause.constraint.fields`,
   non documenté, et le nom de l'index seulement dans `…originalMessage`. Les
-  quatre `catch` P2002 du dépôt (`repository/{clients,jobFunctions,users,
-  equipmentLoans}.ts`) traitent donc tout P2002 de leur table comme **le seul
-  unique qu'elle porte** — vrai aujourd'hui, faux le jour où une de ces
-  tables gagne une seconde contrainte unique : ce jour-là, lire la structure
-  de l'adaptateur (et l'épingler par un test), sinon un doublon sur la
-  nouvelle contrainte sera annoncé comme un doublon sur l'ancienne.
+  **cinq fichiers et six `catch`** (`repository/{clients,equipmentLoans,
+  jobFunctions,projectWorkers,users}.ts` ; `clients.ts` en compte deux,
+  `create` et `update`, qui passent par le même prédicat) traitent donc
+  tout P2002 de leur table comme **le seul unique qu'elle porte** — vrai
+  aujourd'hui, faux le jour où une de ces tables gagne une seconde contrainte
+  unique : ce jour-là, lire la structure de l'adaptateur (et l'épingler par
+  un test), sinon un doublon sur la nouvelle contrainte sera annoncé comme un
+  doublon sur l'ancienne. Compte relevé à `05e4b2c` (`fix/photo-entreprise`,
+  base `fd719e2`) par `git grep -n "P2002" -- '*.ts' ':!tests*'
+  ':!app/generated'`, en ne gardant que les lignes de code (les commentaires
+  de `clients.ts` et `equipmentLoans.ts` citent aussi P2002) puis en
+  comptant les sites d'appel du prédicat de `clients.ts`. **Seule
+  l'hypothèse « un seul unique » de `Client` est épinglée par un test**
+  (`tests-integration/client-duplicate-email.test.ts`, par `pg_indexes`) ;
+  les quatre autres tables ne le sont pas. **Tables qui portent un unique sans
+  aucun `catch` P2002** : `Reserve(projectId, number)`, `Contact.userId`,
+  `PasswordResetToken.token` — un doublon y remonterait en erreur serveur
+  générique ; à reprendre le jour où un chemin utilisateur peut les provoquer.
   `User` porte **deux** uniques depuis le lot 3 (`User_email_key` et
   `User_email_lower_key`), tous deux sur l'e-mail : l'hypothèse tient encore
   pour cette table, par ce seul fait.
