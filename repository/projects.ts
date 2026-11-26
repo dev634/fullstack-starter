@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { Prisma, type Project, type ProjectStatus, type ProjectType } from "@/app/generated/prisma/client";
+import { Prisma, type ProjectStatus, type ProjectType } from "@/app/generated/prisma/client";
 import { projectTrashState, type ProjectTrashState } from "@/lib/projectTrash";
 import { dateColumn } from "@/lib/partialWrite";
 
@@ -126,6 +126,9 @@ export async function create(data: ProjectData) {
                 endDate: data.endDate ? new Date(data.endDate) : null,
                 notes: data.notes || null,
             },
+            // addProject reads the id (default folders, activity log) and nothing
+            // else. A test that needs the stored dates reads the row again.
+            select: { id: true },
         });
         return project;
     } catch (error) {
@@ -342,6 +345,9 @@ export type ProjectUpdateData = {
     notes?: string | null;
 };
 
+/** What updateProject reads back (the name, for the activity journal) — not the row. */
+export type UpdatedProject = { id: number; name: string };
+
 /** The two stored bounds of a project as "AAAA-MM-JJ" (null = not set). */
 export type StoredProjectDates = { startDate: string | null; endDate: string | null };
 
@@ -355,9 +361,9 @@ const isoDay = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 
  * that, together, they break. `null` = `accept` refused the stored state,
  * nothing was written.
  */
-export async function update(id: number, data: ProjectUpdateData): Promise<Project>;
-export async function update(id: number, data: ProjectUpdateData, accept: (stored: StoredProjectDates) => boolean): Promise<Project | null>;
-export async function update(id: number, data: ProjectUpdateData, accept?: (stored: StoredProjectDates) => boolean): Promise<Project | null> {
+export async function update(id: number, data: ProjectUpdateData): Promise<UpdatedProject>;
+export async function update(id: number, data: ProjectUpdateData, accept: (stored: StoredProjectDates) => boolean): Promise<UpdatedProject | null>;
+export async function update(id: number, data: ProjectUpdateData, accept?: (stored: StoredProjectDates) => boolean): Promise<UpdatedProject | null> {
     try {
         const write = (tx: Prisma.TransactionClient) =>
             tx.project.update({
@@ -374,6 +380,7 @@ export async function update(id: number, data: ProjectUpdateData, accept?: (stor
                     endDate: dateColumn(data.endDate),
                     notes: data.notes,
                 },
+                select: { id: true, name: true },
             });
         if (!accept) return await write(prisma);
         return await prisma.$transaction(async (tx) => {
@@ -440,7 +447,7 @@ export async function updateReserveStatusStyle(id: number, data: ReserveStatusSt
 
 export async function remove(id: number) {
     try {
-        return await prisma.project.delete({ where: { id } });
+        return await prisma.project.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove project error:", error);
         throw {
@@ -456,6 +463,7 @@ export async function softDelete(id: number) {
         return await prisma.project.update({
             where: { id },
             data: { deletedAt: new Date() },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository softDelete project error:", error);
@@ -472,6 +480,8 @@ export async function restore(id: number) {
         return await prisma.project.update({
             where: { id },
             data: { deletedAt: null },
+            // restoreProject logs the name in the activity journal.
+            select: { id: true, name: true },
         });
     } catch (error) {
         console.log("Repository restore project error:", error);

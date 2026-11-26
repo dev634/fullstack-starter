@@ -71,7 +71,7 @@ export async function addEquipment(
     if (!ownerId) return { ...prevState, type: "error", message: t.errors.unauthorized };
 
     photo = await extractEquipmentPhoto(formData);
-    const equipment = await create({
+    await create({
       ownerId,
       name: parsed.data.name,
       reference: parsed.data.reference,
@@ -80,7 +80,7 @@ export async function addEquipment(
     });
 
     revalidatePath("/loans");
-    return { ...prevState, type: "success", message: t.equipment.messages.added, data: equipment };
+    return { ...prevState, type: "success", message: t.equipment.messages.added };
   } catch (error) {
     // Best-effort: never let a DB failure leave an uploaded photo dangling
     // with nothing pointing to it. Guarded so that a cleanup that itself
@@ -141,7 +141,7 @@ export async function editEquipment(
       photoPublicId = null;
     }
 
-    const equipment = await update(parsed.data.id, {
+    await update(parsed.data.id, {
       name: parsed.data.name,
       reference: parsed.data.reference,
       photoUrl,
@@ -156,7 +156,7 @@ export async function editEquipment(
     }
 
     revalidatePath("/loans");
-    return { ...prevState, type: "success", message: t.equipment.messages.updated, data: equipment };
+    return { ...prevState, type: "success", message: t.equipment.messages.updated };
   } catch (error) {
     // Best-effort: never let a DB failure leave a freshly uploaded photo
     // dangling with nothing pointing to it (same guard as addEquipment).

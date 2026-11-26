@@ -46,14 +46,13 @@ export async function addSubcontractorCompany(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const company = await createCompany({ projectId: parsed.data.projectId, name: parsed.data.name });
+    await createCompany({ projectId: parsed.data.projectId, name: parsed.data.name });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/workforce`);
     return {
       ...prevState,
       type: "success",
       message: t.subcontractors.messages.companyAdded,
-      data: company,
     };
   } catch (error) {
     return {
@@ -91,10 +90,10 @@ export async function deleteSubcontractorCompany(id: number, clientId: number, p
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.subcontractors.messages.invalidId) };
-    const company = await removeCompany(id);
+    await removeCompany(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
-    return { type: "success" as const, message: t.subcontractors.messages.companyDeleted, data: company };
+    return { type: "success" as const, message: t.subcontractors.messages.companyDeleted };
   } catch (error) {
     return {
       type: "error" as const,
@@ -134,7 +133,7 @@ export async function addSubcontractorPerson(
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see deleteSubcontractorCompany's comment above.
     if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.subcontractors.messages.invalidId) };
-    const person = await addPerson({
+    await addPerson({
       companyId: parsed.data.companyId,
       name: parsed.data.name,
       jobFunctionId: parsed.data.jobFunctionId,
@@ -146,7 +145,6 @@ export async function addSubcontractorPerson(
       ...prevState,
       type: "success",
       message: t.subcontractors.messages.personAdded,
-      data: person,
     };
   } catch (error) {
     return {
@@ -175,10 +173,10 @@ export async function deleteSubcontractorPerson(id: number, clientId: number, pr
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see deleteSubcontractorCompany's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.subcontractors.messages.invalidId) };
-    const person = await removePerson(id);
+    await removePerson(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
-    return { type: "success" as const, message: t.subcontractors.messages.personDeleted, data: person };
+    return { type: "success" as const, message: t.subcontractors.messages.personDeleted };
   } catch (error) {
     return {
       type: "error" as const,

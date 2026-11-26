@@ -20,6 +20,7 @@ export async function create(data: InterventionData) {
                 technician: data.technician || null,
                 status: data.status ?? "PLANIFIEE",
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create intervention error:", error);
@@ -94,6 +95,7 @@ export async function update(id: number, data: InterventionUpdateData) {
                 technician: data.technician,
                 status: data.status,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update intervention error:", error);
@@ -106,7 +108,7 @@ export async function update(id: number, data: InterventionUpdateData) {
 
 export async function updateStatus(id: number, status: InterventionStatus) {
     try {
-        return await prisma.intervention.update({ where: { id }, data: { status } });
+        return await prisma.intervention.update({ where: { id }, data: { status }, select: { id: true } });
     } catch (error) {
         console.log("Repository updateStatus intervention error:", error);
         throw {
@@ -118,7 +120,7 @@ export async function updateStatus(id: number, status: InterventionStatus) {
 
 export async function remove(id: number) {
     try {
-        return await prisma.intervention.delete({ where: { id } });
+        return await prisma.intervention.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove intervention error:", error);
         throw {

@@ -31,7 +31,7 @@ export async function create(data: ReservePhotoData) {
                 format: data.format ?? null,
                 version: data.version ?? null,
             },
-            omit: { url: true },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create (reservePhoto) error:", error);
@@ -101,7 +101,7 @@ export async function findByIdWithProjectId(id: number) {
  */
 export async function remove(id: number) {
     try {
-        return await prisma.reservePhoto.delete({ where: { id }, omit: { url: true } });
+        return await prisma.reservePhoto.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove (reservePhoto) error:", error);
         throw { type: "repositoryError", message: "Database Error deleting photo." };

@@ -42,7 +42,7 @@ export async function create(data: FileData) {
                 size: data.size ?? null,
                 mimeType: data.mimeType ?? null,
             },
-            omit: { url: true },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create file error:", error);

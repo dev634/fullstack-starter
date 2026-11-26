@@ -129,6 +129,15 @@ describe("reserve actions", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it("addReserve: the action's response carries no row (no data, none of the GPS columns)", async () => {
+    requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+    createMock.mockResolvedValue({ id: 9, latitude: 48.8566, longitude: 2.3522 } as never);
+    const res = await addReserve(initial, form(validFields));
+    expect(res.type).toBe("success");
+    expect(res).not.toHaveProperty("data");
+    expect(JSON.stringify(res)).not.toMatch(/latitude|longitude|48.8566/);
+  });
+
   it("addReserve creates the pin with its relative position + status", async () => {
     requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
     createMock.mockResolvedValue({ id: 9 } as never);

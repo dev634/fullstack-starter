@@ -1,27 +1,27 @@
 'use client'
 import { updateClient } from "@/actions/clients/clients";
 import { useEffect, useActionState, useState } from 'react';
-import { Client } from "@/app/generated/prisma/client";
 import { ClientFields } from "@/forms/ClientFields";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { Toast } from "@/components/Toast";
 import {useRouter} from "next/navigation";
 import { useTranslation } from "@/components/LocaleProvider";
 import type { ClientActionState } from "@/types/client";
+import type { UpdateClientFormValues } from "@/forms/updateClientFormValues";
 
 const initialState: ClientActionState = {
   type: null,
   message: "",
 }
 
-export default function UpdateClientForm({ client }: { client: Client }) {
+export default function UpdateClientForm({ client }: { client: UpdateClientFormValues }) {
   const { t } = useTranslation();
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ClientActionState, FormData>(
     updateClient,
     initialState
   );
-  const [values, setValues] = useState<Client>(client);
+  const [values, setValues] = useState<UpdateClientFormValues>(client);
 
   useEffect(() => {
     if (state.type === null) return;

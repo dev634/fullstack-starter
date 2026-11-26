@@ -24,7 +24,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addProject, updateProject, deleteProject, getProject } from "@/actions/projects/projects";
+import { addProject, updateProject, deleteProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { requireRole } from "@/lib/authz";
 import { canReachProject, getAccessContext } from "@/lib/accessContext";
 import { create, update, remove, softDelete, findById, findTrashState } from "@/repository/projects";
@@ -83,6 +84,15 @@ describe("project actions", () => {
       expect.objectContaining({ clientId: 1, name: "Toiture principale", status: "ETUDE" })
     );
     expect(res.type).toBe("success");
+  });
+
+  it("addProject: the action's response carries no row (no data, none of budget / notes / reserveCounter)", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    createMock.mockResolvedValue({ id: 1, budget: 123456, notes: "confidentiel", reserveCounter: 4, deletedAt: null } as never);
+    const res = await addProject(initial, formOf({ clientId: "1", name: "Toiture principale" }));
+    expect(res.type).toBe("success");
+    expect(res).not.toHaveProperty("data");
+    expect(JSON.stringify(res)).not.toMatch(/123456|confidentiel|reserveCounter/);
   });
 
   it("addProject seeds the standard root folders for the new project", async () => {

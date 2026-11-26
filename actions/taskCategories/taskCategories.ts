@@ -39,14 +39,13 @@ export async function addTaskCategory(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const category = await create({ projectId: parsed.data.projectId, name: parsed.data.name });
+    await create({ projectId: parsed.data.projectId, name: parsed.data.name });
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/tasks`);
     return {
       ...prevState,
       type: "success",
       message: t.tasks.category.messages.added,
-      data: category,
     };
   } catch (error) {
     return {
@@ -84,10 +83,10 @@ export async function deleteTaskCategory(id: number, clientId: number, projectId
     // response would let a restricted EDITOR enumerate ids across the whole
     // company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const category = await remove(id);
+    await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
-    return { type: "success" as const, message: t.tasks.category.messages.deleted, data: category };
+    return { type: "success" as const, message: t.tasks.category.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,

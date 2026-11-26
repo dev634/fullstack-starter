@@ -3,14 +3,11 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
-import { requireRole } from "@/lib/authz";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
-import { getAccessContext } from "@/lib/accessContext";
-import { hasProjectAmong } from "@/repository/projects";
 import { logActivity } from "@/repository/activity";
-import { CreateClientInput, updateClientSchema } from "@/schemas/client";
+import { CreateClientInput, createClientSchema, updateClientSchema } from "@/schemas/client";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { findById, softDelete, restore, permanentlyRemove, update } from "@/repository/clients";
 import { readCsvUpload, CLIENT_CSV_COLUMNS } from "@/lib/csv";
@@ -47,15 +44,29 @@ export async function addClient(
   if (areaCheck.error) return { ...prevState, ...areaCheck.error };
 
   const t = getDictionary(await getLocale());
-  const clientDatas = formDataToObject(formData) as CreateClientInput;
+  // Parsed HERE, as updateClient does — not left to the service, whose refusal
+  // came back as a THROWN object this action relayed by spreading it
+  // (`...error`): the one return tests/server-action-return-guard.test.ts could
+  // not prove. The service still parses (importClients calls it too); with the
+  // same schema on the same fields its refusal is now unreachable from here.
+  // Parsing first also means an invalid form no longer uploads its photo.
+  const parsed = createClientSchema.safeParse(formDataToObject(formData));
+  if (!parsed.success) {
+    return {
+      ...prevState,
+      type: "zodError",
+      message: t.errors.validationError,
+      fieldsForm: makeObjectFromZodError(parsed.error, t),
+    };
+  }
 
   try {
     const photoUrl = await extractPhotoUrl(formData);
-    const client = await createClient({ ...clientDatas, photoUrl });
+    const client = await createClient({ ...parsed.data, photoUrl });
     await logActivity({
       action: "CREATED",
-      clientId: client.data?.id ?? null,
-      clientName: clientDatas.companyName,
+      clientId: client.id,
+      clientName: parsed.data.companyName,
       actorEmail: roleCheck.email,
     });
     revalidatePath("/clients");
@@ -65,66 +76,10 @@ export async function addClient(
       message: client.message,
     };
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      Object.keys(error).includes("type") &&
-      Object.keys(error).includes("message") &&
-      (error as { type?: unknown }).type === "zodError"
-    ) {
-      return {
-        ...prevState,
-        ...error,
-      };
-    }
-
     return {
       ...prevState,
       type: "error",
       message: getErrorMessage(error, t.errors.serverError, t),
-    };
-  }
-}
-
-export async function getClient(id: number) {
-  const roleCheck = await requireRole("VIEWER");
-  if (roleCheck.error) return roleCheck.error;
-  // Passe 3b, point 1: this used to only check the role, not the rubrique —
-  // a function whose hiddenAreas hides "clients" could still read the full
-  // company row (including fields the portail deliberately never exposes)
-  // straight off this action. tests/authz-coverage.test.ts's READS allowlist
-  // used to exempt this file's reads for exactly that reason; the exemption
-  // is gone now that this guard actually exists.
-  const areaCheck = await requireAreaAccess("clients");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    if (isNaN(id)) {
-      throw {
-        type: "error",
-        message: t.errors.invalidId,
-      };
-    }
-
-    const client = await findById(id);
-    // A trashed client is invisible to the normal detail page (looks like
-    // "not found"); the trash page reads the repository directly instead. A
-    // client outside the caller's scope reads the same way — a distinct
-    // response would confirm it exists to someone who shouldn't know that.
-    const access = await getAccessContext();
-    const reachable =
-      access.projectIds === null || (await hasProjectAmong(id, [...access.projectIds]));
-    const visible = client && !client.deletedAt && reachable;
-    return {
-      type: "success",
-      data: visible ? client : null,
-    };
-  } catch (error) {
-    console.log("Action getClient error:", error);
-    return {
-      type: "error",
-      message: getErrorMessage(error, t.errors.serverError),
     };
   }
 }
@@ -194,7 +149,6 @@ export async function updateClient(
     return {
       type: "success",
       message: t.clients.messages.updated,
-      data: client,
     };
   } catch (error) {
     console.log("Action updateClient error:", error);

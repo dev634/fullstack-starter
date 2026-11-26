@@ -12,6 +12,7 @@ export async function create(data: TaskCategoryData) {
                 projectId: data.projectId,
                 name: data.name,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create task category error:", error);
@@ -75,7 +76,7 @@ export async function setAssignee(
 /** Deletes the category only — its series are SetNull'd back to ungrouped, not deleted. */
 export async function remove(id: number) {
     try {
-        return await prisma.projectTaskCategory.delete({ where: { id } });
+        return await prisma.projectTaskCategory.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove task category error:", error);
         throw {

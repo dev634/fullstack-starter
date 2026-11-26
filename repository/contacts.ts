@@ -223,6 +223,7 @@ export async function create(data: ContactData) {
                     jobFunctionId: data.jobFunctionId ?? null,
                     isPrimary: primary,
                 },
+                select: { id: true },
             });
         });
     } catch (error) {

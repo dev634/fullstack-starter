@@ -26,7 +26,9 @@ afterAll(async () => {
 describe("e-mail lookups are exact on the canonical form (lot 5a, point 6)", () => {
   it("a normalized account signs in, with any casing of the address typed", async () => {
     const made = await create({ email: `New.Person${DOMAIN}`, name: "N", role: "VIEWER", password: await bcrypt.hash("password123", 10) }, null);
-    expect(made.email).toBe(`new.person${DOMAIN}`);
+    // The repository hands back the id only: the stored form is read from the base.
+    const stored = await prisma.user.findUniqueOrThrow({ where: { id: made.id }, select: { email: true } });
+    expect(stored.email).toBe(`new.person${DOMAIN}`);
     for (const typed of [`New.Person${DOMAIN}`, `new.person${DOMAIN}`, `NEW.PERSON${DOMAIN}`]) {
       const user = await verifyCredentials({ email: typed, password: "password123" });
       expect(user, typed).not.toBeNull();

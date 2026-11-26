@@ -117,6 +117,15 @@ describe("user management actions", () => {
     );
   });
 
+  it("addUser: the response carries the new id and nothing else, whatever the repository hands back", async () => {
+    actor("ADMIN");
+    // More columns than the repository's `select` gives (the hash among them): only the id may reach the browser.
+    createMock.mockResolvedValue({ id: 42, email: "ed@x.com", password: "hashed", role: "EDITOR", sessionVersion: 3, jobFunctionId: null } as never);
+    const res = await addUser(initial, form({ email: "ed@x.com", name: "Ed", role: "EDITOR", password: "password123" }));
+    expect(res.type).toBe("success");
+    expect(res.data).toEqual({ id: 42 });
+  });
+
   it("updateUser: an ADMIN cannot manage a SUPERADMIN", async () => {
     actor("ADMIN");
     findByIdMock.mockResolvedValue({ id: 9, email: "s@x.com", role: "SUPERADMIN" } as never);

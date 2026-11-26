@@ -13,7 +13,7 @@ export async function attach(projectId: number, userId: number) {
     try {
         return await prisma.projectWorker.create({
             data: { projectId, userId },
-            select: { id: true, projectId: true, userId: true },
+            select: { id: true },
         });
     } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -30,7 +30,7 @@ export async function attach(projectId: number, userId: number) {
 /** Detaches a worker from its project — via the FK, this also clears (SetNull) every task/série/catégorie assignment it held on that project. */
 export async function detach(id: number) {
     try {
-        return await prisma.projectWorker.delete({ where: { id } });
+        return await prisma.projectWorker.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository detach (project worker) error:", error);
         throw {

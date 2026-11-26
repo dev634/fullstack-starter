@@ -125,7 +125,7 @@ export async function create(data: ReservePlanData) {
                 version: data.version ?? null,
                 folderId: data.folderId ?? null,
             },
-            omit: { url: true },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create (reservePlan) error:", error);
@@ -166,7 +166,7 @@ export async function setFolder(planId: number, folderId: number | null, project
  */
 export async function remove(id: number) {
     try {
-        return await prisma.reservePlan.delete({ where: { id }, omit: { url: true } });
+        return await prisma.reservePlan.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove (reservePlan) error:", error);
         throw { type: "repositoryError", message: "Database Error deleting plan." };

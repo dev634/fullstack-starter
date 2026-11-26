@@ -40,13 +40,12 @@ export async function addMaterialCategory(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const category = await create({ projectId: parsed.data.projectId, name: parsed.data.name });
+    await create({ projectId: parsed.data.projectId, name: parsed.data.name });
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,
       type: "success",
       message: t.materials.category.messages.added,
-      data: category,
     };
   } catch (error) {
     return {
@@ -91,13 +90,12 @@ export async function editMaterialCategory(
     // (docs/CONVENTIONS.md), same rule as deleteTaskCategory/deleteMaterial.
     if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
 
-    const category = await rename(parsed.data.id, parsed.data.name);
+    await rename(parsed.data.id, parsed.data.name);
     revalidateMaterials(parsed.data.clientId, parsed.data.projectId);
     return {
       ...prevState,
       type: "success",
       message: t.materials.category.messages.updated,
-      data: category,
     };
   } catch (error) {
     return {
@@ -136,7 +134,7 @@ export async function deleteMaterialCategory(id: number, clientId: number, proje
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Same anti-enumeration rule as editMaterialCategory above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.materials.messages.invalidId) };
-    const { category, unfiledCount } = await remove(id);
+    const { unfiledCount } = await remove(id);
     revalidateMaterials(clientId, projectId);
     return {
       type: "success" as const,
@@ -144,7 +142,6 @@ export async function deleteMaterialCategory(id: number, clientId: number, proje
         unfiledCount > 0
           ? format(t.materials.category.messages.deletedWithUnfiled, { count: unfiledCount })
           : t.materials.category.messages.deleted,
-      data: category,
     };
   } catch (error) {
     return {

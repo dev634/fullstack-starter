@@ -55,7 +55,7 @@ export async function create(data: EquipmentData) {
                 photoUrl: data.photoUrl ?? null,
                 photoPublicId: data.photoPublicId ?? null,
             },
-            select: EQUIPMENT_LIST_SELECT,
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create (equipment) error:", error);
@@ -83,7 +83,7 @@ export async function update(id: number, data: EquipmentUpdateData) {
                 reference: data.reference,
                 ...(data.photoUrl !== undefined ? { photoUrl: data.photoUrl, photoPublicId: data.photoPublicId } : {}),
             },
-            select: EQUIPMENT_LIST_SELECT,
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository update (equipment) error:", error);

@@ -12,6 +12,7 @@ export async function createCompany(data: CompanyData) {
                 projectId: data.projectId,
                 name: data.name,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository createCompany (subcontractor) error:", error);
@@ -118,7 +119,7 @@ export async function findPersonProjectId(id: number): Promise<number | null> {
 /** Deletes the company and, via cascade, every person under it. */
 export async function removeCompany(id: number) {
     try {
-        return await prisma.subcontractorCompany.delete({ where: { id } });
+        return await prisma.subcontractorCompany.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository removeCompany (subcontractor) error:", error);
         throw {
@@ -144,6 +145,7 @@ export async function addPerson(data: PersonData) {
                 jobFunctionId: data.jobFunctionId ?? null,
                 phone: data.phone || null,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository addPerson (subcontractor) error:", error);
@@ -156,7 +158,7 @@ export async function addPerson(data: PersonData) {
 
 export async function removePerson(id: number) {
     try {
-        return await prisma.subcontractorPerson.delete({ where: { id } });
+        return await prisma.subcontractorPerson.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository removePerson (subcontractor) error:", error);
         throw {

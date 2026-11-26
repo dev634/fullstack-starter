@@ -59,6 +59,7 @@ export async function create(data: { projectId: number; name: string; parentId?:
     try {
         return await prisma.reservePlanFolder.create({
             data: { projectId: data.projectId, name: data.name, parentId: data.parentId ?? null },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create (reservePlanFolder) error:", error);

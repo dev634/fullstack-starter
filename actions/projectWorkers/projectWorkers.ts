@@ -68,10 +68,10 @@ export async function attachWorker(
       return { ...prevState, type: "error", message: t.workers.messages.invalidId };
     }
 
-    const worker = await attach(parsed.data.projectId, parsed.data.userId);
+    await attach(parsed.data.projectId, parsed.data.userId);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}`);
     revalidatePath(`/clients/${parsed.data.clientId}/projects/${parsed.data.projectId}/workforce`);
-    return { ...prevState, type: "success", message: t.workers.messages.added, data: worker };
+    return { ...prevState, type: "success", message: t.workers.messages.added };
   } catch (error) {
     if (error && typeof error === "object" && "type" in error && error.type === "duplicate") {
       return { ...prevState, type: "error", message: t.workers.messages.alreadyAttached };
@@ -100,10 +100,10 @@ export async function detachWorker(id: number, clientId: number, projectId: numb
     // a travailleur that exists but sits outside the caller's scope must read
     // exactly like one that doesn't exist at all.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.workers.messages.invalidId) };
-    const worker = await detach(id);
+    await detach(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/workforce`);
-    return { type: "success" as const, message: t.workers.messages.removed, data: worker };
+    return { type: "success" as const, message: t.workers.messages.removed };
   } catch (error) {
     return {
       type: "error" as const,

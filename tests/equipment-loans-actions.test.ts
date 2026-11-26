@@ -150,11 +150,14 @@ describe("lendEquipment", () => {
     findIdByEmailMock.mockResolvedValue(1);
     findOwnerIdMock.mockResolvedValue(99);
     findUserByIdMock.mockResolvedValue({ id: 7, email: "e@x.com", role: "EDITOR", jobFunctionId: null } as never);
-    createLoanMock.mockResolvedValue({ id: 10 } as never);
+    createLoanMock.mockResolvedValue({ id: 10, borrowerId: 7, note: "note privee" } as never);
 
     const res = await lendEquipment(initial, form({ equipmentId: "5", borrowerId: "7", lentAt: "2026-01-01" }));
 
     expect(res.type).toBe("success");
+    // No row goes back to the browser: borrowerId and note stay on the server.
+    expect(res).not.toHaveProperty("data");
+    expect(JSON.stringify(res)).not.toMatch(/borrowerId|note privee/);
     expect(createLoanMock).toHaveBeenCalledWith(
       expect.objectContaining({ equipmentId: 5, borrowerId: 7, lentAt: "2026-01-01" })
     );

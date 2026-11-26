@@ -1,13 +1,11 @@
 "use server";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
-import { requireRole } from "@/lib/authz";
 import { requireCapability, requireProjectAccess, requireTrashedProjectAccess, requireClientAccess, requireClientAccessWithin } from "@/lib/access";
 import { scopeRefusalMessage } from "@/lib/scopeRefusal";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
-import { getAccessContext, canReachProject } from "@/lib/accessContext";
-import { projectTrashState } from "@/lib/projectTrash";
+import { getAccessContext } from "@/lib/accessContext";
 import { createProjectSchema, updateProjectSchema } from "@/schemas/project";
 import { create, findById, update, remove, softDelete, restore } from "@/repository/projects";
 import { createDefaults as createDefaultFolders } from "@/repository/projectFolders";
@@ -73,7 +71,6 @@ export async function addProject(
       ...prevState,
       type: "success",
       message: t.projects.messages.created,
-      data: project,
     };
   } catch (error) {
     return {
@@ -148,7 +145,6 @@ export async function updateProject(
       ...prevState,
       type: "success",
       message: t.projects.messages.updated,
-      data: project,
     };
   } catch (error) {
     return {
@@ -178,7 +174,7 @@ export async function deleteProject(id: number, clientId: number) {
     const scopeCheck = await requireProjectAccess(id);
     if (scopeCheck.error) return scopeCheck.error;
     const existing = await findById(id);
-    const project = await softDelete(id);
+    await softDelete(id);
     await logActivity({
       action: "DELETED",
       projectId: id,
@@ -187,7 +183,7 @@ export async function deleteProject(id: number, clientId: number) {
     });
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/projects");
-    return { type: "success" as const, message: t.projects.messages.deleted, data: project };
+    return { type: "success" as const, message: t.projects.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,
@@ -221,7 +217,7 @@ export async function restoreProject(id: number) {
     });
     revalidatePath("/projects");
     revalidatePath("/projects/trash");
-    return { type: "success" as const, message: t.projects.messages.restored, data: project };
+    return { type: "success" as const, message: t.projects.messages.restored };
   } catch (error) {
     return {
       type: "error" as const,
@@ -261,7 +257,7 @@ export async function permanentlyDeleteProject(id: number) {
     await Promise.all(
       files.map((f) => destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType }))
     );
-    const project = await remove(id);
+    await remove(id);
     await logActivity({
       action: "PERMANENTLY_DELETED",
       projectId: id,
@@ -269,7 +265,7 @@ export async function permanentlyDeleteProject(id: number) {
       actorEmail: roleCheck.email,
     });
     revalidatePath("/projects/trash");
-    return { type: "success" as const, message: t.projects.messages.permanentlyDeleted, data: project };
+    return { type: "success" as const, message: t.projects.messages.permanentlyDeleted };
   } catch (error) {
     return {
       type: "error" as const,
@@ -400,37 +396,4 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     total: records.length,
     errors,
   };
-}
-
-export async function getProject(id: number) {
-  const roleCheck = await requireRole("VIEWER");
-  if (roleCheck.error) return roleCheck.error;
-  // Passe 3b, point 1: an EDITOR whose function hides "projects" (and
-  // "clients") could still pull the full chantier row — budget/notes
-  // included, the two fields the client portail deliberately never exposes
-  // (app/portail/projets/[projectId]/page.tsx) — straight off this action.
-  const areaCheck = await requireAreaAccess("projects");
-  if (areaCheck.error) return areaCheck.error;
-
-  const t = getDictionary(await getLocale());
-  try {
-    if (isNaN(id)) {
-      throw { type: "error", message: t.projects.messages.invalidId };
-    }
-    const project = await findById(id);
-    // A trashed project — or one whose company is trashed, the same rule
-    // requireProjectAccess freezes its content on — is invisible to the
-    // normal detail page (looks like "not found"); the trash page reads the
-    // repository directly instead. A
-    // project outside the caller's scope reads the same way — a distinct
-    // response would confirm it exists to someone who shouldn't know that.
-    const access = await getAccessContext();
-    const visible = project && !projectTrashState(project).inTrash && canReachProject(access, project.id);
-    return { type: "success" as const, data: visible ? project : null };
-  } catch (error) {
-    return {
-      type: "error" as const,
-      message: getErrorMessage(error, t.errors.serverError),
-    };
-  }
 }

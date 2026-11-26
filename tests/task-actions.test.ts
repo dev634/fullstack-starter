@@ -130,6 +130,18 @@ describe("task actions", () => {
     );
   });
 
+  it("addTask: the response carries the task's category and nothing else, whatever the repository hands back", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTaskCategoryProjectIdMock.mockResolvedValueOnce(2); // category 3 belongs to project 2
+    // More columns than the repository's `select` gives: only the category may reach the browser.
+    createMock.mockResolvedValue({
+      id: 1, projectId: 2, title: "Panneaux", categoryId: 3, done: false, dueDate: null, quantityTarget: 20, assignedWorkerId: 7,
+    } as never);
+    const res = await addTask(initial, formOf({ clientId: "1", projectId: "2", title: "Panneaux", categoryId: "3" }));
+    expect(res.type).toBe("success");
+    expect(res.data).toEqual({ categoryId: 3 });
+  });
+
   // Passe 3a, point 3: the category <select> only ever lists this project's
   // own categories — but nothing server-side checked that before, so a
   // submitted categoryId from another project silently filed the task
@@ -258,6 +270,22 @@ describe("task actions", () => {
     expect(createGroupMock).toHaveBeenCalledWith(
       expect.objectContaining({ categoryId: 5 })
     );
+  });
+
+  it("addTaskSeries: the response carries the series' category and nothing else, whatever the repository hands back", async () => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    findTaskCategoryProjectIdMock.mockResolvedValueOnce(2); // category 3 belongs to project 2
+    // More columns than the repository's `select` gives: only the category may reach the browser.
+    createGroupMock.mockResolvedValue({
+      id: 9, projectId: 2, name: "Strings onduleur", pattern: "String {n}", categoryId: 3, assignedInterimId: 4,
+    } as never);
+    createManyMock.mockResolvedValue({ count: 2 } as never);
+    const res = await addTaskSeries(
+      initial,
+      formOf({ clientId: "1", projectId: "2", name: "Strings onduleur", pattern: "String {n}", from: "1", to: "2", categoryId: "3" })
+    );
+    expect(res.type).toBe("success");
+    expect(res.data).toEqual({ categoryId: 3 });
   });
 
   // Passe 3a, point 3.

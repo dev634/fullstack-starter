@@ -59,7 +59,7 @@ export async function addFolder(
   }
 
   try {
-    const folder = await createFolder({
+    await createFolder({
       projectId: parsed.data.projectId,
       name: parsed.data.name,
       parentId: parsed.data.parentId ?? null,
@@ -69,7 +69,6 @@ export async function addFolder(
       ...prevState,
       type: "success",
       message: t.files.messages.folderCreated,
-      data: folder,
     };
   } catch (error) {
     return {
@@ -121,7 +120,7 @@ export async function uploadFile(
 
   try {
     const uploaded = await uploadProjectFile(file, projectId);
-    const record = await createFile({
+    await createFile({
       projectId,
       folderId,
       name: file.name,
@@ -139,7 +138,6 @@ export async function uploadFile(
       ...prevState,
       type: "success",
       message: t.files.messages.fileUploaded,
-      data: record,
     };
   } catch (error) {
     return {

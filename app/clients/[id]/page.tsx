@@ -1,4 +1,4 @@
-import { getClient } from '@/actions/clients/clients';
+import { getClient } from '@/lib/loaders/clientLoader';
 import { getAccessContext, projectIdFilter } from "@/lib/accessContext";
 import { auth } from '@/lib/auth';
 import { can, canFullyAccessClient } from "@/lib/access";

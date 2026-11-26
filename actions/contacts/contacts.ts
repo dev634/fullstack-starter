@@ -62,9 +62,9 @@ export async function addContact(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const contact = await create(parsed.data);
+    await create(parsed.data);
     revalidatePath(`/clients/${parsed.data.clientId}`);
-    return { ...prevState, type: "success", message: t.contacts.messages.added, data: contact };
+    return { ...prevState, type: "success", message: t.contacts.messages.added };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }

@@ -303,16 +303,6 @@ export async function findFunctionIdsHeldByPrivileged(): Promise<number[]> {
     }
 }
 
-const ACCOUNT_SELECT = {
-    id: true,
-    email: true,
-    name: true,
-    role: true,
-    createdAt: true,
-    jobFunctionId: true,
-    jobFunction: { select: { name: true } },
-} satisfies Prisma.UserSelect;
-
 /**
  * Create an account. `relay` (null = unguarded) is checked against the hidden
  * rubriques of `jobFunctionId` (`[]` for none) under that function's row lock,
@@ -337,7 +327,9 @@ export async function create(
             // the account is written, the same order as every other writer.
             const locked = await lockFunctionsForUpdate(tx, jobFunctionId === null ? [] : [jobFunctionId]);
             if (relay && !relay(jobFunctionId === null ? [] : (locked.get(jobFunctionId) ?? []))) throw guardRefusal(RELAY_REFUSED);
-            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: ACCOUNT_SELECT });
+            // addUser and createPortalLogin read the id back, nothing else. A test that needs the stored
+            // (normalized) e-mail reads the row again (tests-integration/legacy-email-case).
+            return tx.user.create({ data: { ...data, email: normalizeEmail(data.email), jobFunctionId }, select: { id: true } });
         });
     } catch (error) {
         if (isGuardRefusal(error)) throw error;
@@ -401,7 +393,7 @@ export async function updateProfile(
             const updated = await tx.user.update({
                 where: { id },
                 data: { ...data, sessionVersion: invalidatesSessions ? { increment: 1 } : undefined },
-                select: ACCOUNT_SELECT,
+                select: { id: true },
             });
             // A new password voids the links minted for the old situation, in
             // the same transaction (same rule as resetPasswordWithToken).

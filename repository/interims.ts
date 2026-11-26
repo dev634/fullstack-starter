@@ -16,6 +16,7 @@ export async function create(data: InterimData) {
                 jobFunctionId: data.jobFunctionId ?? null,
                 agency: data.agency || null,
             },
+            select: { id: true },
         });
     } catch (error) {
         console.log("Repository create interim error:", error);
@@ -100,7 +101,7 @@ export async function findProjectId(id: number): Promise<number | null> {
 
 export async function remove(id: number) {
     try {
-        return await prisma.interim.delete({ where: { id } });
+        return await prisma.interim.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove interim error:", error);
         throw {

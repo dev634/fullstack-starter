@@ -208,8 +208,10 @@ voir `docs/SECURITE-CHECKLIST.md` V8), **47 dans 13** à `0e10b1b` (compte exact
 masque `projects` ne pouvait plus rien *voir* du chantier, mais gardait
 l'écriture et la suppression complètes dessus — `addTask`/`deleteTask`/
 `deleteMaterial`/`deleteReserve` (entre autres) suppriment réellement, et
-`editTask` renvoie la ligne qu'il modifie, donc c'est aussi une lecture.
-Corrigé en ajoutant `requireAreaAccess("projects")` juste après
+`editTask` renvoyait alors la ligne qu'il modifiait — une lecture aussi. Plus
+depuis la branche `fix/retours-actions` : `editTask` ne renvoie plus qu'un
+état (`type`, `message`, les erreurs de champ), et aucune action ne renvoie de
+ligne (§ « Ce qu'une Server Action renvoie »). Corrigé en ajoutant `requireAreaAccess("projects")` juste après
 `requireCapability`, avant `requireSectionAccess` (même ordre que la route de
 lecture gardée : rubrique avant section). `tests/authz-coverage.test.ts`
 vérifiait déjà que ces fichiers appellent `requireSectionAccess` — il ne
@@ -433,7 +435,9 @@ pouvoir de changer les capacités rejoint cette liste.
 
 `tests/authz-coverage.test.ts` échoue si une fonction exportée de
 `actions/{clients,projects,contacts,portal,equipment,equipmentLoans}` (six
-fichiers d'`AREA_BY_FILE`, inchangés à `0e10b1b`) saute `requireAreaAccess` —
+fichiers d'`AREA_BY_FILE`, inchangés à `0e10b1b` ; huit depuis
+`fix/retours-actions`, avec `lib/loaders/{clientLoader,projectLoader}`, les deux
+lectures sorties des actions) saute `requireAreaAccess` —
 **lectures comprises depuis PR #187** — ou ne refuse pas sur son résultat.
 Depuis #249, **avec l'argument** que la table assigne au fichier, et une entrée
 peut en porter plusieurs : `actions/portal/portal.ts` exige `admin.users` **et**
@@ -441,6 +445,51 @@ peut en porter plusieurs : `actions/portal/portal.ts` exige `admin.users` **et**
 à trois rubriques. Il portait auparavant un `READS = new Set([...])`
 qui en exemptait trois : l'exemption *était* le trou. Aucune exemption ne se
 rajoute ici sans porter sa raison et la condition de sa disparition.
+
+## Ce qu'une Server Action renvoie
+
+Tout export d'un fichier `"use server"` est enregistré dans le manifeste du
+build, invocable depuis le navigateur par son id, et **ce qu'il renvoie est
+sérialisé vers le navigateur**, que l'écran le lise ou non. Resserrer le type de
+la prop qui le reçoit ne retire rien (TypeScript est structurel). Donc :
+
+- une action renvoie un **état** — `type`, `message`, les erreurs de champ —
+  fait de littéraux, du dictionnaire, de son entrée (`...prevState`,
+  `parsed.data.x`) et des refus de garde (`...roleCheck.error`) ; jamais une
+  ligne de dépôt, même enveloppée (`res.data`) ;
+- `data` n'existe que pour un lecteur réel, en **littéral de champs nommés** :
+  `{ id: user.id }` (`addUser`), `{ categoryId: task.categoryId }` (`addTask`,
+  `addTaskSeries`). Seules ces actions portent le champ dans leur type
+  (`AddUserActionState`, `CreatedTaskActionState`) : un lecteur ailleurs est une
+  erreur de compilation ;
+- une **lecture** dont les seuls appelants sont des Server Components n'est pas
+  une action : `getClient` et `getProject` vivent dans `lib/loaders/`, gardes
+  comprises, et `tests/authz-coverage.test.ts` y exige les mêmes gardes qu'aux
+  actions (rôle, rubrique par argument) ;
+- un dépôt ne rend que ce que lit un appelant de l'application (`select: { id:
+  true }` au minimum) ; un test qui a besoin d'une colonne relit la base
+  (`findUniqueOrThrow` + `select`), il n'élargit pas le `select` de production.
+
+**L'instrument** : `tests/server-action-return-guard.test.ts`
+(`tests/helpers/actionReturnScan.ts`), en **échec fermé**. Ce qu'une action peut
+renvoyer est une liste FERMÉE (`CLOSED_LIST`, chaque entrée avec sa raison ; une
+entrée qu'aucun retour n'utilise plus rougit), tout le reste est rouge — y compris
+un export qui n'est pas un littéral de fonction (`export const f = withGuard(…)`).
+Liaisons résolues par le vérificateur TypeScript, écritures suivies
+(affectations, déstructurations, mutations, alias, helpers locaux). Domaine
+découvert par la directive parsée, de `.ts` à `.cjs` (seuls `app/generated`,
+`node_modules`, `.next`, `.claude` et `.git` sont sautés), à tailles exactes
+recoupées par la table d'exports du compilateur — pas par le manifeste, que la CI
+ne construit qu'après les tests. À `f308d51` : 24 fichiers, 91 actions (égales une
+à une aux 91 entrées du manifeste), **aucune exception** — la seule qu'il y ait eue
+(le `...error` d'`addClient`, objet levé par le service, épinglé à `f685ef9`) a
+disparu quand l'action a parsé elle-même son formulaire. Limites déclarées en tête du
+helper : le test d'une conditionnelle, une valeur rangée dans une autre puis
+écrite par elle, une fonction importée qui écrit dans son argument, et ce qu'un
+`throw` du `try` porte jusqu'à `getErrorMessage` (qui relaie le `.message` de
+tout objet levé). **Ajouter une
+source à la liste fermée est une décision** : sa raison dit ce que la source
+rend, et l'instrument la croit sans lire son corps.
 
 ## Tests — le piège récurrent
 
@@ -804,7 +853,8 @@ paquet importé par le code embarqué.
   remonté. Ne jamais déduire ce qui a été soumis depuis une ref alimentée par
   un `onChange`.
 - La source fiable de ce qui a été créé est **ce que l'action serveur renvoie**
-  (`data`), pas ce que le client croit avoir envoyé.
+  (`data`, un littéral de champs nommés — § « Ce qu'une Server Action
+  renvoie »), pas ce que le client croit avoir envoyé.
 - Pattern de succès : `useActionState`, comparaison `state !== lastHandledState`
   pendant le rendu pour l'état **local** (légal), et **effet** pour tout appel de
   callback venant des props — appeler une callback de prop pendant le rendu

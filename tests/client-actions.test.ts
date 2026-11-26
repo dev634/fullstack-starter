@@ -27,7 +27,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
-import { addClient, updateClient, getClient, deleteClient, deleteClients, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
+import { addClient, updateClient, deleteClient, deleteClients, restoreClient, permanentlyDeleteClient } from "@/actions/clients/clients";
+import { getClient } from "@/lib/loaders/clientLoader";
 import { auth } from "@/lib/auth";
 import { createClient } from "@/service/clients";
 import { findById, softDelete, restore, permanentlyRemove, update, isFullyInScope, findFullyInScopeIds } from "@/repository/clients";
@@ -61,6 +62,15 @@ function formOf(fields: Record<string, string>): FormData {
   return fd;
 }
 
+const VALID_CREATE_FIELDS = {
+  email: "alice@example.com",
+  companyName: "Acme",
+  address: "1 St",
+  city: "NYC",
+  zipCode: "10001",
+  country: "US",
+};
+
 const VALID_UPDATE_FIELDS = {
   id: "1",
   email: "alice@example.com",
@@ -89,10 +99,26 @@ describe("client action auth guard + delegation", () => {
     expect(createClientMock).not.toHaveBeenCalled();
   });
 
+  it("addClient rejects an invalid email with a zod error built from its OWN parse, without calling the service", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await addClient(initial, formOf({ ...VALID_CREATE_FIELDS, email: "not-an-email" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.email).toBeTruthy();
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
+  it("addClient rejects a blank required field (companyName) before any upload or service call", async () => {
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    const res = await addClient(initial, formOf({ ...VALID_CREATE_FIELDS, companyName: "" }));
+    expect(res.type).toBe("zodError");
+    expect(res.fieldsForm?.companyName).toBeTruthy();
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+
   it("addClient delegates to the service when authenticated as ADMIN", async () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
-    createClientMock.mockResolvedValue({ type: "success", message: "ok", data: { id: 42 } } as never);
-    const res = await addClient(initial, new FormData());
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 42 } as never);
+    const res = await addClient(initial, formOf(VALID_CREATE_FIELDS));
     expect(createClientMock).toHaveBeenCalledTimes(1);
     expect(res.type).toBe("success");
     expect(logActivityMock).toHaveBeenCalledWith(
@@ -356,6 +382,25 @@ describe("client action auth guard + delegation", () => {
       expect(res.type).toBe("success");
       expect(res.data).toBeNull();
       expect(hasProjectAmongMock).toHaveBeenCalledWith(490, [202]);
+    });
+
+    // Audit of the follow-up B refactor (F3): nothing pinned getClient's trash
+    // filter — removing `!client.deletedAt` from lib/loaders/clientLoader.ts
+    // left every test green, and a trashed company would then render on its
+    // normal detail page. The trash page reads the repository directly; this
+    // read must answer a trashed company exactly like an absent one.
+    it("getClient masks a company in the trash, as not found — the same company out of the trash resolves", async () => {
+      authMock.mockResolvedValue({ user: { role: "VIEWER", email: "viewer@example.com" } } as never);
+      findByIdMock.mockResolvedValue({ id: 491, companyName: "Entreprise en corbeille", deletedAt: new Date("2026-11-01") } as never);
+
+      const trashed = await getClient(491);
+
+      expect(trashed.type).toBe("success");
+      expect(trashed.data).toBeNull();
+
+      findByIdMock.mockResolvedValue({ id: 491, companyName: "Entreprise en corbeille", deletedAt: null } as never);
+      const restored = await getClient(491);
+      expect(restored.data).toEqual(expect.objectContaining({ id: 491 }));
     });
 
     it("deleteClient refuses a client the caller has no project under", async () => {

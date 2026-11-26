@@ -66,7 +66,7 @@ export async function lendEquipment(
       return { ...prevState, type: "error", message: t.loans.messages.invalidId };
     }
 
-    const loan = await createLoan({
+    await createLoan({
       equipmentId: parsed.data.equipmentId,
       borrowerId: parsed.data.borrowerId,
       lentAt: parsed.data.lentAt,
@@ -75,7 +75,7 @@ export async function lendEquipment(
     });
 
     revalidatePath("/loans");
-    return { ...prevState, type: "success", message: t.loans.messages.lent, data: loan };
+    return { ...prevState, type: "success", message: t.loans.messages.lent };
   } catch (error) {
     // "Already lent" is detected in the REPOSITORY, on the P2002 the partial
     // unique index raises — NEVER on a pre-check findFirst, which two
@@ -144,7 +144,6 @@ export async function returnLoan(
       ...prevState,
       type: "success",
       message: t.loans.messages.returned,
-      data: { id: parsed.data.id, returnedAt: parsed.data.returnedAt },
     };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
@@ -188,9 +187,9 @@ export async function editLoan(
       return { ...prevState, type: "error", message: t.loans.messages.dueBeforeLent };
     }
 
-    const updated = await updateLoan(parsed.data.id, { dueAt: parsed.data.dueAt, note: parsed.data.note });
+    await updateLoan(parsed.data.id, { dueAt: parsed.data.dueAt, note: parsed.data.note });
     revalidatePath("/loans");
-    return { ...prevState, type: "success", message: t.loans.messages.updated, data: updated };
+    return { ...prevState, type: "success", message: t.loans.messages.updated };
   } catch (error) {
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError) };
   }

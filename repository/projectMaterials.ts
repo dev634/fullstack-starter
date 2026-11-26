@@ -31,15 +31,19 @@ type MaterialData = {
  * than a duplicate. When it does match, only the quantity moves — the existing
  * line keeps its own name, unit, task link and required quantity.
  *
+ * Returns only whether it accumulated: no caller reads the line, and an action
+ * must not be handed a full row it could forward to the browser.
+ *
  * Wrapped in a transaction so a match-then-increment can't race with a
  * concurrent add of the same reference.
  */
 export async function createOrAccumulate(
     data: MaterialData
-): Promise<{ material: Awaited<ReturnType<typeof create>>; accumulated: boolean }> {
+): Promise<{ accumulated: boolean }> {
     const reference = data.reference?.trim();
     if (!reference) {
-        return { material: await create(data), accumulated: false };
+        await create(data);
+        return { accumulated: false };
     }
 
     try {
@@ -54,14 +58,15 @@ export async function createOrAccumulate(
             });
 
             if (existing) {
-                const material = await tx.projectMaterial.update({
+                await tx.projectMaterial.update({
                     where: { id: existing.id },
                     data: { quantity: { increment: data.quantity } },
+                    select: { id: true },
                 });
-                return { material, accumulated: true };
+                return { accumulated: true };
             }
 
-            const material = await tx.projectMaterial.create({
+            await tx.projectMaterial.create({
                 data: {
                     projectId: data.projectId,
                     name: data.name,
@@ -75,8 +80,9 @@ export async function createOrAccumulate(
                     requiredQuantity: data.requiredQuantity ?? null,
                     materialCategoryId: data.materialCategoryId ?? null,
                 },
+                select: { id: true },
             });
-            return { material, accumulated: false };
+            return { accumulated: false };
         });
     } catch (error) {
         console.log("Repository createOrAccumulate material error:", error);
@@ -84,9 +90,13 @@ export async function createOrAccumulate(
     }
 }
 
-export async function create(data: MaterialData) {
+// Internal: its one caller, createOrAccumulate (above), discards the row — so
+// it is not exported and hands back the id only, never a full row an action
+// could forward to the browser (tests/server-action-return-guard.test.ts).
+async function create(data: MaterialData) {
     try {
         return await prisma.projectMaterial.create({
+            select: { id: true },
             data: {
                 projectId: data.projectId,
                 name: data.name,
@@ -381,7 +391,7 @@ export async function applyScanItems(projectId: number, items: ScanApplyItem[], 
 
 export async function remove(id: number) {
     try {
-        return await prisma.projectMaterial.delete({ where: { id } });
+        return await prisma.projectMaterial.delete({ where: { id }, select: { id: true } });
     } catch (error) {
         console.log("Repository remove material error:", error);
         throw {

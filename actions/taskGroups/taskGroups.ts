@@ -41,10 +41,10 @@ export async function setTaskGroupCategory(
     // would let a restricted EDITOR enumerate ids across the whole company
     // (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const group = await setCategory(id, categoryId);
+    await setCategory(id, categoryId);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
-    return { type: "success" as const, message: t.tasks.messages.updated, data: group };
+    return { type: "success" as const, message: t.tasks.messages.updated };
   } catch (error) {
     return {
       type: "error" as const,
@@ -76,10 +76,10 @@ export async function deleteTaskGroup(id: number, clientId: number, projectId: n
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see setTaskGroupCategory's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.tasks.messages.invalidId) };
-    const group = await remove(id);
+    await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/tasks`);
-    return { type: "success" as const, message: t.tasks.group.messages.deleted, data: group };
+    return { type: "success" as const, message: t.tasks.group.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,

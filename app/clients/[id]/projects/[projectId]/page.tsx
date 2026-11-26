@@ -1,4 +1,4 @@
-import { getProject } from "@/actions/projects/projects";
+import { getProject } from "@/lib/loaders/projectLoader";
 import { computeProgressByProject as computeTaskProgressByProject } from "@/repository/tasks";
 import { countByProject as countMaterialsByProject, computeStockStatsByProject } from "@/repository/projectMaterials";
 import { countByProject as countInterventionsByProject } from "@/repository/interventions";

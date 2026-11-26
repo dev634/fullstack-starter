@@ -100,7 +100,7 @@ describe("material actions", () => {
 
   it("addMaterial accepts a zero quantity — a valid out-of-stock state", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     const res = await addMaterial(initial, formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: "0" }));
     expect(res.type).toBe("success");
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ quantity: 0 }));
@@ -125,7 +125,7 @@ describe("material actions", () => {
 
   it("addMaterial accepts a quantity at exactly MAX_SCAN_QUANTITY", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     const res = await addMaterial(
       initial,
       formOf({ clientId: "1", projectId: "1", name: "Onduleur", quantity: String(MAX_SCAN_QUANTITY) })
@@ -152,7 +152,7 @@ describe("material actions", () => {
 
   it("addMaterial creates the material when authorized", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     const res = await addMaterial(
       initial,
       formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "24", unit: "pièce" })
@@ -165,7 +165,7 @@ describe("material actions", () => {
 
   it("addMaterial passes optional supplier/reference through", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -195,7 +195,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskId/requiredQuantity through when linked to a task", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -225,7 +225,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskGroupId/requiredQuantity through when linked to a series", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -255,7 +255,7 @@ describe("material actions", () => {
 
   it("addMaterial passes taskCategoryId/requiredQuantity through when linked to a category", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-    createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+    createMock.mockResolvedValue({ accumulated: false } as never);
     await addMaterial(
       initial,
       formOf({
@@ -356,7 +356,7 @@ describe("material actions", () => {
 
     it("does not look up a task/series/category at all when the link is cleared", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      createMock.mockResolvedValue({ accumulated: false } as never);
       await addMaterial(
         initial,
         formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1", link: "" })
@@ -384,7 +384,7 @@ describe("material actions", () => {
 
     it("addMaterial passes materialCategoryId through when it belongs to the material's project", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      createMock.mockResolvedValue({ accumulated: false } as never);
       await addMaterial(
         initial,
         formOf({ clientId: "1", projectId: "2", name: "Panneau 400W", quantity: "10", materialCategoryId: "4" })
@@ -395,14 +395,14 @@ describe("material actions", () => {
 
     it("addMaterial does not look up a category at all when materialCategoryId is absent", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      createMock.mockResolvedValue({ accumulated: false } as never);
       await addMaterial(initial, formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1" }));
       expect(findMaterialCategoryProjectIdMock).not.toHaveBeenCalled();
     });
 
     it("addMaterial does not look up a category at all when materialCategoryId is cleared to empty", async () => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
-      createMock.mockResolvedValue({ material: { id: 1 }, accumulated: false } as never);
+      createMock.mockResolvedValue({ accumulated: false } as never);
       await addMaterial(
         initial,
         formOf({ clientId: "1", projectId: "2", name: "Onduleur", quantity: "1", materialCategoryId: "" })

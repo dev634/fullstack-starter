@@ -45,7 +45,7 @@ export async function addIntervention(
   if (scopeCheck.error) return { ...prevState, ...scopeCheck.error };
 
   try {
-    const intervention = await create({
+    await create({
       projectId: parsed.data.projectId,
       scheduledAt: parsed.data.scheduledAt,
       description: parsed.data.description,
@@ -57,7 +57,6 @@ export async function addIntervention(
       ...prevState,
       type: "success",
       message: t.interventions.messages.added,
-      data: intervention,
     };
   } catch (error) {
     return {
@@ -101,7 +100,7 @@ export async function editIntervention(
     // "forbidden" response would let a restricted EDITOR enumerate ids
     // across the whole company (docs/CONVENTIONS.md).
     if (scopeCheck.error) return { ...prevState, type: "error", message: scopeRefusalMessage(scopeCheck, t.interventions.messages.invalidId) };
-    const intervention = await update(parsed.data.id, {
+    await update(parsed.data.id, {
       scheduledAt: parsed.data.scheduledAt,
       description: parsed.data.description,
       technician: parsed.data.technician,
@@ -113,7 +112,6 @@ export async function editIntervention(
       ...prevState,
       type: "success",
       message: t.interventions.messages.updated,
-      data: intervention,
     };
   } catch (error) {
     return {
@@ -156,10 +154,10 @@ export async function changeInterventionStatus(
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see editIntervention's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.interventions.messages.invalidId) };
-    const intervention = await updateStatus(id, parsedStatus.data);
+    await updateStatus(id, parsedStatus.data);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/interventions`);
-    return { type: "success" as const, message: t.interventions.messages.updated, data: intervention };
+    return { type: "success" as const, message: t.interventions.messages.updated };
   } catch (error) {
     return {
       type: "error" as const,
@@ -186,10 +184,10 @@ export async function deleteIntervention(id: number, clientId: number, projectId
     const scopeCheck = await requireProjectAccess(realProjectId);
     // Passe 3b, point 2 — see editIntervention's comment above.
     if (scopeCheck.error) return { type: "error" as const, message: scopeRefusalMessage(scopeCheck, t.interventions.messages.invalidId) };
-    const intervention = await remove(id);
+    await remove(id);
     revalidatePath(`/clients/${clientId}/projects/${projectId}`);
     revalidatePath(`/clients/${clientId}/projects/${projectId}/interventions`);
-    return { type: "success" as const, message: t.interventions.messages.deleted, data: intervention };
+    return { type: "success" as const, message: t.interventions.messages.deleted };
   } catch (error) {
     return {
       type: "error" as const,
