@@ -174,8 +174,11 @@ le VPS : une PR qui modifie `docker-compose.prod.yml` dans le dépôt n'atteint
 recrée le conteneur). Dernier cas : `ulimits: core: 1:1` du service `web`
 (#256), sans lequel un décodage arrêté par sa limite mémoire transmet son core
 (jusqu'à ~1,5 Go) au `core_pattern` de l'hôte. Rien ne le montre sans SSH :
-`/api/health` ne l'expose pas. État au 2026-11-28 : **non vérifié** — la
-commande `docker inspect` ci-dessus tranche.
+`/api/health` ne l'expose pas. État vérifié par SSH le 2026-11-28 à `0b2e320` : `docker inspect` rend
+`[{"Name":"core","Hard":1,"Soft":1}]`, et les processus du conteneur ont
+`Max core file size 1 1` (le fichier du VPS a été reporté le 2026-11-27,
+sauvegarde `docker-compose.prod.yml.avant-core-20261127`). Reste vrai : rien
+ne le montre sans SSH, la commande `docker inspect` ci-dessus tranche.
 
 ⚠️ Le 2026-11-22, le serveur avait dérivé du dépôt sur ces deux points : script
 sans verrou, et timer à **3 min** au lieu de 15. Le webhook et le timer se sont

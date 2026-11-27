@@ -748,7 +748,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     (prouvé), avec `--ulimit core=1:1` aucun, et un `-c 0` posé sous cette limite à 1
     en réécrit un (busybox ne sait d'ailleurs pas poser 1 octet : il compte par blocs
     de 512). La garde vit au **niveau du conteneur** (`ulimits: core: 1:1` du service
-    `web`, `docker-compose.prod.yml`, à reporter sur le VPS au déploiement : le déploiement ne recopie pas ce fichier, état sur le VPS non vérifié au 2026-11-28 — `deploy/README.md`) et
+    `web`, `docker-compose.prod.yml`, à reporter sur le VPS au déploiement : le déploiement ne recopie pas ce fichier, reporté sur le VPS le 2026-11-27 avant le merge de #256 ; vérifié par SSH le 2026-11-28 à `0b2e320` : `docker inspect` rend `core` 1:1, et `Max core file size 1 1` dans `next-server` comme dans l'enfant — `deploy/README.md`) et
     l'enfant en **hérite** sans changement (test Linux : `/proc/self/limits` du parent
     et de l'enfant). Observé sur le VPS : un `abort()` dans un conteneur jetable de
     l'image de production affiche « core dumped », `/var/crash` et
@@ -979,7 +979,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     voient) : `next-server` ne doit **jamais** avoir chargé sharp ni libvips —
     **0 correspondance `sharp`/`vips` dans `/proc/<pid>/maps` du processus
     `next-server`**, y compris après un envoi de photo (c'est l'enfant qui les
-    charge). Vérifié sur des images construites depuis `23009bc`, `51b9d10` et `27e004e`. **En production à `0b2e320`** (sondé sans SSH le 2026-11-27 : `/api/health` rend `version` `0b2e320` et `imageDecoder` `ready`, `/_next/image` répond 404) ; la lecture des `maps` de `next-server` dans le conteneur de production, elle, n'a pas été faite (SSH) ; à rejouer après tout
+    charge). Vérifié sur des images construites depuis `23009bc`, `51b9d10` et `27e004e`. **En production à `0b2e320`** (sondé sans SSH le 2026-11-27 : `/api/health` rend `version` `0b2e320` et `imageDecoder` `ready`, `/_next/image` répond 404) ; et, par SSH le 2026-11-28 dans le conteneur de production à `0b2e320` : **0** correspondance `sharp`/`vips` dans les `maps` de `next-server`, l'enfant de décodage seul les charge ; à rejouer après tout
     changement de `next.config.ts` (`images`) ou de ce qui importe sharp ;
   - **sharp n'est importé que par le script enfant**, parmi les fichiers
     livrés : `tests/runtime-dependencies.test.ts` lit les scripts livrés depuis
