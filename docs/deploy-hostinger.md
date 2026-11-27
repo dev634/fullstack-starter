@@ -741,9 +741,15 @@ puisqu'elles ne remontent jamais jusqu'à ce niveau.
   toujours avec `docker exec fullstack_starter_web env | grep NOM_VAR` après un
   `up -d --force-recreate web`. Un simple `restart` réutilise l'environnement figé à la création
   du conteneur.
-- **Erreur `Must supply api_key` lors de l'ajout d'une photo client** → la variable
-  `CLOUDINARY_URL` est absente ou vide dans le `.env` du VPS (elle n'est pas générée automatiquement
-  par le script de bootstrap). Ajoute-la (section 3) puis recrée le conteneur.
+- **Tout téléversement (photo client, logo, fichier de projet, plan ou photo de réserve, photo
+  d'équipement) répond « Échec de l'envoi du fichier. Réessaie. »** alors que le fichier est valide →
+  la variable `CLOUDINARY_URL` est probablement absente ou vide dans le `.env` du VPS (elle n'est pas
+  générée automatiquement par le script de bootstrap). L'utilisateur ne voit **jamais** le message du
+  SDK : la cause se lit dans les journaux du conteneur, en cherchant
+  `Cloudinary upload refused before sending` (`docker compose logs web | grep "Cloudinary upload refused before sending"`) —
+  la ligne suivante porte l'erreur d'origine (`Must supply api_key`, `Must supply cloud_name…`). Ajoute
+  la variable (section 3) puis recrée le conteneur. Une panne réseau ou une réponse 5xx de Cloudinary
+  produit le même message à l'écran mais **pas** cette ligne de journal.
 - **Les liens de réinitialisation de mot de passe n'arrivent jamais par email** → `RESEND_API_KEY`
   n'est pas configurée : le lien est simplement journalisé dans les logs du conteneur
   (`docker compose logs web`) au lieu d'être envoyé. Ajoute la clé (section 3) puis recrée le

@@ -486,10 +486,43 @@ ne construit qu'après les tests. À `f308d51` : 24 fichiers, 91 actions (égale
 disparu quand l'action a parsé elle-même son formulaire. Limites déclarées en tête du
 helper : le test d'une conditionnelle, une valeur rangée dans une autre puis
 écrite par elle, une fonction importée qui écrit dans son argument, et ce qu'un
-`throw` du `try` porte jusqu'à `getErrorMessage` (qui relaie le `.message` de
-tout objet levé). **Ajouter une
+`throw` du `try` porte jusqu'à `getErrorMessage` (qui ne relaie plus que le
+`.message` d'une forme de l'application, § « Erreurs vers l'écran »). **Ajouter une
 source à la liste fermée est une décision** : sa raison dit ce que la source
 rend, et l'instrument la croit sans lire son corps.
+
+## Erreurs vers l'écran, téléversements et compensation (fix/televersements)
+
+**`getErrorMessage` ne relaie plus qu'une forme de l'application** (`lib/helpers.ts`).
+Ordre : `repositoryError` → repli ; `instanceof Error` → repli **et cause journalisée** ; code i18n
+(avec dictionnaire) → traduction ; objet non-`Error` à `type` et `message` chaînes → son `message` ;
+tout le reste → repli, journalisé. Avant, le dernier `return` relayait le `.message` de **tout**
+objet : « Must supply api_key » (SDK Cloudinary, qui signe de façon **synchrone** dans l'exécuteur
+du `new Promise`) arrivait à l'écran, comme l'aurait fait un message Prisma. Pour qu'un texte
+destiné à l'utilisateur franchisse la frontière, on lève `{ type: "error", message }` (ou un code
+i18n), **jamais** `new Error(texte)` — les trois de `importProjects` l'ont été. Recensement par
+l'AST à `c8230a3` (`ts.isNewExpression` sur `Error|TypeError|RangeError|SyntaxError|EvalError|URIError|AggregateError`,
+dans les fichiers suivis de `actions/`, `lib/`, `service/`, `repository/`, hors code généré ; 131 fichiers) :
+**4** — `actions/projects/projects.ts` ×3 (texte utilisateur, converties), `lib/csv.ts::csvHeaderOf`
+(programmeur, au chargement du module). Les autres `throw` sont des objets (`{type,message}` ×46,
+`repositoryError` ×198, codes `i18n`, `scanError`/`refusal` à `code`…).
+
+**Un seul envoi vers Cloudinary** : `lib/cloudinary.ts::uploadBuffer`. Il attrape l'exception
+synchrone du SDK, la journalise (`Cloudinary upload refused before sending:` + cause) et rejette en
+`{ type: "error", message, i18n: "uploadFailed" }` ; il attrape aussi la conversion de la réponse
+(`toResult`), qui s'exécute dans un callback du SDK où un `throw` tuerait le processus.
+
+**Une seule compensation** : `lib/uploadCompensation.ts`. Seule l'**écriture** est enveloppée
+(`writeWithCompensation`), jamais l'action : un échec après une écriture réussie ne détruit rien. Destruction
+sans condition seulement si l'échec **prouve** que l'écriture n'a pas eu lieu (`writeRefused` : seul
+le doublon d'e-mail d'entreprise le prouve, les dépôts enveloppant toute panne en `repositoryError`) ;
+sinon seulement si **aucune ligne ne référence** l'asset (`is…Referenced` dans les dépôts), et si
+cette lecture échoue aussi, l'asset est **gardé** et le cas journalisé. La destruction passe le `type` et le
+`resource_type` **lus dans la réponse du téléversement** (`destroyUploadedAsset`) et lit le compte-rendu
+(`destroy` ne lève rien sur un `type` erroné). Une destruction qui échoue ne masque jamais le refus d'origine.
+Appelants : logo, fichier de projet, plan et photo de réserve, archive du bulletin, photo d'équipement
+(`writeWithCompensation`) ; photo d'entreprise (`discardAfterFailedWrite`, même décision, forme
+`try/catch` conservée : `tests/server-action-return-guard.test.ts` ne suit pas un retour lu à travers un callback).
 
 ## Tests — le piège récurrent
 
