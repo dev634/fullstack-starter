@@ -801,7 +801,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     voient) : `next-server` ne doit **jamais** avoir chargé sharp ni libvips —
     **0 correspondance `sharp`/`vips` dans `/proc/<pid>/maps` du processus
     `next-server`**, y compris après un envoi de photo (c'est l'enfant qui les
-    charge). Vérifié à 23009bc sur l'image de production ; à rejouer après tout
+    charge). Vérifié sur des images construites depuis `23009bc`, `51b9d10` et `27e004e` (pas encore sur l'image de production, après le merge) ; à rejouer après tout
     changement de `next.config.ts` (`images`) ou de ce qui importe sharp ;
   - **sharp n'est importé que par le script enfant**, parmi les fichiers
     livrés : `tests/runtime-dependencies.test.ts` lit les scripts livrés depuis
@@ -832,7 +832,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     (il lance l'enfant) ; elle disparaît le jour où le décodeur tourne ailleurs
     (service ou conteneur séparé) et que le serveur ne lance plus de processus.
   **Calibrage du délai de 20 s, mesuré dans l'image de production** (2026-11-27,
-  image de production d'avant ce lot, node 22.23.5, sharp
+  image de production d'avant ce lot — `c8230a3`, `sha256:1a2eac01…` —, node 22.23.5, sharp
   0.35.5 / libvips 8.18.7, sur le VPS ; méthode : `docker run --cpus=1
   --memory=1500m --network none`, chaque fichier décodé puis réencodé avec les
   options de l'application, d'abord dans un processus neuf, puis 4 passes dans
