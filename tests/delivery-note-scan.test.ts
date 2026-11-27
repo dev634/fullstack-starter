@@ -391,7 +391,7 @@ describe("applyDeliveryNoteScan", () => {
       )
     );
     // The archive's row is the 4th argument of applyScanItems: written in the SAME transaction.
-    expect(applyScanItemsMock.mock.calls[0][3]).toMatchObject({ projectId: 2, folderId: 5, name: "note.jpg" });
+    expect(applyScanItemsMock.mock.calls[0][3]).toMatchObject({ folderId: 5, name: "note.jpg" });
   });
 
   // The archive is uploaded `authenticated`. ORDER (audit of fix/televersements): the folder read, the decode, the
@@ -441,8 +441,8 @@ describe("applyDeliveryNoteScan", () => {
     it("writes the materials AND the archive's row in ONE call, the row being what the upload reported", async () => {
       await run();
       expect(applyScanItemsMock).toHaveBeenCalledTimes(1);
+      // No projectId: the repository gives the archive the project of the materials (it cannot be aimed elsewhere).
       expect(applyScanItemsMock.mock.calls[0][3]).toEqual({
-        projectId: 2,
         folderId: null,
         name: "note.jpg",
         url: ARCHIVE.url,
@@ -505,12 +505,49 @@ describe("applyDeliveryNoteScan", () => {
       expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
     });
 
-    it("destroys nothing when a row references the archive after a failed transaction (it may have committed)", async () => {
-      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+    // A lost acknowledgement of the commit (hypothesis): the transaction commits, the driver answers an error. The archive's
+    // row is written in the same transaction, so a row that references the archive PROVES the commit.
+    it("an error after a commit PROVEN by the archive's row is a success: the archive is kept and the stock is not asked twice", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "connection lost after commit" });
       isPublicIdReferencedMock.mockResolvedValue(true);
       vi.spyOn(console, "error").mockImplementation(() => {});
-      await run();
+      const res = await run();
+      expect(res).toEqual({ type: "success", message: fr.materials.scan.messages.applied });
+      expect(isPublicIdReferencedMock).toHaveBeenCalledWith("projects/2/note");
       expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+      expect(applyScanItemsMock).toHaveBeenCalledTimes(1);
+      expect(revalidatePathMock).toHaveBeenCalled();
+    });
+
+    it("an error with NO row for the archive is an error and the archive is destroyed (the commit did not happen)", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      isPublicIdReferencedMock.mockResolvedValue(false);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await run()).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("when the proof cannot be read either, the error is reported and the archive is KEPT (one file too many rather than a broken row)", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      isPublicIdReferencedMock.mockRejectedValue({ type: "repositoryError", message: "down" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await run()).toMatchObject({ type: "error" });
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("without an archive nothing proves a commit: the error is reported as it is, and the proof is not even asked", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await applyDeliveryNoteScan(initialApply, formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) }));
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(isPublicIdReferencedMock).not.toHaveBeenCalled();
+    });
+
+    it("an unmatched material is never taken for a commit, even if a row happens to reference the archive", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "unmatchedScanMaterial", materialId: 7 });
+      isPublicIdReferencedMock.mockResolvedValue(true);
+      expect(await run()).toMatchObject({ type: "error", message: fr.materials.messages.invalidId });
+      expect(isPublicIdReferencedMock).not.toHaveBeenCalled();
     });
 
     it("destroys nothing on success", async () => {

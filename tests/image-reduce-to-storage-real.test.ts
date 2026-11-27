@@ -46,6 +46,20 @@ describe("an image beyond the storage's pixel ceiling is reduced to fit, not ref
     expect(meta.width! * meta.height!).toBeLessThanOrEqual(STORAGE_MAX_IMAGE_PIXELS);
   }, 60_000);
 
+  // Panoramas: the rounding of the short side used to push the product over the ceiling past a ratio of ~4.2, and past a
+  // ratio of 16 the long edge asked (above 20,000) was refused by the child itself: "must be an image file".
+  it.each([
+    [13175, 2957], // 25,000,057 px with the former formula
+    [20000, 1300], // 25,002,750 px
+    [24000, 1200], // ratio 20: a long edge of ~22,400, above the former bound of the child
+    [38000, 1000], // ratio 38: ~30,800
+  ])("a %i x %i panorama is reduced to fit, accepted by the child, and ends under the ceiling", async (width, height) => {
+    const out = await stripArchivedPhotoMetadata(freshOwner(), await flat(width, height, "jpeg"), "image/jpeg", STORAGE_IMAGE_LIMITS);
+    const meta = await sharp(out).metadata();
+    expect(meta.width! * meta.height!).toBeLessThanOrEqual(STORAGE_MAX_IMAGE_PIXELS);
+    expect(meta.width! * meta.height!).toBeGreaterThan(STORAGE_MAX_IMAGE_PIXELS * 0.99);
+  }, 120_000);
+
   it("an image already within the ceiling keeps its dimensions exactly", async () => {
     const out = await stripArchivedPhotoMetadata(freshOwner(), await flat(5000, 5000, "jpeg"), "image/jpeg", STORAGE_IMAGE_LIMITS);
     const meta = await sharp(out).metadata();

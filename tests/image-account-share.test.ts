@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 
 // The share of an ACCOUNT in the decoder (lib/imageMetadata.ts): at most ONE task per account in the
 // queue, and a budget of decode TIME per account over a sliding hour. The decode child is replaced by a
@@ -412,8 +413,8 @@ describe("what a path that cannot decode says, and what each destination's ceili
   it("a header beyond the destination's pixel ceiling is REDUCED to fit (proportions kept), never refused", async () => {
     const limits = (fitInPixels: number) => ({ maxOutputBytes: 10 * 1024 * 1024, fitInPixels });
     await expect(stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", limits(50))).resolves.toBeInstanceOf(Buffer);
-    // sqrt(50 / 100) * 10 = 7.07 -> 7, one less for the rounding of the short side: 6 (6 x 6 = 36 <= 50).
-    expect(state.lastLongEdge).toBe(6);
+    // sqrt(50 / 100) * 10 = 7.07 -> 7: 7 x 7 = 49 <= 50, and 8 x 8 = 64 would not fit.
+    expect(state.lastLongEdge).toBe(7);
     // A header exactly AT the ceiling, or under it, is left alone.
     await strip(freshOwner());
     expect(state.lastLongEdge).toBeNull();
@@ -421,33 +422,75 @@ describe("what a path that cannot decode says, and what each destination's ceili
     expect(state.lastLongEdge).toBeNull();
   });
 
-  it("the reduction never lets a rounded short side push the product over the ceiling", async () => {
-    // Every pair of the form w x h with w * h in (ceiling, 4 x ceiling]: the long edge asked, applied by sharp's rule
-    // (the short side is rounded), stays under the ceiling.
-    for (const [w, h] of [[7000, 5000], [6000, 6600], [20000, 2000], [4000, 9999], [12345, 3001], [5001, 5000]]) {
-      for (const ceiling of [25_000_000, 24_999_999, 1_000_000]) {
-        const edge = longEdgeToFit({ width: w, height: h }, ceiling);
-        if (w * h <= ceiling) {
-          expect(edge).toBeNull();
-          continue;
-        }
-        expect(edge).not.toBeNull();
-        const long = Math.max(w, h);
-        const short = Math.min(w, h);
-        const newLong = edge as number;
-        const newShort = Math.round((short * newLong) / long);
-        expect(newLong * newShort).toBeLessThanOrEqual(ceiling);
-        // and not absurdly small: within 1% of the ceiling in pixels
-        expect(newLong * newShort).toBeGreaterThan(ceiling * 0.99);
+  // The child resizes `fit: "inside"` on a square of the edge it is given: the long side becomes the edge, the short side
+  // max(1, round(short x edge / long)). Taking one pixel off the edge did NOT compensate that rounding past a ratio of ~4.2
+  // (13175 x 2957 came out at 25,000,057 pixels, 20000 x 1300 at 25,002,750: proved by the real child in the image; a grid
+  // of ratios found 15,370 overshoots), so the old six hand-picked pairs proved nothing.
+  const CHILD_MAX_LONG_EDGE = Number(/const MAX_LONG_EDGE = ([\d_]+);/.exec(readFileSync("scripts/image-decode-child.mjs", "utf8"))?.[1].replaceAll("_", ""));
+  const FIT = 25_000_000;
+  /** The grid: ratios 1 to 40 (every 0.25), sizes from just over the ceiling to the 40 Mpx the decoder lets in, both orientations, and a few strips. */
+  function* grid(): Generator<[number, number]> {
+    for (let ratio = 1; ratio <= 40; ratio += 0.25) {
+      for (const pixels of [FIT + 1, 26_000_000, 30_000_000, 34_800_000, 39_000_000, 40_000_000]) {
+        const short = Math.max(1, Math.floor(Math.sqrt(pixels / ratio)));
+        const long = Math.floor(pixels / short);
+        if (long * short > 40_000_000 || long * short <= FIT) continue;
+        yield [long, short];
+        yield [short, long];
       }
     }
+    for (const [w, h] of [[13175, 2957], [20000, 1300], [24000, 1200], [38000, 1000], [40_000_000, 1], [25_000_001, 1], [100_000, 300]]) yield [w, h];
+  }
+  /** What the child produces for an edge: sharp's rule, the short side rounded and never below one pixel. */
+  function produced(w: number, h: number, edge: number): number {
+    const long = Math.max(w, h);
+    const short = Math.min(w, h);
+    return edge * Math.max(1, Math.round((short * edge) / long));
+  }
+
+  it("the grid exists and is large enough to mean something", () => {
+    expect([...grid()].length).toBeGreaterThan(1_500);
+    expect(CHILD_MAX_LONG_EDGE).toBeGreaterThanOrEqual(40_000_000);
+  });
+
+  it("over the whole grid the edge asked makes the image FIT, within a few edge-pixels of the ceiling, and the child accepts it", () => {
+    const overshoots: string[] = [];
+    for (const [w, h] of grid()) {
+      const edge = longEdgeToFit({ width: w, height: h }, FIT);
+      if (edge === null) {
+        overshoots.push(`${w}x${h}: no reduction asked above the ceiling`);
+        continue;
+      }
+      const pixels = produced(w, h, edge);
+      if (pixels > FIT) overshoots.push(`${w}x${h}: edge ${edge} -> ${pixels} px`);
+      if (edge > CHILD_MAX_LONG_EDGE) overshoots.push(`${w}x${h}: edge ${edge} beyond the child's own bound ${CHILD_MAX_LONG_EDGE}`);
+      if (edge > Math.max(w, h)) overshoots.push(`${w}x${h}: edge ${edge} would enlarge`);
+      // Not absurdly small: one edge-step less would still fit means the loop went too far (a plateau of the rounding aside).
+      if (edge < Math.max(w, h) && edge > 1 && produced(w, h, edge + 1) <= FIT && edge + 1 <= Math.max(w, h)) overshoots.push(`${w}x${h}: edge ${edge} is not the largest that fits`);
+    }
+    expect(overshoots).toEqual([]);
+  });
+
+  it("the former formula (one pixel off the scaled edge) FAILS this grid: the probe that the grid sees what the six pairs missed", () => {
+    const former = (w: number, h: number): number => Math.max(1, Math.floor(Math.max(w, h) * Math.sqrt(FIT / (w * h))) - 1);
+    let over = 0;
+    let beyondChild = 0;
+    for (const [w, h] of grid()) {
+      const edge = former(w, h);
+      if (produced(w, h, edge) > FIT) over += 1;
+      if (edge > 20_000) beyondChild += 1;
+    }
+    // 478 overshoots on this grid (the audit's finer grid found 15,370).
+    expect(over).toBeGreaterThan(100);
+    expect(beyondChild).toBeGreaterThan(0);
+    expect(former(13175, 2957) * Math.round((2957 * former(13175, 2957)) / 13175)).toBeGreaterThan(FIT);
   });
 
   it("a model path (its own long edge, nothing to fit) asks for its long edge; a storage path with both asks for the smaller", async () => {
     await encodeOriented("model", freshOwner(), img("a"), { format: "jpeg", quality: 85 }, { maxLongEdge: 1568, maxOutputBytes: 1_000_000, fitInPixels: null });
     expect(state.lastLongEdge).toBe(1568);
     await encodeOriented("strip", freshOwner(), img("a"), { format: "png" }, { maxLongEdge: 1568, maxOutputBytes: 1_000_000, fitInPixels: 50 });
-    expect(state.lastLongEdge).toBe(6);
+    expect(state.lastLongEdge).toBe(7);
   });
 
   it("the same output passes a destination that takes it (the ceilings are per path)", async () => {

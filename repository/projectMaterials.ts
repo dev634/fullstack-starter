@@ -370,12 +370,12 @@ export function isUnmatchedScanMaterialError(error: unknown): error is Unmatched
  * newly-created materials — matching an existing material just adds the
  * delivered quantity, leaving its own supplier/reference untouched.
  *
- * `archive`, when given, is the row of the delivery note's photo (already sent to the
+ * `archive`, when given (without a `projectId`: it is this project's), is the row of the delivery note's photo (already sent to the
  * storage): it is written in the SAME transaction, after the materials. Either everything
  * is written or nothing is, so a failure of the row cannot leave the stock applied (and a
  * retry cannot apply it twice).
  */
-export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null, archive?: FileData) {
+export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null, archive?: Omit<FileData, "projectId">) {
     try {
         return await prisma.$transaction(async (tx) => {
             const results = [];
@@ -404,7 +404,8 @@ export async function applyScanItems(projectId: number, items: ScanApplyItem[], 
                     );
                 }
             }
-            if (archive) await createWithin(tx, archive);
+            // The row's project is the materials' own: an archive cannot be aimed at another project.
+            if (archive) await createWithin(tx, { ...archive, projectId });
             return results;
         });
     } catch (error) {

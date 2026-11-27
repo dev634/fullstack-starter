@@ -433,14 +433,26 @@ export type StorageImageLimits = { maxOutputBytes: number; fitInPixels: number }
 
 /**
  * The long edge that makes an image of this header fit in `fitInPixels`, proportions kept, or null when it already
- * fits. The long edge of the oriented image is the larger side whatever the EXIF orientation. One pixel is taken off
- * so that the rounding of the short side (sharp rounds it) cannot push the product over the ceiling.
+ * fits. The long edge of the oriented image is the larger side whatever the EXIF orientation.
+ *
+ * The resize of the child is `fit: "inside"` on a square of this edge: the long side becomes `edge`, the short side
+ * `max(1, round(short x edge / long))`. That ROUNDING can push the product over the ceiling by up to half an edge, and
+ * taking one pixel off the edge does not compensate it once the ratio of the sides is over ~4.2 (13175 x 2957 came out
+ * at 25,000,057 pixels, 20000 x 1300 at 25,002,750): the edge is reduced until the product the child will actually
+ * produce fits. The starting point (sqrt(ceiling x ratio), at most the ceiling itself, since a short side is at least
+ * one pixel) is within a few steps of the answer, which is the LARGEST edge whose product fits.
  */
 export function longEdgeToFit(header: ImageHeader, fitInPixels: number | null): number | null {
     const { width, height } = header;
     if (fitInPixels === null || !width || !height || width * height <= fitInPixels) return null;
-    const scale = Math.sqrt(fitInPixels / (width * height));
-    return Math.max(1, Math.floor(Math.max(width, height) * scale) - 1);
+    const long = Math.max(width, height);
+    const short = Math.min(width, height);
+    const producedPixels = (edge: number): number => edge * Math.max(1, Math.round((short * edge) / long));
+    let edge = Math.min(Math.floor(long * Math.sqrt(fitInPixels / (width * height))), fitInPixels);
+    while (edge > 1 && producedPixels(edge) > fitInPixels) edge -= 1;
+    // The product only grows with the edge: the largest edge that still fits is the answer (the scaled start can be one under it).
+    while (edge < long && producedPixels(edge + 1) <= fitInPixels) edge += 1;
+    return Math.max(1, edge);
 }
 
 /** The smaller of two optional long edges. */
@@ -571,10 +583,11 @@ export function encodeOriented(
  * lib/cloudinary.ts's STORAGE_IMAGE_LIMITS. Throws `{ type: "error", code }` — one
  * of ImageRefusalCode, never a native error: `imageInProgress`, `imageQuota` and
  * `imageBusy` at once and for free, `imageUnavailable` when the decoder cannot start,
- * `outputTooLarge` / `imageTooManyPixels` for the destination's ceilings, and
+ * `outputTooLarge` for the destination's byte ceiling (an image beyond its pixel
+ * ceiling is REDUCED to fit, never refused), `imageTooHeavy` when the task outlasts
+ * DECODE_DEADLINE_SECONDS and its child is killed, and
  * `corruptedImage` if the image can't be processed — or the decoded size is
- * beyond MAX_DECODED_BYTES, or the task outlasts DECODE_DEADLINE_SECONDS and its
- * child is killed — structurally the same shape as
+ * beyond MAX_DECODED_BYTES, or the child dies during the task — structurally the same shape as
  * lib/deliveryNoteScan.ts's own ScanError (so its isScanError still
  * recognizes it, caught by actions/deliveryNoteScan/deliveryNoteScan.ts),
  * built as a plain literal here rather than imported: that module imports

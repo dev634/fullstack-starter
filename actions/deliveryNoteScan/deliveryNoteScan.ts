@@ -21,7 +21,7 @@ import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
 import { applyScanItems, findIdsInProject as findMaterialIdsInProject, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
 import { isPublicIdReferenced as isFilePublicIdReferenced } from "@/repository/projectFiles";
 import { isImageRefusal } from "@/lib/imageMetadata";
-import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
+import { assetCompensation, discardAfterFailedWrite } from "@/lib/uploadCompensation";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
 import { archiveTooLargeMessage, STORAGE_IMAGE_LIMITS, uploadProjectFile } from "@/lib/cloudinary";
@@ -368,33 +368,49 @@ export async function applyDeliveryNoteScan(
     }
 
     // The rows, in ONE transaction: the materials and the archive's row. A failure compensates the
-    // archive just sent (nothing references it unless the transaction committed after all) and the
-    // error is the caller's: nothing was applied, retrying is safe.
+    // archive just sent (unless a row references it) and the error is the caller's: nothing was
+    // applied, retrying is safe.
+    //
+    // ONE case is not a failure: the transaction commits, then the driver answers an error anyway (a lost
+    // acknowledgement of the commit). The archive's row is written in that same transaction, so a row that
+    // references the archive PROVES the commit: the answer is a success and the archive is kept — an
+    // "error, try again" there would apply the stock a second time. Without an archive (no photo, or one
+    // beyond the storage) nothing proves it either way: the error is reported as it is (docs/CONVENTIONS.md).
     const uploaded = archive;
-    await writeWithCompensation(
-      () =>
-        applyScanItems(
-          projectId,
-          materialItems,
-          supplier,
-          uploaded
-            ? {
-                projectId,
-                folderId: deliveryFolderId,
-                name: archivedName,
-                url: uploaded.url,
-                publicId: uploaded.publicId,
-                deliveryType: uploaded.deliveryType,
-                resourceType: uploaded.resourceType,
-                format: uploaded.format,
-                version: uploaded.version,
-                size: uploaded.size,
-                mimeType: uploaded.mimeType,
-              }
-            : undefined
-        ),
-      uploaded ? assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced, isUnmatchedScanMaterialError) : undefined
-    );
+    try {
+      await applyScanItems(
+        projectId,
+        materialItems,
+        supplier,
+        uploaded
+          ? {
+              folderId: deliveryFolderId,
+              name: archivedName,
+              url: uploaded.url,
+              publicId: uploaded.publicId,
+              deliveryType: uploaded.deliveryType,
+              resourceType: uploaded.resourceType,
+              format: uploaded.format,
+              version: uploaded.version,
+              size: uploaded.size,
+              mimeType: uploaded.mimeType,
+            }
+          : undefined
+      );
+    } catch (error) {
+      const committed =
+        uploaded !== null &&
+        !isUnmatchedScanMaterialError(error) &&
+        (await isFilePublicIdReferenced(uploaded.publicId).catch(() => false));
+      if (!committed) {
+        await discardAfterFailedWrite(
+          uploaded ? assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced, isUnmatchedScanMaterialError) : undefined,
+          error
+        );
+        throw error;
+      }
+      console.error("Delivery note scan: the transaction answered an error but its archive row exists: committed, answering success:", error);
+    }
 
     // Invalidates the hub (its Files link card shows a plain COUNT) and the
     // dedicated files page — the archive step above may have just created a

@@ -113,8 +113,7 @@ describe("applyScanItems against a real Postgres", () => {
 // The delivery note's materials and its archive's ProjectFile row are ONE transaction (audit of
 // fix/televersements): the row's failure used to leave the stock applied, and a retry doubled it.
 describe("applyScanItems with the archive row, against a real Postgres", () => {
-  const archiveOf = (projectId: number, overrides: Partial<FileData> = {}): FileData => ({
-    projectId,
+  const archiveOf = (projectId: number, overrides: Partial<Omit<FileData, "projectId">> = {}): Omit<FileData, "projectId"> => ({
     folderId: null,
     name: "note.jpg",
     url: "https://res.cloudinary.com/demo/image/authenticated/projects/note.jpg",
@@ -160,6 +159,14 @@ describe("applyScanItems with the archive row, against a real Postgres", () => {
     const attempt = applyScanItems(project.id, [{ materialId: 999_999_999, name: "Ghost", quantity: 1 }], null, archiveOf(project.id));
     await expect(attempt).rejects.toSatisfy((error: unknown) => isUnmatchedScanMaterialError(error));
     expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(0);
+  });
+
+  it("the archive's row lands on the project of the MATERIALS (the repository sets it: the archive cannot aim elsewhere)", async () => {
+    const project = await makeProject();
+    const other = await makeProject();
+    await applyScanItems(project.id, [{ name: "Panneau", quantity: 2, reference: "R" }], null, archiveOf(project.id));
+    expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(1);
+    expect(await prisma.projectFile.count({ where: { projectId: other.id } })).toBe(0);
   });
 
   it("without an archive nothing is written to the files, as before", async () => {

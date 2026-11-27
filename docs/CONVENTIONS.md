@@ -559,9 +559,14 @@ forgée ne dépense pas de temps de décodeur), et **le dossier « Bulletins de 
 lever **avant** qu'un fichier soit envoyé : sinon l'archive restait orpheline chez Cloudinary) ; (2) le décodage,
 le plafond de sortie et l'envoi de l'archive — tout ce qui coûte ou peut échouer sans toucher une ligne ; (3) **une
 seule transaction** pour les matériaux et la ligne `ProjectFile` : `applyScanItems(projectId, items, supplier,
-archive?)` écrit la ligne d'archive avec `createWithin(tx, …)` (`repository/projectFiles.ts`) à la suite des
+archive?: Omit<FileData, "projectId">)` écrit la ligne d'archive avec `createWithin(tx, …)` (`repository/projectFiles.ts`) à la suite des
 matériaux. Si la transaction échoue, rien n'est appliqué, l'archive qu'on vient d'envoyer est compensée et
-« Réessaie » est vrai (un nouvel essai ne double pas le stock). **Le seul succès partiel qui reste** : la sortie
+« Réessaie » est vrai **quand la transaction a réellement échoué**. **Un accusé de commit perdu** (hypothèse : la
+transaction réussit, le pilote lève quand même) est tranché ainsi : la ligne d'archive est écrite dans la même
+transaction, donc, quand l'écriture échoue et qu'une archive existe, **une ligne qui référence l'archive
+(`isPublicIdReferenced`) PROUVE le commit** — l'action répond succès et garde l'archive (une ligne illisible garde
+l'archive et rend l'erreur). **Sans archive** (pas de photo, ou une archive hors stockage), **rien ne le prouve** : l'erreur
+est rendue telle quelle, et un nouvel essai pourrait doubler le stock dans ce seul cas — risque non fermé, écrit ici. **Le seul succès partiel qui reste** : la sortie
 nettoyée dépasse encore `STORAGE_MAX_FILE_BYTES` après la réduction à 25 Mpx ; les matériaux sont appliqués **sans**
 archive, et l'action renvoie `type: "warning"` (« Matériaux appliqués. L'archive du bulletin dépassait la taille de
 stockage (10 Mo) et n'a pas été enregistrée. »). **Un état à part, pas `"success"` avec un autre texte** : la modale
@@ -906,9 +911,21 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     gardées, jamais refusée** — le stockage ne peut pas la garder telle quelle, c'est une conséquence du
     plan de stockage, et 25 Mpx reste très lisible (un A4 scanné à 600 dpi, 4960 × 7016 = 34,8 Mpx,
     passait le scan et l'appel au LLM puis était refusé en entier, à chaque essai). Le grand côté se
-    calcule depuis l'en-tête déjà lu (`longEdgeToFit`, un pixel de moins pour que l'arrondi du petit côté
-    ne dépasse pas le plafond), l'enfant redimensionne (`maxLongEdge`) ; l'orientation est appliquée
-    avant. Il n'y a plus de code « trop de pixels ». Une sortie qui dépasse encore le plafond d'octets
+    calcule depuis l'en-tête déjà lu (`longEdgeToFit`), l'enfant redimensionne (`maxLongEdge`) ;
+    l'orientation est appliquée avant. **Le calcul reproduit la règle de sharp** (grand côté = l'arête, petit côté =
+    `max(1, round(petit × arête / grand))`) et retient la **plus grande arête dont le produit tient** : l'ancienne
+    formule (« un pixel de moins ») ne compensait pas l'arrondi du petit côté dès que le rapport des côtés dépasse
+    ~4,2 (13175 × 2957 ressortait à 25 000 057 px, 20000 × 1300 à 25 002 750 px — prouvé par le vrai enfant dans
+    l'image ; une grille de rapports trouvait 15 370 dépassements), et au-delà d'un rapport de 16 l'arête demandée
+    dépassait la borne de l'enfant. `tests/image-account-share.test.ts` rejoue une **grille** (rapports de 1 à 40
+    par quarts, tailles de 25 000 001 à 40 000 000 px, deux orientations, des bandes d'un pixel) : elle exige
+    que le produit tienne, que l'arête soit la plus grande qui tienne, qu'elle ne dépasse ni l'entrée ni la borne
+    de l'enfant ; **sonde** : l'ancienne formule la fait rougir (478 dépassements sur cette grille).
+    **Borne de l'enfant (`MAX_LONG_EDGE`) : 40 000 000** (elle était de 20 000). Calcul : une demande de
+    redimensionnement ne fait que **réduire** (`withoutEnlargement`), donc l'arête demandée ne dépasse jamais le
+    grand côté de l'entrée ; or une entrée admise a au plus 40 000 000 px (`SHARP_MAX_INPUT_PIXELS`), donc son grand
+    côté vaut au plus 40 000 000 (une bande d'un pixel de haut). Un panorama de rapport 40 réduit à 25 Mpx demande
+    ~√(25 M × 40) ≈ 31 600 : le cas ordinaire est bien au-dessous, la borne couvre le pire cas. Il n'y a plus de code « trop de pixels ». Une sortie qui dépasse encore le plafond d'octets
     est refusée **avant l'envoi** : pour la photo d'entreprise et la photo d'équipement,
     `outputTooLarge` (« Image trop volumineuse après traitement (10 Mo max). ») ; pour l'archive du
     bulletin, les matériaux sont appliqués **sans** l'archive et l'état est un avertissement (voir plus
