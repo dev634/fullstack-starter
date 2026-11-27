@@ -7,6 +7,7 @@ import {
   MAX_SCAN_QUANTITY,
 } from "@/schemas/deliveryNoteScan";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
+import { freshOwner } from "@/tests/helpers/imageAccount";
 
 describe("applyDeliveryScanSchema bounds", () => {
   const base = { projectId: "2" };
@@ -269,7 +270,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   });
 
   it("strips control and bidi-override characters from brand/supplier before composing the returned name", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     // U+202E (RIGHT-TO-LEFT OVERRIDE) hidden inside an otherwise-plausible
     // brand — well within MAX_SCAN_STRING_LENGTH raw, so it passes schema
     // validation on its own either way; sanitizeScannedString must still
@@ -293,7 +294,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
 
     expect(note.supplier).toBe("Rexel");
     expect(note.items[0].brand).toBe("Panneausolaire");
@@ -302,7 +303,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   });
 
   it("drops a line whose brand/reference are made up entirely of control/bidi characters after sanitizing", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     // A single bidi-override character is still a non-empty (truthy) string
     // at the raw-schema stage — scannedModelItemSchema no longer even has a
     // `.refine()` requiring one, but this shows the character is still
@@ -324,7 +325,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
     expect(note.items).toHaveLength(1);
     expect(note.items[0].name).toBe("Nexans — REF-9");
   });
@@ -337,7 +338,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   // degrades instead of rejects: that one line is dropped, the rest of the
   // bulletin is still returned successfully.
   it("keeps the rest of the bulletin when one line has neither brand nor reference — that line is dropped, the whole scan does not fail", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     anthropicCreateMock.mockResolvedValue({
       content: [
         {
@@ -352,7 +353,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
     expect(note.items).toHaveLength(1);
     expect(note.items[0].name).toBe("Nexans — REF-9");
   });
@@ -360,7 +361,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   // Same class of panne, same fix: a reliquat line (delivered quantity zero)
   // must not fail the whole bulletin either.
   it("keeps the rest of the bulletin when one line has a zero quantity (a reliquat) — dropped, not rejected", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     anthropicCreateMock.mockResolvedValue({
       content: [
         {
@@ -375,7 +376,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
     expect(note.items).toHaveLength(1);
     expect(note.items[0].reference).toBe("REF-9");
   });
@@ -384,7 +385,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   // longer fails the whole scan at the schema stage — it must actually be
   // truncated somewhere, not just silently accepted at full length.
   it("truncates a brand longer than MAX_SCAN_STRING_LENGTH instead of failing the scan", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     const longBrand = "x".repeat(MAX_SCAN_STRING_LENGTH + 50);
     anthropicCreateMock.mockResolvedValue({
       content: [
@@ -392,7 +393,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
     expect(note.items).toHaveLength(1);
     expect(note.items[0].brand).toHaveLength(MAX_SCAN_STRING_LENGTH);
   });
@@ -401,7 +402,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
   // other end of the range: a line the model misread as an absurd quantity
   // (e.g. a garbled OCR digit) is dropped, not the whole bulletin.
   it("keeps the rest of the bulletin when one line's quantity exceeds MAX_SCAN_QUANTITY — dropped, not rejected", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     anthropicCreateMock.mockResolvedValue({
       content: [
         {
@@ -416,18 +417,18 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()));
     expect(note.items).toHaveLength(1);
     expect(note.items[0].reference).toBe("REF-9");
   });
 
   it("fails cleanly (generic app error) when the model's tool call doesn't match the expected shape", async () => {
-    const { extractDeliveryNoteItems } = await import("@/lib/deliveryNoteScan");
+    const { extractDeliveryNoteItems, prepareDeliveryNoteImage } = await import("@/lib/deliveryNoteScan");
     anthropicCreateMock.mockResolvedValue({
       content: [{ type: "tool_use", input: { items: [{ reference: "REF-1", quantity: "not-a-number-and-not-coercible" }] } }],
     });
     const file = await realJpegFile();
-    await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "unreadableNote" });
+    await expect(extractDeliveryNoteItems(await prepareDeliveryNoteImage(file, freshOwner()))).rejects.toMatchObject({ type: "error", code: "unreadableNote" });
   });
 });
 

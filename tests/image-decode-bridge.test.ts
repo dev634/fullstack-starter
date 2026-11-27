@@ -18,7 +18,8 @@ import {
   runInChild,
   type DecodeSession,
 } from "@/lib/imageDecodeBridge";
-import { MAX_ENCODED_OUTPUT_BYTES, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { MAX_ENCODED_OUTPUT_BYTES } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata } from "@/tests/helpers/imageAccount";
 import { auditProgressiveJpeg } from "@/tests/helpers/progressiveJpegFixture";
 import { tiffWithTags } from "@/tests/helpers/tiffFixture";
 import { identicalRowsPng, zTxtBomb } from "@/tests/helpers/pngFixture";

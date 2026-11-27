@@ -45,6 +45,26 @@ const EQUIPMENT_LIST_SELECT = {
     loans: OPEN_LOAN_SELECT,
 } as const;
 
+/**
+ * Whether an equipment row still points at this Cloudinary asset: the question an
+ * upload compensation (lib/uploadCompensation.ts) asks before destroying a file
+ * after a failed write that may have committed anyway. Only existence is read.
+ * A failure is thrown, not answered "no": the caller keeps the asset when it
+ * cannot tell.
+ */
+export async function isPhotoPublicIdReferenced(publicId: string): Promise<boolean> {
+    try {
+        const row = await prisma.equipment.findFirst({
+            where: { photoPublicId: publicId },
+            select: { id: true },
+        });
+        return row !== null;
+    } catch (error) {
+        console.log("Repository isPhotoPublicIdReferenced error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching equipment." };
+    }
+}
+
 export async function create(data: EquipmentData) {
     try {
         return await prisma.equipment.create({

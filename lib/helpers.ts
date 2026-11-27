@@ -35,6 +35,15 @@ const UPLOAD_ERROR_CODES = [
     // lib/imageMetadata.ts's queue is full (imageBusy): a photo upload is
     // refused at once, without ever sending the original.
     "uploadBusy",
+    // The other refusals of lib/imageMetadata.ts's decode (lib/cloudinary.ts::
+    // uploadErrorFromDecode): the account already has an image in progress, or is out
+    // of decode time ({minutes} from i18nParams), the decoder is down, a task killed at its
+    // deadline, the output beyond what the storage takes ({max}).
+    "imageInProgress",
+    "imageQuota",
+    "imageUnavailable",
+    "imageOutputTooLarge",
+    "imageTooHeavy",
 ] as const;
 type UploadErrorCode = (typeof UPLOAD_ERROR_CODES)[number];
 
@@ -61,6 +70,37 @@ const OTHER_I18N_RESOLVERS: Record<string, (t: Dictionary) => string> = {
     duplicateClientEmail: (t) => t.clients.messages.duplicateEmail,
 };
 
+/**
+ * The shapes this application throws ITSELF and whose `.message` is written
+ * for the user, a CLOSED set: `{ type: "error", message }` (the application's
+ * own refusal), `{ type: "zodError", message, fieldsForm }` (the
+ * services' validation) and `{ type: "databaseError", message, i18n }`
+ * (repository/clients.ts's duplicate e-mail, translated by its `i18n` code before
+ * it gets here). The other types the application throws never reach this line:
+ * `repositoryError` is answered by the fallback first (above), `duplicate`
+ * (repository/jobFunctions.ts, projectWorkers.ts, users.ts: English text) is caught
+ * and translated by its four actions, and `unmatchedScanMaterial` and
+ * `guardRefused` carry no `message` at all. A type outside the set is the
+ * fallback, not its English message. A native `Error` is never one of them,
+ * whatever its `type` property: its message comes from a library or from a bug (the
+ * Cloudinary SDK's "Must supply api_key", a Prisma message) and is for the
+ * logs, not for the screen.
+ */
+const RELAYED_ERROR_TYPES: readonly string[] = ["error", "zodError", "databaseError"];
+
+function isAppError(error: unknown): error is { type: string; message: string } {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        !(error instanceof Error) &&
+        "type" in error &&
+        typeof error.type === "string" &&
+        RELAYED_ERROR_TYPES.includes(error.type) &&
+        "message" in error &&
+        typeof error.message === "string"
+    );
+}
+
 export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary): string {
     // Repository functions throw `{ type: "repositoryError", message: "..." }`
     // on an unexpected DB failure — an internal, English-only diagnostic
@@ -73,6 +113,12 @@ export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary
     // material." ended up straight in a French UI. Always use the caller's
     // own (already localized) fallback for this one type instead.
     if (error && typeof error === "object" && "type" in error && (error as { type: unknown }).type === "repositoryError") {
+        return fallback;
+    }
+    // A native Error (the SDK's, Prisma's, a TypeError from a bug) never
+    // reaches the screen: the caller's own fallback, and the cause in the logs.
+    if (error instanceof Error) {
+        console.error("getErrorMessage: native error replaced by the generic message:", error);
         return fallback;
     }
     // An upload-validation error (lib/cloudinary.ts) carries a stable `i18n`
@@ -97,7 +143,9 @@ export function getErrorMessage(error: unknown, fallback: string, t?: Dictionary
             return OTHER_I18N_RESOLVERS[code](t);
         }
     }
-    return error && typeof error === "object" && "message" in error
-        ? String((error as { message: unknown }).message)
-        : fallback;
+    if (isAppError(error)) return error.message;
+    // Anything else (an object without `type`, a string, undefined) is not
+    // ours either: the fallback, and the cause in the logs.
+    console.error("getErrorMessage: unrecognised error replaced by the generic message:", error);
+    return fallback;
 }

@@ -51,7 +51,12 @@ sharp.concurrency(1);
 const OUTPUT_FORMATS = new Set(["jpeg", "png", "webp", "gif"]);
 // sharp's own default input-pixel limit (~268 Mpx): nothing above it is ever asked for.
 const MAX_LIMIT_INPUT_PIXELS = 268_402_689;
-const MAX_LONG_EDGE = 20_000;
+// The largest long edge the parent may ask a resize for. A request only ever SHRINKS (`withoutEnlargement`), so it
+// never exceeds the long edge of an input the parent let through, and an input is at most SHARP_MAX_INPUT_PIXELS
+// (40,000,000, lib/imageMetadata.ts) pixels: its long edge is at most that many (a 1-pixel-high strip). The reduction to a
+// pixel ceiling asks for about sqrt(ceiling x ratio) (a panorama of ratio 40 reduced to 25 Mpx: ~31,600), above the
+// former 20,000, which made the child answer `invalidRequest` ("not an image") for a ratio over 16.
+const MAX_LONG_EDGE = 40_000_000;
 // A sanity bound on what the parent may ask for (its policy constant is far below).
 const MAX_OUTPUT_BYTES_LIMIT = 1_073_741_824;
 

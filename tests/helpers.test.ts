@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { format } from "@/lib/i18n/format";
@@ -27,14 +27,59 @@ describe("formDataToObject", () => {
 });
 
 describe("getErrorMessage", () => {
-  it("reads a message off an error-like object", () => {
-    expect(getErrorMessage({ message: "boom" }, "fallback")).toBe("boom");
+  it("relays the message of the application's own shapes (an object with a string `type`)", () => {
+    expect(getErrorMessage({ type: "error", message: "boom" }, "fallback")).toBe("boom");
+    expect(getErrorMessage({ type: "zodError", message: "invalid" }, "fallback")).toBe("invalid");
+    expect(getErrorMessage({ type: "databaseError", message: "dup" }, "fallback")).toBe("dup");
   });
 
-  it("falls back when there is no message", () => {
-    expect(getErrorMessage(new Error(), "fallback")).toBe("");
+  // The set is CLOSED (fix/televersements): the types the application throws are error, zodError,
+  // databaseError, repositoryError (always the fallback), duplicate (English text, translated by its four
+  // actions before it gets here), unmatchedScanMaterial and guardRefused (no message). A type outside the
+  // closed set is the fallback, never its text.
+  it("a type outside the closed set falls back, even with a string message: `duplicate` is English text", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(getErrorMessage({ type: "duplicate", message: "A user with this email already exists." }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ type: "unmatchedScanMaterial", message: "x" }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ type: "somethingNew", message: "leaks the next library's text" }, "fallback")).toBe("fallback");
+    errorSpy.mockRestore();
+  });
+
+  it("falls back when the message is missing, not a string, or the object is not an application shape", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(getErrorMessage({ type: "error" }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ type: "error", message: 42 }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ message: "no type" }, "fallback")).toBe("fallback");
     expect(getErrorMessage(null, "fallback")).toBe("fallback");
     expect(getErrorMessage("nope", "fallback")).toBe("fallback");
+    errorSpy.mockRestore();
+  });
+
+  // Point 2 (fix/televersements): a native Error's message comes from a library
+  // or a bug and used to be relayed verbatim to the screen.
+  describe("a native Error never reaches the screen", () => {
+    const t = getDictionary("fr");
+    const natives: Array<[string, Error]> = [
+      ["Cloudinary SDK, missing key", new Error("Must supply api_key")],
+      ["Cloudinary SDK, missing cloud name", new Error("Must supply cloud_name in tag or in configuration")],
+      ["Prisma-style message", new Error("Invalid `prisma.user.findMany()` invocation: connect ECONNREFUSED 10.0.0.5:5432")],
+      ["TypeError from a bug", new TypeError("Cannot read properties of undefined (reading 'x')")],
+      ["an Error that carries a type like ours", Object.assign(new Error("native but typed"), { type: "error" })],
+    ];
+
+    it.each(natives)("%s gets the fallback, with or without a dictionary, and the cause is logged", (_label, error) => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(getErrorMessage(error, "fallback")).toBe("fallback");
+      expect(getErrorMessage(error, "fallback", t)).toBe("fallback");
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("native error"), error);
+      errorSpy.mockRestore();
+    });
+
+    it("keeps resolving an application i18n code (uploadFailed) to its translation", () => {
+      const refusal = { type: "error", message: "Failed to upload the logo. Please try again.", i18n: "uploadFailed" };
+      expect(getErrorMessage(refusal, "fallback", t)).toBe(t.errors.uploadFailed);
+      expect(getErrorMessage(refusal, "fallback", t)).not.toContain("Failed to upload");
+    });
   });
 
   // Passe 3a, point 4: repository functions throw `{ type: "repositoryError",

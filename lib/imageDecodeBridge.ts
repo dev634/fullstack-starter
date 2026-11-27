@@ -270,6 +270,28 @@ function describeExit(code: number | null, signal: NodeJS.Signals | null): strin
   return signal !== null ? `signal ${signal}` : `code ${code}`;
 }
 
+// WHY a task failed, when the caller must tell it apart: typed markers on the Error, read by the two
+// predicates below. Nothing matches on the text of a message (a reworded message must not change a verdict).
+type DecodeFailure = "deadline" | "outputTooLarge";
+
+function decodeError(message: string, failure: DecodeFailure): Error {
+  return Object.assign(new Error(message), { decodeFailure: failure });
+}
+
+function hasDecodeFailure(error: unknown, failure: DecodeFailure): boolean {
+  return error instanceof Error && "decodeFailure" in error && error.decodeFailure === failure;
+}
+
+/** Whether the task was killed because it outlasted its deadline (a legitimate but heavy image, or a bomb). */
+export function isDecodeDeadlineError(error: unknown): boolean {
+  return hasDecodeFailure(error, "deadline");
+}
+
+/** Whether the child refused to send an output beyond the `maxOutputBytes` of the request. */
+export function isOutputTooLargeError(error: unknown): boolean {
+  return hasDecodeFailure(error, "outputTooLarge");
+}
+
 /** The worker is gone (or about to be): never served again, whatever waits on it is rejected. */
 function forget(worker: Worker, error: Error): void {
   const state = bridgeState();
@@ -280,8 +302,8 @@ function forget(worker: Worker, error: Error): void {
 }
 
 /** SIGKILL, and forget it at once: the next task starts a fresh child, it never waits for this one to be reaped. */
-function killWorker(worker: Worker): void {
-  forget(worker, new Error("decode child killed"));
+function killWorker(worker: Worker, error: Error = new Error("decode child killed")): void {
+  forget(worker, error);
   worker.process.kill("SIGKILL");
 }
 
@@ -398,7 +420,8 @@ function send(worker: Worker, body: ChildRequest): Promise<ChildResult> {
 function refusedBy(operation: string, result: { ok: false; reason: string } | { ok: true }): Error {
   const reason = result.ok ? "unexpected answer" : result.reason;
   if (reason === "invalidRequest") console.error(`[image-decode] the child refused a ${operation} request as invalid: a bug of the bridge`);
-  return new Error(`${operation} refused by the decode child (${reason})`);
+  const message = `${operation} refused by the decode child (${reason})`;
+  return reason === "outputTooLarge" ? decodeError(message, "outputTooLarge") : new Error(message);
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -454,8 +477,10 @@ export async function runInChild<T>(
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       console.error(`[image-decode] ${operation} killed at the deadline after ${Math.round(performance.now() - startedAt)} ms`);
-      killWorker(worker);
-      reject(new Error("decode deadline exceeded"));
+      // The SAME typed error for what waits on the child and for the race: whichever settles first says "deadline".
+      const exceeded = decodeError("decode deadline exceeded", "deadline");
+      killWorker(worker, exceeded);
+      reject(exceeded);
     }, deadlineMs);
   });
   try {

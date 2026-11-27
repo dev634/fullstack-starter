@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata } from "@/tests/helpers/imageAccount";
 
 // REAL sharp on purpose (failOn: "none"). stripArchivedPhotoMetadata has three callers
 // (company photo, equipment photo, bulletin archive): this is the one behavior they share.

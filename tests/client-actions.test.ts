@@ -563,6 +563,47 @@ describe("client action auth guard + delegation", () => {
 
 // An orphan photo: the upload to Cloudinary succeeded, then the database write
 // was refused. The photo of THIS call is destroyed; a previous one never is.
+// The company photo decodes with sharp, behind ONE queue shared by the whole process and a share per
+// ACCOUNT (lib/imageMetadata.ts). The action passes the account its role guard resolved — never a form
+// field — and shows each refusal of the decode as what it is.
+describe("client photo: the account that owns the decode, and what a refusal says", () => {
+  const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
+  function withPhoto(fields: Record<string, string>): FormData {
+    const fd = formOf(fields);
+    fd.set("photo", new File([new Uint8Array([1, 2, 3])], "photo.jpg", { type: "image/jpeg" }));
+    return fd;
+  }
+  beforeEach(() => {
+    vi.clearAllMocks();
+    for (const m of [createClientMock, updateMock]) m.mockReset();
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    uploadClientPhotoMock.mockResolvedValue(NEW_URL);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
+  });
+
+  it("addClient and updateClient hand the SESSION's account to the upload, whatever the form claims", async () => {
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    await addClient(initial, withPhoto({ ...VALID_CREATE_FIELDS, owner: "someone-else@example.com" }));
+    await updateClient(initial, withPhoto({ ...VALID_UPDATE_FIELDS, owner: "someone-else@example.com" }));
+    expect(uploadClientPhotoMock.mock.calls.map((call) => call[1])).toEqual(["admin@example.com", "admin@example.com"]);
+  });
+
+  it.each([
+    ["imageInProgress", { minutes: 1 }, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
+    ["imageQuota", { minutes: 7 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 7 min."],
+    ["imageUnavailable", {}, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
+    ["imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
+    ["imageTooHeavy", {}, "Cette image est trop lourde à traiter. Essaie une version plus légère."],
+  ])("a refusal %s reaches the user as its own message, and nothing is written", async (i18n, i18nParams, message) => {
+    uploadClientPhotoMock.mockRejectedValue({ type: "error", message: "English fallback", i18n, i18nParams });
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res).toMatchObject({ type: "error", message });
+    expect(createClientMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("client photo compensation when the write fails after the upload", () => {
   const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
   const OLD_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/old.jpg";
@@ -594,7 +635,7 @@ describe("client photo compensation when the write fails after the upload", () =
     createClientMock.mockRejectedValue(DUPLICATE);
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
     expect(logActivityMock).not.toHaveBeenCalled();
   });
@@ -603,14 +644,14 @@ describe("client photo compensation when the write fails after the upload", () =
     createClientMock.mockRejectedValue(DUPLICATE);
     await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(isPhotoUrlReferencedMock).not.toHaveBeenCalled();
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
   });
 
   it("addClient: another failure with NO row referencing the URL destroys it, and answers the generic server error", async () => {
     createClientMock.mockRejectedValue({ type: "error", message: fr.errors.serverError });
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(isPhotoUrlReferencedMock).toHaveBeenCalledWith(NEW_URL);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
   });
 
@@ -644,7 +685,7 @@ describe("client photo compensation when the write fails after the upload", () =
     updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error update client" });
     await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
   });
 
   it("addClient: without a photo, a refused write destroys nothing", async () => {
@@ -700,7 +741,7 @@ describe("client photo compensation when the write fails after the upload", () =
     updateMock.mockRejectedValue(DUPLICATE);
     const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(destroyClientPhotoMock).not.toHaveBeenCalledWith(OLD_URL);
     expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
   });
@@ -727,6 +768,6 @@ describe("client photo compensation when the write fails after the upload", () =
     const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(res.type).toBe("success");
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(OLD_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(OLD_URL, "previous");
   });
 });

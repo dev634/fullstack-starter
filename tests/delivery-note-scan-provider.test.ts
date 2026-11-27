@@ -14,7 +14,11 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
+import { extractDeliveryNoteItems as extractPrepared, prepareDeliveryNoteImage } from "@/lib/deliveryNoteScan";
+import { freshOwner } from "@/tests/helpers/imageAccount";
+
+// The image for the model is decoded on behalf of an account: each call here is made by a fresh one.
+const extractDeliveryNoteItems = async (file: File) => extractPrepared(await prepareDeliveryNoteImage(file, freshOwner()));
 import { realJpegFile as fileOf } from "@/tests/helpers/sharpFixtures";
 
 const originalEnv = { ...process.env };

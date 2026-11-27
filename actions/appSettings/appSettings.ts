@@ -6,7 +6,8 @@ import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { resolveAccessConfig } from "@/lib/capabilities";
 import { updateAppSettingsSchema } from "@/schemas/appSettings";
-import { getSettings, upsert, updateSectionOrder, updateAccessConfig } from "@/repository/appSettings";
+import { getSettings, upsert, updateLogo, updateSectionOrder, updateAccessConfig, isLogoPublicIdReferenced } from "@/repository/appSettings";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { uploadLogo as uploadLogoToCloudinary, destroyLogo } from "@/lib/cloudinary";
 import { revalidateTag } from "next/cache";
 import { APP_SETTINGS_TAG } from "@/lib/appSettings";
@@ -87,11 +88,10 @@ export async function updateSettings(
   }
 
   try {
-    const current = await getSettings();
+    // The branding form writes the name and the colors, never the logo columns (a logo
+    // upload in flight must not be overwritten with the copy read here: F7).
     await upsert({
       appName: parsed.data.appName,
-      logoUrl: current.logoUrl,
-      logoPublicId: current.logoPublicId,
       primaryColor: parsed.data.primaryColor,
       accentColor: parsed.data.accentColor,
       updatedBy: roleCheck.email,
@@ -124,15 +124,17 @@ export async function uploadLogo(
 
   try {
     const current = await getSettings();
-    const { url, publicId } = await uploadLogoToCloudinary(file);
-    await upsert({
-      appName: current.appName,
-      logoUrl: url,
-      logoPublicId: publicId,
-      primaryColor: current.primaryColor,
-      accentColor: current.accentColor,
-      updatedBy: roleCheck.email,
-    });
+    const uploaded = await uploadLogoToCloudinary(file);
+    // Only the write is wrapped: a failure there orphans the PUBLIC logo.
+    await writeWithCompensation(
+      () =>
+        updateLogo({
+          logoUrl: uploaded.url,
+          logoPublicId: uploaded.publicId,
+          updatedBy: roleCheck.email,
+        }),
+      assetCompensation("logo", uploaded, isLogoPublicIdReferenced)
+    );
     // Best-effort cleanup of the previous logo, after the new one is saved.
     await destroyLogo(current.logoPublicId);
     revalidateTag(APP_SETTINGS_TAG, "max");
@@ -155,14 +157,7 @@ export async function removeLogo(): Promise<AppSettingsActionState> {
   const t = getDictionary(await getLocale());
   try {
     const current = await getSettings();
-    await upsert({
-      appName: current.appName,
-      logoUrl: null,
-      logoPublicId: null,
-      primaryColor: current.primaryColor,
-      accentColor: current.accentColor,
-      updatedBy: roleCheck.email,
-    });
+    await updateLogo({ logoUrl: null, logoPublicId: null, updatedBy: roleCheck.email });
     await destroyLogo(current.logoPublicId);
     revalidateTag(APP_SETTINGS_TAG, "max");
     return { type: "success", message: t.appSettings.messages.logoRemoved };

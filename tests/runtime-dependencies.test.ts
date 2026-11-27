@@ -361,7 +361,9 @@ describe("runtime dependencies", () => {
         return `${name} (${where}) — imported by ${files.sort().join(", ")}`;
       });
     expect(offenders, `pruned from the production image by \`npm prune --omit=dev\`:\n${offenders.join("\n")}`).toEqual([]);
-  });
+  // It parses every shipped file: 5 s is its limit alone, and the real-sharp tests that run beside it in the full suite
+  // (40 Mpx panoramas) took it to the edge. Slower is not wrong.
+  }, 30_000);
 
   // The three probes, kept as permanent tests rather than run once by hand:
   // the shape that bit (a value import), the neighbouring shapes the first

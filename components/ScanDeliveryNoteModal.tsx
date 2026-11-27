@@ -5,6 +5,7 @@ import { CameraIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
 import { format } from "@/lib/i18n/format";
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
+import { ScanApplyWarning } from "@/components/ScanApplyWarning";
 import { composeMaterialName } from "@/lib/materialName";
 import type { ScannedItem } from "@/types/deliveryNoteScan";
 
@@ -35,6 +36,10 @@ export default function ScanDeliveryNoteModal({
   // before any stock is touched.
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the materials are applied but the note's archive was not saved. The modal then stays
+  // open on this message with a single Close button: nothing is left to apply, and offering the
+  // apply button again would double the stock.
+  const [warning, setWarning] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,6 +66,7 @@ export default function ScanDeliveryNoteModal({
     setSupplier("");
     setConfirming(false);
     setError(null);
+    setWarning(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -109,6 +115,12 @@ export default function ScanDeliveryNoteModal({
       );
       fd.set("file", file);
       const res = await applyDeliveryNoteScan({ type: null, message: "" }, fd);
+      if (res.type === "warning") {
+        // Applied: refresh the page data now, and keep the message on screen until it is read.
+        setWarning(res.message);
+        router.refresh();
+        return;
+      }
       if (res.type !== "success") {
         setError(res.message);
         return;
@@ -158,11 +170,17 @@ export default function ScanDeliveryNoteModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded border border-gray-300 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
             <h2 className="border-b border-gray-300 px-6 py-4 text-xl font-bold text-gray-900 dark:border-gray-700 dark:text-gray-100">
-              {confirming ? t.materials.scan.confirmTitle : t.materials.scan.title}
+              {warning !== null
+                ? t.materials.scan.partialTitle
+                : confirming
+                  ? t.materials.scan.confirmTitle
+                  : t.materials.scan.title}
             </h2>
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {!rows ? (
+              {warning !== null ? (
+                <ScanApplyWarning message={warning} />
+              ) : !rows ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-gray-600 dark:text-gray-300">{t.materials.scan.instructions}</p>
                   {/* No `capture`: on mobile this lets the user pick an existing
@@ -303,10 +321,22 @@ export default function ScanDeliveryNoteModal({
                 </div>
               )}
 
-              {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+              {error && warning === null && (
+                <p role="alert" className="mt-3 break-words text-xs text-red-500">{error}</p>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 border-t border-gray-300 px-6 py-4 dark:border-gray-700">
+              {warning !== null ? (
+                <button
+                  type="button"
+                  onClick={close}
+                  className="min-h-11 rounded bg-primary px-4 py-2 font-bold text-white hover:bg-primary/90 cursor-pointer"
+                >
+                  {t.materials.scan.close}
+                </button>
+              ) : (
+              <>
               <button
                 type="button"
                 onClick={() => (confirming ? setConfirming(false) : close())}
@@ -348,6 +378,8 @@ export default function ScanDeliveryNoteModal({
                 >
                   {t.materials.scan.apply}
                 </button>
+              )}
+              </>
               )}
             </div>
           </div>

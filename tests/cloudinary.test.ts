@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // The upload_stream callback below runs OUTSIDE the `new Promise((resolve,
 // reject) => ...)` executor's own call stack (the Cloudinary SDK invokes it
@@ -52,15 +52,27 @@ import {
   publicIdFromUrl,
   optimizedClientPhoto,
   uploadProjectFile,
-  uploadClientPhoto,
+  uploadClientPhoto as uploadClientPhotoOf,
   destroyClientPhoto,
   uploadLogo,
   uploadReservePhoto,
   uploadReservePlan,
-  uploadEquipmentPhoto,
+  uploadEquipmentPhoto as uploadEquipmentPhotoOf,
   destroyEquipmentPhoto,
+  destroyLogo,
+  destroyReservePhoto,
+  destroyUploadedAsset,
   MAX_EQUIPMENT_PHOTO_BYTES,
+  STORAGE_IMAGE_LIMITS,
 } from "@/lib/cloudinary";
+import { freshOwner } from "@/tests/helpers/imageAccount";
+import { getErrorMessage } from "@/lib/helpers";
+import { getDictionary } from "@/lib/i18n/dictionaries";
+
+// The two photo paths decode on behalf of an account (their second argument); these tests are about
+// the paths themselves, so each call is made by a fresh account.
+const uploadClientPhoto = (file: File) => uploadClientPhotoOf(file, freshOwner());
+const uploadEquipmentPhoto = (file: File) => uploadEquipmentPhotoOf(file, freshOwner());
 
 const uploadStreamMock = vi.mocked(cloudinarySdk.uploader.upload_stream);
 const destroyMock = vi.mocked(cloudinarySdk.uploader.destroy);
@@ -87,6 +99,15 @@ const REAL_HEIC_BYTES = new Uint8Array([
 const FAKE_SVG_AS_PNG_BYTES = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 const HTML_AS_PDF_BYTES = new TextEncoder().encode("<html><body><script>alert(1)</script></body></html>");
 const REAL_PDF_BYTES = new TextEncoder().encode("%PDF-1.4\n1 0 obj\n<< >>\nendobj\n");
+
+// What Cloudinary answers for a plain public image (logo, equipment photo): the
+// shared mock above answers an unexpected resource_type on purpose, which the
+// public-image paths now refuse too (they read the destroy ref off the response).
+function answerWithPublicImage() {
+  uploadStreamMock.mockImplementationOnce(((_options: unknown, callback: (error: unknown, result: unknown) => void) => ({
+    end: () => callback(null, { public_id: "app-settings/logo", resource_type: "image", type: "upload", secure_url: "https://res.cloudinary.com/demo/image/upload/app-settings/logo.jpg", format: "jpg", version: 1 }),
+  })) as never);
+}
 
 const URL_WITH_VERSION =
   "https://res.cloudinary.com/demo/image/upload/v1699999999/clients/abcd1234.png";
@@ -128,7 +149,7 @@ describe("uploadProjectFile — guarded upload response validation", () => {
     // process. Asserting the promise REJECTS (rather than wrapping the call
     // in try/catch and asserting it throws) is the whole point: it proves
     // the async boundary was crossed correctly.
-    await expect(uploadProjectFile(file, 1)).rejects.toBeTruthy();
+    await expect(uploadProjectFile(file, 1)).rejects.toMatchObject({ type: "error", i18n: "uploadFailed" });
   });
 });
 
@@ -183,7 +204,8 @@ describe("uploadClientPhoto — metadata stripping by format", () => {
       },
     })) as never);
     await uploadClientPhoto(new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" }));
-    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(Buffer), "image/jpeg");
+    // The account, the bytes, the format, and the limits of the STORAGE (one source: lib/cloudinary.ts).
+    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(String), expect.any(Buffer), "image/jpeg", STORAGE_IMAGE_LIMITS);
     expect(sent).toBe(cleaned);
   });
 
@@ -251,50 +273,133 @@ describe("uploadClientPhoto — metadata stripping by format", () => {
   });
 });
 
-describe("destroyClientPhoto — reads Cloudinary's report", () => {
+// ONE reader of destroy's report (lib/cloudinary.ts::destroyAndReport), for the logo, the company
+// photo, the equipment photo and every guarded asset: the same rules, each one with its public id.
+describe("destroy — one reading of Cloudinary's report, for every kind of asset", () => {
   const URL = "https://res.cloudinary.com/demo/image/upload/v1699999999/clients/abcd1234.png";
+  const GUARDED = { publicId: "projects/1/plan", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" } as const;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
 
-  it("does not log when Cloudinary confirms (ok / not found)", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const everyKind: Array<[string, () => Promise<void>, string]> = [
+    ["destroyClientPhoto", () => destroyClientPhoto(URL, "previous"), "clients/abcd1234"],
+    ["destroyLogo", () => destroyLogo("app-settings/logo"), "app-settings/logo"],
+    ["destroyEquipmentPhoto", () => destroyEquipmentPhoto("equipment/tool"), "equipment/tool"],
+    ["destroyReservePhoto", () => destroyReservePhoto({ ...GUARDED, publicId: "projects/1/photo" }), "projects/1/photo"],
+  ];
+
+  it.each(everyKind)("%s: confirmed (ok / not found) logs nothing", async (_name, destroy) => {
     destroyMock.mockResolvedValueOnce({ result: "ok" });
-    await destroyClientPhoto(URL);
+    await destroy();
     destroyMock.mockResolvedValueOnce({ result: "not found" });
-    await destroyClientPhoto(URL);
-    expect(destroyMock).toHaveBeenCalledWith("clients/abcd1234");
+    await destroy();
     expect(errorSpy).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 
-  it("logs a report that is neither (a no-op that threw nothing), and does not throw", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it.each(everyKind)("%s: a report that is neither (a no-op that threw nothing) is logged WITH the public id, and nothing throws", async (_name, destroy, publicId) => {
     destroyMock.mockResolvedValueOnce({ result: "error" });
-    await expect(destroyClientPhoto(URL)).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("did not confirm deletion"));
-    errorSpy.mockRestore();
+    await expect(destroy()).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const line = String(errorSpy.mock.calls[0][0]);
+    expect(line).toContain("did not confirm deletion");
+    expect(line).toContain(publicId);
   });
 
-  it("logs a destroy that throws, and does not throw", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it.each(everyKind)("%s: a destroy that throws is logged WITH the public id, and nothing throws", async (_name, destroy, publicId) => {
     destroyMock.mockRejectedValueOnce(new Error("network"));
-    await expect(destroyClientPhoto(URL)).resolves.toBeUndefined();
-    expect(errorSpy).toHaveBeenCalledWith("Cloudinary destroy failed:", expect.any(Error));
-    errorSpy.mockRestore();
+    await expect(destroy()).resolves.toBeUndefined();
+    expect(String(errorSpy.mock.calls[0][0])).toContain(publicId);
+    expect(errorSpy.mock.calls[0][1]).toBeInstanceOf(Error);
+  });
+
+  it("the company photo is destroyed by its public id, the logo and the equipment photo as images", async () => {
+    destroyMock.mockResolvedValue({ result: "ok" });
+    await destroyClientPhoto(URL, "previous");
+    await destroyLogo("app-settings/logo");
+    await destroyEquipmentPhoto("equipment/tool");
+    expect(destroyMock.mock.calls).toEqual([
+      ["clients/abcd1234", {}],
+      ["app-settings/logo", { resource_type: "image" }],
+      ["equipment/tool", { resource_type: "image" }],
+    ]);
+    destroyMock.mockReset();
+  });
+
+  it("F5: for an asset this process JUST uploaded, \"not found\" is NOT a confirmation: it is logged as such, with the public id", async () => {
+    destroyMock.mockResolvedValueOnce({ result: "not found" });
+    await destroyUploadedAsset(GUARDED);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const line = String(errorSpy.mock.calls[0][0]);
+    expect(line).toContain("NOT confirmed");
+    expect(line).toContain("projects/1/plan");
+
+    errorSpy.mockClear();
+    destroyMock.mockResolvedValueOnce({ result: "not found" });
+    await destroyClientPhoto(URL, "justUploaded");
+    expect(String(errorSpy.mock.calls[0][0])).toContain("NOT confirmed");
+    expect(String(errorSpy.mock.calls[0][0])).toContain("clients/abcd1234");
+
+    errorSpy.mockClear();
+    destroyMock.mockResolvedValueOnce({ result: "ok" });
+    await destroyUploadedAsset(GUARDED);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("logs a url it cannot extract a public id from, and calls nothing", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    await destroyClientPhoto("not a url");
+    destroyMock.mockClear();
+    await destroyClientPhoto("not a url", "previous");
     expect(destroyMock).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
+  });
+});
+
+describe("uploadBuffer — what the logs say, and what a response that was not understood leaves behind", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
+
+  it("F3: an error handed to the callback is logged with its message and http_code (a wrong key or secret is diagnosable)", async () => {
+    uploadStreamMock.mockImplementationOnce(((_options: unknown, callback: (error: unknown, result: unknown) => void) => ({
+      end: () => callback({ message: "Invalid api_key abc", name: "Error", http_code: 401 }, undefined),
+    })) as never);
+    await expect(uploadLogo(new File([REAL_JPEG_BYTES], "logo.jpg", { type: "image/jpeg" }))).rejects.toMatchObject({ i18n: "uploadFailed" });
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary upload failed:", { message: "Invalid api_key abc", http_code: 401 });
+  });
+
+  it("an upload response that was not understood, with a readable public_id, destroys that asset BEFORE refusing", async () => {
+    // The shared mock answers resource_type "unexpected" on purpose, with a public_id.
+    destroyMock.mockResolvedValueOnce({ result: "ok" });
+    await expect(uploadProjectFile(new File([new Uint8Array([1, 2, 3])], "devis.pdf", { type: "application/pdf" }), 1)).rejects.toMatchObject({
+      type: "error",
+      i18n: "uploadFailed",
+    });
+    expect(destroyMock).toHaveBeenCalledTimes(1);
+    // By the type and resource_type the response itself reported, as they came.
+    expect(destroyMock).toHaveBeenCalledWith("projects/1/devis", { type: "authenticated", resource_type: "unexpected" });
+  });
+
+  it("a response with no public_id at all has nothing to destroy: refused, nothing called", async () => {
+    uploadStreamMock.mockImplementationOnce(((_options: unknown, callback: (error: unknown, result: unknown) => void) => ({
+      end: () => callback(null, { resource_type: "unexpected", type: "upload" }),
+    })) as never);
+    await expect(uploadLogo(new File([REAL_JPEG_BYTES], "logo.jpg", { type: "image/jpeg" }))).rejects.toMatchObject({ i18n: "uploadFailed" });
+    expect(destroyMock).not.toHaveBeenCalled();
   });
 });
 
 describe("uploadLogo — content-based image validation", () => {
   it("accepts a real JPEG and resolves with the uploaded url/publicId", async () => {
     const file = new File([REAL_JPEG_BYTES], "logo.jpg", { type: "image/jpeg" });
+    answerWithPublicImage();
     const result = await uploadLogo(file);
-    expect(result.publicId).toBe("projects/1/devis");
+    expect(result.publicId).toBe("app-settings/logo");
+    // The asset's own type + resource_type, as Cloudinary reported them: what a compensation destroys it by.
+    expect(result).toMatchObject({ deliveryType: "UPLOAD", resourceType: "IMAGE" });
     expect(uploadStreamMock).toHaveBeenCalledTimes(1);
   });
 
@@ -387,10 +492,12 @@ describe("uploadProjectFile — content-based checks alongside the label-only de
 describe("uploadEquipmentPhoto — content-based validation, routed through stripArchivedPhotoMetadata", () => {
   it("accepts a real PNG, strips its metadata, and uploads the stripped buffer", async () => {
     const file = new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+    answerWithPublicImage();
     const result = await uploadEquipmentPhoto(file);
-    expect(result.publicId).toBe("projects/1/devis");
+    expect(result.publicId).toBe("app-settings/logo");
+    expect(result).toMatchObject({ deliveryType: "UPLOAD", resourceType: "IMAGE" });
     expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledTimes(1);
-    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(Buffer), "image/png");
+    expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(String), expect.any(Buffer), "image/png", STORAGE_IMAGE_LIMITS);
     expect(uploadStreamMock).toHaveBeenCalledTimes(1);
   });
 
@@ -455,6 +562,58 @@ describe("uploadEquipmentPhoto — a full decode queue", () => {
   });
 });
 
+// What each refusal of the decode (lib/imageMetadata.ts) becomes at the two photo boundaries: its OWN message,
+// translated by getErrorMessage, never "the file must be an image" (a decoder that is down, an account already
+// processing an image or out of decode time, an output or a pixel count beyond the storage's ceilings are not
+// the user's file being bad). Nothing is ever sent after one.
+describe("a refusal of the decode reaches the user as itself (company photo and equipment photo)", () => {
+  const CASES = [
+    [{ type: "error", code: "imageBusy" }, "uploadBusy", undefined, "Le serveur traite déjà des images. Réessaie dans un instant."],
+    [{ type: "error", code: "imageInProgress" }, "imageInProgress", undefined, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
+    [{ type: "error", code: "imageQuota", minutes: 23 }, "imageQuota", { minutes: 23 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 23 min."],
+    [{ type: "error", code: "imageUnavailable" }, "imageUnavailable", undefined, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
+    [{ type: "error", code: "outputTooLarge", maxBytes: 10_485_760 }, "imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
+    [{ type: "error", code: "imageTooHeavy" }, "imageTooHeavy", undefined, "Cette image est trop lourde à traiter. Essaie une version plus légère."],
+    [{ type: "error", code: "corruptedImage" }, "uploadNotImage", undefined, "Le fichier doit être une image."],
+  ] as const;
+  const clientPhoto = () => new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" });
+  const equipmentPhoto = () => new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+
+  it.each(CASES)("%j -> %s", async (refusal, i18n, i18nParams, french) => {
+    for (const [mock, upload] of [
+      [stripArchivedPhotoMetadataMock, () => uploadClientPhoto(clientPhoto())],
+      [stripArchivedPhotoMetadataMock, () => uploadEquipmentPhoto(equipmentPhoto())],
+    ] as const) {
+      mock.mockRejectedValueOnce(refusal);
+      const error = await upload().then(
+        () => null,
+        (reason: unknown) => reason,
+      );
+      expect(error).toMatchObject({ type: "error", i18n });
+      if (i18nParams) expect(error).toMatchObject({ i18nParams });
+      expect(getErrorMessage(error, "fallback", getDictionary("fr"))).toBe(french);
+      expect(uploadStreamMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("the AVIF/TIFF conversion path says the same", async () => {
+    const avif = new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31, 0x61, 0x76, 0x69, 0x66]);
+    convertToStrippedJpegMock.mockRejectedValueOnce({ type: "error", code: "imageUnavailable" });
+    await expect(uploadClientPhoto(new File([avif], "photo.avif", { type: "image/avif" }))).rejects.toMatchObject({ i18n: "imageUnavailable" });
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("a native error out of the decode is a bad photo, never its text", async () => {
+    stripArchivedPhotoMetadataMock.mockRejectedValueOnce(new Error("sharp: Input buffer contains unsupported image format"));
+    const error = await uploadEquipmentPhoto(equipmentPhoto()).then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+    expect(error).toMatchObject({ type: "error", i18n: "uploadNotImage" });
+    expect(JSON.stringify(error)).not.toContain("sharp");
+  });
+});
+
 describe("destroyEquipmentPhoto — reads Cloudinary's own destroy report", () => {
   it("does nothing when there is no publicId", async () => {
     await destroyEquipmentPhoto(null);
@@ -476,6 +635,77 @@ describe("destroyEquipmentPhoto — reads Cloudinary's own destroy report", () =
     destroyMock.mockResolvedValueOnce({ result: "not found" } as never);
     await destroyEquipmentPhoto("equipment/def");
     expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
+
+// Point 1 (fix/televersements): the SDK signs the request SYNCHRONOUSLY, so a
+// missing credential throws inside the Promise executor. It used to reject with
+// the SDK's native Error, whose message ("Must supply api_key") reached the user
+// through getErrorMessage. Every one of the six uploads now refuses with the
+// application's own `uploadFailed` shape instead, and logs the cause.
+describe("a synchronous SDK refusal (missing credentials) — all six uploads", () => {
+  const NATIVE = "Must supply api_key";
+  const png = () => new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+  const pdf = () => new File([REAL_PDF_BYTES], "plan.pdf", { type: "application/pdf" });
+  const cases: Array<[string, () => Promise<unknown>, string]> = [
+    ["uploadClientPhoto", () => uploadClientPhoto(png()), "Failed to upload the photo. Please try again."],
+    ["uploadLogo", () => uploadLogo(png()), "Failed to upload the logo. Please try again."],
+    ["uploadProjectFile", () => uploadProjectFile(pdf(), 1), "Failed to upload the file. Please try again."],
+    ["uploadReservePlan", () => uploadReservePlan(pdf(), 1), "Failed to upload the plan. Please try again."],
+    ["uploadReservePhoto", () => uploadReservePhoto(png(), 1), "Failed to upload the photo. Please try again."],
+    ["uploadEquipmentPhoto", () => uploadEquipmentPhoto(png()), "Failed to upload the photo. Please try again."],
+  ];
+
+  it.each(cases)("%s rejects with uploadFailed, never with the SDK's message, and logs the cause", async (_name, run, fallback) => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error(NATIVE);
+    uploadStreamMock.mockImplementationOnce((() => {
+      throw cause;
+    }) as never);
+    const rejection = await run().then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(rejection).toEqual({ type: "error", message: fallback, i18n: "uploadFailed" });
+    expect(JSON.stringify(rejection)).not.toContain(NATIVE);
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary upload refused before sending:", cause);
+    errorSpy.mockRestore();
+  });
+
+  it("a network error or non-2xx answer (callback error) is still uploadFailed", async () => {
+    uploadStreamMock.mockImplementationOnce(((_o: unknown, callback: (error: unknown, result: unknown) => void) => ({
+      end: () => callback({ message: "ECONNRESET", http_code: 500 }, undefined),
+    })) as never);
+    await expect(uploadClientPhoto(png())).rejects.toEqual({
+      type: "error",
+      message: "Failed to upload the photo. Please try again.",
+      i18n: "uploadFailed",
+    });
+  });
+
+  it("an upload response the app cannot read (unexpected resource_type) is uploadFailed and logged, not a raw Error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(uploadReservePlan(pdf(), 1)).rejects.toMatchObject({ type: "error", i18n: "uploadFailed" });
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary upload response not understood:", expect.objectContaining({ message: expect.stringContaining("Unexpected Cloudinary") }));
+    errorSpy.mockRestore();
+  });
+});
+
+describe("destroyUploadedAsset — destroys by the type + resource_type the upload reported", () => {
+  it("passes both to destroy: an authenticated asset is not destroyed without its type", async () => {
+    destroyMock.mockResolvedValueOnce({ result: "ok" } as never);
+    await destroyUploadedAsset({ publicId: "projects/1/reserve-photos/a", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" });
+    expect(destroyMock).toHaveBeenCalledWith("projects/1/reserve-photos/a", { type: "authenticated", resource_type: "image" });
+  });
+
+  it("reads the report: logs anything but ok / not found, and never throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "processing" } as never);
+    await destroyUploadedAsset({ publicId: "x", deliveryType: "UPLOAD", resourceType: "RAW" });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("processing"));
+    destroyMock.mockRejectedValueOnce(new Error("network"));
+    await expect(destroyUploadedAsset({ publicId: "y", deliveryType: "UPLOAD", resourceType: "RAW" })).resolves.toBeUndefined();
     errorSpy.mockRestore();
   });
 });

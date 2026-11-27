@@ -24,7 +24,9 @@ export default function UpdateClientForm({ client }: { client: UpdateClientFormV
   const [values, setValues] = useState<UpdateClientFormValues>(client);
 
   useEffect(() => {
-    if (state.type === null) return;
+    // Only a success leaves the page: after an error the user keeps what they typed
+    // (the fields are controlled) and can fix and resubmit.
+    if (state.type !== "success") return;
     // Show the result for 3s, then redirect to the clients list.
     const timer = setTimeout(() => {
       router.push("/clients");

@@ -18,7 +18,9 @@ export type DeliveryNoteScanActionState = {
 };
 
 export type ApplyDeliveryScanActionState = {
-  type: "error" | "success" | "zodError" | null;
+  // "warning": the materials ARE applied but the delivery note's archive was not saved (it was beyond
+  // what the storage takes): the interface must show `message` and not close as it does on "success".
+  type: "error" | "success" | "warning" | "zodError" | null;
   message: string;
   // Was missing entirely (adversarial pass 2, point 4): every other action's
   // zodError carries a fieldsForm, but this one returned only a generic

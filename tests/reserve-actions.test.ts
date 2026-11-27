@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
@@ -13,7 +13,12 @@ vi.mock("@/repository/reserves", () => ({
   remove: vi.fn(),
   findProjectId: vi.fn().mockResolvedValue(2),
 }));
-vi.mock("@/repository/reservePlans", () => ({ create: vi.fn(), findById: vi.fn().mockResolvedValue({ id: 5, projectId: 2 }), remove: vi.fn() }));
+vi.mock("@/repository/reservePlans", () => ({
+  create: vi.fn(),
+  findById: vi.fn().mockResolvedValue({ id: 5, projectId: 2 }),
+  remove: vi.fn(),
+  isPublicIdReferenced: vi.fn(),
+}));
 vi.mock("@/repository/reservePlanFolders", () => ({
   create: vi.fn(),
   remove: vi.fn(),
@@ -24,6 +29,7 @@ vi.mock("@/repository/reservePhotos", () => ({
   findById: vi.fn(),
   remove: vi.fn(),
   findProjectId: vi.fn().mockResolvedValue(2),
+  isPublicIdReferenced: vi.fn(),
 }));
 vi.mock("@/repository/projects", () => ({
   updateReserveStatusStyle: vi.fn(),
@@ -34,6 +40,7 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyReservePlan: vi.fn(),
   uploadReservePhoto: vi.fn(),
   destroyReservePhoto: vi.fn(),
+  destroyUploadedAsset: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ getAppSettings: vi.fn().mockResolvedValue({ accessConfig: {} }), APP_SETTINGS_TAG: "app-settings" }));
@@ -53,11 +60,12 @@ import { requireRole } from "@/lib/authz";
 import { requireSectionAccess } from "@/lib/sectionAccess";
 import { canReachProject } from "@/lib/accessContext";
 import { create, update, remove, findProjectId as findReserveProjectId } from "@/repository/reserves";
-import { create as createPhoto, findById as findPhotoById } from "@/repository/reservePhotos";
-import { create as createPlan, findById as findPlanById } from "@/repository/reservePlans";
+import { create as createPhoto, findById as findPhotoById, isPublicIdReferenced as isPhotoPublicIdReferenced } from "@/repository/reservePhotos";
+import { create as createPlan, findById as findPlanById, isPublicIdReferenced as isPlanPublicIdReferenced } from "@/repository/reservePlans";
+import { revalidatePath } from "next/cache";
 import { findProjectId as findReserveFolderProjectId } from "@/repository/reservePlanFolders";
 import { updateReserveStatusStyle as updateReserveStatusStyleRow } from "@/repository/projects";
-import { uploadReservePhoto, uploadReservePlan, destroyReservePlan, destroyReservePhoto } from "@/lib/cloudinary";
+import { uploadReservePhoto, uploadReservePlan, destroyReservePlan, destroyReservePhoto, destroyUploadedAsset } from "@/lib/cloudinary";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -77,6 +85,10 @@ const findPhotoByIdMock = vi.mocked(findPhotoById);
 const updateReserveStatusStyleRowMock = vi.mocked(updateReserveStatusStyleRow);
 const destroyReservePlanMock = vi.mocked(destroyReservePlan);
 const destroyReservePhotoMock = vi.mocked(destroyReservePhoto);
+const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
+const isPhotoPublicIdReferencedMock = vi.mocked(isPhotoPublicIdReferenced);
+const isPlanPublicIdReferencedMock = vi.mocked(isPlanPublicIdReferenced);
+const revalidatePathMock = vi.mocked(revalidatePath);
 const initial = { type: null, message: "" } as const;
 
 function form(fields: Record<string, string>): FormData {
@@ -212,6 +224,91 @@ describe("reserve actions", () => {
       resourceType: "IMAGE",
       format: "jpg",
       version: "1700000000",
+    });
+  });
+
+  // Point 3 (fix/televersements): plans and photos are uploaded `authenticated`
+  // (retained data); `destroy` no-ops in silence without the asset's own `type`.
+  describe("compensation when the write fails after the upload", () => {
+    const PLAN = { url: "https://cdn/plan.pdf", publicId: "plans/p1", deliveryType: "AUTHENTICATED", resourceType: "IMAGE", format: "pdf", version: "1" } as const;
+    const PHOTO = { url: "https://cdn/p.jpg", publicId: "photos/ph1", deliveryType: "AUTHENTICATED", resourceType: "IMAGE", format: "jpg", version: "1" } as const;
+    const refusal = { type: "repositoryError", message: "Database Error." };
+    function planFd(): FormData {
+      const fd = new FormData();
+      fd.set("clientId", "1");
+      fd.set("projectId", "2");
+      fd.set("file", new File(["%PDF-1.4"], "plan.pdf", { type: "application/pdf" }));
+      return fd;
+    }
+    function photoFd(): FormData {
+      const fd = new FormData();
+      fd.set("clientId", "1");
+      fd.set("projectId", "2");
+      fd.set("reserveId", "9");
+      fd.set("file", new File(["x"], "p.jpg", { type: "image/jpeg" }));
+      return fd;
+    }
+    const paths = [
+      { name: "addReservePlan", asset: PLAN, run: () => addReservePlan(initial, planFd()), write: () => createPlanMock, referenced: () => isPlanPublicIdReferencedMock, upload: () => uploadReservePlanMock },
+      { name: "addReservePhoto", asset: PHOTO, run: () => addReservePhoto(initial, photoFd()), write: () => createPhotoMock, referenced: () => isPhotoPublicIdReferencedMock, upload: () => uploadReservePhotoMock },
+    ];
+    beforeEach(() => {
+      requireRoleMock.mockResolvedValue({ email: "admin@example.com" } as never);
+      uploadReservePlanMock.mockResolvedValue(PLAN as never);
+      uploadReservePhotoMock.mockResolvedValue(PHOTO as never);
+      isPlanPublicIdReferencedMock.mockResolvedValue(false);
+      isPhotoPublicIdReferencedMock.mockResolvedValue(false);
+      destroyUploadedAssetMock.mockResolvedValue(undefined);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    describe.each(paths)("$name", (p) => {
+      it("destroys the new asset with the type and resource_type the upload reported", async () => {
+        p.write().mockRejectedValue(refusal);
+        const res = await p.run();
+        expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+        expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+        expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+          expect.objectContaining({ publicId: p.asset.publicId, deliveryType: "AUTHENTICATED", resourceType: "IMAGE" })
+        );
+        expect(p.referenced()).toHaveBeenCalledWith(p.asset.publicId);
+      });
+
+      it("destroys nothing on success", async () => {
+        p.write().mockResolvedValue({ id: 1 } as never);
+        const res = await p.run();
+        expect(res.type).toBe("success");
+        expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+      });
+
+      it("destroys nothing when a row references the asset", async () => {
+        p.write().mockRejectedValue(refusal);
+        p.referenced().mockResolvedValue(true);
+        await p.run();
+        expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+      });
+
+      it("destroys nothing when a failure comes AFTER a successful write", async () => {
+        p.write().mockResolvedValue({ id: 1 } as never);
+        revalidatePathMock.mockImplementationOnce(() => {
+          throw new Error("revalidate failed");
+        });
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const res = await p.run();
+        expect(res.type).toBe("error");
+        expect(p.referenced()).not.toHaveBeenCalled();
+        expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+      });
+
+      it("keeps the ORIGINAL refusal when the destruction itself fails", async () => {
+        p.write().mockRejectedValue(refusal);
+        destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const res = await p.run();
+        expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+      });
     });
   });
 

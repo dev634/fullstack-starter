@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { readAndValidateDeliveryNoteImage, stripArchivedPhotoMetadata } from "@/lib/deliveryNoteScan";
+import { readAndValidateDeliveryNoteImage } from "@/lib/deliveryNoteScan";
+import { stripFor as stripArchivedPhotoMetadata } from "@/tests/helpers/imageAccount";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 
 describe("stripArchivedPhotoMetadata — the archived (full-resolution) copy of the bulletin, not the model copy", () => {

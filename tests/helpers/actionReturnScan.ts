@@ -57,11 +57,13 @@ import { FOREIGN_TREE_DIRS } from "./astScan";
  *   - the reasons of CLOSED_LIST: they say what the entry returns, the scan
  *     trusts them (it does not read lib/ or repository/ bodies);
  *   - what a `throw` inside the action's `try` carries to its `catch`:
- *     `getErrorMessage(error)` relays the `.message` of ANY thrown object, so
- *     `throw { message: row.email }`, `throw row` or a local helper that throws
- *     a field pass green (probed by the delta audit of f308d51). The repository's
- *     own throws carry literal messages today, and no action throws a field —
- *     but nothing here checks it;
+ *     `getErrorMessage(error)` relays the `.message` of the application's own error
+ *     shapes — a CLOSED set of `type`s (`error`, `zodError`, `databaseError`; a native
+ *     `Error` and any other `type` get the fallback; lib/helpers.ts) — so
+ *     `throw { type: "error", message: row.email }`, `throw row` or a local helper that
+ *     throws a field pass green (probed by the delta audit of f308d51). The
+ *     repository's own throws carry literal messages today, and no action throws a
+ *     field — but nothing here checks it;
  *   - a literal that CAPTURES a value and is written through later (`const box =
  *     { errors }; box.errors.push(row.email)`, `holder.state.leak = row`,
  *     `list[0].leak`), and an imported helper that writes into its argument
@@ -142,8 +144,8 @@ export const CLOSED_LIST: readonly ClosedEntry[] = [
     args: { 0: "caught" },
     reason:
       "Maps the caught exception (argument 0, which must be a `catch` binding) to a message: a repository error becomes the caller's " +
-      "fallback, an upload error its dictionary entry. Declared limit: any other thrown object carrying a `.message` is relayed " +
-      "as is (see isAppError in actions/deliveryNoteScan) — never a row, but not a filter either.",
+      "fallback, an upload error its dictionary entry. Declared limit: a thrown object of the application's own closed set of shapes " +
+      "(`error`, `zodError`, `databaseError`: lib/helpers.ts) is relayed with its `.message` as is — never a row, but not a filter either.",
   },
   {
     kind: "state",
@@ -201,6 +203,24 @@ export const CLOSED_LIST: readonly ClosedEntry[] = [
     reason:
       "The model's reading of the caller's own photo, revalidated by scannedDeliveryNoteSchema before it leaves lib/: the " +
       "preview the user reviews before anything is written — the purpose of scanDeliveryNote. `bytesSent` is logged only.",
+  },
+  {
+    kind: "state",
+    module: "lib/cloudinary",
+    name: "archiveTooLargeMessage",
+    reason:
+      "The warning of a delivery note whose archive the storage cannot take: one dictionary entry with the storage's file ceiling " +
+      "in MB, built from the one constant in lib/cloudinary.ts. Its only argument is the dictionary.",
+  },
+  {
+    kind: "state",
+    module: "lib/deliveryNoteScan",
+    name: "scanErrorMessage",
+    args: { 1: "caught" },
+    reason:
+      "The message of a scan refusal: the dictionary entry of a closed code (lib/deliveryNoteScan.ts::SCAN_ERROR_CODES), with the " +
+      "delay in minutes or the ceiling in MB / Mpx the refusal of lib/imageMetadata.ts carries. The caught error (argument 1) is " +
+      "read, never relayed: what comes out is dictionary text with two numbers.",
   },
   {
     kind: "fields",

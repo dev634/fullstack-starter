@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { applyScanItems, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
+import { applyScanItems, findIdsInProject, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
+import type { FileData } from "@/repository/projectFiles";
 
 /**
  * Passe 3a, point 2: applyScanItems must never report success (nor leave
@@ -40,6 +41,7 @@ afterEach(async () => {
     const projectIds = (
       await prisma.project.findMany({ where: { clientId: { in: ids } }, select: { id: true } })
     ).map((p) => p.id);
+    await prisma.projectFile.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.projectMaterial.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.project.deleteMany({ where: { clientId: { in: ids } } });
     await prisma.client.deleteMany({ where: { id: { in: ids } } });
@@ -105,5 +107,84 @@ describe("applyScanItems against a real Postgres", () => {
 
     await expect(attempt).rejects.toSatisfy((error: unknown) => isUnmatchedScanMaterialError(error));
     expect(await countMaterials(project.id)).toBe(0);
+  });
+});
+
+// The delivery note's materials and its archive's ProjectFile row are ONE transaction (audit of
+// fix/televersements): the row's failure used to leave the stock applied, and a retry doubled it.
+describe("applyScanItems with the archive row, against a real Postgres", () => {
+  const archiveOf = (projectId: number, overrides: Partial<Omit<FileData, "projectId">> = {}): Omit<FileData, "projectId"> => ({
+    folderId: null,
+    name: "note.jpg",
+    url: "https://res.cloudinary.com/demo/image/authenticated/projects/note.jpg",
+    publicId: `projects/${projectId}/note-${Date.now()}`,
+    deliveryType: "AUTHENTICATED",
+    resourceType: "IMAGE",
+    format: "jpg",
+    version: "1700000000",
+    size: 1024,
+    mimeType: "image/jpeg",
+    ...overrides,
+  });
+
+  it("writes the materials AND the file row together", async () => {
+    const project = await makeProject();
+    const existing = await prisma.projectMaterial.create({ data: { projectId: project.id, name: "Onduleur", quantity: 3 } });
+    const archive = archiveOf(project.id);
+    await applyScanItems(project.id, [{ materialId: existing.id, name: existing.name, quantity: 5 }, { name: "Panneau", quantity: 2, reference: "R" }], null, archive);
+    expect((await prisma.projectMaterial.findUnique({ where: { id: existing.id } }))?.quantity).toBe(8);
+    expect(await countMaterials(project.id)).toBe(2);
+    const files = await prisma.projectFile.findMany({ where: { projectId: project.id } });
+    expect(files.map((f) => f.publicId)).toEqual([archive.publicId]);
+  });
+
+  it("a file row that FAILS rolls the materials back: nothing applied, so a retry cannot double the stock", async () => {
+    const project = await makeProject();
+    const existing = await prisma.projectMaterial.create({ data: { projectId: project.id, name: "Onduleur", quantity: 3 } });
+    // A folder that does not exist: the foreign key refuses the row, after the materials were written inside the transaction.
+    const attempt = applyScanItems(
+      project.id,
+      [{ materialId: existing.id, name: existing.name, quantity: 5 }, { name: "Panneau", quantity: 2, reference: "R" }],
+      null,
+      archiveOf(project.id, { folderId: 999_999_999 })
+    );
+    await expect(attempt).rejects.toEqual({ type: "repositoryError", message: "Database Error applying delivery scan." });
+    expect((await prisma.projectMaterial.findUnique({ where: { id: existing.id } }))?.quantity).toBe(3);
+    expect(await countMaterials(project.id)).toBe(1);
+    expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(0);
+  });
+
+  it("an unmatched materialId writes no file row either", async () => {
+    const project = await makeProject();
+    const attempt = applyScanItems(project.id, [{ materialId: 999_999_999, name: "Ghost", quantity: 1 }], null, archiveOf(project.id));
+    await expect(attempt).rejects.toSatisfy((error: unknown) => isUnmatchedScanMaterialError(error));
+    expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(0);
+  });
+
+  it("the archive's row lands on the project of the MATERIALS (the repository sets it: the archive cannot aim elsewhere)", async () => {
+    const project = await makeProject();
+    const other = await makeProject();
+    await applyScanItems(project.id, [{ name: "Panneau", quantity: 2, reference: "R" }], null, archiveOf(project.id));
+    expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(1);
+    expect(await prisma.projectFile.count({ where: { projectId: other.id } })).toBe(0);
+  });
+
+  it("without an archive nothing is written to the files, as before", async () => {
+    const project = await makeProject();
+    await applyScanItems(project.id, [{ name: "Panneau", quantity: 2, reference: "R" }], null);
+    expect(await prisma.projectFile.count({ where: { projectId: project.id } })).toBe(0);
+  });
+});
+
+describe("findIdsInProject against a real Postgres", () => {
+  it("returns only the asked ids that belong to THIS project (a stranger's id, an absent id, a duplicate are not)", async () => {
+    const project = await makeProject();
+    const other = await makeProject();
+    const mine = await prisma.projectMaterial.create({ data: { projectId: project.id, name: "A", quantity: 1 } });
+    const mine2 = await prisma.projectMaterial.create({ data: { projectId: project.id, name: "B", quantity: 1 } });
+    const foreign = await prisma.projectMaterial.create({ data: { projectId: other.id, name: "C", quantity: 1 } });
+    const found = await findIdsInProject(project.id, [mine.id, foreign.id, 999_999_999]);
+    expect(found).toEqual([mine.id]);
+    expect((await findIdsInProject(project.id, [mine.id, mine2.id])).sort()).toEqual([mine.id, mine2.id].sort());
   });
 });

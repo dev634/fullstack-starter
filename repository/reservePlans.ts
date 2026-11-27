@@ -106,6 +106,26 @@ export async function findById(id: number) {
 }
 
 /**
+ * Whether a reserve plan row still points at this Cloudinary asset: the question an
+ * upload compensation (lib/uploadCompensation.ts) asks before destroying a file
+ * after a failed write that may have committed anyway. Only existence is read.
+ * A failure is thrown, not answered "no": the caller keeps the asset when it
+ * cannot tell.
+ */
+export async function isPublicIdReferenced(publicId: string): Promise<boolean> {
+    try {
+        const row = await prisma.reservePlan.findFirst({
+            where: { publicId },
+            select: { id: true },
+        });
+        return row !== null;
+    } catch (error) {
+        console.log("Repository isPublicIdReferenced error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching plan." };
+    }
+}
+
+/**
  * The created row is returned as `data` by addReservePlan straight to a
  * Client Component (AddReservePlanForm) — `url` is omitted from what comes
  * back so that response never carries it, even though the column is still
