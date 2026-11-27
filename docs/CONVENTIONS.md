@@ -623,14 +623,35 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     chunks, et un état de module aurait donné une file par chunk (concurrence
     réelle de 2). Tout nouveau chemin sharp passe par `runExclusive` et
     `decodeOriented`, pas par un `sharp(...)` direct ;
-  - **un délai de 10 s** par pipeline (`.timeout`), qui **ne borne pas la tâche** :
-    il n'arrête qu'un pipeline traité ligne à ligne. `metadata()` (lue avant le
-    budget) n'a aucun délai, et une étape faite en un seul appel natif (décodage
-    libheif, parcours des images d'un GIF) n'est vérifiée qu'à son retour — un GIF
-    de 10 Mo à 690 000 images 2×2 a passé 60 s dans `metadata()` et 119 s au
-    total, puis a **réussi** (mesuré sous Windows). Une borne réelle demande un
-    comptage des images / pages lu en JS avant sharp, ou un décodage dans un
-    processus qu'on tue : lot suivant. Ouvert ;
+  - **un comptage des images et des pages, en JS, AVANT sharp**
+    (`lib/imageFrameCount.ts`, appelé en tête de `decodeOriented`, sans importer
+    sharp) : parcours borné et linéaire des octets, rien n'est décodé. GIF : les
+    blocs, on compte les descripteurs d'image ; WebP : les chunks RIFF, on compte
+    les `ANMF` ; TIFF : la chaîne d'IFD (petit et grand boutisme, garde contre
+    les boucles, refus d'un offset hors du fichier), on compte les pages. Une
+    structure qui ne se parcourt pas (fin prématurée, bloc inconnu, BigTIFF) est
+    refusée comme un en-tête corrompu ; seul un GIF coupé **entre deux images**
+    (trailer `0x3B` absent) est toléré. Au-delà de `MAX_IMAGE_FRAMES = 10 000`
+    : refus `corruptedImage` (le refus de chaque appelant pour une image
+    indécodable) sans appel à sharp. **Mesures (Windows, GIF d'images 2×1 de 15
+    octets)** : `metadata()` = 0,4 ms à 100 images, 0,9 ms à 1 000, 3-5 ms à
+    10 000, 21 ms à 20 000, 221 ms à 50 000, 1,1 s à 100 000, 4,5 s à 200 000
+    (le coût croît plus vite que le nombre d'images) ; le parcours JS d'un fichier
+    de 10 Mo : ~2 ms (arrêt au plafond), ~20 ms (GIF), ~40 ms (WebP) en parcours
+    complet. 10 000 laisse `metadata()` ~200 fois sous la seconde, avec de la
+    marge pour un VPS plus lent non mesuré ; une photo est à une image, un GIF
+    d'avatar en compte quelques centaines (une minute à 30 i/s : 1 800). **Mesuré
+    aussi** : des images 6000×6600 empilées (jusqu'à 300 images, 8 Mo) ne coûtent
+    rien de plus que la première (`metadata()` ~1 ms, nettoyage ~1,2 s, pic
+    stable) : libvips ne décode que la première image, le produit images × pixels
+    n'est pas une bombe ;
+  - **un délai de 10 s** par pipeline (`.timeout`). Il borne désormais le
+    pipeline d'un fichier dont le **nombre d'images est déjà borné** par le
+    comptage ci-dessus ; il n'interrompt toujours pas **un appel natif unique**
+    (décodage libheif) : il n'arrête qu'un pipeline traité ligne à ligne.
+    Auparavant `metadata()` n'avait aucun délai et un GIF de 10 Mo à 690 000
+    images 2×2 a passé 60 s dans `metadata()` et 119 s au total, puis a
+    **réussi** (mesuré sous Windows) ;
   - **le cache de libvips est désactivé** (`sharp.cache(false)`) : il retenait
     chaque décodage (20 décodages d'un GIF 6000×6600 : ~3 070 Mo résidents, ~47
     Mo cache coupé, mesuré sous Windows) ;
@@ -654,9 +675,21 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   6000×6600 (27 Ko), ~655 Mo pour un AVIF 12 bits au budget, ~170 Mo pour un
   JPEG de 24 Mpx — le budget borne le raster, pas le pic. Le « ~1,05 Go
   après la file » publié avant était la **rétention du cache**, pas une borne.
-  **Reste à faire (lot suivant)** : limite de débit par utilisateur (la file
-  borne la mémoire, pas qui l'occupe), erreurs de SDK relayées, compensations
-  des autres téléversements. **`failOn: "none"`** : un JPEG
+  **Ouvert** : (1) **AVIF / HEIF en séquence (marque `avis`) non compté** : sur
+  l'AVIF de test dont la marque est remplacée par `avis`, sharp 0.35.5 (libheif
+  1.23.5, Windows) répond « unsupported image format » en 2 ms, avant tout
+  décodage ; et pour un AVIF ordinaire il ne lit que l'image principale
+  (`pages` = 1). Non prouvé sur un vrai fichier de séquence ni sur le libvips
+  de l'image Linux ; un parcours ISOBMFF n'a donc pas été écrit (limite
+  documentée, pas un angle mort admis : à rejouer avec
+  `.claude/passe-adverse/sondes-decodage/avif-marque-avis.avif`). Le nombre
+  d'items déclarés dans la boîte `iinf` d'un HEIF n'est pas compté non plus.
+  (2) **Calibrage Linux en attente** : le délai de 10 s, `MAX_IMAGE_FRAMES` et
+  les pics de mémoire n'ont été mesurés que sous Windows ; le script
+  `.claude/passe-adverse/mesure-decodage.mjs` (ignoré par git) les rejoue dans
+  l'image de production, avec `--cpus=1 --memory=1500m`. (3) Limite de débit
+  par utilisateur (la file borne la mémoire, pas qui l'occupe), erreurs de SDK
+  relayées, compensations des autres téléversements. **`failOn: "none"`** : un JPEG
   tronqué (marqueur de fin absent, transfert interrompu) est décodé et
   nettoyé au lieu d'être refusé — Cloudinary l'acceptait avant ; un en-tête
   réellement corrompu reste refusé. Même comportement pour les quatre

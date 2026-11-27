@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import type { RasterImageMediaType } from "@/lib/fileSignature";
+import { countImageFrames, MAX_IMAGE_FRAMES } from "@/lib/imageFrameCount";
 
 // Extracted from lib/deliveryNoteScan.ts (point 13, review of the "Prêts"
 // feature): stripArchivedPhotoMetadata started as a delivery-note-only
@@ -170,12 +171,17 @@ export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
 // any other decode failure, which frees the queue. It is NOT a deadline on the
 // task: `metadata()` (read before the decoded-bytes budget) has no timeout, and
 // a stage done in one native call (a libheif decode, a GIF's frame walk) is only
-// checked once it returns — a 10 MB GIF of 690,000 2x2 frames spent 60 s in
-// `metadata()` alone and 119 s in the whole strip, then SUCCEEDED (delta audit
-// of fix/photo-entreprise, F1, measured on Windows). Bounding that needs a frame
-// / page count read in JS before sharp, or a decode in a child process that can
-// be killed — next lot. 10 s is above a real 24 Mpx JPEG (~0.4 s here) but a
-// noisy 24 Mpx WebP took 4.8 s on this machine: not calibrated on the VPS.
+// checked once it returns. What bounds the TASK is what runs BEFORE sharp:
+// lib/imageFrameCount.ts counts the images of a GIF / animated WebP and the pages
+// of a TIFF in JS, and decodeOriented refuses beyond MAX_IMAGE_FRAMES (~5 ms of
+// `metadata()` on a GIF of 15-byte frames). Before that count, a 10 MB GIF of
+// 690,000 2x2 frames spent 60 s in `metadata()` alone and 119 s in the whole
+// strip, then SUCCEEDED (delta audit of fix/photo-entreprise, F1, measured on
+// Windows). So the timeout bounds the pipeline of a file whose frame count is
+// already bounded; it still does not interrupt one native call (libheif), and
+// frames x pixels is not counted (docs/CONVENTIONS.md). 10 s is above a real
+// 24 Mpx JPEG (~0.4 s here) but a noisy 24 Mpx WebP took 4.8 s on this machine:
+// not calibrated on the VPS.
 export const SHARP_TIMEOUT_SECONDS = 10;
 
 // The pixel ceiling above bounds the pixel COUNT, not the decoded BYTES: bytes =
@@ -230,11 +236,14 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
 // Shared by every caller on purpose: one function, one behavior (the
 // bulletin's image for the model, lib/deliveryNoteScan.ts, included).
 //
-// Reads the header first (metadata(): nothing is decoded) and refuses a decoded
+// Counts the images / pages in JS first (lib/imageFrameCount.ts, nothing decoded)
+// and refuses beyond MAX_IMAGE_FRAMES, or a structure that does not walk, before
+// sharp is called at all. Then reads the header (metadata(): nothing is decoded) and refuses a decoded
 // size beyond MAX_DECODED_BYTES BEFORE allocating anything, then opens the
 // pipeline with the pixel ceiling, the orientation and the decode timeout.
 // Call it inside runExclusive, and await it.
 export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof sharp>> {
+    if (countImageFrames(buffer, MAX_IMAGE_FRAMES).kind !== "ok") throw refusal("corruptedImage");
     const options = { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true, failOn: "none" } as const;
     assertDecodedSizeWithinBudget(await sharp(buffer, options).metadata());
     return sharp(buffer, options).rotate().timeout({ seconds: SHARP_TIMEOUT_SECONDS });
