@@ -49,14 +49,10 @@ vi.mock("@/lib/imageDecodeBridge", async (importOriginal) => {
   };
 });
 
-import {
-  stripArchivedPhotoMetadata,
-  convertToStrippedJpeg,
-  runExclusive,
-  isImageBusyError,
-  MAX_WAITING_TASKS,
-  SHARP_MAX_INPUT_PIXELS,
-} from "@/lib/imageMetadata";
+import { runExclusive, isImageRefusal, MAX_WAITING_TASKS, SHARP_MAX_INPUT_PIXELS } from "@/lib/imageMetadata";
+// Each call below is made by a fresh account (one task per account at a time: the share of an
+// account has its own file, tests/image-account-share.test.ts), and the limits refuse nothing.
+import { stripFor as stripArchivedPhotoMetadata, convertFor as convertToStrippedJpeg, freshOwner } from "@/tests/helpers/imageAccount";
 
 beforeEach(() => {
   state.inFlight = 0;
@@ -135,17 +131,17 @@ describe("lib/imageMetadata — the queue is bounded", () => {
   it("the 9th waiting task is refused AT ONCE with imageBusy, the 8 before it still run, and the queue serves again after", async () => {
     const log: string[] = [];
     const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, (_, i) => heldTask(log, String(i)));
-    const accepted = held.map((h) => runExclusive(h.task));
+    const accepted = held.map((h) => runExclusive(freshOwner(), h.task));
     // 1 running + 8 waiting are accepted; only the first has started.
     expect(log).toEqual(["start-0"]);
 
     // The 9th WAITING task: refused without anything having been released.
-    const refused = await runExclusive(async () => "never").then(
+    const refused = await runExclusive(freshOwner(), async () => "never").then(
       () => null,
       (error: unknown) => error,
     );
     expect(refused).toEqual({ type: "error", code: "imageBusy" });
-    expect(isImageBusyError(refused)).toBe(true);
+    expect(isImageRefusal(refused)).toBe(true);
     expect(log).toEqual(["start-0"]);
 
     // The accepted ones all complete, in order, one at a time.
@@ -154,13 +150,13 @@ describe("lib/imageMetadata — the queue is bounded", () => {
     expect(log).toEqual(held.map((_, i) => `start-${i}`));
 
     // A "busy" refusal does not block what follows.
-    await expect(runExclusive(async () => "after")).resolves.toBe("after");
+    await expect(runExclusive(freshOwner(), async () => "after")).resolves.toBe("after");
   });
 
   it("a refusal for a full queue is not a decode failure: through stripArchivedPhotoMetadata it keeps its own code", async () => {
     const log: string[] = [];
     const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, (_, i) => heldTask(log, String(i)));
-    const accepted = held.map((h) => runExclusive(h.task));
+    const accepted = held.map((h) => runExclusive(freshOwner(), h.task));
 
     const error = await stripArchivedPhotoMetadata(img("late"), "image/jpeg").then(
       () => null,
@@ -183,7 +179,7 @@ describe("lib/imageMetadata — the queue is bounded", () => {
     expect(settled[0]).toMatchObject({ status: "rejected", reason: { type: "error", code: "corruptedImage" } });
     expect(settled[1]).toMatchObject({ status: "fulfilled" });
     // The queue is empty again: a fresh task starts immediately.
-    await expect(runExclusive(async () => "free")).resolves.toBe("free");
+    await expect(runExclusive(freshOwner(), async () => "free")).resolves.toBe("free");
   });
 });
 
@@ -206,10 +202,10 @@ describe("lib/imageMetadata — one queue per PROCESS, not per module instance",
       return id;
     };
     const results = await Promise.all([
-      first.runExclusive(task("a1")),
-      second.runExclusive(task("b1")),
-      first.runExclusive(task("a2")),
-      second.runExclusive(task("b2")),
+      first.runExclusive(freshOwner(), task("a1")),
+      second.runExclusive(freshOwner(), task("b1")),
+      first.runExclusive(freshOwner(), task("a2")),
+      second.runExclusive(freshOwner(), task("b2")),
     ]);
     expect(results).toEqual(["a1", "b1", "a2", "b2"]);
     expect(maxRunning).toBe(1);
@@ -224,8 +220,8 @@ describe("lib/imageMetadata — one queue per PROCESS, not per module instance",
     const log: string[] = [];
     const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, (_, i) => heldTask(log, String(i)));
     // Alternate between the two instances to fill the one queue.
-    const accepted = held.map((h, i) => (i % 2 === 0 ? first : second).runExclusive(h.task));
-    const refused = await second.runExclusive(async () => "never").then(
+    const accepted = held.map((h, i) => (i % 2 === 0 ? first : second).runExclusive(freshOwner(), h.task));
+    const refused = await second.runExclusive(freshOwner(), async () => "never").then(
       () => null,
       (error: unknown) => error,
     );

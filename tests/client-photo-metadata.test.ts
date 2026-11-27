@@ -22,7 +22,11 @@ vi.mock("cloudinary", () => ({
 }));
 
 import { v2 as cloudinarySdk } from "cloudinary";
-import { uploadClientPhoto } from "@/lib/cloudinary";
+import { uploadClientPhoto as uploadClientPhotoOf } from "@/lib/cloudinary";
+import { freshOwner } from "@/tests/helpers/imageAccount";
+
+// The photo is decoded on behalf of an account: each call here is made by a fresh one.
+const uploadClientPhoto = (file: File) => uploadClientPhotoOf(file, freshOwner());
 
 const uploadStreamMock = vi.mocked(cloudinarySdk.uploader.upload_stream);
 

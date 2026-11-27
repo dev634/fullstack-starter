@@ -203,6 +203,16 @@ export const CLOSED_LIST: readonly ClosedEntry[] = [
       "preview the user reviews before anything is written — the purpose of scanDeliveryNote. `bytesSent` is logged only.",
   },
   {
+    kind: "state",
+    module: "lib/deliveryNoteScan",
+    name: "scanErrorMessage",
+    args: { 1: "caught" },
+    reason:
+      "The message of a scan refusal: the dictionary entry of a closed code (lib/deliveryNoteScan.ts::SCAN_ERROR_CODES), with the " +
+      "delay in minutes or the ceiling in MB / Mpx the refusal of lib/imageMetadata.ts carries. The caught error (argument 1) is " +
+      "read, never relayed: what comes out is dictionary text with two numbers.",
+  },
+  {
     kind: "fields",
     module: "lib/rate-limit",
     name: "isRateLimited",

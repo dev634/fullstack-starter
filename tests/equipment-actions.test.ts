@@ -31,11 +31,6 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyUploadedAsset: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-// The per-account photo budget (lib/photoUploadRateLimit.ts) reads Postgres through this module.
-vi.mock("@/lib/rate-limit", () => ({
-  isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
-  registerFailure: vi.fn(),
-}));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addEquipment, editEquipment, deleteEquipment } from "@/actions/equipment/equipment";
@@ -45,7 +40,6 @@ import { findIdByEmail } from "@/repository/users";
 import { create, update, findById, removeIfNotLent, isPhotoPublicIdReferenced } from "@/repository/equipment";
 import { uploadEquipmentPhoto, destroyEquipmentPhoto, destroyUploadedAsset } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
-import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
@@ -60,8 +54,6 @@ const destroyEquipmentPhotoMock = vi.mocked(destroyEquipmentPhoto);
 const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
 const isPhotoPublicIdReferencedMock = vi.mocked(isPhotoPublicIdReferenced);
 const revalidatePathMock = vi.mocked(revalidatePath);
-const isRateLimitedMock = vi.mocked(isRateLimited);
-const registerFailureMock = vi.mocked(registerFailure);
 
 // What uploadEquipmentPhoto returns: the URL plus the asset's own type and
 // resource_type as Cloudinary reported them (a public `upload` image).
@@ -402,13 +394,11 @@ describe("editEquipment", () => {
   });
 });
 
-// Point 4 (fix/televersements) — see lib/photoUploadRateLimit.ts.
-describe("equipment photo rate limit", () => {
-  const LIMITED = { limited: true, retryAfterMs: 3 * 60 * 1000 - 1 };
+// The equipment photo decodes on behalf of an ACCOUNT (lib/imageMetadata.ts: one task at a time and a
+// budget of decode time per account): the action hands over the one its role guard resolved, never a form field.
+describe("equipment photo: the account that owns the decode, and what a refusal says", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isRateLimitedMock.mockReset();
-    isRateLimitedMock.mockResolvedValue({ limited: false, retryAfterMs: 0 });
     uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/abc"));
     isPhotoPublicIdReferencedMock.mockResolvedValue(false);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -421,47 +411,35 @@ describe("equipment photo rate limit", () => {
     return fd;
   }
 
-  it("addEquipment: over the budget, refuses with the delay and uploads and writes nothing", async () => {
-    actor("EDITOR", "owner@x.com");
-    findIdByEmailMock.mockResolvedValue(3);
-    isRateLimitedMock.mockResolvedValue(LIMITED);
-    const res = await addEquipment(initial, withPhoto({ name: "Perceuse" }));
-    expect(res).toMatchObject({ type: "error", message: "Trop de photos envoyées en peu de temps. Réessaie dans 3 min." });
-    expect(uploadEquipmentPhotoMock).not.toHaveBeenCalled();
-    expect(createMock).not.toHaveBeenCalled();
-    expect(registerFailureMock).not.toHaveBeenCalled();
-  });
-
-  it("editEquipment: over the budget, refuses and uploads and writes nothing", async () => {
-    actor("EDITOR", "owner@x.com");
-    findIdByEmailMock.mockResolvedValue(3);
-    findByIdMock.mockResolvedValue(equipmentRow({ ownerId: 3 }) as never);
-    isRateLimitedMock.mockResolvedValue(LIMITED);
-    const res = await editEquipment(initial, withPhoto({ id: "5", name: "Perceuse" }));
-    expect(res).toMatchObject({ type: "error", message: expect.stringContaining("3 min") });
-    expect(uploadEquipmentPhotoMock).not.toHaveBeenCalled();
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
-  it("the same actions WITHOUT a photo are never limited, and never ask the limiter", async () => {
+  it("addEquipment and editEquipment hand the SESSION's account to the upload, whatever the form claims", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findByIdMock.mockResolvedValue(equipmentRow({ ownerId: 3 }) as never);
     createMock.mockResolvedValue({ id: 1 } as never);
     updateMock.mockResolvedValue({ id: 5 } as never);
-    isRateLimitedMock.mockResolvedValue(LIMITED);
-    expect((await addEquipment(initial, form({ name: "Perceuse" }))).type).toBe("success");
-    expect((await editEquipment(initial, form({ id: "5", name: "Perceuse" }))).type).toBe("success");
-    expect(isRateLimitedMock).not.toHaveBeenCalled();
-    expect(registerFailureMock).not.toHaveBeenCalled();
+    await addEquipment(initial, withPhoto({ name: "Perceuse", owner: "someone-else@x.com" }));
+    await editEquipment(initial, withPhoto({ id: "5", name: "Perceuse", owner: "someone-else@x.com" }));
+    expect(uploadEquipmentPhotoMock.mock.calls.map((call) => call[1])).toEqual(["owner@x.com", "owner@x.com"]);
   });
 
-  it("shares ONE key per account with the company photo", async () => {
+  it("without a photo nothing is decoded: the upload is never asked", async () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ ownerId: 3 }) as never);
     createMock.mockResolvedValue({ id: 1 } as never);
-    await addEquipment(initial, withPhoto({ name: "Perceuse" }));
-    expect(registerFailureMock).toHaveBeenCalledWith("photo-upload:owner@x.com");
+    updateMock.mockResolvedValue({ id: 5 } as never);
+    expect((await addEquipment(initial, form({ name: "Perceuse" }))).type).toBe("success");
+    expect((await editEquipment(initial, form({ id: "5", name: "Perceuse" }))).type).toBe("success");
+    expect(uploadEquipmentPhotoMock).not.toHaveBeenCalled();
+  });
+
+  it("a refusal of the decode reaches the user as its own message, and nothing is written", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockRejectedValue({ type: "error", message: "English", i18n: "imageInProgress" });
+    const res = await addEquipment(initial, withPhoto({ name: "Perceuse" }));
+    expect(res).toMatchObject({ type: "error", message: "Une de tes images est déjà en cours de traitement. Réessaie dans un instant." });
+    expect(createMock).not.toHaveBeenCalled();
   });
 });
 

@@ -11,7 +11,14 @@ import {
   looksLikeDangerousMarkup,
   looksLikePdf,
 } from "@/lib/fileSignature";
-import { convertToStrippedJpeg, isImageBusyError, isStrippableMediaType, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import {
+  convertToStrippedJpeg,
+  isImageRefusal,
+  isStrippableMediaType,
+  stripArchivedPhotoMetadata,
+  type ImageRefusal,
+  type StorageImageLimits,
+} from "@/lib/imageMetadata";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
 
 // Re-export the pure URL helpers so existing server imports keep working.
@@ -21,6 +28,25 @@ export { publicIdFromUrl, optimizedClientPhoto } from "./cloudinary-url";
 // (cloudinary://<api_key>:<api_secret>@<cloud_name>). We only force
 // HTTPS URLs here.
 cloudinary.config({ secure: true });
+
+// --- What the storage accepts ----------------------------------------------
+//
+// Read from Cloudinary's administration API, from the production container, on
+// 2026-11-27: plan "Free", image_max_size_bytes = 10485760, raw_max_size_bytes =
+// 10485760, image_max_px = 25000000. ONE source for each ceiling: the output of a
+// decode that goes to storage (company photo, equipment photo, bulletin archive) is
+// refused BEFORE it is sent when it is beyond either, with a message that says so,
+// instead of a generic upload failure from the provider. They are NOT the input
+// ceilings the application announces (project files 20 MB, reserve plans 25 MB, photos
+// 10 MB): those are a product decision, still open (docs/SECURITE-CHECKLIST.md).
+export const STORAGE_MAX_FILE_BYTES = 10_485_760;
+export const STORAGE_MAX_IMAGE_PIXELS = 25_000_000;
+
+/** What every decode that goes to storage passes to lib/imageMetadata.ts. */
+export const STORAGE_IMAGE_LIMITS: StorageImageLimits = {
+  maxOutputBytes: STORAGE_MAX_FILE_BYTES,
+  maxPixels: STORAGE_MAX_IMAGE_PIXELS,
+};
 
 // --- Guarded delivery --------------------------------------------------
 //
@@ -83,13 +109,19 @@ function assetRefFromUploadResult(result: UploadApiResponse): GuardedAssetRef {
  *    Promise executor and would reject with the SDK's native Error — whose
  *    `.message` then reached the user. It is caught here, logged with its
  *    cause, and refused as uploadFailed.
- *  - A network error or a non-2xx response arrives in the callback.
+ *  - A network error or a non-2xx response arrives in the callback. Its `message` and
+ *    `http_code` are logged (a wrong key or secret is diagnosed from them: the user only
+ *    ever sees uploadFailed).
  *  - `toResult` may THROW on an unexpected resource/delivery type (see
  *    fromCloudinaryResourceType/fromCloudinaryType). It runs inside a callback
  *    the SDK invokes later, outside the executor's call stack, so a raw throw
  *    would NOT reject this promise: it would become an uncaughtException that
  *    kills the Node process and leaves the awaiting Server Action hung forever.
- *    It is caught here for the same reason.
+ *    It is caught here for the same reason. When a `public_id` can still be read off
+ *    that response, the asset IS at Cloudinary (and, for the public ones, reachable):
+ *    it is destroyed before the refusal, by the `type` and `resource_type` the response
+ *    itself reported — the very values that were not understood, so the destroy is
+ *    attempted with them as they came.
  *
  * `failureMessage` is the English fallback of the `uploadFailed` refusal, the
  * only thing that differs between the callers.
@@ -106,6 +138,10 @@ function uploadBuffer<T>(
       cloudinary.uploader
         .upload_stream(options, (error, result) => {
           if (error || !result) {
+            console.error("Cloudinary upload failed:", {
+              message: error?.message ?? "no error and no result",
+              http_code: error?.http_code,
+            });
             refuse();
             return;
           }
@@ -113,7 +149,7 @@ function uploadBuffer<T>(
             resolve(toResult(result));
           } catch (cause) {
             console.error("Cloudinary upload response not understood:", cause);
-            refuse();
+            void destroyUnderstoodNothing(result).finally(refuse);
           }
         })
         .end(buffer);
@@ -125,26 +161,68 @@ function uploadBuffer<T>(
 }
 
 /**
- * Never throws, but reads `destroy`'s own report and logs anything other than
- * "ok" / "not found": an operation that doesn't throw hasn't necessarily acted
- * (a mismatched `type` makes it no-op in silence — see GuardedAssetRef's doc).
+ * The ONE place `destroy` is called and its report read (the logo, the company photo,
+ * the equipment photo and every guarded asset used to read it four different ways, the
+ * logo not at all). Never throws. An operation that doesn't throw hasn't necessarily
+ * acted (a mismatched `type` makes it no-op in silence — see GuardedAssetRef's doc), so
+ * anything other than "ok" is logged WITH the public id. "not found" is the expected
+ * answer for an asset that is already gone, and is logged only when `justUploaded`:
+ * an asset this process has just sent cannot be absent, so "not found" there means the
+ * deletion is NOT confirmed (a wrong `type`, a propagation delay).
  */
+async function destroyAndReport(
+  label: string,
+  publicId: string,
+  options: { type?: string; resource_type?: string },
+  justUploaded: boolean
+): Promise<void> {
+  try {
+    const response: { result?: string } = await cloudinary.uploader.destroy(publicId, options);
+    if (response.result === "ok") return;
+    if (response.result === "not found" && !justUploaded) return;
+    console.error(
+      justUploaded && response.result === "not found"
+        ? `Cloudinary destroy of the ${label} "${publicId}" we just uploaded answered "not found": deletion NOT confirmed`
+        : `Cloudinary destroy of the ${label} "${publicId}" did not confirm deletion: "${response.result}"`
+    );
+  } catch (error) {
+    console.error(`Cloudinary destroy failed for the ${label} "${publicId}":`, error);
+  }
+}
+
 async function destroyGuardedAsset(
   publicId: string,
   deliveryType: CloudinaryDeliveryType,
-  resourceType: CloudinaryResourceType
+  resourceType: CloudinaryResourceType,
+  justUploaded: boolean
 ): Promise<void> {
-  try {
-    const response: { result?: string } = await cloudinary.uploader.destroy(publicId, {
-      type: toCloudinaryType(deliveryType),
-      resource_type: toCloudinaryResourceType(resourceType),
-    });
-    if (response.result !== "ok" && response.result !== "not found") {
-      console.error(`Cloudinary destroy for "${publicId}" did not confirm deletion: "${response.result}"`);
-    }
-  } catch (error) {
-    console.error("Cloudinary destroy failed:", error);
-  }
+  await destroyAndReport(
+    "asset",
+    publicId,
+    { type: toCloudinaryType(deliveryType), resource_type: toCloudinaryResourceType(resourceType) },
+    justUploaded
+  );
+}
+
+/**
+ * The upload response was not understood (an unexpected `type` or `resource_type`) but
+ * a `public_id` is readable: the asset exists. Destroys it by what the response said,
+ * as it said it. Never throws.
+ */
+async function destroyUnderstoodNothing(result: UploadApiResponse): Promise<void> {
+  const publicId: unknown = result.public_id;
+  if (typeof publicId !== "string" || publicId === "") return;
+  const type: unknown = result.type;
+  const resourceType: unknown = result.resource_type;
+  await destroyAndReport(
+    "asset of an upload response that was not understood",
+    publicId,
+    {
+      ...(typeof type === "string" ? { type } : {}),
+      ...(typeof resourceType === "string" ? { resource_type: resourceType } : {}),
+    },
+    true
+  );
 }
 
 /**
@@ -153,7 +231,7 @@ async function destroyGuardedAsset(
  * Never throws.
  */
 export async function destroyUploadedAsset(asset: GuardedAssetRef): Promise<void> {
-  await destroyGuardedAsset(asset.publicId, asset.deliveryType, asset.resourceType);
+  await destroyGuardedAsset(asset.publicId, asset.deliveryType, asset.resourceType, true);
 }
 
 /**
@@ -173,14 +251,61 @@ function isRealImage(buffer: Buffer): boolean {
   return detectRasterImageMediaType(buffer) !== null;
 }
 
-// Refusal when lib/imageMetadata.ts's decode queue is full (nothing is sent to
-// Cloudinary, the original included): the user is told to try again.
-function busyUploadError() {
-  return {
-    type: "error",
-    message: "The server is already processing images. Try again in a moment.",
-    i18n: "uploadBusy",
-  };
+/**
+ * What a refusal of lib/imageMetadata.ts's decode becomes at an upload boundary: the
+ * application's own error shape with a stable `i18n` code (getErrorMessage translates
+ * it). Nothing is ever sent to Cloudinary after one, the original included. A queue that
+ * is full, an account already processing an image or out of decode time, a decoder that
+ * is down, an output or a pixel count beyond the storage's ceiling each say so, instead
+ * of calling the photo "not an image"; only a decode that failed does.
+ */
+function uploadErrorFromDecode(error: unknown) {
+  const refusal: ImageRefusal | null = isImageRefusal(error) ? error : null;
+  switch (refusal?.code) {
+    case "imageBusy":
+      return {
+        type: "error",
+        message: "The server is already processing images. Try again in a moment.",
+        i18n: "uploadBusy",
+      };
+    case "imageInProgress":
+      return {
+        type: "error",
+        message: "One of your images is already being processed. Try again in a moment.",
+        i18n: "imageInProgress",
+      };
+    case "imageQuota":
+      return {
+        type: "error",
+        message: "Too many images processed for now. Try again later.",
+        i18n: "imageQuota",
+        i18nParams: { minutes: refusal.minutes ?? 60 },
+      };
+    case "imageUnavailable":
+      return {
+        type: "error",
+        message: "Image processing is temporarily unavailable. Try again in a few minutes.",
+        i18n: "imageUnavailable",
+      };
+    case "outputTooLarge":
+      return {
+        type: "error",
+        message: "Image too large after processing.",
+        i18n: "imageOutputTooLarge",
+        i18nParams: { max: refusal.max ?? STORAGE_MAX_FILE_BYTES / (1024 * 1024) },
+      };
+    case "imageTooManyPixels":
+      return {
+        type: "error",
+        message: "Image too large for storage.",
+        i18n: "imageTooManyPixels",
+        i18nParams: { max: refusal.max ?? STORAGE_MAX_IMAGE_PIXELS / 1_000_000 },
+      };
+    default:
+      // A decode that failed: never a fallback to the original, which would quietly undo
+      // the stripping.
+      return { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+  }
 }
 
 export const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -195,7 +320,7 @@ export const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
  * guarded — see app/api/assets), so an unvalidated upload here would be
  * directly reachable.
  */
-export async function uploadClientPhoto(file: File): Promise<string> {
+export async function uploadClientPhoto(file: File, owner: string): Promise<string> {
   if (file.size > MAX_CLIENT_PHOTO_BYTES) {
     throw {
       type: "error",
@@ -242,15 +367,12 @@ export async function uploadClientPhoto(file: File): Promise<string> {
   if (isStrippableMediaType(mediaType) || mediaType === "image/avif" || mediaType === "image/tiff") {
     try {
       outgoing = isStrippableMediaType(mediaType)
-        ? await stripArchivedPhotoMetadata(buffer, mediaType)
-        : await convertToStrippedJpeg(buffer);
+        ? await stripArchivedPhotoMetadata(owner, buffer, mediaType, STORAGE_IMAGE_LIMITS)
+        : await convertToStrippedJpeg(owner, buffer, STORAGE_IMAGE_LIMITS);
     } catch (error) {
-      // The decode queue is full: say so, instead of calling the photo bad.
-      if (isImageBusyError(error)) throw busyUploadError();
-      // sharp could not decode it: never fall back to sending the original,
-      // which would quietly undo the stripping. Same refusal as
-      // uploadEquipmentPhoto, in this module's own error shape.
-      throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+      // Every refusal of the decode says what it is (see uploadErrorFromDecode); never a
+      // fallback to the original.
+      throw uploadErrorFromDecode(error);
     }
   }
 
@@ -271,7 +393,9 @@ export async function uploadClientPhoto(file: File): Promise<string> {
  * destroyed.
  */
 export async function destroyClientPhoto(
-  url: string | null | undefined
+  url: string | null | undefined,
+  /** "previous": a photo that was replaced or removed; "justUploaded": the compensation of one this call sent. */
+  which: "previous" | "justUploaded"
 ): Promise<void> {
   if (!url) return;
   const publicId = publicIdFromUrl(url);
@@ -279,14 +403,7 @@ export async function destroyClientPhoto(
     console.error(`Cloudinary destroy skipped: no public id in client photo url "${url}"`);
     return;
   }
-  try {
-    const response: { result?: string } = await cloudinary.uploader.destroy(publicId);
-    if (response.result !== "ok" && response.result !== "not found") {
-      console.error(`Cloudinary destroy for client photo "${publicId}" did not confirm deletion: "${response.result}"`);
-    }
-  } catch (error) {
-    console.error("Cloudinary destroy failed:", error);
-  }
+  await destroyAndReport("client photo", publicId, {}, which === "justUploaded");
 }
 
 export const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -334,11 +451,7 @@ export async function uploadLogo(file: File): Promise<{ url: string } & GuardedA
  */
 export async function destroyLogo(publicId: string | null | undefined): Promise<void> {
   if (!publicId) return;
-  try {
-    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
-  } catch (error) {
-    console.error("Cloudinary destroy failed:", error);
-  }
+  await destroyAndReport("logo", publicId, { resource_type: "image" }, false);
 }
 
 export const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
@@ -486,7 +599,7 @@ export async function destroyProjectFile(
   publicId: string,
   asset: Pick<GuardedAssetRef, "deliveryType" | "resourceType">
 ): Promise<void> {
-  await destroyGuardedAsset(publicId, asset.deliveryType, asset.resourceType);
+  await destroyGuardedAsset(publicId, asset.deliveryType, asset.resourceType, false);
 }
 
 export const MAX_RESERVE_PLAN_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -561,7 +674,7 @@ export async function uploadReservePlan(
  */
 export async function destroyReservePlan(plan: GuardedAssetRef | null | undefined): Promise<void> {
   if (!plan) return;
-  await destroyGuardedAsset(plan.publicId, plan.deliveryType, plan.resourceType);
+  await destroyGuardedAsset(plan.publicId, plan.deliveryType, plan.resourceType, false);
 }
 
 export const MAX_RESERVE_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -618,7 +731,7 @@ export async function uploadReservePhoto(
  */
 export async function destroyReservePhoto(photo: GuardedAssetRef | null | undefined): Promise<void> {
   if (!photo) return;
-  await destroyGuardedAsset(photo.publicId, photo.deliveryType, photo.resourceType);
+  await destroyGuardedAsset(photo.publicId, photo.deliveryType, photo.resourceType, false);
 }
 
 // Reuses MAX_RESERVE_PHOTO_BYTES rather than a second, independently
@@ -628,6 +741,9 @@ export async function destroyReservePhoto(photo: GuardedAssetRef | null | undefi
 // can drift from réserve photo's: tests/next-config-upload-limit.test.ts
 // asserts the two stay equal.
 export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
+
+/** What uploadEquipmentPhoto returns: the public URL and the three columns `destroy` needs. */
+export type UploadedEquipmentPhoto = { url: string } & GuardedAssetRef;
 
 /**
  * Upload a piece of equipment's photo to Cloudinary and return its secure
@@ -682,7 +798,7 @@ export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
  * `EXIF orientation → sideways photo` bug this whole app already paid for
  * once (docs/CONVENTIONS.md) is worse than a narrower accepted-format list.
  */
-export async function uploadEquipmentPhoto(file: File): Promise<{ url: string } & GuardedAssetRef> {
+export async function uploadEquipmentPhoto(file: File, owner: string): Promise<UploadedEquipmentPhoto> {
   if (file.size > MAX_EQUIPMENT_PHOTO_BYTES) {
     throw {
       type: "error",
@@ -704,15 +820,14 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string } 
 
   let stripped: Buffer;
   try {
-    stripped = await stripArchivedPhotoMetadata(buffer, mediaType);
+    stripped = await stripArchivedPhotoMetadata(owner, buffer, mediaType, STORAGE_IMAGE_LIMITS);
   } catch (error) {
-    if (isImageBusyError(error)) throw busyUploadError();
-    // stripArchivedPhotoMetadata throws its own ScanError shape
-    // ({type, code}, no i18n field) on a sharp decode failure — re-thrown
-    // here in this module's own upload-error shape so getErrorMessage
-    // translates it the same way as every other cloudinary.ts validation
-    // failure instead of falling back to the generic server error.
-    throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+    // stripArchivedPhotoMetadata throws its own ScanError-shaped refusal
+    // ({type, code}, no i18n field) — re-thrown here in this module's own
+    // upload-error shape so getErrorMessage translates it the same way as every
+    // other cloudinary.ts validation failure instead of falling back to the
+    // generic server error.
+    throw uploadErrorFromDecode(error);
   }
 
   return uploadBuffer(
@@ -735,12 +850,5 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string } 
  */
 export async function destroyEquipmentPhoto(publicId: string | null | undefined): Promise<void> {
   if (!publicId) return;
-  try {
-    const response: { result?: string } = await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
-    if (response.result !== "ok" && response.result !== "not found") {
-      console.error(`Cloudinary destroy for equipment photo "${publicId}" did not confirm deletion: "${response.result}"`);
-    }
-  } catch (error) {
-    console.error("Cloudinary destroy failed:", error);
-  }
+  await destroyAndReport("equipment photo", publicId, { resource_type: "image" }, false);
 }

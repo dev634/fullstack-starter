@@ -748,8 +748,12 @@ puisqu'elles ne remontent jamais jusqu'à ce niveau.
   SDK : la cause se lit dans les journaux du conteneur, en cherchant
   `Cloudinary upload refused before sending` (`docker compose logs web | grep "Cloudinary upload refused before sending"`) —
   la ligne suivante porte l'erreur d'origine (`Must supply api_key`, `Must supply cloud_name…`). Ajoute
-  la variable (section 3) puis recrée le conteneur. Une panne réseau ou une réponse 5xx de Cloudinary
-  produit le même message à l'écran mais **pas** cette ligne de journal.
+  la variable (section 3) puis recrée le conteneur. Une **clé ou un secret faux** (variable présente,
+  valeurs refusées) n'est pas cette ligne : Cloudinary répond une erreur, journalisée par
+  `Cloudinary upload failed:` avec son `message` (« Invalid api_key … », « Invalid Signature … ») et son
+  `http_code` (401, 403…) — `docker compose logs web | grep "Cloudinary upload failed"`. Une panne
+  réseau produit la même ligne avec le message de l'erreur réseau ; une réponse que l'application ne comprend
+  pas produit `Cloudinary upload response not understood` (et l'actif envoyé est détruit).
 - **Les liens de réinitialisation de mot de passe n'arrivent jamais par email** → `RESEND_API_KEY`
   n'est pas configurée : le lien est simplement journalisé dans les logs du conteneur
   (`docker compose logs web`) au lieu d'être envoyé. Ajoute la clé (section 3) puis recrée le

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { convertToStrippedJpeg, stripArchivedPhotoMetadata, MAX_DECODED_BYTES } from "@/lib/imageMetadata";
+import { MAX_DECODED_BYTES } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata, convertFor as convertToStrippedJpeg } from "@/tests/helpers/imageAccount";
 
 // REAL sharp (in the real decode child) on purpose: what is under test is what libvips is (or is not) asked to
 // allocate, which a fake cannot say. Fixtures are built with sharp, or byte by byte for

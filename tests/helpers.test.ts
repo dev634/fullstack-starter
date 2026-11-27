@@ -31,7 +31,18 @@ describe("getErrorMessage", () => {
     expect(getErrorMessage({ type: "error", message: "boom" }, "fallback")).toBe("boom");
     expect(getErrorMessage({ type: "zodError", message: "invalid" }, "fallback")).toBe("invalid");
     expect(getErrorMessage({ type: "databaseError", message: "dup" }, "fallback")).toBe("dup");
-    expect(getErrorMessage({ type: "duplicate", message: "exists" }, "fallback")).toBe("exists");
+  });
+
+  // The set is CLOSED (fix/televersements): the types the application throws are error, zodError,
+  // databaseError, repositoryError (always the fallback), duplicate (English text, translated by its four
+  // actions before it gets here), unmatchedScanMaterial and guardRefused (no message). A type outside the
+  // closed set is the fallback, never its text.
+  it("a type outside the closed set falls back, even with a string message: `duplicate` is English text", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(getErrorMessage({ type: "duplicate", message: "A user with this email already exists." }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ type: "unmatchedScanMaterial", message: "x" }, "fallback")).toBe("fallback");
+    expect(getErrorMessage({ type: "somethingNew", message: "leaks the next library's text" }, "fallback")).toBe("fallback");
+    errorSpy.mockRestore();
   });
 
   it("falls back when the message is missing, not a string, or the object is not an application shape", () => {

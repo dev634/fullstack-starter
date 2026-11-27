@@ -13,7 +13,11 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { extractDeliveryNoteItems } from "@/lib/deliveryNoteScan";
+import { extractDeliveryNoteItems as extractDeliveryNoteItemsOf } from "@/lib/deliveryNoteScan";
+import { freshOwner } from "@/tests/helpers/imageAccount";
+
+// The image for the model is decoded on behalf of an account: each call here is made by a fresh one.
+const extractDeliveryNoteItems = (file: File) => extractDeliveryNoteItemsOf(file, freshOwner());
 import { MAX_WAITING_TASKS, runExclusive } from "@/lib/imageMetadata";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 
@@ -92,7 +96,7 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, () => runExclusive(() => gate));
+    const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, () => runExclusive(freshOwner(), () => gate));
     try {
       const file = await realJpegFile({ width: 200, height: 120 });
       await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "imageBusy" });

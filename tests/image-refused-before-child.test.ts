@@ -15,7 +15,7 @@ vi.mock("@/lib/imageDecodeBridge", async (importOriginal) => ({
   runInChild: runInChildSpy,
 }));
 
-import { stripArchivedPhotoMetadata, convertToStrippedJpeg } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata, convertFor as convertToStrippedJpeg } from "@/tests/helpers/imageAccount";
 
 const REFUSED = { type: "error", code: "corruptedImage" };
 
@@ -54,8 +54,9 @@ describe("a file over a cap never reaches the decode child", () => {
     expect(runInChildSpy).not.toHaveBeenCalled();
   }, 5_000);
 
-  it("the spy is live: a file under every cap does start a task", async () => {
-    await expect(stripArchivedPhotoMetadata(gifOfFrames(2), "image/gif")).rejects.toEqual(REFUSED);
+  it("the spy is live: a file under every cap does start a task (and a child that cannot start is imageUnavailable, not a bad photo)", async () => {
+    // The spy rejects BEFORE the task callback runs, which is what a child that cannot start does.
+    await expect(stripArchivedPhotoMetadata(gifOfFrames(2), "image/gif")).rejects.toEqual({ type: "error", code: "imageUnavailable" });
     expect(runInChildSpy).toHaveBeenCalledTimes(1);
   });
 

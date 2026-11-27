@@ -1,12 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/app/generated/prisma/client";
 
-type SettingsUpdate = {
+// Two writers, two disjoint sets of columns (F7): the branding form writes the name
+// and the colors and NEVER the logo; the logo upload / removal writes the logo
+// columns and NOTHING else. Each used to carry the other's values, read a moment
+// earlier (`current.logoUrl`, `current.appName`): two concurrent requests then
+// overwrote each other's change with a stale copy. With disjoint columns, whichever
+// commits last cannot undo the other.
+type BrandingUpdate = {
     appName: string;
-    logoUrl?: string | null;
-    logoPublicId?: string | null;
     primaryColor: string;
     accentColor: string;
+    updatedBy: string;
+};
+
+type LogoUpdate = {
+    logoUrl: string | null;
+    logoPublicId: string | null;
     updatedBy: string;
 };
 
@@ -23,17 +33,15 @@ export async function getSettings() {
     }
 }
 
-export async function upsert(data: SettingsUpdate) {
+/** Writes the branding (name and colors); the logo columns are not part of it and stay as they are. */
+export async function upsert(data: BrandingUpdate) {
     try {
         return await prisma.appSettings.upsert({
             where: { id: 1 },
             // Field by field, not `update: data`: a whole parameter handed to
             // Prisma is a write nobody can read (tests/repository-partial-write.test.ts).
-            // logoUrl/logoPublicId stay `undefined` when absent = left alone.
             update: {
                 appName: data.appName,
-                logoUrl: data.logoUrl,
-                logoPublicId: data.logoPublicId,
                 primaryColor: data.primaryColor,
                 accentColor: data.accentColor,
                 updatedBy: data.updatedBy,
@@ -45,6 +53,29 @@ export async function upsert(data: SettingsUpdate) {
         throw {
             type: "repositoryError",
             message: "Database Error updating app settings.",
+        };
+    }
+}
+
+/**
+ * Writes the logo columns, and only them (null clears). The settings row is seeded
+ * (id=1), so a plain update is sufficient, as for the access matrix below.
+ */
+export async function updateLogo(data: LogoUpdate) {
+    try {
+        return await prisma.appSettings.update({
+            where: { id: 1 },
+            data: {
+                logoUrl: data.logoUrl,
+                logoPublicId: data.logoPublicId,
+                updatedBy: data.updatedBy,
+            },
+        });
+    } catch (error) {
+        console.log("Repository updateLogo (appSettings) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error updating the logo.",
         };
     }
 }

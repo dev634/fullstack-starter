@@ -35,9 +35,15 @@ const UPLOAD_ERROR_CODES = [
     // lib/imageMetadata.ts's queue is full (imageBusy): a photo upload is
     // refused at once, without ever sending the original.
     "uploadBusy",
-    // lib/photoUploadRateLimit.ts: too many company/equipment photos for one
-    // account in the window; {minutes} is the delay, from i18nParams.
-    "photoRateLimited",
+    // The other refusals of lib/imageMetadata.ts's decode (lib/cloudinary.ts::
+    // uploadErrorFromDecode): the account already has an image in progress, or is out
+    // of decode time ({minutes} from i18nParams), the decoder is down, the output or the
+    // pixel count is beyond what the storage takes ({max}).
+    "imageInProgress",
+    "imageQuota",
+    "imageUnavailable",
+    "imageOutputTooLarge",
+    "imageTooManyPixels",
 ] as const;
 type UploadErrorCode = (typeof UPLOAD_ERROR_CODES)[number];
 
@@ -66,13 +72,22 @@ const OTHER_I18N_RESOLVERS: Record<string, (t: Dictionary) => string> = {
 
 /**
  * The shapes this application throws ITSELF and whose `.message` is written
- * for the user: `{ type: "error", message }`, `{ type: "zodError", message,
- * fieldsForm }`, `{ type: "databaseError", message, i18n }`, `{ type:
- * "duplicate", message }`. A native `Error` is never one of them, whatever its
- * `type` property: its message comes from a library or from a bug (the
+ * for the user, a CLOSED set: `{ type: "error", message }` (the application's
+ * own refusal), `{ type: "zodError", message, fieldsForm }` (the
+ * services' validation) and `{ type: "databaseError", message, i18n }`
+ * (repository/clients.ts's duplicate e-mail, translated by its `i18n` code before
+ * it gets here). The other types the application throws never reach this line:
+ * `repositoryError` is answered by the fallback first (above), `duplicate`
+ * (repository/jobFunctions.ts, projectWorkers.ts, users.ts: English text) is caught
+ * and translated by its four actions, and `unmatchedScanMaterial` and
+ * `guardRefused` carry no `message` at all. A type outside the set is the
+ * fallback, not its English message. A native `Error` is never one of them,
+ * whatever its `type` property: its message comes from a library or from a bug (the
  * Cloudinary SDK's "Must supply api_key", a Prisma message) and is for the
  * logs, not for the screen.
  */
+const RELAYED_ERROR_TYPES: readonly string[] = ["error", "zodError", "databaseError"];
+
 function isAppError(error: unknown): error is { type: string; message: string } {
     return (
         typeof error === "object" &&
@@ -80,6 +95,7 @@ function isAppError(error: unknown): error is { type: string; message: string } 
         !(error instanceof Error) &&
         "type" in error &&
         typeof error.type === "string" &&
+        RELAYED_ERROR_TYPES.includes(error.type) &&
         "message" in error &&
         typeof error.message === "string"
     );

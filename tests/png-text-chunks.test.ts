@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import sharp from "sharp";
 import { deflateSync } from "node:zlib";
 import { stripPngTextChunks } from "@/lib/pngTextChunks";
-import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata } from "@/tests/helpers/imageAccount";
 import { pngChunk, pngChunkTypes, textChunk, withChunksAfterHeader, zTxtBomb } from "@/tests/helpers/pngFixture";
 
 const base = () => sharp({ create: { width: 24, height: 16, channels: 3, background: { r: 9, g: 99, b: 199 } } });

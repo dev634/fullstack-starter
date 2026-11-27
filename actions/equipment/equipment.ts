@@ -7,8 +7,7 @@ import { createEquipmentSchema, updateEquipmentSchema } from "@/schemas/equipmen
 import { getCurrentUserId, getLoansActor } from "@/lib/currentUser";
 import { create, update, findById, removeIfNotLent, isPhotoPublicIdReferenced } from "@/repository/equipment";
 import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
-import { reservePhotoUpload } from "@/lib/photoUploadRateLimit";
-import { uploadEquipmentPhoto, destroyEquipmentPhoto } from "@/lib/cloudinary";
+import { uploadEquipmentPhoto, destroyEquipmentPhoto, type UploadedEquipmentPhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
@@ -18,24 +17,20 @@ import type { EquipmentActionState } from "@/types/equipment";
  * Pull the uploaded "photo" file out of the form and push it to Cloudinary.
  * Returns `undefined` when no new file was provided, so callers can leave an
  * existing photo untouched — same contract as
- * actions/clients/clients.ts::extractPhotoUrl.
+ * actions/clients/clients.ts::extractPhotoUrl. `owner` is the account the role
+ * guard resolved (never a form field): the decode is charged to its share of
+ * the decoder (lib/imageMetadata.ts).
  */
-async function extractEquipmentPhoto(
-  formData: FormData,
-  email: string
-): Promise<Awaited<ReturnType<typeof uploadEquipmentPhoto>> | undefined> {
+async function extractEquipmentPhoto(formData: FormData, owner: string): Promise<UploadedEquipmentPhoto | undefined> {
   const file = formData.get("photo");
   if (file instanceof File && file.size > 0) {
-    // Per-account photo budget, shared with the company photo
-    // (lib/photoUploadRateLimit.ts): spent only when a file is attached.
-    await reservePhotoUpload(email);
-    return uploadEquipmentPhoto(file);
+    return uploadEquipmentPhoto(file, owner);
   }
   return undefined;
 }
 
 /** The compensation of a photo this call uploaded, or none when it uploaded nothing. */
-function photoCompensation(photo: Awaited<ReturnType<typeof uploadEquipmentPhoto>> | undefined) {
+function photoCompensation(photo: UploadedEquipmentPhoto | undefined) {
   return photo ? assetCompensation("equipment photo", photo, isPhotoPublicIdReferenced) : undefined;
 }
 

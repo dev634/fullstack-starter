@@ -8,7 +8,7 @@ import {
   MAX_TIFF_PAGES,
   MAX_WEBP_FRAMES,
 } from "@/lib/imageFrameCount";
-import { convertToStrippedJpeg, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { stripFor as stripArchivedPhotoMetadata, convertFor as convertToStrippedJpeg } from "@/tests/helpers/imageAccount";
 import { gifOfFrames, tiffOfPages, webpOfFrames } from "@/tests/helpers/imageFrameFixtures";
 import { auditProgressiveJpeg, progressiveJpegOfScans } from "@/tests/helpers/progressiveJpegFixture";
 import { tiffWithTags } from "@/tests/helpers/tiffFixture";

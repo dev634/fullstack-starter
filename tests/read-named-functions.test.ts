@@ -61,7 +61,10 @@ const EXPECTED_FILES = 29;
 // it), and lib/cloudinary.ts gains uploadBuffer, assetRefFromUploadResult and destroyUploadedAsset
 // (not read-named) while losing safeGuardedFields (folded into uploadBuffer): 5 + 3 - 1 = +7. The
 // file count does not move; lib/uploadCompensation.ts is not in the walk.
-const EXPECTED_FUNCTIONS = 244;
+// 244 -> 247 (fix/televersements, the account's share): lib/cloudinary.ts gains destroyAndReport (the ONE
+// reader of destroy's report), destroyUnderstoodNothing and uploadErrorFromDecode while losing busyUploadError
+// (-1 + 3 = +2), and repository/appSettings.ts gains updateLogo (+1). None is read-named (116 unchanged).
+const EXPECTED_FUNCTIONS = 247;
 const EXPECTED_READ_NAMED = 116;
 
 type Fn = { name: string; body: ts.Node };

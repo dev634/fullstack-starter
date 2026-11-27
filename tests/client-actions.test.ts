@@ -22,11 +22,6 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyProjectFile: vi.fn(),
 }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
-// The per-account photo budget (lib/photoUploadRateLimit.ts) reads Postgres through this module.
-vi.mock("@/lib/rate-limit", () => ({
-  isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
-  registerFailure: vi.fn(),
-}));
 vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
 vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
@@ -47,7 +42,6 @@ import { destroyProjectFile, uploadClientPhoto, destroyClientPhoto } from "@/lib
 import { logActivity } from "@/repository/activity";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
 import fr from "@/lib/i18n/dictionaries/fr";
-import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
@@ -66,8 +60,6 @@ const uploadClientPhotoMock = vi.mocked(uploadClientPhoto);
 const destroyClientPhotoMock = vi.mocked(destroyClientPhoto);
 const logActivityMock = vi.mocked(logActivity);
 const isPhotoUrlReferencedMock = vi.mocked(isPhotoUrlReferenced);
-const isRateLimitedMock = vi.mocked(isRateLimited);
-const registerFailureMock = vi.mocked(registerFailure);
 const revalidatePathMock = vi.mocked(revalidatePath);
 const initial = { type: null, message: "" } as const;
 
@@ -571,11 +563,10 @@ describe("client action auth guard + delegation", () => {
 
 // An orphan photo: the upload to Cloudinary succeeded, then the database write
 // was refused. The photo of THIS call is destroyed; a previous one never is.
-// Point 4 (fix/televersements): the company photo decodes with sharp, behind ONE
-// shared queue; a per-account budget (30 / 15 min, shared with the equipment
-// photo) keeps one account from filling it. Only a request WITH a photo counts.
-describe("client photo rate limit", () => {
-  const LIMITED = { limited: true, retryAfterMs: 7 * 60 * 1000 - 1 };
+// The company photo decodes with sharp, behind ONE queue shared by the whole process and a share per
+// ACCOUNT (lib/imageMetadata.ts). The action passes the account its role guard resolved — never a form
+// field — and shows each refusal of the decode as what it is.
+describe("client photo: the account that owns the decode, and what a refusal says", () => {
   const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
   function withPhoto(fields: Record<string, string>): FormData {
     const fd = formOf(fields);
@@ -584,47 +575,32 @@ describe("client photo rate limit", () => {
   }
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const m of [createClientMock, updateMock, isRateLimitedMock, registerFailureMock]) m.mockReset();
-    isRateLimitedMock.mockResolvedValue({ limited: false, retryAfterMs: 0 });
+    for (const m of [createClientMock, updateMock]) m.mockReset();
     findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
     authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
     uploadClientPhotoMock.mockResolvedValue(NEW_URL);
     findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
   });
 
-  it("addClient: over the budget, refuses with the delay and uploads and writes nothing", async () => {
-    isRateLimitedMock.mockResolvedValue(LIMITED);
+  it("addClient and updateClient hand the SESSION's account to the upload, whatever the form claims", async () => {
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    updateMock.mockResolvedValue({ id: 1, companyName: "Acme" } as never);
+    await addClient(initial, withPhoto({ ...VALID_CREATE_FIELDS, owner: "someone-else@example.com" }));
+    await updateClient(initial, withPhoto({ ...VALID_UPDATE_FIELDS, owner: "someone-else@example.com" }));
+    expect(uploadClientPhotoMock.mock.calls.map((call) => call[1])).toEqual(["admin@example.com", "admin@example.com"]);
+  });
+
+  it.each([
+    ["imageInProgress", { minutes: 1 }, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
+    ["imageQuota", { minutes: 7 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 7 min."],
+    ["imageUnavailable", {}, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
+    ["imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
+    ["imageTooManyPixels", { max: 25 }, "Image trop grande pour le stockage (25 Mpx max)."],
+  ])("a refusal %s reaches the user as its own message, and nothing is written", async (i18n, i18nParams, message) => {
+    uploadClientPhotoMock.mockRejectedValue({ type: "error", message: "English fallback", i18n, i18nParams });
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
-    expect(res).toMatchObject({ type: "error", message: "Trop de photos envoyées en peu de temps. Réessaie dans 7 min." });
-    expect(uploadClientPhotoMock).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ type: "error", message });
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(registerFailureMock).not.toHaveBeenCalled();
-  });
-
-  it("updateClient: over the budget, refuses and uploads and writes nothing", async () => {
-    isRateLimitedMock.mockResolvedValue(LIMITED);
-    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
-    expect(res).toMatchObject({ type: "error", message: expect.stringContaining("7 min") });
-    expect(uploadClientPhotoMock).not.toHaveBeenCalled();
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
-  it("the same action WITHOUT a photo is never limited, and never even asks the limiter", async () => {
-    isRateLimitedMock.mockResolvedValue(LIMITED);
-    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
-    const res = await addClient(initial, formOf(VALID_CREATE_FIELDS));
-    expect(res.type).toBe("success");
-    expect(isRateLimitedMock).not.toHaveBeenCalled();
-    expect(registerFailureMock).not.toHaveBeenCalled();
-  });
-
-  it("under the budget: spends one photo on this account's shared key, then uploads", async () => {
-    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
-    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
-    expect(res.type).toBe("success");
-    expect(isRateLimitedMock).toHaveBeenCalledWith("photo-upload:admin@example.com", { limit: 30, windowMs: 15 * 60 * 1000 });
-    expect(registerFailureMock).toHaveBeenCalledWith("photo-upload:admin@example.com");
-    expect(uploadClientPhotoMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -659,7 +635,7 @@ describe("client photo compensation when the write fails after the upload", () =
     createClientMock.mockRejectedValue(DUPLICATE);
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
     expect(logActivityMock).not.toHaveBeenCalled();
   });
@@ -668,14 +644,14 @@ describe("client photo compensation when the write fails after the upload", () =
     createClientMock.mockRejectedValue(DUPLICATE);
     await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(isPhotoUrlReferencedMock).not.toHaveBeenCalled();
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
   });
 
   it("addClient: another failure with NO row referencing the URL destroys it, and answers the generic server error", async () => {
     createClientMock.mockRejectedValue({ type: "error", message: fr.errors.serverError });
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
     expect(isPhotoUrlReferencedMock).toHaveBeenCalledWith(NEW_URL);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
   });
 
@@ -709,7 +685,7 @@ describe("client photo compensation when the write fails after the upload", () =
     updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error update client" });
     await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
   });
 
   it("addClient: without a photo, a refused write destroys nothing", async () => {
@@ -765,7 +741,7 @@ describe("client photo compensation when the write fails after the upload", () =
     updateMock.mockRejectedValue(DUPLICATE);
     const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(NEW_URL, "justUploaded");
     expect(destroyClientPhotoMock).not.toHaveBeenCalledWith(OLD_URL);
     expect(res).toMatchObject({ type: "error", message: fr.clients.messages.duplicateEmail });
   });
@@ -792,6 +768,6 @@ describe("client photo compensation when the write fails after the upload", () =
     const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
     expect(res.type).toBe("success");
     expect(destroyClientPhotoMock).toHaveBeenCalledTimes(1);
-    expect(destroyClientPhotoMock).toHaveBeenCalledWith(OLD_URL);
+    expect(destroyClientPhotoMock).toHaveBeenCalledWith(OLD_URL, "previous");
   });
 });

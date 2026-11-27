@@ -7,6 +7,7 @@ import {
   MAX_SCAN_QUANTITY,
 } from "@/schemas/deliveryNoteScan";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
+import { freshOwner } from "@/tests/helpers/imageAccount";
 
 describe("applyDeliveryScanSchema bounds", () => {
   const base = { projectId: "2" };
@@ -293,7 +294,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
 
     expect(note.supplier).toBe("Rexel");
     expect(note.items[0].brand).toBe("Panneausolaire");
@@ -324,7 +325,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
     expect(note.items).toHaveLength(1);
     expect(note.items[0].name).toBe("Nexans — REF-9");
   });
@@ -352,7 +353,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
     expect(note.items).toHaveLength(1);
     expect(note.items[0].name).toBe("Nexans — REF-9");
   });
@@ -375,7 +376,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
     expect(note.items).toHaveLength(1);
     expect(note.items[0].reference).toBe("REF-9");
   });
@@ -392,7 +393,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
     expect(note.items).toHaveLength(1);
     expect(note.items[0].brand).toHaveLength(MAX_SCAN_STRING_LENGTH);
   });
@@ -416,7 +417,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       ],
     });
     const file = await realJpegFile();
-    const note = await extractDeliveryNoteItems(file);
+    const note = await extractDeliveryNoteItems(file, freshOwner());
     expect(note.items).toHaveLength(1);
     expect(note.items[0].reference).toBe("REF-9");
   });
@@ -427,7 +428,7 @@ describe("extractDeliveryNoteItems sanitizes the model's returned strings", () =
       content: [{ type: "tool_use", input: { items: [{ reference: "REF-1", quantity: "not-a-number-and-not-coercible" }] } }],
     });
     const file = await realJpegFile();
-    await expect(extractDeliveryNoteItems(file)).rejects.toMatchObject({ type: "error", code: "unreadableNote" });
+    await expect(extractDeliveryNoteItems(file, freshOwner())).rejects.toMatchObject({ type: "error", code: "unreadableNote" });
   });
 });
 

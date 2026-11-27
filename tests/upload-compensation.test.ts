@@ -12,6 +12,7 @@ const WRITE_ERROR = { type: "repositoryError", message: "Database Error." };
 function compensation(overrides: Partial<UploadCompensation> = {}): UploadCompensation {
   return {
     label: "thing",
+    publicId: "projects/1/a",
     isReferenced: vi.fn().mockResolvedValue(false),
     destroy: vi.fn().mockResolvedValue(undefined),
     ...overrides,

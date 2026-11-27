@@ -19,7 +19,11 @@ vi.mock("@/lib/accessContext", () => ({
 // tests exercise the real implementation rather than a hand-copied stand-in
 // that could silently drift from it (see docs/CONVENTIONS.md's mock-parity
 // trap, and lib/materialName.ts's comment for why it's safe to leave real).
-vi.mock("@/lib/deliveryNoteScan", () => ({
+// The REAL scanErrorMessage, scanErrorFromDecode and isScanError stay (the dictionary entry and the
+// delay or ceiling a refusal carries are part of what these tests check); only what runs sharp, the
+// model or the provider selection is replaced.
+vi.mock("@/lib/deliveryNoteScan", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/deliveryNoteScan")>()),
   extractDeliveryNoteItems: vi.fn(),
   readAndValidateDeliveryNoteImage: vi.fn().mockResolvedValue({ buffer: Buffer.from([]), mediaType: "image/jpeg" }),
   // Real implementation runs sharp on the buffer above — not exercised here
@@ -29,18 +33,11 @@ vi.mock("@/lib/deliveryNoteScan", () => ({
   // tests override this to a rejection to prove nothing is written on failure.
   stripArchivedPhotoMetadata: vi.fn().mockResolvedValue(Buffer.from("cleaned-bytes")),
   scanProviderInfo: vi.fn().mockReturnValue({ provider: "anthropic", model: "claude-sonnet-5" }),
-  isScanError: vi.fn((error: unknown) => {
-    return (
-      typeof error === "object" &&
-      error !== null &&
-      "type" in error &&
-      error.type === "error" &&
-      "code" in error
-    );
-  }),
 }));
 vi.mock("@/repository/projectMaterials", () => ({
   applyScanItems: vi.fn(),
+  // The materialIds of the bulletin are checked against the project BEFORE anything is decoded.
+  findByProject: vi.fn(),
   // isUnmatchedScanMaterialError is called unconditionally inside
   // applyDeliveryNoteScan's catch block (passe 3a, point 2) — a whole-module
   // mock must export every function the action calls, even ones no test
@@ -56,7 +53,12 @@ vi.mock("@/repository/projectMaterials", () => ({
 vi.mock("@/repository/projectFiles", () => ({ create: vi.fn(), isPublicIdReferenced: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
 vi.mock("@/repository/projects", () => ({ findById: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
-vi.mock("@/lib/cloudinary", () => ({ uploadProjectFile: vi.fn(), destroyUploadedAsset: vi.fn() }));
+// Sentinel limits: the action must hand lib/cloudinary.ts's own object to the decode, whatever it holds.
+vi.mock("@/lib/cloudinary", () => ({
+  uploadProjectFile: vi.fn(),
+  destroyUploadedAsset: vi.fn(),
+  STORAGE_IMAGE_LIMITS: { maxOutputBytes: 111, maxPixels: 222 },
+}));
 vi.mock("@/lib/rate-limit", () => ({
   isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
   registerFailure: vi.fn(),
@@ -69,7 +71,7 @@ vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("f
 import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteScan/deliveryNoteScan";
 import { requireRole } from "@/lib/authz";
 import { extractDeliveryNoteItems, stripArchivedPhotoMetadata } from "@/lib/deliveryNoteScan";
-import { applyScanItems } from "@/repository/projectMaterials";
+import { applyScanItems, findByProject as findMaterialsByProject } from "@/repository/projectMaterials";
 import { create as createFile, isPublicIdReferenced } from "@/repository/projectFiles";
 import { revalidatePath } from "next/cache";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
@@ -82,6 +84,7 @@ const requireRoleMock = vi.mocked(requireRole);
 const extractDeliveryNoteItemsMock = vi.mocked(extractDeliveryNoteItems);
 const stripArchivedPhotoMetadataMock = vi.mocked(stripArchivedPhotoMetadata);
 const applyScanItemsMock = vi.mocked(applyScanItems);
+const findMaterialsByProjectMock = vi.mocked(findMaterialsByProject);
 const createFileMock = vi.mocked(createFile);
 const findChildFoldersMock = vi.mocked(findChildFolders);
 const findProjectByIdMock = vi.mocked(findProjectById);
@@ -132,6 +135,22 @@ describe("scanDeliveryNote", () => {
     expect(res.type).toBe("success");
     expect(res.items).toEqual([{ name: "Nexans — REF-9", brand: "Nexans", reference: "REF-9", quantity: 24 }]);
     expect(res.supplier).toBe("Rexel");
+    // The image for the model is decoded on behalf of the account the role guard resolved.
+    expect(extractDeliveryNoteItemsMock).toHaveBeenCalledWith(expect.any(File), "admin@example.com");
+  });
+
+  it.each([
+    [{ type: "error", code: "imageInProgress" }, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
+    [{ type: "error", code: "imageQuota", minutes: 12 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 12 min."],
+    [{ type: "error", code: "imageUnavailable" }, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
+    [{ type: "error", code: "outputTooLarge", max: 32 }, "Image trop volumineuse après traitement (32 Mo max)."],
+  ])("shows the refusal %j of the decode as its own message", async (refusal, message) => {
+    requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+    extractDeliveryNoteItemsMock.mockRejectedValue(refusal);
+    const fd = new FormData();
+    fd.set("file", fileOf("note.jpg"));
+    const res = await scanDeliveryNote(initialScan, fd);
+    expect(res).toMatchObject({ type: "error", message });
   });
 
   it("surfaces an extraction error, translated from the thrown code (never the raw code itself)", async () => {
@@ -174,6 +193,9 @@ describe("applyDeliveryNoteScan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     findProjectByIdMock.mockResolvedValue({ id: 2, clientId: 1 } as never);
+    // The project has materials 7 and 999 (the ids the tests below name).
+    findMaterialsByProjectMock.mockResolvedValue([{ id: 7 }, { id: 999 }] as never);
+    stripArchivedPhotoMetadataMock.mockResolvedValue(Buffer.from("cleaned-bytes"));
   });
 
   function formOf(fields: Record<string, string>, file?: File): FormData {
@@ -330,9 +352,11 @@ describe("applyDeliveryNoteScan", () => {
     );
   });
 
-  // Point 3 (fix/televersements): the archive is uploaded `authenticated`; only the
-  // ROW write is compensated (applyScanItems before it stays committed).
-  describe("archive compensation when the file row cannot be written", () => {
+  // The archive is uploaded `authenticated`. ORDER (audit of fix/televersements): the decode, the output
+  // ceilings and the upload come BEFORE any row; the stock is applied next; the ProjectFile row last. A failure
+  // of the rows compensates the asset; a failure of the LAST row, after the stock is committed, is a partial
+  // success — never "try again", which would apply the stock a second time.
+  describe("the archive and the rows: order, compensation, partial success", () => {
     const ARCHIVE = {
       url: "https://example.com/note.jpg",
       publicId: "projects/2/note",
@@ -343,11 +367,8 @@ describe("applyDeliveryNoteScan", () => {
       format: "jpg",
       version: "1700000000",
     } as const;
-    const run = () =>
-      applyDeliveryNoteScan(
-        initialApply,
-        formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) }, fileOf("note.jpg"))
-      );
+    const run = (items: object[] = [{ quantity: 1, materialId: 7 }], extra: Record<string, string> = {}) =>
+      applyDeliveryNoteScan(initialApply, formOf({ clientId: "1", projectId: "2", items: JSON.stringify(items), ...extra }, fileOf("note.jpg")));
     beforeEach(() => {
       requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
       applyScanItemsMock.mockResolvedValue([] as never);
@@ -359,30 +380,93 @@ describe("applyDeliveryNoteScan", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    it("destroys the archive with the type and resource_type the upload reported", async () => {
-      createFileMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating file." });
+    it("decodes, then uploads, and only THEN writes a row: strip < upload < applyScanItems < createFile", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      expect((await run()).type).toBe("success");
+      const order = (mock: { mock: { invocationCallOrder: number[] } }) => mock.mock.invocationCallOrder[0];
+      expect(order(stripArchivedPhotoMetadataMock)).toBeLessThan(order(uploadProjectFileMock));
+      expect(order(uploadProjectFileMock)).toBeLessThan(order(applyScanItemsMock));
+      expect(order(applyScanItemsMock)).toBeLessThan(order(createFileMock));
+    });
+
+    it("decodes on behalf of the SESSION's account, with the limits of the storage (lib/cloudinary.ts's own object)", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      // A forged form field changes nothing: the account is the one the role guard resolved.
+      await run(undefined, { owner: "someone-else@example.com", email: "someone-else@example.com" });
+      expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith("admin@example.com", expect.any(Buffer), "image/jpeg", {
+        maxOutputBytes: 111,
+        maxPixels: 222,
+      });
+    });
+
+    it("checks the materialIds against the project BEFORE any decode: a stranger's id spends no decoder time and writes nothing", async () => {
+      findMaterialsByProjectMock.mockResolvedValue([{ id: 7 }] as never);
+      const res = await run([{ quantity: 1, materialId: 7 }, { quantity: 1, materialId: 12345 }]);
+      expect(res).toMatchObject({ type: "error", message: fr.materials.messages.invalidId });
+      expect(stripArchivedPhotoMetadataMock).not.toHaveBeenCalled();
+      expect(uploadProjectFileMock).not.toHaveBeenCalled();
+      expect(applyScanItemsMock).not.toHaveBeenCalled();
+    });
+
+    it("a bulletin with only NEW materials (no materialId) does not read the project's materials at all", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      expect((await run([{ brand: "Nexans", reference: "R1", quantity: 1 }])).type).toBe("success");
+      expect(findMaterialsByProjectMock).not.toHaveBeenCalled();
+    });
+
+    it("a stock write that fails AFTER the upload destroys the archive just sent (nothing references it) and says so honestly: nothing was applied", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "repositoryError", message: "Database Error applying delivery scan." });
+      vi.spyOn(console, "error").mockImplementation(() => {});
       const res = await run();
       expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(createFileMock).not.toHaveBeenCalled();
       expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
       expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
         expect.objectContaining({ publicId: "projects/2/note", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" })
       );
     });
 
+    it("an unmatched material found by the transaction itself (a race) destroys the archive WITHOUT reading the database: the write provably did not happen", async () => {
+      applyScanItemsMock.mockRejectedValue({ type: "unmatchedScanMaterial", materialId: 7 });
+      const res = await run();
+      expect(res).toMatchObject({ type: "error", message: fr.materials.messages.invalidId });
+      expect(isPublicIdReferencedMock).not.toHaveBeenCalled();
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("the ProjectFile row failing AFTER the stock was applied is a PARTIAL SUCCESS, never \"try again\": the stock is applied exactly once and the archive is destroyed", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating file." });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await run();
+      expect(res).toEqual({
+        type: "success",
+        message: "Matériaux appliqués, mais l'archive du bulletin n'a pas été enregistrée.",
+      });
+      expect(res.message).not.toMatch(/réessaie/i);
+      expect(applyScanItemsMock).toHaveBeenCalledTimes(1);
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+      expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ publicId: "projects/2/note", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" })
+      );
+      // The stock IS applied: the pages that show it are refreshed.
+      expect(revalidatePathMock).toHaveBeenCalled();
+    });
+
     it("destroys nothing on success", async () => {
       createFileMock.mockResolvedValue({ id: 1 } as never);
-      expect((await run()).type).toBe("success");
+      expect(await run()).toMatchObject({ type: "success", message: fr.materials.scan.messages.applied });
       expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
     });
 
-    it("destroys nothing when a row references the archive", async () => {
+    it("destroys nothing when a row references the archive after a failed row write (the write may have committed), and still says the archive may be there", async () => {
       createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
       isPublicIdReferencedMock.mockResolvedValue(true);
+      vi.spyOn(console, "error").mockImplementation(() => {});
       await run();
       expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
     });
 
-    it("destroys nothing when a failure comes AFTER a successful write", async () => {
+    it("destroys nothing when a failure comes AFTER both writes (the revalidation)", async () => {
       createFileMock.mockResolvedValue({ id: 1 } as never);
       revalidatePathMock.mockImplementationOnce(() => {
         throw new Error("revalidate failed");
@@ -393,13 +477,35 @@ describe("applyDeliveryNoteScan", () => {
       expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
     });
 
-    it("keeps the ORIGINAL refusal when the destruction itself fails", async () => {
+    it("keeps the partial-success answer when the destruction of the archive itself fails (and logs it with the public id)", async () => {
       createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
       destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const res = await run();
-      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+      expect(res).toMatchObject({ type: "success", message: fr.materials.scan.messages.appliedWithoutArchive });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"projects/2/note"'), expect.any(Error));
+    });
+
+    it.each([
+      [{ type: "error", code: "imageInProgress" }, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
+      [{ type: "error", code: "imageQuota", minutes: 41 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 41 min."],
+      [{ type: "error", code: "imageUnavailable" }, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
+      [{ type: "error", code: "outputTooLarge", max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
+      [{ type: "error", code: "imageTooManyPixels", max: 25 }, "Image trop grande pour le stockage (25 Mpx max)."],
+    ])("a refusal %j of the decode is its own message, and nothing is uploaded or written", async (refusal, message) => {
+      stripArchivedPhotoMetadataMock.mockRejectedValueOnce(refusal);
+      const res = await run();
+      expect(res).toMatchObject({ type: "error", message });
+      expect(uploadProjectFileMock).not.toHaveBeenCalled();
+      expect(applyScanItemsMock).not.toHaveBeenCalled();
+      expect(createFileMock).not.toHaveBeenCalled();
+    });
+
+    it("a refusal that is not the module's own (a native error out of the decode) is the corrupted-photo message, never its text", async () => {
+      stripArchivedPhotoMetadataMock.mockRejectedValueOnce(new Error("sharp: secret internal detail"));
+      const res = await run();
+      expect(res).toMatchObject({ type: "error", message: fr.materials.scan.errors.corruptedImage });
+      expect(applyScanItemsMock).not.toHaveBeenCalled();
     });
   });
 

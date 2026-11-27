@@ -512,6 +512,29 @@ synchrone du SDK, la journalise (`Cloudinary upload refused before sending:` + c
 `{ type: "error", message, i18n: "uploadFailed" }` ; il attrape aussi la conversion de la réponse
 (`toResult`), qui s'exécute dans un callback du SDK où un `throw` tuerait le processus.
 
+**Une seule lecture du compte-rendu de `destroy`** : `lib/cloudinary.ts::destroyAndReport`, pour le logo, la
+photo d'entreprise, la photo d'équipement et tout actif gardé (le logo n'en lisait aucune, les trois autres la
+lisaient chacune à sa façon). Tout ce qui n'est pas « ok » est journalisé **avec le `public_id`** ; « not found »
+est la réponse attendue pour un actif déjà parti, **sauf** pour un actif que ce processus vient d'envoyer
+(compensation : `justUploaded`) — il ne peut pas être absent, « not found » y veut dire **non confirmé** et se
+journalise comme tel. Les lignes de `lib/uploadCompensation.ts` (« compensation skipped … kept », « compensation
+failed ») portent le `public_id` aussi (`UploadCompensation.publicId`).
+**Une erreur rendue par le callback de Cloudinary** est journalisée avec son `message` et son `http_code`
+(`Cloudinary upload failed:`) : une clé ou un secret faux se diagnostique sur cette ligne, l'utilisateur ne voit que
+« Échec de l'envoi ». **Une réponse non conforme après l'envoi** (`toResult` lève) alors qu'un `public_id` est
+lisible : l'actif existe chez Cloudinary (et, pour les publics, est joignable) — il est détruit, par le `type` et le
+`resource_type` de la réponse telle qu'elle est venue, **avant** le refus.
+**`getErrorMessage` relaie un ensemble FERMÉ de formes** (`RELAYED_ERROR_TYPES`, `lib/helpers.ts`) : `error`,
+`zodError`, `databaseError`. Recensement des `type: "…"` littéraux d'`actions/`, `lib/`, `service/`,
+`repository/` et `schemas/` (grep des littéraux, états `success` exclus) : `error`, `zodError`, `databaseError`,
+`repositoryError` (toujours le repli), `duplicate` (texte anglais ; les quatre actions qui l'attendent le traduisent
+avant d'arriver ici), `unmatchedScanMaterial` et `guardRefused` (aucun `message`). Un `duplicate` qui arrive jusqu'à
+`getErrorMessage` reçoit le repli, jamais son texte anglais.
+**F7 — `updateSettings` et `uploadLogo` n'écrivent plus les colonnes l'un de l'autre** : le formulaire de marque
+(`upsert`) écrit le nom et les couleurs et **jamais** le logo (omis = inchangé) ; le téléversement et le retrait du
+logo (`updateLogo`) n'écrivent que `logoUrl`, `logoPublicId` et l'auteur. Chacun recopiait avant les colonnes de
+l'autre, lues un instant plus tôt : le dernier à valider défaisait l'autre avec une copie périmée.
+
 **Une seule compensation** : `lib/uploadCompensation.ts`. Seule l'**écriture** est enveloppée
 (`writeWithCompensation`), jamais l'action : un échec après une écriture réussie ne détruit rien. Destruction
 sans condition seulement si l'échec **prouve** que l'écriture n'a pas eu lieu (`writeRefused` : seul
@@ -521,8 +544,21 @@ cette lecture échoue aussi, l'asset est **gardé** et le cas journalisé. La de
 `resource_type` **lus dans la réponse du téléversement** (`destroyUploadedAsset`) et lit le compte-rendu
 (`destroy` ne lève rien sur un `type` erroné). Une destruction qui échoue ne masque jamais le refus d'origine.
 Appelants : logo, fichier de projet, plan et photo de réserve, archive du bulletin, photo d'équipement
-(`writeWithCompensation`) ; photo d'entreprise (`discardAfterFailedWrite`, même décision, forme
-`try/catch` conservée : `tests/server-action-return-guard.test.ts` ne suit pas un retour lu à travers un callback).
+(`writeWithCompensation`) ; photo d'entreprise : `updateClient` passe par `writeWithCompensation`, `addClient`
+garde la forme `try/catch` + `discardAfterFailedWrite` (même décision) parce qu'il **lit** `.message` du résultat de
+l'écriture pour son retour, et que `tests/server-action-return-guard.test.ts` ne suit pas un retour lu à travers
+un callback ; le jour où le garde le suit, `addClient` rejoint les autres.
+**Le bulletin de livraison (`applyDeliveryNoteScan`) écrit dans cet ordre** : (1) le contrôle du fichier (signature,
+taille : aucun décodage) puis les `materialId` contre le chantier (`findByProject`, même verdict que `applyScanItems`
+— un id qui ne correspond à aucune ligne du chantier — **avant** tout décodage : une liste forgée ne dépense pas de
+temps de décodeur) ; (2) le décodage, les plafonds de sortie et l'envoi de l'archive — tout ce qui coûte ou peut
+échouer sans toucher une ligne ; (3) les matériaux (`applyScanItems`, une transaction) — s'ils échouent, l'archive
+qu'on vient d'envoyer est compensée et « Réessaie » est vrai, rien n'a été appliqué ; (4) la ligne `ProjectFile`. Une
+ligne d'archive qui échoue **après** les matériaux est un **succès partiel** (« Matériaux appliqués, mais l'archive du
+bulletin n'a pas été enregistrée. », archive compensée), jamais « Réessaie » : un nouvel essai doublerait le stock.
+Matériaux et ligne d'archive ne sont **pas** dans une seule transaction : `applyScanItems` ouvre la sienne dans
+`repository/projectMaterials.ts` ; les réunir demande un paramètre `tx` ou une fonction commune dans ce dépôt
+(point ouvert, hors du périmètre du lot qui a posé l'ordre ci-dessus).
 
 ## Tests — le piège récurrent
 
@@ -784,9 +820,62 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     sous un `Symbol.for(...)` : le build embarque le module dans **deux**
     chunks, et un état de module aurait donné une file (et un enfant) par chunk.
     Tout nouveau chemin d'image passe par `encodeOriented` (file, contrôles JS,
-    enfant), pas par un `sharp(...)` direct. **La part par compte n'est PAS
-    bornée** : un compte peut encore occuper les 9 places ; la limite par
-    compte est le lot suivant (`fix/televersements`) ;
+    enfant), pas par un `sharp(...)` direct ;
+  - **la part d'un compte dans le décodeur** (`lib/imageMetadata.ts`, état sur `globalThis`
+    sous un `Symbol.for(...)` comme la file : la ressource protégée est le processus) :
+    **`owner` est obligatoire** dans tout l'API de décodage (`runExclusive`, `encodeOriented`,
+    `stripArchivedPhotoMetadata`, `convertToStrippedJpeg`, le chemin du modèle) — l'ancienne
+    signature n'existe plus, un appelant oublié ne compile pas. C'est l'identifiant que la
+    **garde de rôle ou de session a résolu** (`requireCapability(...).email`), jamais un champ de
+    formulaire (les tests des actions le prouvent avec un champ `owner` forgé). Deux bornes :
+    **(1) une tâche par compte dans la file, en attente ou en cours** — la deuxième est refusée
+    tout de suite, `imageInProgress` (neuf envois simultanés d'un seul compte remplissaient la file,
+    1 + 8, et tout le monde recevait `imageBusy` : prouvé par l'audit) ; **(2) un budget de TEMPS
+    de décodage par compte** : la somme des durées réelles passées dans l'enfant (du départ de
+    la tâche, enfant prêt, à sa fin, **kill compris**) sur une heure glissante, **300 s**
+    (`DECODE_BUDGET_MS`) ; au-delà, la tâche est refusée **avant** d'entrer dans la file,
+    `imageQuota`, avec le délai en minutes (le moment où assez des plus anciennes durées sortent de
+    la fenêtre). Il remplace la limite en base de 30 photos par quart d'heure, qui comptait des
+    requêtes alors que ce qui coûte est le temps. Le contrôle et la réservation sont **un seul pas
+    synchrone** (aucun `await` entre les deux : deux envois du même tick ne passent pas tous les deux).
+    **Ne coûte rien** : un refus de taille, de signature, un contrôle JS, `imageBusy`,
+    `imageInProgress`, `imageQuota`, `imageUnavailable`. **Coûte** : un décodage réussi, échoué ou tué
+    (une bombe tuée à 20 s coûte 20 s : quinze épuisent l'heure). L'état est purgé à l'accès, pour
+    tous les comptes (aucun minuteur, rien ne grossit pour un compte qui ne revient pas). **Perdu
+    à chaque redémarrage du processus, et non partagé entre instances** : même portée que la file.
+    **Sens légitime, prouvé** (`tests/image-account-share-real.test.ts`, vrai enfant, vrai sharp, une
+    photo de 12 Mpx, 4032 × 3024) : un inventaire de 40 outils d'affilée et une session de 20 scans
+    de bulletin (modèle puis archive, 40 décodages) passent **sans aucun refus**, en ~3 s de
+    décodeur au total pour chacune des deux charges, sur ce poste (Windows, image synthétique en dégradé : le coût réel d'un
+    décodage est dans les pixels, mais la vitesse du VPS — deux cœurs partagés — n'est **pas**
+    mesurée ici) contre 300 s de budget. Ce que la part par compte **ne borne pas** : plusieurs
+    comptes qui se coordonnent (chacun a sa part : la file de 8 et le délai de 20 s les bornent) ;
+  - **ce que la file et la part par compte bornent d'une rafale** (envois simultanés) : pour **un**
+    compte, au plus une tâche dans la file à tout instant, quel que soit le nombre de requêtes
+    (les autres sont refusées dans la même milliseconde, sans toucher l'enfant) et au plus 300 s de
+    décodeur par heure ; pour **le processus**, une tâche dans l'enfant, huit en attente, donc 9 comptes au plus
+    en train d'attendre et le neuvième suivant `imageBusy`. Un compte seul ne peut donc plus
+    remplir la file ni faire répondre « serveur occupé » aux autres ; la mémoire reste bornée par
+    l'enfant (`ulimit -d`, un décodage à la fois), la durée par compte par le budget ;
+  - **un enfant qui ne démarre pas n'est pas un fichier refusé** : `encodeOriented` lève
+    `imageUnavailable` (« Le traitement des images est momentanément indisponible. Réessaie dans
+    quelques minutes. ») quand le **démarrage** échoue — la tâche n'a pas commencé, ce n'est pas la
+    photo de l'utilisateur, et rien n'est compté. Avant, un JPEG légitime recevait « Le fichier doit
+    être une image. ». Le kill à l'échéance et la mort de l'enfant pendant une tâche restent
+    `corruptedImage` (la tâche a commencé) ;
+  - **les plafonds de sortie viennent de l'appelant, calibrés sur ce que l'aval accepte** :
+    `lib/cloudinary.ts::STORAGE_MAX_FILE_BYTES` (10 Mio) et `STORAGE_MAX_IMAGE_PIXELS` (25 Mpx), une
+    source chacun, lus par l'API d'administration de Cloudinary depuis le conteneur de production le
+    2026-11-27 (plan « Free » : `image_max_size_bytes` = `raw_max_size_bytes` = 10485760,
+    `image_max_px` = 25000000). Photo d'entreprise, photo d'équipement et archive du bulletin les
+    passent à `encodeOriented` (`maxOutputBytes`, `maxPixels`) ; l'image envoyée au modèle garde le plafond
+    global (32 Mio, borne haute de tous les chemins) et n'a pas de plafond de pixels (elle est
+    réduite). Une sortie au-delà du plafond est refusée **avant l'envoi** (`outputTooLarge` : « Image
+    trop volumineuse après traitement (10 Mo max). ») ; une image décodée de plus de 25 Mpx l'est
+    avant l'envoi, d'après l'en-tête que rend le décodeur (`imageTooManyPixels` : « Image trop grande
+    pour le stockage (25 Mpx max). ») — la sortie garde les dimensions de l'entrée. **Les plafonds
+    d'entrée annoncés ne changent pas** (fichiers de chantier 20 Mo, plans de réserve 25 Mo, photos
+    10 Mo) : décision produit, ouverte (`docs/SECURITE-CHECKLIST.md`) ;
   - **des refus précoces, en JS, AVANT la file et l'enfant** (`lib/imageFrameCount.ts`,
     sans importer sharp ; un fichier refusé ne prend jamais de place dans la file et
     ne reçoit jamais `imageBusy`) : ils ne bornent **rien** par eux-mêmes — ce sont des
@@ -940,21 +1029,21 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   l'image principale. Aucun vrai fichier de séquence ni de grille n'a été
   essayé ; ce que le JS ne compte pas, c'est le délai de 20 s qui le borne. Les
   sous-IFD EXIF d'un TIFF ne sont pas comptés non plus : même réponse. (2)
-  **Limite de débit par compte** sur les photos d'entreprise et d'équipement
-  (la file borne la mémoire, pas qui l'occupe), erreurs de SDK relayées,
-  compensations des autres téléversements. (3) **Conteneur sans limite
+  **Plafonds d'entrée des téléversements** (fichiers de chantier 20 Mo, plans
+  de réserve 25 Mo, photos 10 Mo) **non alignés** sur ce que le plan Cloudinary
+  accepte (10 Mio, 25 Mpx) : un fichier de chantier de 15 Mo passe notre
+  contrôle et reçoit l'échec générique du prestataire — décision produit en
+  cours, rien n'a changé. (3) **Conteneur sans limite
   mémoire** : la borne mémoire de l'enfant n'existe que sous Linux (`ulimit -d`) et
   ne couvre pas le reste du conteneur. **Un décodage au-delà d'environ 100 Mo se
   déverse dans un fichier temporaire sans nom** (`O_TMPFILE` dans `/tmp`, mappé en
   partagé, invisible pour `ls`) : il est **hors de `RLIMIT_DATA`**, borné par le
   budget décodé, et libéré à la mort de l'enfant (rien ne reste après un kill). Il
   ne faut donc pas écrire que libvips n'écrit aucun fichier temporaire. (4)
-  **Plafonds de sortie par chemin et écriture partielle du bulletin — lot D1
-  (`fix/televersements`), pas ici** : le plafond global de 32 Mio reste ici ; l'archive
-  du bulletin (plafond de 20 Mo, `MAX_PROJECT_FILE_BYTES`) et la limite d'image du plan
-  Cloudinary (inconnue) demandent un plafond par chemin ; et l'écriture partielle du
-  bulletin (le stock est appliqué avant l'archive : un nouvel essai double le stock) est
-  à traiter avec ce lot. (5)
+  **Matériaux et ligne d'archive du bulletin dans une seule transaction** : non fait
+  (`applyScanItems` ouvre la sienne dans `repository/projectMaterials.ts`) ; l'ordre
+  décodage, envoi, matériaux, ligne et le succès partiel (voir plus haut) ferment le
+  double stock sans elle. (5)
   **Isolation de l'enfant** : même uid que le serveur, `/app` inscriptible, lecture
   possible de `/proc/<ppid>/environ` (voir plus haut) — durcissement (`/app` en
   lecture seule, un autre uid) en **lot séparé, non fait**. Ce lot devra traiter

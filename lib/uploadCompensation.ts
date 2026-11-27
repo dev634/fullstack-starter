@@ -14,6 +14,8 @@ import { destroyUploadedAsset, type GuardedAssetRef } from "@/lib/cloudinary";
 export type UploadCompensation = {
   /** What was uploaded, for the logs ("logo", "client photo"…). */
   label: string;
+  /** The public id of the uploaded asset: every log line of a compensation names it, so an orphan can be found by hand. */
+  publicId: string;
   /**
    * Whether the failure PROVES the write did not happen (a validation refusal,
    * a unique-index refusal). Absent = nothing proves it: the repositories wrap
@@ -41,6 +43,7 @@ export function assetCompensation(
 ): UploadCompensation {
   return {
     label,
+    publicId: asset.publicId,
     writeRefused,
     isReferenced: () => isReferenced(asset.publicId),
     destroy: () => destroyUploadedAsset(asset),
@@ -87,7 +90,7 @@ export async function discardAfterFailedWrite(
       if (await compensation.isReferenced()) return;
     } catch (readError) {
       console.error(
-        `Compensation skipped: could not tell whether the uploaded ${compensation.label} is still referenced, kept:`,
+        `Compensation skipped: could not tell whether the uploaded ${compensation.label} "${compensation.publicId}" is still referenced, kept:`,
         readError
       );
       return;
@@ -96,6 +99,9 @@ export async function discardAfterFailedWrite(
   try {
     await compensation.destroy();
   } catch (destroyError) {
-    console.error(`Compensation failed: could not destroy the orphaned ${compensation.label}:`, destroyError);
+    console.error(
+      `Compensation failed: could not destroy the orphaned ${compensation.label} "${compensation.publicId}":`,
+      destroyError
+    );
   }
 }

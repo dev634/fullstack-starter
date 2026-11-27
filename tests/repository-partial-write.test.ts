@@ -72,13 +72,17 @@ const EXPECTED_FILES_WITH_UPDATES = 16;
 // 42 -> 41 at lot 3: updatePassword (user.update) and markResetTokenUsed
 // (passwordResetToken.update) became one function, resetPasswordWithToken, which
 // still holds both calls (43 calls, 16 files unchanged).
-const EXPECTED_UPDATE_FUNCTIONS = 41;
-const EXPECTED_UPDATE_CALLS = 43;
+// 41 -> 42 functions, 43 -> 44 calls (fix/televersements, F7): repository/appSettings.ts::updateLogo, one
+// prisma.appSettings.update that writes the three logo columns and nothing else.
+const EXPECTED_UPDATE_FUNCTIONS = 42;
+const EXPECTED_UPDATE_CALLS = 44;
 // 13 -> 12 files, 19 -> 18 calls at lot 3: actions/auth/auth.ts called
 // updatePassword (an update*); it now calls resetPasswordWithToken, which is
 // not one, so that file leaves the walk (the write is in repository/users.ts).
 const EXPECTED_ACTION_FILES_WITH_UPDATES = 12;
-const EXPECTED_ACTION_UPDATE_CALLS = 18;
+// 18 -> 20 calls (fix/televersements, F7): actions/appSettings uploadLogo and removeLogo call updateLogo
+// (the file was already in the walk through updateSectionOrder and updateAccessConfig: 12 files unchanged).
+const EXPECTED_ACTION_UPDATE_CALLS = 20;
 
 type Scanned = { file: string; scan: WriteScan };
 type ScannedAction = { file: string; scan: ActionScan };

@@ -12,15 +12,17 @@ import {
   stripArchivedPhotoMetadata,
   scanProviderInfo,
   isScanError,
+  scanErrorFromDecode,
+  scanErrorMessage,
 } from "@/lib/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
-import { applyScanItems, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
+import { applyScanItems, findByProject as findMaterialsByProject, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
 import { create as createFile, isPublicIdReferenced as isFilePublicIdReferenced } from "@/repository/projectFiles";
 import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
-import { uploadProjectFile } from "@/lib/cloudinary";
+import { STORAGE_IMAGE_LIMITS, uploadProjectFile } from "@/lib/cloudinary";
 import { revalidateFiles } from "@/lib/revalidateFiles";
 import { revalidateMaterials } from "@/lib/revalidateMaterials";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -41,31 +43,6 @@ const SCAN_LIMIT = { limit: 20, windowMs: 60 * 60 * 1000 };
 // still bounding spend from a single source (spray protection, same idea as
 // LOGIN_IP_LIMIT in lib/loginRateLimit.ts).
 const SCAN_IP_LIMIT = { limit: 60, windowMs: 60 * 60 * 1000 };
-
-/**
- * Historical: getErrorMessage (lib/helpers.ts) used to relay the `.message` of
- * ANY object that carried one — including an Anthropic/OpenAI APIError, whose
- * message can contain the provider's HTTP status and raw response body (e.g. "invalid
- * x-api-key", quota details, sometimes an env var name). Only this app's own
- * thrown error shape (`{ type: "error", message }`, used throughout
- * lib/repository — see e.g. lib/cloudinary.ts) is safe to relay verbatim;
- * anything else must be logged server-side only and replaced with a generic
- * message before it reaches the client. Distinct from isScanError
- * (lib/deliveryNoteScan.ts), which carries a `code` to translate via
- * t.materials.scan.errors (lib/i18n/dictionaries/{fr,en}.ts) rather than a
- * message to relay. Since fix/televersements getErrorMessage applies the same
- * rule itself; this gate stays as a second layer, not as the only one.
- */
-function isAppError(error: unknown): error is { type: "error"; message: string } {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "type" in error &&
-    error.type === "error" &&
-    "message" in error &&
-    typeof error.message === "string"
-  );
-}
 
 type ScanLogOutcome = "success" | "error" | "rate_limited";
 
@@ -176,7 +153,10 @@ export async function scanDeliveryNote(
   const startedAt = Date.now();
 
   try {
-    const { supplier, items, bytesSent } = await extractDeliveryNoteItems(file);
+    // The account the role guard resolved (never a form field) owns the decode of the image
+    // for the model: one task at a time per account, and a budget of decode time
+    // (lib/imageMetadata.ts).
+    const { supplier, items, bytesSent } = await extractDeliveryNoteItems(file, roleCheck.email);
     logScanEvent({
       userEmail: roleCheck.email,
       projectId,
@@ -201,7 +181,7 @@ export async function scanDeliveryNote(
       outcome: "error",
     });
     if (isScanError(error)) {
-      return { ...prevState, type: "error", message: t.materials.scan.errors[error.code] };
+      return { ...prevState, type: "error", message: scanErrorMessage(t, error) };
     }
     // Never relayed to the client: an Anthropic/OpenAI APIError can carry
     // the provider's HTTP status and raw response body.
@@ -299,78 +279,112 @@ export async function applyDeliveryNoteScan(
       return { ...prevState, type: "error", message: t.projects.messages.invalidId };
     }
 
-    // Built before either database write below (applyScanItems, createFile):
-    // if stripArchivedPhotoMetadata throws (a corrupted buffer sharp can't
-    // process), the whole request fails right here, before a single row has
-    // changed — the caller retries on an untouched state. Never falls back
-    // to archiving the un-cleaned original on failure, which would silently
-    // undo the product decision this exists to apply.
-    let archivedFile: File | null = null;
+    // ORDER OF THIS STEP, and why (audit of fix/televersements): the stock used to be applied
+    // BEFORE the archive, and a failed archive said "try again" — a retry then applied the
+    // stock a second time. Now, strictly:
+    //  1. everything cheap and read-only: the file's own validation (magic bytes + size, no
+    //     decode), then the materialIds against the project — the same verdict
+    //     applyScanItems would reach (a materialId that matches no row of THIS project),
+    //     asked BEFORE anything costly: a forged or stale list never spends decoder time;
+    //  2. the decode (the cleaned archive), its output ceilings, and the upload of the archive:
+    //     every costly or fallible step that does not touch a row;
+    //  3. only then the rows. If the materials fail, the asset just sent is compensated
+    //     (nothing was written: "try again" is true). If the ProjectFile row fails AFTER the
+    //     materials were applied, the stock is committed and a retry would double it: the
+    //     answer is a partial success saying so, never "try again".
+    let validated: Awaited<ReturnType<typeof readAndValidateDeliveryNoteImage>> | null = null;
     if (file instanceof File && file.size > 0) {
-      // Re-apply the scan's own allowlist (magic bytes + size) before
-      // handing the file to the generic project-file uploader. This is a
-      // separate request from the scan step, with its own file — nothing
-      // guarantees it's the same bytes the scan actually read, so without
-      // this it could reach uploadProjectFile never having been validated
-      // as an actual image at all.
-      // Its resolved { buffer, mediaType } feeds stripArchivedPhotoMetadata
-      // below (lib/deliveryNoteScan.ts) — mediaType is the type resolved
-      // from the file's actual content, never a cast of the client-declared
-      // `file.type`. The photo attached to the project is a supporting
-      // document, so it keeps its full resolution and original format; it
-      // never passes through reduceImageForModel (lib/deliveryNoteScan.ts),
-      // which only ever runs inside extractDeliveryNoteItems, on the scan
-      // step's own request, and is bounded/re-encoded for the model only.
-      // This archive only has its metadata (EXIF — GPS, timestamp, device
-      // model; also ICC/XMP) removed, per an explicit product decision —
-      // see stripArchivedPhotoMetadata's own comment.
-      const { buffer, mediaType } = await readAndValidateDeliveryNoteImage(file);
-      const cleaned = await stripArchivedPhotoMetadata(buffer, mediaType);
-      // `new Uint8Array(cleaned)` rather than the Buffer itself: Node's
-      // Buffer type is generic over ArrayBufferLike (it can be backed by a
-      // SharedArrayBuffer), while DOM's BlobPart requires an
-      // ArrayBufferView<ArrayBuffer> specifically — this copies the bytes
-      // into a plain Uint8Array TypeScript accepts here, it isn't a runtime
-      // fix for anything.
-      archivedFile = new File([new Uint8Array(cleaned)], file.name, { type: mediaType });
-      // Content-free, like logScanEvent above: how the cleaned archive's
-      // size compares to the original upload — useful to notice a stripping
-      // step that's silently no-op'ing on a class of images — never what's
-      // inside either file.
+      // Re-apply the scan's own allowlist (magic bytes + size) before handing the file to
+      // the generic project-file uploader: this is a separate request from the scan step,
+      // with its own file — nothing guarantees it's the same bytes the scan actually read.
+      // The resolved { buffer, mediaType } feeds stripArchivedPhotoMetadata below —
+      // mediaType is the type resolved from the file's actual content, never a cast of
+      // the client-declared `file.type`.
+      validated = await readAndValidateDeliveryNoteImage(file);
+    }
+
+    const wanted = materialItems.flatMap((item) => (item.materialId == null ? [] : [item.materialId]));
+    if (wanted.length > 0) {
+      const inProject = new Set((await findMaterialsByProject(projectId)).map((material) => material.id));
+      if (wanted.some((id) => !inProject.has(id))) {
+        return { ...prevState, type: "error", message: t.materials.messages.invalidId };
+      }
+    }
+
+    // What the archive step uploaded, if it ran: compensated when the rows that follow fail.
+    let archive: Awaited<ReturnType<typeof uploadProjectFile>> | null = null;
+    let archivedName = "";
+    if (file instanceof File && validated) {
+      // The photo attached to the project is a supporting document: it keeps its full
+      // resolution and original format; it never passes through reduceImageForModel, which
+      // only runs inside extractDeliveryNoteItems, on the scan step's own request. Only its
+      // metadata (EXIF — GPS, timestamp, device model; also ICC/XMP) is removed, per an
+      // explicit product decision (see stripArchivedPhotoMetadata). The decode is the
+      // account's: `roleCheck.email`, resolved by the role guard. A refusal of the decode
+      // (queue full, an image already in progress, out of decode time, decoder down, an
+      // output or a pixel count beyond the storage's ceiling) fails the request HERE,
+      // before a single row has changed, and never falls back to the un-cleaned original.
+      let cleaned: Buffer;
+      try {
+        cleaned = await stripArchivedPhotoMetadata(roleCheck.email, validated.buffer, validated.mediaType, STORAGE_IMAGE_LIMITS);
+      } catch (error) {
+        throw scanErrorFromDecode(error);
+      }
+      // Content-free, like logScanEvent above: how the cleaned archive's size compares to
+      // the original upload — useful to notice a stripping step that's silently no-op'ing
+      // on a class of images — never what's inside either file.
       console.log("delivery_note_scan_archive", {
         userEmail: roleCheck.email,
         projectId,
         bytes: file.size,
         archivedBytes: cleaned.length,
       });
+      // `new Uint8Array(cleaned)` rather than the Buffer itself: Node's Buffer type is
+      // generic over ArrayBufferLike (it can be backed by a SharedArrayBuffer), while DOM's
+      // BlobPart requires an ArrayBufferView<ArrayBuffer> specifically — this copies the
+      // bytes into a plain Uint8Array TypeScript accepts here, it isn't a runtime fix.
+      const archivedFile = new File([new Uint8Array(cleaned)], file.name, { type: validated.mediaType });
+      archivedName = archivedFile.name;
+      archive = await uploadProjectFile(archivedFile, projectId);
     }
 
-    await applyScanItems(projectId, materialItems, supplier);
+    // The rows. When the materials fail, the archive just sent is compensated (nothing
+    // references it) and the error is the caller's: nothing was applied, retrying is safe.
+    await writeWithCompensation(
+      () => applyScanItems(projectId, materialItems, supplier),
+      archive ? assetCompensation("delivery note archive", archive, isFilePublicIdReferenced, isUnmatchedScanMaterialError) : undefined
+    );
 
-    if (archivedFile) {
-      const rootFolders = await findChildFolders(projectId, null);
-      const deliveryFolder = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons");
-      const uploaded = await uploadProjectFile(archivedFile, projectId);
-      const archiveName = archivedFile.name;
-      // Only the row write is wrapped: a failure there orphans the archive
-      // (applyScanItems above is already committed and is not undone).
-      await writeWithCompensation(
-        () =>
-          createFile({
-            projectId,
-            folderId: deliveryFolder?.id ?? null,
-            name: archiveName,
-            url: uploaded.url,
-            publicId: uploaded.publicId,
-            deliveryType: uploaded.deliveryType,
-            resourceType: uploaded.resourceType,
-            format: uploaded.format,
-            version: uploaded.version,
-            size: uploaded.size,
-            mimeType: uploaded.mimeType,
-          }),
-        assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced)
-      );
+    // From here the stock is COMMITTED. A failure of the archive row is reported as what
+    // it is, never as "try again". Only the row write is wrapped: a failure there orphans
+    // the archive (compensated, unless a row references it after all).
+    let archiveSaved = true;
+    if (archive) {
+      const uploaded = archive;
+      try {
+        const rootFolders = await findChildFolders(projectId, null);
+        const deliveryFolder = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons");
+        await writeWithCompensation(
+          () =>
+            createFile({
+              projectId,
+              folderId: deliveryFolder?.id ?? null,
+              name: archivedName,
+              url: uploaded.url,
+              publicId: uploaded.publicId,
+              deliveryType: uploaded.deliveryType,
+              resourceType: uploaded.resourceType,
+              format: uploaded.format,
+              version: uploaded.version,
+              size: uploaded.size,
+              mimeType: uploaded.mimeType,
+            }),
+          assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced)
+        );
+      } catch (error) {
+        console.error("Delivery note scan: materials applied, archive row not written:", error);
+        archiveSaved = false;
+      }
     }
 
     // Invalidates the hub (its Files link card shows a plain COUNT) and the
@@ -388,17 +402,19 @@ export async function applyDeliveryNoteScan(
     // card carries the materials count now, and the dedicated `.../tasks`
     // page is where Matériel actually renders.
     revalidateMaterials(project.clientId, projectId);
-    return { ...prevState, type: "success", message: t.materials.scan.messages.applied };
+    return {
+      ...prevState,
+      type: "success",
+      message: archiveSaved ? t.materials.scan.messages.applied : t.materials.scan.messages.appliedWithoutArchive,
+    };
   } catch (error) {
-    // readAndValidateDeliveryNoteImage (above) throws lib/deliveryNoteScan.ts's
-    // own code-shaped error — checked and translated first. Everything else
-    // reachable in this try block (repository/lib.cloudinary calls) still
-    // throws this app's older `{ type: "error", message }` shape, relayed via
-    // isAppError as before; an unexpected native error's raw `.message`
-    // (e.g. a bug elsewhere surfacing as a TypeError) never reaches the
-    // client, which getErrorMessage would have relayed verbatim.
+    // readAndValidateDeliveryNoteImage and the decode (above) throw lib/deliveryNoteScan.ts's
+    // own code-shaped error — checked and translated first. Everything else reachable in this
+    // try block (repository/lib.cloudinary calls) throws this app's older
+    // `{ type: "error", message }` shape; an unexpected native error's raw `.message` (e.g. a
+    // bug elsewhere surfacing as a TypeError) never reaches the client.
     if (isScanError(error)) {
-      return { ...prevState, type: "error", message: t.materials.scan.errors[error.code] };
+      return { ...prevState, type: "error", message: scanErrorMessage(t, error) };
     }
     // applyScanItems (repository/projectMaterials.ts) rolled the WHOLE batch
     // back because one of its materialId's matched no row in this project —
@@ -409,14 +425,10 @@ export async function applyDeliveryNoteScan(
     if (isUnmatchedScanMaterialError(error)) {
       return { ...prevState, type: "error", message: t.materials.messages.invalidId };
     }
-    // isAppError still gates out anything that isn't this app's own shape
-    // (a third-party SDK error's raw .message never reaches the client);
-    // getErrorMessage then translates a stable i18n code when the error
-    // carries one — e.g. uploadProjectFile (lib/cloudinary.ts) below, whose
-    // English fallback used to be relayed verbatim (fix/blocked-legitimate-
-    // input, point 3) — and otherwise falls back to error.message unchanged,
-    // same as before.
-    const message = isAppError(error) ? getErrorMessage(error, t.errors.serverError, t) : t.errors.serverError;
-    return { ...prevState, type: "error", message };
+    // getErrorMessage relays only the application's own error shapes, and translates a
+    // stable i18n code when the error carries one — e.g. uploadProjectFile
+    // (lib/cloudinary.ts), whose English fallback used to be relayed verbatim — else the
+    // generic message.
+    return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }

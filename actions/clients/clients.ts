@@ -2,9 +2,9 @@
 import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
+import { publicIdFromUrl } from "@/lib/cloudinary-url";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
-import { discardAfterFailedWrite, type UploadCompensation } from "@/lib/uploadCompensation";
-import { reservePhotoUpload } from "@/lib/photoUploadRateLimit";
+import { discardAfterFailedWrite, writeWithCompensation, type UploadCompensation } from "@/lib/uploadCompensation";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
@@ -74,6 +74,9 @@ export async function addClient(
     const photoUrl = await extractPhotoUrl(formData, roleCheck.email);
     // Only THE WRITE is compensated: once the row exists the photo is its
     // photo, and a later failure (the journal) must not destroy it.
+    // The form keeps the try/catch form of the compensation (discardAfterFailedWrite, not
+    // writeWithCompensation): the row's message is READ from the write's result, and
+    // tests/server-action-return-guard.test.ts does not follow a result read through a callback.
     let client;
     try {
       client = await createClient({ ...parsed.data, photoUrl });
@@ -144,17 +147,14 @@ export async function updateClient(
 
     // The write failed: the photo uploaded by THIS call (and only it — never
     // existing.photoUrl, which the row still points at) is now an orphan.
-    let client;
-    try {
-      client = await update({ ...clientDatas, id, photoUrl });
-    } catch (error) {
-      await discardAfterFailedWrite(photoCompensation(uploadedUrl), error);
-      throw error;
-    }
+    const client = await writeWithCompensation(
+      () => update({ ...clientDatas, id, photoUrl }),
+      photoCompensation(uploadedUrl)
+    );
 
     // Drop the previous asset once it has been replaced or removed.
     if (photoUrl !== undefined && existing?.photoUrl && existing.photoUrl !== photoUrl) {
-      await destroyClientPhoto(existing.photoUrl);
+      await destroyClientPhoto(existing.photoUrl, "previous");
     }
 
     await logActivity({
@@ -208,24 +208,24 @@ function photoCompensation(uploadedUrl: string | undefined): UploadCompensation 
   if (!uploadedUrl) return undefined;
   return {
     label: "client photo",
+    publicId: publicIdFromUrl(uploadedUrl) ?? uploadedUrl,
     writeRefused: isDuplicateEmailRefusal,
     isReferenced: () => isPhotoUrlReferenced(uploadedUrl),
-    destroy: () => destroyClientPhoto(uploadedUrl),
+    destroy: () => destroyClientPhoto(uploadedUrl, "justUploaded"),
   };
 }
 
 /**
  * Pull the uploaded "photo" file out of the form and push it to Cloudinary.
  * Returns the resulting URL, or `undefined` when no new file was provided
- * (so callers can leave an existing photo untouched). The per-account photo
- * budget (lib/photoUploadRateLimit.ts) is spent ONLY when a file is attached,
- * and refuses before anything is decoded or uploaded.
+ * (so callers can leave an existing photo untouched). `owner` is the account
+ * the role guard resolved (never a form field): the decode of the photo is
+ * charged to its share of the decoder (lib/imageMetadata.ts).
  */
-async function extractPhotoUrl(formData: FormData, email: string): Promise<string | undefined> {
+async function extractPhotoUrl(formData: FormData, owner: string): Promise<string | undefined> {
   const file = formData.get("photo");
   if (file instanceof File && file.size > 0) {
-    await reservePhotoUpload(email);
-    return uploadClientPhoto(file);
+    return uploadClientPhoto(file, owner);
   }
   return undefined;
 }
@@ -425,7 +425,7 @@ export async function permanentlyDeleteClient(id: number) {
     // are gone and the Cloudinary blobs would be orphaned.
     const projectFiles = await findPublicIdsByClient(id);
     await permanentlyRemove(id);
-    await destroyClientPhoto(existing.photoUrl);
+    await destroyClientPhoto(existing.photoUrl, "previous");
     await Promise.all(
       projectFiles.map((f) =>
         destroyProjectFile(f.publicId, { deliveryType: f.deliveryType, resourceType: f.resourceType })
