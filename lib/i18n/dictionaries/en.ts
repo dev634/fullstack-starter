@@ -7,6 +7,7 @@ const en: Dictionary = {
         delete: "Delete",
         actions: "Actions",
         cancel: "Cancel",
+        close: "Close",
         back: "Back",
         add: "Add",
         create: "Create",

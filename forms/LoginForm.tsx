@@ -27,7 +27,7 @@ export default function LoginForm() {
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <Input
         label={t.auth.email}
         name="email"

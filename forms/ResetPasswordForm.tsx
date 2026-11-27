@@ -28,7 +28,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <input type="hidden" name="token" value={token} />
       <Input
         label={t.auth.newPassword}

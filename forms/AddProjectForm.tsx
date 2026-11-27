@@ -47,7 +47,7 @@ export default function AddProjectForm({ clientId }: { clientId: number }) {
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <input type="hidden" name="clientId" value={clientId} />
       <ProjectFields
         values={values}

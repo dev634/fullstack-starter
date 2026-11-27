@@ -2,6 +2,7 @@
 import { type ReactNode } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { useTranslation } from "@/components/LocaleProvider";
+import BodyPortal from "@/components/BodyPortal";
 
 type ModalShellProps = {
   open: boolean;
@@ -21,6 +22,7 @@ export default function ModalShell({ open, onClose, title, children }: ModalShel
   if (!open) return null;
 
   return (
+    <BodyPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded border border-gray-300 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center justify-between gap-4 border-b border-gray-300 px-6 py-4 dark:border-gray-700">
@@ -37,5 +39,6 @@ export default function ModalShell({ open, onClose, title, children }: ModalShel
         <div className="overflow-y-auto px-6 py-4">{children}</div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

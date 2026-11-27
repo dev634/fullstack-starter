@@ -48,7 +48,7 @@ export default function AddProjectWithClientForm({
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
 
       <div className="mb-7">
         <label htmlFor="clientId" className="mb-2 block text-sm text-gray-500 dark:text-gray-400">
