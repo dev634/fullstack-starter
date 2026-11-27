@@ -27,7 +27,7 @@ export function toCloudinaryType(deliveryType: CloudinaryDeliveryType): "upload"
 export function fromCloudinaryType(type: string): CloudinaryDeliveryType {
   if (type === "authenticated") return "AUTHENTICATED";
   if (type === "upload") return "UPLOAD";
-  throw { type: "error", message: "Unexpected Cloudinary delivery type in upload response." };
+  throw new Error("Unexpected Cloudinary delivery type in upload response.");
 }
 
 /** Our stored enum -> the `resource_type` Cloudinary's SDK expects. */
@@ -50,7 +50,7 @@ export function fromCloudinaryResourceType(resourceType: string): CloudinaryReso
   if (resourceType === "video") return "VIDEO";
   if (resourceType === "raw") return "RAW";
   if (resourceType === "image") return "IMAGE";
-  throw { type: "error", message: "Unexpected Cloudinary resource type in upload response." };
+  throw new Error("Unexpected Cloudinary resource type in upload response.");
 }
 
 /** The four columns every guarded asset (ProjectFile / ReservePlan /

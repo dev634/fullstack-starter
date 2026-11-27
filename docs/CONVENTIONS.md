@@ -504,7 +504,10 @@ i18n), **jamais** `new Error(texte)` — les trois de `importProjects` l'ont ét
 l'AST à `c8230a3` (`ts.isNewExpression` sur `Error|TypeError|RangeError|SyntaxError|EvalError|URIError|AggregateError`,
 dans les fichiers suivis de `actions/`, `lib/`, `service/`, `repository/`, hors code généré ; 131 fichiers) :
 **4** — `actions/projects/projects.ts` ×3 (texte utilisateur, converties), `lib/csv.ts::csvHeaderOf`
-(programmeur, au chargement du module). Les autres `throw` sont des objets (`{type,message}` ×46,
+(programmeur, au chargement du module). **Depuis, 4 de plus, jamais relayées** : `lib/email.ts` ×2 (échec d'envoi,
+journalisé par l'appelant qui l'avale) et `lib/cloudinaryDelivery.ts` ×2 (réponse de téléversement non comprise,
+attrapée par `uploadBuffer`) levaient `{ type: "error", message: <anglais> }`, que l'ensemble fermé de
+`getErrorMessage` aurait relayé tel quel : ce sont des `Error` natives, qui reçoivent le repli. Les autres `throw` sont des objets (`{type,message}` ×46,
 `repositoryError` ×198, codes `i18n`, `scanError`/`refusal` à `code`…).
 
 **Un seul envoi vers Cloudinary** : `lib/cloudinary.ts::uploadBuffer`. Il attrape l'exception
@@ -548,17 +551,26 @@ Appelants : logo, fichier de projet, plan et photo de réserve, archive du bulle
 garde la forme `try/catch` + `discardAfterFailedWrite` (même décision) parce qu'il **lit** `.message` du résultat de
 l'écriture pour son retour, et que `tests/server-action-return-guard.test.ts` ne suit pas un retour lu à travers
 un callback ; le jour où le garde le suit, `addClient` rejoint les autres.
-**Le bulletin de livraison (`applyDeliveryNoteScan`) écrit dans cet ordre** : (1) le contrôle du fichier (signature,
-taille : aucun décodage) puis les `materialId` contre le chantier (`findByProject`, même verdict que `applyScanItems`
-— un id qui ne correspond à aucune ligne du chantier — **avant** tout décodage : une liste forgée ne dépense pas de
-temps de décodeur) ; (2) le décodage, les plafonds de sortie et l'envoi de l'archive — tout ce qui coûte ou peut
-échouer sans toucher une ligne ; (3) les matériaux (`applyScanItems`, une transaction) — s'ils échouent, l'archive
-qu'on vient d'envoyer est compensée et « Réessaie » est vrai, rien n'a été appliqué ; (4) la ligne `ProjectFile`. Une
-ligne d'archive qui échoue **après** les matériaux est un **succès partiel** (« Matériaux appliqués, mais l'archive du
-bulletin n'a pas été enregistrée. », archive compensée), jamais « Réessaie » : un nouvel essai doublerait le stock.
-Matériaux et ligne d'archive ne sont **pas** dans une seule transaction : `applyScanItems` ouvre la sienne dans
-`repository/projectMaterials.ts` ; les réunir demande un paramètre `tx` ou une fonction commune dans ce dépôt
-(point ouvert, hors du périmètre du lot qui a posé l'ordre ci-dessus).
+**Le bulletin de livraison (`applyDeliveryNoteScan`) écrit dans cet ordre** : (1) tout ce qui est bon marché et en
+lecture : le contrôle du fichier (signature, taille : aucun décodage), les `materialId` contre le chantier
+(`repository/projectMaterials.ts::findIdsInProject`, une requête `select id` sans jointure ; même verdict que
+`applyScanItems` — un id qui ne correspond à aucune ligne du chantier est refusé — **avant** tout décodage : une liste
+forgée ne dépense pas de temps de décodeur), et **le dossier « Bulletins de livraisons »** (une lecture qui lève doit
+lever **avant** qu'un fichier soit envoyé : sinon l'archive restait orpheline chez Cloudinary) ; (2) le décodage,
+le plafond de sortie et l'envoi de l'archive — tout ce qui coûte ou peut échouer sans toucher une ligne ; (3) **une
+seule transaction** pour les matériaux et la ligne `ProjectFile` : `applyScanItems(projectId, items, supplier,
+archive?)` écrit la ligne d'archive avec `createWithin(tx, …)` (`repository/projectFiles.ts`) à la suite des
+matériaux. Si la transaction échoue, rien n'est appliqué, l'archive qu'on vient d'envoyer est compensée et
+« Réessaie » est vrai (un nouvel essai ne double pas le stock). **Le seul succès partiel qui reste** : la sortie
+nettoyée dépasse encore `STORAGE_MAX_FILE_BYTES` après la réduction à 25 Mpx ; les matériaux sont appliqués **sans**
+archive, et l'action renvoie `type: "warning"` (« Matériaux appliqués. L'archive du bulletin dépassait la taille de
+stockage (10 Mo) et n'a pas été enregistrée. »). **Un état à part, pas `"success"` avec un autre texte** : la modale
+ferme sur tout `"success"` et personne ne lisait le message ; `ApplyDeliveryScanActionState.type` vaut
+`"error" | "success" | "warning" | "zodError" | null`, et l'interface teste `"warning"`.
+**Le scan (`scanDeliveryNote`) décode AVANT de réserver l'unité du quota horaire** (20 par heure) :
+`prepareDeliveryNoteImage` (validation, puis `reduceImageForModel`) précède la réservation, qui précède l'appel payant
+(`extractDeliveryNoteItems(prepared)`). Un refus du décodeur (`imageInProgress`, `imageQuota`, `imageBusy`,
+`imageUnavailable`) n'est pas un scan : un double clic ne coûte plus une unité.
 
 ## Tests — le piège récurrent
 
@@ -832,18 +844,33 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     tout de suite, `imageInProgress` (neuf envois simultanés d'un seul compte remplissaient la file,
     1 + 8, et tout le monde recevait `imageBusy` : prouvé par l'audit) ; **(2) un budget de TEMPS
     de décodage par compte** : la somme des durées réelles passées dans l'enfant (du départ de
-    la tâche, enfant prêt, à sa fin, **kill compris**) sur une heure glissante, **300 s**
-    (`DECODE_BUDGET_MS`) ; au-delà, la tâche est refusée **avant** d'entrer dans la file,
-    `imageQuota`, avec le délai en minutes (le moment où assez des plus anciennes durées sortent de
-    la fenêtre). Il remplace la limite en base de 30 photos par quart d'heure, qui comptait des
+    la tâche, enfant prêt, à sa fin, **kill compris**, **au moins 250 ms** par tâche qui a atteint
+    l'enfant) sur une heure glissante, **300 s** (`DECODE_BUDGET_MS`) ; au-delà, la tâche est refusée
+    **avant** d'entrer dans la file, `imageQuota`, avec le délai en minutes (le moment où assez des
+    plus anciennes minutes sortent de la fenêtre). Le contrôle est une **borne d'admission**, pas un
+    plafond de la somme : une tâche admise juste sous le budget peut finir bien au-delà (d'une tâche, 20 s
+    au plus). Il remplace la limite en base de 30 photos par quart d'heure, qui comptait des
     requêtes alors que ce qui coûte est le temps. Le contrôle et la réservation sont **un seul pas
     synchrone** (aucun `await` entre les deux : deux envois du même tick ne passent pas tous les deux).
     **Ne coûte rien** : un refus de taille, de signature, un contrôle JS, `imageBusy`,
     `imageInProgress`, `imageQuota`, `imageUnavailable`. **Coûte** : un décodage réussi, échoué ou tué
-    (une bombe tuée à 20 s coûte 20 s : quinze épuisent l'heure). L'état est purgé à l'accès, pour
-    tous les comptes (aucun minuteur, rien ne grossit pour un compte qui ne revient pas). **Perdu
+    (une bombe tuée à 20 s coûte 20 s : quinze épuisent l'heure). **La comptabilité est bornée** : un
+    registre est une case **par minute** (au plus 60 vivantes par compte, avec un total courant), et le
+    **plancher de 250 ms** borne un compte à 1 200 tâches par heure — ce qui borne aussi ses envois sur
+    les chemins décodés. Avant, chaque tâche ajoutait un intervalle, et une tâche bon marché (un refus
+    après la lecture d'en-tête : 0,42 ms) en empilait ~716 000 en une heure (mesuré par l'audit : 16,8 ms de
+    temps synchrone par appel pour **un autre** compte, 74 Mo de tas, 50 ms à trois comptes). Les minutes
+    échues sont retirées pour l'appelant à chaque accès ; les **autres** comptes sont balayés au plus une
+    fois par minute (le balayage parcourt des comptes, pas des intervalles ; un compte vide est oublié).
+    **Mesure** (`tests/image-account-share.test.ts` pour l'invariant ; mesure ponctuelle, Windows, enfant
+    simulé) : 100 000 tâches bon marché d'un compte en une rafale — 1 200 admises, 98 800 refusées
+    `imageQuota` à 0,0018 ms l'une —, puis des appels d'**autres** comptes : 0,003 ms en moyenne (0,18 ms au
+    pire), un registre d'**une** case, ~4,5 Mo de tas (bruit de ramasse-miettes compris). **Perdu
     à chaque redémarrage du processus, et non partagé entre instances** : même portée que la file.
-    **Sens légitime, prouvé** (`tests/image-account-share-real.test.ts`, vrai enfant, vrai sharp, une
+    **Le contrôle bon marché passe d'abord** : l'en-cours et le quota sont décidés, et la place
+    réservée, **avant** le parcours JS d'un fichier de 10 Mo (`countImageFrames`, `stripPngTextChunks`) ;
+    un fichier que ce parcours refuse rend la place, ne reçoit pas `imageBusy` et ne coûte rien (le
+    tout reste synchrone). **Sens légitime, prouvé** (`tests/image-account-share-real.test.ts`, vrai enfant, vrai sharp, une
     photo de 12 Mpx, 4032 × 3024) : un inventaire de 40 outils d'affilée et une session de 20 scans
     de bulletin (modèle puis archive, 40 décodages) passent **sans aucun refus**, en ~3 s de
     décodeur au total pour chacune des deux charges, sur ce poste (Windows, image synthétique en dégradé : le coût réel d'un
@@ -854,26 +881,38 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     compte, au plus une tâche dans la file à tout instant, quel que soit le nombre de requêtes
     (les autres sont refusées dans la même milliseconde, sans toucher l'enfant) et au plus 300 s de
     décodeur par heure ; pour **le processus**, une tâche dans l'enfant, huit en attente, donc 9 comptes au plus
-    en train d'attendre et le neuvième suivant `imageBusy`. Un compte seul ne peut donc plus
+    en train d'attendre et le **dixième** compte suivant `imageBusy`. Un compte seul ne peut donc plus
     remplir la file ni faire répondre « serveur occupé » aux autres ; la mémoire reste bornée par
     l'enfant (`ulimit -d`, un décodage à la fois), la durée par compte par le budget ;
   - **un enfant qui ne démarre pas n'est pas un fichier refusé** : `encodeOriented` lève
     `imageUnavailable` (« Le traitement des images est momentanément indisponible. Réessaie dans
     quelques minutes. ») quand le **démarrage** échoue — la tâche n'a pas commencé, ce n'est pas la
     photo de l'utilisateur, et rien n'est compté. Avant, un JPEG légitime recevait « Le fichier doit
-    être une image. ». Le kill à l'échéance et la mort de l'enfant pendant une tâche restent
-    `corruptedImage` (la tâche a commencé) ;
+    être une image. ». La mort de l'enfant pendant une tâche reste `corruptedImage` (la tâche a
+    commencé). **Le kill à l'échéance est `imageTooHeavy`** (« Cette image est trop lourde à traiter. Essaie
+    une version plus légère. ») : un WebP légitime tué à 20 s affichait « Le fichier doit être une image. ».
+    Le pont exporte des **prédicats typés** (`isDecodeDeadlineError`, `isOutputTooLargeError`, des
+    marqueurs sur l'`Error`, pas de classe) ; plus aucune correspondance sur le texte d'un message. Le
+    même `Error` marqué part vers la tâche et vers la course : celui qui se règle le premier dit
+    « échéance » ;
   - **les plafonds de sortie viennent de l'appelant, calibrés sur ce que l'aval accepte** :
     `lib/cloudinary.ts::STORAGE_MAX_FILE_BYTES` (10 Mio) et `STORAGE_MAX_IMAGE_PIXELS` (25 Mpx), une
     source chacun, lus par l'API d'administration de Cloudinary depuis le conteneur de production le
     2026-11-27 (plan « Free » : `image_max_size_bytes` = `raw_max_size_bytes` = 10485760,
     `image_max_px` = 25000000). Photo d'entreprise, photo d'équipement et archive du bulletin les
-    passent à `encodeOriented` (`maxOutputBytes`, `maxPixels`) ; l'image envoyée au modèle garde le plafond
-    global (32 Mio, borne haute de tous les chemins) et n'a pas de plafond de pixels (elle est
-    réduite). Une sortie au-delà du plafond est refusée **avant l'envoi** (`outputTooLarge` : « Image
-    trop volumineuse après traitement (10 Mo max). ») ; une image décodée de plus de 25 Mpx l'est
-    avant l'envoi, d'après l'en-tête que rend le décodeur (`imageTooManyPixels` : « Image trop grande
-    pour le stockage (25 Mpx max). ») — la sortie garde les dimensions de l'entrée. **Les plafonds
+    passent à `encodeOriented` (`maxOutputBytes`, `fitInPixels`) ; l'image envoyée au modèle garde le plafond
+    global (32 Mio, borne haute de tous les chemins) et n'a rien à faire tenir en pixels (elle est
+    réduite à 1568). **Une image de plus de 25 Mpx est RÉDUITE pour tenir dans 25 Mpx, proportions
+    gardées, jamais refusée** — le stockage ne peut pas la garder telle quelle, c'est une conséquence du
+    plan de stockage, et 25 Mpx reste très lisible (un A4 scanné à 600 dpi, 4960 × 7016 = 34,8 Mpx,
+    passait le scan et l'appel au LLM puis était refusé en entier, à chaque essai). Le grand côté se
+    calcule depuis l'en-tête déjà lu (`longEdgeToFit`, un pixel de moins pour que l'arrondi du petit côté
+    ne dépasse pas le plafond), l'enfant redimensionne (`maxLongEdge`) ; l'orientation est appliquée
+    avant. Il n'y a plus de code « trop de pixels ». Une sortie qui dépasse encore le plafond d'octets
+    est refusée **avant l'envoi** : pour la photo d'entreprise et la photo d'équipement,
+    `outputTooLarge` (« Image trop volumineuse après traitement (10 Mo max). ») ; pour l'archive du
+    bulletin, les matériaux sont appliqués **sans** l'archive et l'état est un avertissement (voir plus
+    haut). **Les plafonds
     d'entrée annoncés ne changent pas** (fichiers de chantier 20 Mo, plans de réserve 25 Mo, photos
     10 Mo) : décision produit, ouverte (`docs/SECURITE-CHECKLIST.md`) ;
   - **des refus précoces, en JS, AVANT la file et l'enfant** (`lib/imageFrameCount.ts`,
@@ -1040,10 +1079,11 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   partagé, invisible pour `ls`) : il est **hors de `RLIMIT_DATA`**, borné par le
   budget décodé, et libéré à la mort de l'enfant (rien ne reste après un kill). Il
   ne faut donc pas écrire que libvips n'écrit aucun fichier temporaire. (4)
-  **Matériaux et ligne d'archive du bulletin dans une seule transaction** : non fait
-  (`applyScanItems` ouvre la sienne dans `repository/projectMaterials.ts`) ; l'ordre
-  décodage, envoi, matériaux, ligne et le succès partiel (voir plus haut) ferment le
-  double stock sans elle. (5)
+  **Stockage non borné par compte sur les autres chemins d'envoi** (HEIC et BMP d'entreprise,
+  fichiers de chantier, plans, photos de réserve : ils n'ont pas de part du décodeur, et rien ne
+  borne ce qu'un compte y envoie) : lot séparé. **Courses de remplacement d'actif** (deux
+  remplacements concurrents de la photo d'une entreprise, d'un équipement ou du logo) : des
+  orphelins publics, jamais la destruction d'un actif vivant ; lot séparé. (5)
   **Isolation de l'enfant** : même uid que le serveur, `/app` inscriptible, lecture
   possible de `/proc/<ppid>/environ` (voir plus haut) — durcissement (`/app` en
   lecture seule, un autre uid) en **lot séparé, non fait**. Ce lot devra traiter

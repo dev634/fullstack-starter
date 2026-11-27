@@ -45,7 +45,7 @@ const en: Dictionary = {
         imageQuota: "You have requested a lot of image processing. Try again in {minutes} min.",
         imageUnavailable: "Image processing is temporarily unavailable. Try again in a few minutes.",
         imageOutputTooLarge: "Image too large after processing ({max} MB max).",
-        imageTooManyPixels: "Image too large for storage ({max} Mpx max).",
+        imageTooHeavy: "This image is too heavy to process. Try a lighter version.",
         patternMissingPlaceholder: "The pattern must contain {n}.",
         seriesRangeInvalid: "“To” must be greater than or equal to “From”.",
         seriesTooLarge: "A series can't exceed {max} tasks.",
@@ -551,7 +551,7 @@ const en: Dictionary = {
             messages: {
                 scanned: "Delivery note scanned.",
                 applied: "Stock updated.",
-                appliedWithoutArchive: "Materials applied, but the delivery note archive was not saved.",
+                appliedArchiveTooLarge: "Materials applied. The delivery note archive exceeded the storage size ({max} MB) and was not saved.",
             },
             // Stable codes thrown by lib/deliveryNoteScan.ts (ScanErrorCode),
             // translated here rather than relayed as the hardcoded English
@@ -565,8 +565,8 @@ const en: Dictionary = {
                 imageInProgress: "One of your images is already being processed. Try again in a moment.",
                 imageQuota: "You have requested a lot of image processing. Try again in {minutes} min.",
                 imageUnavailable: "Image processing is temporarily unavailable. Try again in a few minutes.",
+                imageTooHeavy: "This image is too heavy to process. Try a lighter version.",
                 outputTooLarge: "Image too large after processing ({max} MB max).",
-                imageTooManyPixels: "Image too large for storage ({max} Mpx max).",
                 unreadableNote: "Could not read this delivery note. Try a clearer photo.",
                 noItemsRead: "Could not read any items from this delivery note. Try a clearer photo.",
             },

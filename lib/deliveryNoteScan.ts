@@ -10,12 +10,14 @@ import {
 } from "@/lib/fileSignature";
 import {
     encodeOriented,
+    IMAGE_REFUSAL_CODES,
     isImageRefusal,
     isStrippableMediaType,
     MAX_ENCODED_OUTPUT_BYTES,
+    mebibytes,
     stripArchivedPhotoMetadata,
     type DeliveryNoteMediaType,
-    type ImageRefusalCode,
+    type ImageRefusal,
 } from "@/lib/imageMetadata";
 
 // stripArchivedPhotoMetadata (used below, in the apply step's own doc) and
@@ -56,51 +58,67 @@ const PROVIDER_MAX_RETRIES = 1;
 // to console.error only — see e.g. the missing-API-key case below, which
 // says nothing about which provider or variable to a non-admin user, for the
 // same reason.
-// The decode's own refusals (lib/imageMetadata.ts::ImageRefusalCode) are scan errors as they
-// are: same shape, same codes, each with its message in t.materials.scan.errors. `minutes`
-// (the delay of `imageQuota`) travels with the code.
-export type ScanErrorCode =
-    | "unavailable"
-    | "fileTooLarge"
-    | "invalidFileType"
-    | "unreadableNote"
-    | "noItemsRead"
-    | ImageRefusalCode;
+// The decode's own refusals (lib/imageMetadata.ts::ImageRefusal) are scan errors as they are:
+// same shape, same codes, each with its message in t.materials.scan.errors, and the numeric
+// field its code carries (`minutes` for `imageQuota`, `maxBytes` for `outputTooLarge`).
+// The list of codes is BUILT from the scan's own and the decode's: nothing is copied by hand, and
+// both unions are derived from it.
+const SCAN_OWN_CODES = ["unavailable", "fileTooLarge", "invalidFileType", "unreadableNote", "noItemsRead"] as const;
+export const SCAN_ERROR_CODES = [...SCAN_OWN_CODES, ...IMAGE_REFUSAL_CODES] as const;
+export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
 
-const SCAN_ERROR_CODES: readonly string[] = [
-    "unavailable",
-    "fileTooLarge",
-    "invalidFileType",
-    "unreadableNote",
-    "noItemsRead",
-    "corruptedImage",
-    "imageBusy",
-    "imageInProgress",
-    "imageQuota",
-    "imageUnavailable",
-    "outputTooLarge",
-    "imageTooManyPixels",
-];
+type OwnScanErrorCode = (typeof SCAN_OWN_CODES)[number];
+export type ScanError = { type: "error"; code: OwnScanErrorCode } | ImageRefusal;
 
-export type ScanError = { type: "error"; code: ScanErrorCode; minutes?: number; max?: number };
-
-function scanError(code: ScanErrorCode): ScanError {
+function scanError(code: OwnScanErrorCode): ScanError {
     return { type: "error", code };
+}
+
+/** Narrows an unknown thrown value to this module's own error shape — lets the caller tell "translate this code" apart from an unexpected error (e.g. a raw provider SDK exception) it must not relay to the client. */
+export function isScanError(error: unknown): error is ScanError {
+    if (isImageRefusal(error)) return true;
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        error.type === "error" &&
+        "code" in error &&
+        SCAN_OWN_CODES.some((code) => code === error.code)
+    );
 }
 
 /**
  * The user-facing message of a scan error: its code's entry in t.materials.scan.errors, with
- * the delay (`imageQuota`) or the ceiling (`outputTooLarge`, `imageTooManyPixels`) the
- * refusal carries. It reads the caught error (a closed code and two numbers) and returns
- * dictionary text: the one place, so the action returns a dictionary string and never a value
- * taken off a thrown object (tests/helpers/actionReturnScan.ts lists it as such). Anything the
- * application does not throw ITSELF never gets here: lib/helpers.ts::getErrorMessage relays
- * only its own closed set of error shapes (it replaced the local isAppError gate the action
- * used to carry, for the provider SDKs' APIError whose message can hold the HTTP status and
- * the raw response body).
+ * the delay (`imageQuota`) or the ceiling in MB (`outputTooLarge`) its refusal carries. Every
+ * code is a case: a code added to the lists above does not compile until it has its line here.
+ * It reads the caught error (a closed code and a number) and returns dictionary text: the one
+ * place, so the action returns a dictionary string and never a value taken off a thrown object
+ * (tests/helpers/actionReturnScan.ts lists it as such). Anything the application does not throw
+ * ITSELF never gets here: lib/helpers.ts::getErrorMessage relays only its own closed set of error
+ * shapes (it replaced the local isAppError gate the action used to carry, for the provider SDKs'
+ * APIError whose message can hold the HTTP status and the raw response body).
  */
 export function scanErrorMessage(t: Dictionary, error: ScanError): string {
-    return format(t.materials.scan.errors[error.code], { minutes: error.minutes ?? 0, max: error.max ?? 0 });
+    const messages = t.materials.scan.errors;
+    switch (error.code) {
+        case "imageQuota":
+            return format(messages.imageQuota, { minutes: error.minutes });
+        case "outputTooLarge":
+            return format(messages.outputTooLarge, { max: mebibytes(error.maxBytes) });
+        case "unavailable":
+        case "fileTooLarge":
+        case "invalidFileType":
+        case "unreadableNote":
+        case "noItemsRead":
+        case "corruptedImage":
+        case "imageTooHeavy":
+        case "imageBusy":
+        case "imageInProgress":
+        case "imageUnavailable":
+            return messages[error.code];
+        default:
+            return error satisfies never;
+    }
 }
 
 /**
@@ -109,21 +127,9 @@ export function scanErrorMessage(t: Dictionary, error: ScanError): string {
  * never a fallback to the original.
  */
 export function scanErrorFromDecode(error: unknown): ScanError {
-    return isImageRefusal(error) ? error : scanError("corruptedImage");
+    return isImageRefusal(error) ? error : { type: "error", code: "corruptedImage" };
 }
 
-/** Narrows an unknown thrown value to this module's own error shape — lets the caller tell "translate this code" apart from an unexpected error (e.g. a raw provider SDK exception) it must not relay to the client. */
-export function isScanError(error: unknown): error is ScanError {
-    return (
-        typeof error === "object" &&
-        error !== null &&
-        "type" in error &&
-        error.type === "error" &&
-        "code" in error &&
-        typeof error.code === "string" &&
-        SCAN_ERROR_CODES.includes(error.code)
-    );
-}
 
 export type ScannedDeliveryItem = {
     // Composed server-side from brand + reference, never requested from the
@@ -322,14 +328,14 @@ async function reduceImageForModel(owner: string, buffer: Buffer): Promise<Buffe
         // queue, same pixel ceiling and budget, orientation, `failOn: "none"` — a
         // truncated photo the archive accepts is not refused one step earlier
         // here. Only the recipe differs: resize, then JPEG at MODEL_JPEG_QUALITY.
-        // The output goes to the model, not to storage: resized to MODEL_MAX_LONG_EDGE, so no
-        // pixel ceiling on the header, and the global output bound is the only byte ceiling.
+        // The output goes to the model, not to storage: resized to MODEL_MAX_LONG_EDGE, so nothing to
+        // fit in pixels, and the global output bound is the only byte ceiling.
         return await encodeOriented(
             "model",
             owner,
             buffer,
             { format: "jpeg", quality: MODEL_JPEG_QUALITY },
-            { maxLongEdge: MODEL_MAX_LONG_EDGE, maxOutputBytes: MAX_ENCODED_OUTPUT_BYTES, maxPixels: null }
+            { maxLongEdge: MODEL_MAX_LONG_EDGE, maxOutputBytes: MAX_ENCODED_OUTPUT_BYTES, fitInPixels: null }
         );
     } catch (error) {
         // Every refusal of the decode keeps its code (a full queue, an account already
@@ -442,6 +448,23 @@ async function extractWithOpenAI(base64: string, mediaType: DeliveryNoteMediaTyp
 // -- see lib/materialName.ts, which now owns them (imported above), for the
 // full reasoning.
 
+/** A delivery-note photo validated and reduced for the model: what the provider call takes. */
+export type PreparedDeliveryNote = { image: Buffer };
+
+/**
+ * The first half of a scan, everything BEFORE the paid provider: validates the photo by its content,
+ * then decodes it for the model (reduceImageForModel: the account's share of the decoder, the queue,
+ * the child). Separate from the provider call so the caller can count the scan against its hourly
+ * quota only once the decode has not been refused — a refusal of the decoder (an image already in
+ * progress, the account's decode budget, a busy queue, a decoder that is down) is not a scan.
+ *
+ * `owner` is the account the role/session guard resolved (never a form field).
+ */
+export async function prepareDeliveryNoteImage(file: File, owner: string): Promise<PreparedDeliveryNote> {
+    const { buffer } = await readAndValidateDeliveryNoteImage(file);
+    return { image: await reduceImageForModel(owner, buffer) };
+}
+
 /**
  * Reads a delivery note photo with a vision LLM and extracts each delivered
  * line item as structured data. Uses tool/function calling (not free-text
@@ -450,17 +473,13 @@ async function extractWithOpenAI(base64: string, mediaType: DeliveryNoteMediaTyp
  * provider is picked once per request by the OCR_PROVIDER env var (see
  * activeProvider) — not a runtime fallback between the two.
  *
- * `owner` is the account the role/session guard resolved (never a form field): the
- * decode of the image for the model is charged to its share of the decoder
- * (lib/imageMetadata.ts).
+ * Takes what prepareDeliveryNoteImage returned: the decode has already happened.
  */
-export async function extractDeliveryNoteItems(file: File, owner: string): Promise<ScannedDeliveryNote> {
-    // `mediaType` from validation describes the ORIGINAL upload and is not
-    // reused below: reduceImageForModel always re-encodes to JPEG, so the
-    // media type actually sent to the provider is always "image/jpeg"
-    // regardless of what was uploaded.
-    const { buffer } = await readAndValidateDeliveryNoteImage(file);
-    const reduced = await reduceImageForModel(owner, buffer);
+export async function extractDeliveryNoteItems(prepared: PreparedDeliveryNote): Promise<ScannedDeliveryNote> {
+    // The original upload's media type is not reused: reduceImageForModel always
+    // re-encodes to JPEG, so the media type actually sent to the provider is always
+    // "image/jpeg" regardless of what was uploaded.
+    const reduced = prepared.image;
     const base64 = reduced.toString("base64");
     const sentMediaType: DeliveryNoteMediaType = "image/jpeg";
 

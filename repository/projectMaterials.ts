@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma, ProjectMaterial } from "@/app/generated/prisma/client";
 import type { MaterialStockStats } from "@/lib/projectDashboard";
+import { createWithin, type FileData } from "@/repository/projectFiles";
 
 type MaterialData = {
     projectId: number;
@@ -291,6 +292,27 @@ export async function update(id: number, data: MaterialUpdateData, accept?: (sto
     }
 }
 
+/**
+ * Which of `ids` are materials OF THIS PROJECT: one `select id` query, nothing else read. The
+ * delivery-note apply asks it before anything costly, to the same verdict applyScanItems reaches
+ * (an id that matches no row of the project is refused), and compares the sizes.
+ */
+export async function findIdsInProject(projectId: number, ids: number[]): Promise<number[]> {
+    try {
+        const rows = await prisma.projectMaterial.findMany({
+            where: { projectId, id: { in: ids } },
+            select: { id: true },
+        });
+        return rows.map((row) => row.id);
+    } catch (error) {
+        console.log("Repository findIdsInProject (material) error:", error);
+        throw {
+            type: "repositoryError",
+            message: "Database Error fetching materials.",
+        };
+    }
+}
+
 type ScanApplyItem = {
     name: string;
     quantity: number;
@@ -347,8 +369,13 @@ export function isUnmatchedScanMaterialError(error: unknown): error is Unmatched
  * The note-level supplier and each item's reference are recorded only on
  * newly-created materials — matching an existing material just adds the
  * delivered quantity, leaving its own supplier/reference untouched.
+ *
+ * `archive`, when given, is the row of the delivery note's photo (already sent to the
+ * storage): it is written in the SAME transaction, after the materials. Either everything
+ * is written or nothing is, so a failure of the row cannot leave the stock applied (and a
+ * retry cannot apply it twice).
  */
-export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null) {
+export async function applyScanItems(projectId: number, items: ScanApplyItem[], supplier?: string | null, archive?: FileData) {
     try {
         return await prisma.$transaction(async (tx) => {
             const results = [];
@@ -377,6 +404,7 @@ export async function applyScanItems(projectId: number, items: ScanApplyItem[], 
                     );
                 }
             }
+            if (archive) await createWithin(tx, archive);
             return results;
         });
     } catch (error) {

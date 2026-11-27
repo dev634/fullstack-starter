@@ -1,7 +1,14 @@
 import type { RasterImageMediaType } from "@/lib/fileSignature";
 import { countImageFrames } from "@/lib/imageFrameCount";
 import { stripPngTextChunks } from "@/lib/pngTextChunks";
-import { runInChild, type DecodeOperation, type EncodeOutput, type ImageHeader } from "@/lib/imageDecodeBridge";
+import {
+    isDecodeDeadlineError,
+    isOutputTooLargeError,
+    runInChild,
+    type DecodeOperation,
+    type EncodeOutput,
+    type ImageHeader,
+} from "@/lib/imageDecodeBridge";
 
 // Extracted from lib/deliveryNoteScan.ts (point 13, review of the "Prêts"
 // feature): stripArchivedPhotoMetadata started as a delivery-note-only
@@ -66,57 +73,60 @@ const ARCHIVE_JPEG_QUALITY = 95;
 // already has (built as a literal: that module imports THIS one). Each code is
 // turned by every caller into its own message, and none ever leads to sending the
 // original:
-//  - "corruptedImage": the image could not be decoded (or the task outlasted its
-//    deadline and its child was killed, or the child died during the task);
+//  - "corruptedImage": the image could not be decoded (or the child died during the task);
+//  - "imageTooHeavy": the task outlasted its deadline and its child was killed — a legitimate
+//    but heavy image looks like this, and must not read "not an image";
 //  - "imageBusy": the queue below is full;
 //  - "imageInProgress": this account already has a task in the queue (waiting or running);
 //  - "imageQuota": this account has used its decode TIME for the hour (`minutes` says
-//    when the oldest of its spans leaves the window);
+//    when enough of its oldest minutes leave the window);
 //  - "imageUnavailable": the decode child could not START (no task ran at all): the
 //    decoder is down, which is not the user's file;
 //  - "outputTooLarge": the re-encoded image is beyond what the caller's destination takes
-//    (`max`: that ceiling in MiB, for the message);
-//  - "imageTooManyPixels": the image is beyond the destination's pixel ceiling (`max`: in Mpx).
-export type ImageRefusalCode =
-    | "corruptedImage"
-    | "imageBusy"
-    | "imageInProgress"
-    | "imageQuota"
-    | "imageUnavailable"
-    | "outputTooLarge"
-    | "imageTooManyPixels";
-export type ImageRefusal = { type: "error"; code: ImageRefusalCode; minutes?: number; max?: number };
-
-const IMAGE_REFUSAL_CODES: readonly string[] = [
+//    (`maxBytes`: that ceiling, for the message).
+// The list is the one source: the union type is derived from it, and the scan's own list
+// (lib/deliveryNoteScan.ts) is built from it, never copied.
+export const IMAGE_REFUSAL_CODES = [
     "corruptedImage",
+    "imageTooHeavy",
     "imageBusy",
     "imageInProgress",
     "imageQuota",
     "imageUnavailable",
     "outputTooLarge",
-    "imageTooManyPixels",
-];
+] as const;
+export type ImageRefusalCode = (typeof IMAGE_REFUSAL_CODES)[number];
 
-function refusal(code: ImageRefusalCode): ImageRefusal {
+type PlainRefusalCode = Exclude<ImageRefusalCode, "imageQuota" | "outputTooLarge">;
+
+/** A discriminated union: a field exists only on the code that carries it. */
+export type ImageRefusal =
+    | { type: "error"; code: PlainRefusalCode }
+    | { type: "error"; code: "imageQuota"; minutes: number }
+    | { type: "error"; code: "outputTooLarge"; maxBytes: number };
+
+function refusal(code: PlainRefusalCode): ImageRefusal {
     return { type: "error", code };
 }
 
-/** A ceiling as the message shows it: one decimal at most (10 MiB -> 10, 25,000,000 px -> 25). */
-function displayed(value: number, unit: number): number {
-    return Math.round((value / unit) * 10) / 10;
+/** A byte ceiling as a message shows it, in MB with one decimal at most (10,485,760 -> 10). */
+export function mebibytes(bytes: number): number {
+    return Math.round((bytes / (1024 * 1024)) * 10) / 10;
 }
 
-/** Whether a thrown value is one of this module's own refusals (a closed set of codes, never a native error). */
+function isCountOf(value: object, key: string): boolean {
+    return key in value && typeof Reflect.get(value, key) === "number" && Number.isFinite(Reflect.get(value, key));
+}
+
+/** Whether a thrown value is one of this module's own refusals: a code of the closed list, and the numeric field its code carries. */
 export function isImageRefusal(error: unknown): error is ImageRefusal {
-    return (
-        typeof error === "object" &&
-        error !== null &&
-        "type" in error &&
-        error.type === "error" &&
-        "code" in error &&
-        typeof error.code === "string" &&
-        IMAGE_REFUSAL_CODES.includes(error.code)
-    );
+    if (typeof error !== "object" || error === null) return false;
+    if (!("type" in error) || error.type !== "error" || !("code" in error)) return false;
+    const code = error.code;
+    if (!IMAGE_REFUSAL_CODES.some((known) => known === code)) return false;
+    if (code === "imageQuota") return isCountOf(error, "minutes");
+    if (code === "outputTooLarge") return isCountOf(error, "maxBytes");
+    return true;
 }
 
 // One decode at a time, process-wide. A small file can decode into hundreds of
@@ -154,22 +164,38 @@ export const MAX_WAITING_TASKS = 8;
 //  2. A BUDGET OF DECODE TIME: the sum of the real durations spent in the child, from the
 //     start of the task (the child ready) to its end, kill included, over a sliding hour,
 //     capped at DECODE_BUDGET_MS. Beyond it a task is refused BEFORE it enters the queue
-//     (`imageQuota`, with the delay in minutes). Calibrated on the legitimate side, not on
-//     a request count: a 40-tool inventory taken on a phone and a session of 20 bulletin
-//     scans spend a few tens of seconds each (tests/image-account-share.test.ts), against
-//     300 s; a bomb killed at the 20 s deadline costs 20 s, so 15 of them in an hour end it.
+//     (`imageQuota`, with the delay in minutes). The check happens at admission, so a task
+//     admitted just under the budget may end well past it (by one task, 20 s at most): the
+//     budget is a threshold of admission, not a ceiling on the sum. Calibrated on the
+//     legitimate side, not on a request count: a 40-tool inventory taken on a phone and a
+//     session of 20 bulletin scans (40 decodes) spend about 3 s of decoder each on a 12 Mpx
+//     phone photo (tests/image-account-share-real.test.ts, Windows, not the VPS), against 300 s;
+//     a bomb killed at the 20 s deadline costs 20 s, so 15 of them in an hour end it.
 // Costs nothing: size, signature and JS refusals (they never reach the queue), and
 // `imageBusy`, `imageInProgress`, `imageQuota` themselves. Costs: a decode that succeeded,
-// failed or was killed. A child that could not START ran nothing: `imageUnavailable` costs
-// nothing either.
+// failed or was killed, AT LEAST DECODE_MIN_COST_MS. A child that could not START ran
+// nothing: `imageUnavailable` costs nothing either.
 // The check and the reservation are ONE synchronous step (no `await` between them): two
 // requests of one account cannot both observe "free".
+//
+// THE ACCOUNTING IS BOUNDED. A ledger is one slot per MINUTE (at most 60 live per account,
+// with a running total), and a task costs at least 250 ms: a cheap task (a refusal after the
+// header read costs well under a millisecond) used to add an interval each, and an account
+// could pile up ~716,000 of them in an hour (measured: 16.8 ms of synchronous time per call for
+// ANOTHER account, 74 MB of heap). With the floor, an account is bounded to
+// DECODE_BUDGET_MS / DECODE_MIN_COST_MS = 1,200 tasks per hour, which also bounds what it can
+// send down the decoded paths. Expired minutes are dropped for the caller at each access, and
+// the other accounts are swept at most once a minute (the sweep walks accounts, not intervals).
 export const DECODE_BUDGET_MS = 300_000;
-export const DECODE_BUDGET_WINDOW_MS = 60 * 60 * 1000;
+export const DECODE_BUDGET_WINDOW_MINUTES = 60;
+export const DECODE_BUDGET_WINDOW_MS = DECODE_BUDGET_WINDOW_MINUTES * 60_000;
+export const DECODE_MIN_COST_MS = 250;
 
 type QueueState = { active: boolean; waiting: Array<() => void> };
-type DecodeSpan = { endedAt: number; ms: number };
-type AccountState = { queued: Set<string>; spent: Map<string, DecodeSpan[]> };
+/** What an account spent in one minute (`minute` = Date.now() / 60000, floored), in ms. */
+type Bucket = { minute: number; ms: number };
+type Ledger = { buckets: Bucket[]; total: number };
+type AccountState = { queued: Set<string>; spent: Map<string, Ledger>; sweptMinute: number };
 
 const QUEUE_KEY = Symbol.for("fullstack-starter.imageMetadata.queue");
 const ACCOUNTS_KEY = Symbol.for("fullstack-starter.imageMetadata.accounts");
@@ -192,7 +218,9 @@ function isAccountState(value: unknown): value is AccountState {
         "queued" in value &&
         value.queued instanceof Set &&
         "spent" in value &&
-        value.spent instanceof Map
+        value.spent instanceof Map &&
+        "sweptMinute" in value &&
+        typeof value.sweptMinute === "number"
     );
 }
 
@@ -207,40 +235,79 @@ function sharedQueue(): QueueState {
 function sharedAccounts(): AccountState {
     const existing: unknown = Reflect.get(globalThis, ACCOUNTS_KEY);
     if (isAccountState(existing)) return existing;
-    const created: AccountState = { queued: new Set(), spent: new Map() };
+    const created: AccountState = { queued: new Set(), spent: new Map(), sweptMinute: 0 };
     Reflect.set(globalThis, ACCOUNTS_KEY, created);
     return created;
 }
 
-/** Drops every span that left the window, for EVERY account (purged at access: no timer, nothing grows for an account that never comes back). */
-function purgeSpent(accounts: AccountState, now: number): void {
-    for (const [owner, spans] of accounts.spent) {
-        const live = spans.filter((span) => now - span.endedAt < DECODE_BUDGET_WINDOW_MS);
-        if (live.length === 0) accounts.spent.delete(owner);
-        else if (live.length !== spans.length) accounts.spent.set(owner, live);
+const minuteOf = (time: number): number => Math.floor(time / 60_000);
+
+/** Drops the minutes of `ledger` that left the window (oldest first, the ledger is in minute order). */
+function expire(ledger: Ledger, nowMinute: number): void {
+    let oldest = ledger.buckets[0];
+    while (oldest && oldest.minute <= nowMinute - DECODE_BUDGET_WINDOW_MINUTES) {
+        ledger.total -= oldest.ms;
+        ledger.buckets.shift();
+        oldest = ledger.buckets[0];
     }
 }
 
-/** The quota refusal of `owner` (its delay in minutes: when enough of its oldest spans have left the window), or null while it has budget left. Spans are in end order. */
-function quotaRefusal(accounts: AccountState, owner: string, now: number): ImageRefusal | null {
-    const spans = accounts.spent.get(owner) ?? [];
-    let remaining = spans.reduce((sum, span) => sum + span.ms, 0);
-    if (remaining < DECODE_BUDGET_MS) return null;
-    for (const span of spans) {
-        remaining -= span.ms;
-        if (remaining < DECODE_BUDGET_MS) {
-            return { type: "error", code: "imageQuota", minutes: Math.max(1, Math.ceil((span.endedAt + DECODE_BUDGET_WINDOW_MS - now) / 60_000)) };
-        }
+/** At most once a minute, drops what left the window for EVERY account and forgets the empty ones: nothing grows for an account that never comes back. */
+function sweepInactive(accounts: AccountState, nowMinute: number): void {
+    if (accounts.sweptMinute === nowMinute) return;
+    accounts.sweptMinute = nowMinute;
+    for (const [owner, ledger] of accounts.spent) {
+        expire(ledger, nowMinute);
+        if (ledger.buckets.length === 0) accounts.spent.delete(owner);
     }
-    return { type: "error", code: "imageQuota", minutes: Math.ceil(DECODE_BUDGET_WINDOW_MS / 60_000) };
 }
 
-/** Adds the real duration of a task that ran in the child to the account's hour. */
-function recordDecodeTime(owner: string, ms: number): void {
+/** The quota refusal of a ledger already expired (its delay in minutes: when enough of its oldest minutes have left the window), or null while the account has budget left. */
+function quotaRefusal(ledger: Ledger | undefined, nowMinute: number): ImageRefusal | null {
+    if (!ledger || ledger.total < DECODE_BUDGET_MS) return null;
+    let remaining = ledger.total;
+    let leaving = 0;
+    for (const [index, bucket] of ledger.buckets.entries()) {
+        remaining -= bucket.ms;
+        leaving = bucket.minute;
+        if (remaining < DECODE_BUDGET_MS || index === ledger.buckets.length - 1) break;
+    }
+    return { type: "error", code: "imageQuota", minutes: Math.max(1, leaving + DECODE_BUDGET_WINDOW_MINUTES - nowMinute) };
+}
+
+/** Adds the real duration of a task that ran in the child (never less than DECODE_MIN_COST_MS) to the account's current minute. */
+function recordDecodeTime(owner: string, measuredMs: number): void {
     const accounts = sharedAccounts();
-    const spans = accounts.spent.get(owner) ?? [];
-    spans.push({ endedAt: Date.now(), ms });
-    accounts.spent.set(owner, spans);
+    const ms = Math.max(DECODE_MIN_COST_MS, Math.round(measuredMs));
+    const minute = minuteOf(Date.now());
+    const ledger = accounts.spent.get(owner) ?? { buckets: [], total: 0 };
+    const last = ledger.buckets[ledger.buckets.length - 1];
+    if (last && last.minute === minute) last.ms += ms;
+    else ledger.buckets.push({ minute, ms });
+    ledger.total += ms;
+    accounts.spent.set(owner, ledger);
+}
+
+/**
+ * The cheap half of the admission, ONE synchronous step: refuses `imageInProgress` or
+ * `imageQuota`, or RESERVES the account's place (nothing has been parsed yet: this comes
+ * before the JS walk of a 10 MB file). The caller must `enqueue` or `release`.
+ */
+function reserve(owner: string): ImageRefusal | null {
+    const accounts = sharedAccounts();
+    if (accounts.queued.has(owner)) return refusal("imageInProgress");
+    const nowMinute = minuteOf(Date.now());
+    sweepInactive(accounts, nowMinute);
+    const ledger = accounts.spent.get(owner);
+    if (ledger) expire(ledger, nowMinute);
+    const quota = quotaRefusal(ledger, nowMinute);
+    if (quota) return quota;
+    accounts.queued.add(owner);
+    return null;
+}
+
+function release(owner: string): void {
+    sharedAccounts().queued.delete(owner);
 }
 
 function startNext(queue: QueueState): void {
@@ -252,24 +319,16 @@ function startNext(queue: QueueState): void {
     }
 }
 
-/**
- * The queue, with the share of an account in front of it. `owner` is REQUIRED (there is no
- * signature without it: a caller that forgets it does not compile) and is the account
- * identifier the role/session guard resolved. Refusals, in this order and all synchronous:
- * `imageInProgress`, `imageQuota`, `imageBusy`.
- */
-export function runExclusive<T>(owner: string, task: () => Promise<T>): Promise<T> {
+/** The queue itself, for an account that already holds its reservation: refused `imageBusy` when full (the place is given back). */
+function enqueue<T>(owner: string, task: () => Promise<T>): Promise<T> {
     const queue = sharedQueue();
-    const accounts = sharedAccounts();
-    if (accounts.queued.has(owner)) return Promise.reject(refusal("imageInProgress"));
-    purgeSpent(accounts, Date.now());
-    const quota = quotaRefusal(accounts, owner, Date.now());
-    if (quota) return Promise.reject(quota);
-    if (queue.active && queue.waiting.length >= MAX_WAITING_TASKS) return Promise.reject(refusal("imageBusy"));
-    accounts.queued.add(owner);
+    if (queue.active && queue.waiting.length >= MAX_WAITING_TASKS) {
+        release(owner);
+        return Promise.reject(refusal("imageBusy"));
+    }
     const run = (): Promise<T> =>
         new Promise<T>((resolve) => resolve(task())).finally(() => {
-            accounts.queued.delete(owner);
+            release(owner);
             startNext(queue);
         });
     if (!queue.active) {
@@ -281,6 +340,18 @@ export function runExclusive<T>(owner: string, task: () => Promise<T>): Promise<
             run().then(resolve, reject);
         });
     });
+}
+
+/**
+ * The queue, with the share of an account in front of it. `owner` is REQUIRED (there is no
+ * signature without it: a caller that forgets it does not compile) and is the account
+ * identifier the role/session guard resolved. Refusals, in this order and all synchronous:
+ * `imageInProgress`, `imageQuota`, `imageBusy`.
+ */
+export function runExclusive<T>(owner: string, task: () => Promise<T>): Promise<T> {
+    const refused = reserve(owner);
+    if (refused) return Promise.reject(refused);
+    return enqueue(owner, task);
 }
 
 // The pixel ceiling above bounds the pixel COUNT, not the decoded BYTES: bytes =
@@ -339,57 +410,72 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
     if (width * height * channels * bytesPerSample > MAX_DECODED_BYTES) throw refusal("corruptedImage");
 }
 
-/** A header whose pixel count is beyond the destination's ceiling (the output keeps the dimensions). */
-function assertPixelsWithinCeiling(header: ImageHeader, maxPixels: number | null): void {
-    if (maxPixels === null) return;
-    const { width, height } = header;
-    if (!width || !height) throw refusal("corruptedImage");
-    if (width * height > maxPixels) throw { type: "error", code: "imageTooManyPixels", max: displayed(maxPixels, 1_000_000) } satisfies ImageRefusal;
-}
-
 /** What the CALLER's destination takes, per path: the decode itself does not know where its output goes. */
 export type EncodeLimits = {
     /** The long edge to resize to (the model path), or null to keep the dimensions. */
     maxLongEdge: number | null;
     /** The largest output the destination accepts; capped by MAX_ENCODED_OUTPUT_BYTES, the global bound. */
     maxOutputBytes: number;
-    /** The largest decoded pixel count the destination accepts, read from the header; null when the output is resized (the model). */
-    maxPixels: number | null;
+    /**
+     * The pixel count the output must fit in, or null. An image beyond it is REDUCED to fit, proportions
+     * kept (see longEdgeToFit), never refused. Read from the header, so a resize is decided before anything is decoded.
+     */
+    fitInPixels: number | null;
 };
 
-/** The limits of a path that STORES the image as it is (company photo, equipment photo, bulletin archive): the dimensions are kept. */
-export type StorageImageLimits = { maxOutputBytes: number; maxPixels: number };
+/**
+ * The limits of a path that STORES the image (company photo, equipment photo, bulletin archive): the
+ * dimensions are kept unless the image is beyond what the storage takes, in which case it is reduced to
+ * `fitInPixels` — a consequence of the storage plan (lib/cloudinary.ts), which cannot keep such an image
+ * as it is anyway, and 25 Mpx stays very legible.
+ */
+export type StorageImageLimits = { maxOutputBytes: number; fitInPixels: number };
 
-// The child's own refusal of an output beyond `maxOutputBytes` reaches the parent as an Error
-// whose message carries the child's reason (lib/imageDecodeBridge.ts::refusedBy): the one place
-// that tells it apart from a decode failure.
-function isOutputTooLargeFailure(error: unknown): boolean {
-    return error instanceof Error && error.message.includes("(outputTooLarge)");
+/**
+ * The long edge that makes an image of this header fit in `fitInPixels`, proportions kept, or null when it already
+ * fits. The long edge of the oriented image is the larger side whatever the EXIF orientation. One pixel is taken off
+ * so that the rounding of the short side (sharp rounds it) cannot push the product over the ceiling.
+ */
+export function longEdgeToFit(header: ImageHeader, fitInPixels: number | null): number | null {
+    const { width, height } = header;
+    if (fitInPixels === null || !width || !height || width * height <= fitInPixels) return null;
+    const scale = Math.sqrt(fitInPixels / (width * height));
+    return Math.max(1, Math.floor(Math.max(width, height) * scale) - 1);
+}
+
+/** The smaller of two optional long edges. */
+function smallerEdge(a: number | null, b: number | null): number | null {
+    if (a === null) return b;
+    if (b === null) return a;
+    return Math.min(a, b);
 }
 
 /**
  * The one decode of the application. `owner` is REQUIRED: the identifier of the account the
  * role/session guard resolved (never a form field). In this order:
- *  1. JS refusals, BEFORE the queue (a refused file never takes a place in it, never answers
- *     `imageBusy` and costs the account nothing): the structure walk of
+ *  1. The share of the account, BEFORE anything is parsed (a cheap, synchronous step that
+ *     reserves the account's place): `imageInProgress`, `imageQuota`. A 10 MB file of an
+ *     account that is refused anyway is never walked.
+ *  2. JS refusals, still before the queue and still synchronous (a refused file gives the
+ *     place back, never answers `imageBusy` and costs the account nothing): the structure walk of
  *     lib/imageFrameCount.ts (images, pages, scans, entries; closed on formats nobody
  *     decodes), then the removal of the PNG text chunks (lib/pngTextChunks.ts: a 1-pixel PNG
  *     of 40 zTXt chunks inflates to 1.6 GB).
- *  2. Queued like every decode (runExclusive: the share of the account, then one at a time,
- *     at most MAX_WAITING_TASKS waiting), in the decode child and under ONE deadline for the
- *     whole task (lib/imageDecodeBridge.ts): reads the header (nothing is decoded), refuses a
- *     decoded size beyond MAX_DECODED_BYTES BEFORE allocating anything and a pixel count
- *     beyond `limits.maxPixels`, re-encodes with the orientation applied and without any
- *     metadata; the child refuses an output beyond `limits.maxOutputBytes` before sending it.
- *  3. The real duration spent in the child (the child ready, to the end of the task, a kill
- *     included) is charged to the account's hour, whatever the outcome.
+ *  3. Queued like every decode (at most MAX_WAITING_TASKS waiting, `imageBusy` beyond), in the
+ *     decode child and under ONE deadline for the whole task (lib/imageDecodeBridge.ts): reads the
+ *     header (nothing is decoded), refuses a decoded size beyond MAX_DECODED_BYTES BEFORE allocating
+ *     anything, reduces an image beyond `limits.fitInPixels` to fit it, re-encodes with the
+ *     orientation applied and without any metadata; the child refuses an output beyond
+ *     `limits.maxOutputBytes` before sending it.
+ *  4. The real duration spent in the child (the child ready, to the end of the task, a kill
+ *     included, at least DECODE_MIN_COST_MS) is charged to the account's hour, whatever the outcome.
  *
  * Failures, never a native message and never a fallback that decodes in this process or
  * returns the original: `corruptedImage` (a structure that does not walk, a header beyond
- * the budget, a native error, the deadline — the child is killed —, a child that died during
- * the task), `outputTooLarge`, `imageTooManyPixels`, and `imageUnavailable` when the child
- * could not START (no task ran: the decoder is down, the file is not at fault). The refusals
- * of runExclusive (`imageInProgress`, `imageQuota`, `imageBusy`) keep their code.
+ * the budget, a native error, a child that died during the task), `imageTooHeavy` (killed at the
+ * deadline), `outputTooLarge`, and `imageUnavailable` when the child could not START (no task
+ * ran: the decoder is down, the file is not at fault). The refusals of the share and the queue
+ * (`imageInProgress`, `imageQuota`, `imageBusy`) keep their code.
  *
  * `failOn: "none"` is set in the child (its `open()` says why): one behavior for every
  * caller on purpose, the bulletin's image for the model included.
@@ -401,11 +487,22 @@ export function encodeOriented(
     output: EncodeOutput,
     limits: EncodeLimits
 ): Promise<Buffer> {
-    if (countImageFrames(buffer).kind !== "ok") return Promise.reject(refusal("corruptedImage"));
-    const input = stripPngTextChunks(buffer);
+    const refused = reserve(owner);
+    if (refused) return Promise.reject(refused);
+    let input: Buffer;
+    try {
+        if (countImageFrames(buffer).kind !== "ok") {
+            release(owner);
+            return Promise.reject(refusal("corruptedImage"));
+        }
+        input = stripPngTextChunks(buffer);
+    } catch (error) {
+        release(owner);
+        return Promise.reject(error);
+    }
     const maxOutputBytes = Math.min(limits.maxOutputBytes, MAX_ENCODED_OUTPUT_BYTES);
-    const outputTooLarge: ImageRefusal = { type: "error", code: "outputTooLarge", max: displayed(maxOutputBytes, 1024 * 1024) };
-    return runExclusive(owner, async () => {
+    const outputTooLarge: ImageRefusal = { type: "error", code: "outputTooLarge", maxBytes: maxOutputBytes };
+    return enqueue(owner, async () => {
         // Set when the child is READY and the task starts: null = nothing ran, nothing to charge.
         const ran: { startedAt: number | null } = { startedAt: null };
         try {
@@ -413,8 +510,8 @@ export function encodeOriented(
                 ran.startedAt = performance.now();
                 const header = await session.readHeader(input, SHARP_MAX_INPUT_PIXELS);
                 assertDecodedSizeWithinBudget(header);
-                assertPixelsWithinCeiling(header, limits.maxPixels);
-                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, limits.maxLongEdge, maxOutputBytes, output);
+                const maxLongEdge = smallerEdge(limits.maxLongEdge, longEdgeToFit(header, limits.fitInPixels));
+                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, maxOutputBytes, output);
                 // The child already refuses a larger output before sending it: this is depth, against a child that drifts.
                 if (encoded.length > maxOutputBytes) throw outputTooLarge;
                 return encoded;
@@ -422,7 +519,8 @@ export function encodeOriented(
         } catch (error) {
             if (ran.startedAt === null) throw refusal("imageUnavailable");
             if (isImageRefusal(error)) throw error;
-            throw isOutputTooLargeFailure(error) ? outputTooLarge : refusal("corruptedImage");
+            if (isOutputTooLargeError(error)) throw outputTooLarge;
+            throw refusal(isDecodeDeadlineError(error) ? "imageTooHeavy" : "corruptedImage");
         } finally {
             if (ran.startedAt !== null) recordDecodeTime(owner, performance.now() - ran.startedAt);
         }

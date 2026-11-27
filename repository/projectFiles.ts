@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
+import type { CloudinaryDeliveryType, CloudinaryResourceType, Prisma } from "@/app/generated/prisma/client";
 
-type FileData = {
+export type FileData = {
     projectId: number;
     folderId?: number | null;
     name: string;
@@ -48,22 +48,7 @@ export async function isPublicIdReferenced(publicId: string): Promise<boolean> {
  */
 export async function create(data: FileData) {
     try {
-        return await prisma.projectFile.create({
-            data: {
-                projectId: data.projectId,
-                folderId: data.folderId ?? null,
-                name: data.name,
-                url: data.url,
-                publicId: data.publicId,
-                deliveryType: data.deliveryType,
-                resourceType: data.resourceType,
-                format: data.format ?? null,
-                version: data.version ?? null,
-                size: data.size ?? null,
-                mimeType: data.mimeType ?? null,
-            },
-            select: { id: true },
-        });
+        return await createWithin(prisma, data);
     } catch (error) {
         console.log("Repository create file error:", error);
         throw {
@@ -71,6 +56,31 @@ export async function create(data: FileData) {
             message: "Database Error creating file.",
         };
     }
+}
+
+/**
+ * The write of `create`, on the client it is given: pass the TRANSACTION client to make the row
+ * part of a transaction that someone else owns (repository/projectMaterials.ts::applyScanItems writes
+ * a delivery note's materials and its archive row in one). Throws what Prisma throws: the owner of the
+ * transaction wraps it. The row's `url` is not returned (see `create`).
+ */
+export async function createWithin(db: Pick<Prisma.TransactionClient, "projectFile">, data: FileData) {
+    return db.projectFile.create({
+        data: {
+            projectId: data.projectId,
+            folderId: data.folderId ?? null,
+            name: data.name,
+            url: data.url,
+            publicId: data.publicId,
+            deliveryType: data.deliveryType,
+            resourceType: data.resourceType,
+            format: data.format ?? null,
+            version: data.version ?? null,
+            size: data.size ?? null,
+            mimeType: data.mimeType ?? null,
+        },
+        select: { id: true },
+    });
 }
 
 /**

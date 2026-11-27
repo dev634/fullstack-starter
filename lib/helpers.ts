@@ -37,13 +37,13 @@ const UPLOAD_ERROR_CODES = [
     "uploadBusy",
     // The other refusals of lib/imageMetadata.ts's decode (lib/cloudinary.ts::
     // uploadErrorFromDecode): the account already has an image in progress, or is out
-    // of decode time ({minutes} from i18nParams), the decoder is down, the output or the
-    // pixel count is beyond what the storage takes ({max}).
+    // of decode time ({minutes} from i18nParams), the decoder is down, a task killed at its
+    // deadline, the output beyond what the storage takes ({max}).
     "imageInProgress",
     "imageQuota",
     "imageUnavailable",
     "imageOutputTooLarge",
-    "imageTooManyPixels",
+    "imageTooHeavy",
 ] as const;
 type UploadErrorCode = (typeof UPLOAD_ERROR_CODES)[number];
 

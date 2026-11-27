@@ -33,7 +33,8 @@ afterAll(async () => {
 
 describe("branding and logo writes, concurrent, on the real singleton row", () => {
   it("each of 25 rounds keeps BOTH changes, whichever write commits last", async () => {
-    if (!original) return; // the row is seeded by a migration: nothing to prove on a database without it
+    // The row is seeded by a migration: a database without it proves nothing, and must say so.
+    expect(original).not.toBeNull();
     for (let round = 0; round < 25; round++) {
       const name = `Disjoint ${round}`;
       const logo = `https://res.cloudinary.com/demo/image/upload/disjoint-${round}.png`;
@@ -50,7 +51,7 @@ describe("branding and logo writes, concurrent, on the real singleton row", () =
   });
 
   it("the branding write leaves a logo that was set before it, and the removal leaves the branding", async () => {
-    if (!original) return;
+    expect(original).not.toBeNull();
     await updateLogo({ logoUrl: "https://res.cloudinary.com/demo/image/upload/kept.png", logoPublicId: "disjoint/kept", updatedBy: "logo@test" });
     await upsert({ appName: "Only branding", primaryColor: "#0a0b0c", accentColor: "#0d0e0f", updatedBy: "branding@test" });
     let row = await prisma.appSettings.findUniqueOrThrow({ where: { id: 1 } });

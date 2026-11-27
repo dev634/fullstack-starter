@@ -11,8 +11,10 @@ const img = (id: string) => Buffer.concat([PNG_MAGIC, Buffer.from(id)]);
 const state = vi.hoisted(() => ({
   /** What the next task spends in the child, in fake milliseconds. */
   costMs: 1_000,
-  /** The next task fails (a killed child, a native error) AFTER spending its cost. */
-  fail: false,
+  /** The next task fails AFTER spending its cost: "died" (a native error, a crash) or "deadline" (killed at the 20 s deadline). */
+  fail: false as false | "died" | "deadline",
+  /** The long edge the last encode was asked for (null = keep the dimensions). */
+  lastLongEdge: null as number | null,
   /** The child cannot start: `startupMs` pass, then the task is never given to it. */
   startFails: false,
   startupMs: 30_000,
@@ -35,9 +37,11 @@ vi.mock("@/lib/imageDecodeBridge", async (importOriginal) => {
       }
       return task({
         readHeader: async () => ({ format: "jpeg", width: 10, height: 10, channels: 3, depth: "uchar" }),
-        encode: async () => {
+        encode: async (_input, _limit, maxLongEdge) => {
+          state.lastLongEdge = maxLongEdge;
           vi.advanceTimersByTime(state.costMs);
-          if (state.fail) throw new Error("decode child killed");
+          if (state.fail === "deadline") throw Object.assign(new Error("decode deadline exceeded"), { decodeFailure: "deadline" });
+          if (state.fail) throw new Error("decode child died");
           return Buffer.alloc(state.outputBytes);
         },
       });
@@ -49,6 +53,9 @@ import {
   DECODE_BUDGET_MS,
   DECODE_BUDGET_WINDOW_MS,
   MAX_WAITING_TASKS,
+  DECODE_MIN_COST_MS,
+  encodeOriented,
+  longEdgeToFit,
   runExclusive,
   stripArchivedPhotoMetadata,
 } from "@/lib/imageMetadata";
@@ -78,6 +85,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-11-27T10:00:00Z"));
   state.costMs = 1_000;
   state.fail = false;
+  state.lastLongEdge = null;
   state.startFails = false;
   state.startupMs = 30_000;
   state.operations = [];
@@ -131,7 +139,7 @@ describe("one task per account, waiting or running", () => {
 
   it("a failed task gives the place back too", async () => {
     const owner = freshOwner();
-    state.fail = true;
+    state.fail = "died";
     expect(await refusalOf(strip(owner))).toEqual({ type: "error", code: "corruptedImage" });
     state.fail = false;
     await expect(strip(owner)).resolves.toBeInstanceOf(Buffer);
@@ -170,8 +178,9 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
     expect(refusal).toMatchObject({ type: "error", code: "imageQuota" });
     // Refused before the queue: no child was asked for anything.
     expect(state.operations).toEqual([]);
-    // 299 s span ended ~2 s ago: it leaves the window in ~60 minutes.
-    expect((refusal as { minutes: number }).minutes).toBe(60);
+    // The 299 s task ended at minute 4, the 2 s one at minute 5 (one slot per minute): dropping the first
+    // leaves 2 s, so the delay is ITS exit, minute 4 + 60 - minute 5 = 59.
+    expect((refusal as { minutes: number }).minutes).toBe(59);
   });
 
   it("the window slides: half an hour later the delay is 30 minutes, after an hour the account is served again", async () => {
@@ -193,17 +202,17 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
     await strip(owner); // ends at 1,400 s
     vi.advanceTimersByTime(20 * 60_000);
     await strip(owner); // ends at 2,700 s: 300 s spent in total
-    // Dropping the oldest span (100 s) leaves 200 s: under the budget, so the delay is ITS exit, at 3,700 s: 1,000 s from
-    // now, 17 minutes — not 60, which is when the NEWEST span would leave.
-    expect(await refusalOf(strip(owner))).toEqual({ type: "error", code: "imageQuota", minutes: 17 });
+    // The tasks ended at minutes 1, 23 and 45. Dropping the oldest (100 s) leaves 200 s: under the budget, so the
+    // delay is ITS exit: minute 1 + 60 - minute 45 = 16 — not 60, which is when the NEWEST would leave.
+    expect(await refusalOf(strip(owner))).toEqual({ type: "error", code: "imageQuota", minutes: 16 });
   });
 
-  it("a task killed at the deadline COSTS its time (a bomb is not free: 15 of them end the hour)", async () => {
+  it("a task killed at the deadline COSTS its time and reads imageTooHeavy, not 'not an image' (a bomb is not free: 15 of them end the hour)", async () => {
     const owner = freshOwner();
     state.costMs = 20_000;
-    state.fail = true;
+    state.fail = "deadline";
     for (let i = 0; i < 15; i++) {
-      expect(await refusalOf(strip(owner))).toEqual({ type: "error", code: "corruptedImage" });
+      expect(await refusalOf(strip(owner))).toEqual({ type: "error", code: "imageTooHeavy" });
     }
     expect(await refusalOf(strip(owner))).toMatchObject({ code: "imageQuota" });
   });
@@ -211,7 +220,7 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
   it("a decode that fails costs its time like one that succeeds", async () => {
     const owner = freshOwner();
     state.costMs = 150_000;
-    state.fail = true;
+    state.fail = "died";
     await refusalOf(strip(owner));
     state.fail = false;
     await strip(owner);
@@ -222,7 +231,7 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
     const owner = freshOwner();
     state.costMs = 150_000;
     state.outputBytes = 500;
-    const limits = { maxOutputBytes: 100, maxPixels: 25_000_000 };
+    const limits = { maxOutputBytes: 100, fitInPixels: 25_000_000 };
     expect(await refusalOf(stripArchivedPhotoMetadata(owner, img("big"), "image/jpeg", limits))).toMatchObject({ code: "outputTooLarge" });
     expect(await refusalOf(stripArchivedPhotoMetadata(owner, img("big"), "image/jpeg", limits))).toMatchObject({ code: "outputTooLarge" });
     expect(await refusalOf(strip(owner))).toMatchObject({ code: "imageQuota" });
@@ -257,6 +266,30 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
     state.costMs = 1_000;
     await expect(strip(owner)).resolves.toBeInstanceOf(Buffer);
     expect(await refusalOf(strip(owner))).toMatchObject({ code: "imageQuota" });
+  });
+
+  it("a task costs AT LEAST 250 ms: a cheap task cannot be free, so an account is bounded to 1,200 of them an hour", async () => {
+    expect(DECODE_MIN_COST_MS).toBe(250);
+    expect(DECODE_BUDGET_MS / DECODE_MIN_COST_MS).toBe(1_200);
+    const owner = freshOwner();
+    state.costMs = 0; // a refusal after the header read: well under a millisecond in real life
+    for (let i = 0; i < 1_200; i++) await strip(owner);
+    expect(await refusalOf(strip(owner))).toMatchObject({ code: "imageQuota" });
+  });
+
+  it("the ledger of an account is BOUNDED: one slot per minute, at most 61 live, whatever the number of tasks", async () => {
+    const owner = freshOwner();
+    state.costMs = 0;
+    for (let minute = 0; minute < 130; minute++) {
+      for (let i = 0; i < 3; i++) await strip(owner);
+      vi.advanceTimersByTime(60_000);
+    }
+    const accounts: unknown = Reflect.get(globalThis, Symbol.for("fullstack-starter.imageMetadata.accounts"));
+    const ledger = accounts instanceof Object && "spent" in accounts && accounts.spent instanceof Map ? accounts.spent.get(owner) : null;
+    expect(ledger.buckets.length).toBeLessThanOrEqual(61);
+    // 390 tasks over 130 minutes; only the last hour counts.
+    expect(ledger.total).toBe(ledger.buckets.reduce((sum: number, bucket: { ms: number }) => sum + bucket.ms, 0));
+    expect(ledger.total).toBeLessThanOrEqual(61 * 3 * DECODE_MIN_COST_MS);
   });
 
   it("an account out of budget does not touch another account's", async () => {
@@ -298,6 +331,42 @@ describe("a budget of decode TIME per account, over a sliding hour", () => {
   });
 });
 
+describe("the cheap checks come first", () => {
+  it("an account with a task in flight is refused imageInProgress BEFORE its file is walked: a garbage file would otherwise read 'corrupted'", async () => {
+    const owner = freshOwner();
+    const gate = held();
+    const running = runExclusive(owner, gate.task);
+    const garbage = Buffer.alloc(10 * 1024 * 1024, 7);
+    expect(await refusalOf(stripArchivedPhotoMetadata(owner, garbage, "image/jpeg", LENIENT_LIMITS))).toEqual({ type: "error", code: "imageInProgress" });
+    gate.release();
+    await running;
+  });
+
+  it("an account out of budget is refused imageQuota BEFORE its file is walked", async () => {
+    const owner = freshOwner();
+    state.costMs = DECODE_BUDGET_MS;
+    await strip(owner);
+    const garbage = Buffer.alloc(10 * 1024 * 1024, 7);
+    expect(await refusalOf(stripArchivedPhotoMetadata(owner, garbage, "image/jpeg", LENIENT_LIMITS))).toMatchObject({ code: "imageQuota" });
+  });
+
+  it("a file the JS walk refuses gives the reserved place back (the account may send again at once), and costs nothing", async () => {
+    const owner = freshOwner();
+    expect(await refusalOf(stripArchivedPhotoMetadata(owner, Buffer.from("not an image"), "image/jpeg", LENIENT_LIMITS))).toEqual({ type: "error", code: "corruptedImage" });
+    await expect(strip(owner)).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it("a file the JS walk refuses never answers imageBusy, even with the queue full", async () => {
+    const gate = held();
+    const blocking = runExclusive(freshOwner(), gate.task);
+    const fill = Array.from({ length: MAX_WAITING_TASKS }, () => runExclusive(freshOwner(), gate.task));
+    expect(await refusalOf(stripArchivedPhotoMetadata(freshOwner(), Buffer.from("not an image"), "image/jpeg", LENIENT_LIMITS))).toEqual({ type: "error", code: "corruptedImage" });
+    expect(await refusalOf(strip(freshOwner()))).toEqual({ type: "error", code: "imageBusy" });
+    gate.release();
+    await Promise.all([blocking, ...fill]);
+  });
+});
+
 describe("what a path that cannot decode says, and what each destination's ceilings refuse", () => {
   it("a child that cannot START is imageUnavailable (the decoder is down), never corruptedImage (the user's file)", async () => {
     state.startFails = true;
@@ -305,16 +374,16 @@ describe("what a path that cannot decode says, and what each destination's ceili
   });
 
   it("a child that dies DURING the task stays corruptedImage", async () => {
-    state.fail = true;
+    state.fail = "died";
     expect(await refusalOf(strip(freshOwner()))).toEqual({ type: "error", code: "corruptedImage" });
   });
 
   it("an output beyond the CALLER's ceiling is outputTooLarge, with the ceiling in MB for the message", async () => {
     state.outputBytes = 10 * 1024 * 1024 + 1;
     const refusal = await refusalOf(
-      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 10 * 1024 * 1024, maxPixels: 25_000_000 }),
+      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 10 * 1024 * 1024, fitInPixels: 25_000_000 }),
     );
-    expect(refusal).toEqual({ type: "error", code: "outputTooLarge", max: 10 });
+    expect(refusal).toEqual({ type: "error", code: "outputTooLarge", maxBytes: 10 * 1024 * 1024 });
   });
 
   it("an output the CHILD refused (its own ceiling, before sending it) is outputTooLarge as well, not corruptedImage", async () => {
@@ -325,38 +394,66 @@ describe("what a path that cannot decode says, and what each destination's ceili
         task({
           readHeader: async () => ({ format: "jpeg", width: 10, height: 10, channels: 3, depth: "uchar" }),
           encode: async () => {
-            throw new Error("encode refused by the decode child (outputTooLarge)");
+            // What the bridge throws for the child's own refusal (lib/imageDecodeBridge.ts::refusedBy): a typed marker.
+            throw Object.assign(new Error("encode refused by the decode child"), { decodeFailure: "outputTooLarge" });
           },
         }),
     }));
     const { stripArchivedPhotoMetadata: strippingWithRefusingChild } = await import("@/lib/imageMetadata");
     const refusal = await refusalOf(
-      strippingWithRefusingChild(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 5 * 1024 * 1024, maxPixels: 25_000_000 }),
+      strippingWithRefusingChild(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 5 * 1024 * 1024, fitInPixels: 25_000_000 }),
     );
-    expect(refusal).toEqual({ type: "error", code: "outputTooLarge", max: 5 });
+    expect(refusal).toEqual({ type: "error", code: "outputTooLarge", maxBytes: 5 * 1024 * 1024 });
     vi.doUnmock("@/lib/imageDecodeBridge");
   });
 
-  it("a header beyond the destination's PIXEL ceiling is imageTooManyPixels before anything is encoded, with the ceiling in Mpx", async () => {
-    // The fake header is 10 x 10 = 100 pixels.
-    let encoded = false;
-    state.costMs = 0;
-    const refusal = await refusalOf(
-      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 10 * 1024 * 1024, maxPixels: 99 }),
-    );
-    expect(refusal).toEqual({ type: "error", code: "imageTooManyPixels", max: 0 });
-    expect(encoded).toBe(false);
-    // A header exactly AT the ceiling is admitted.
-    await expect(
-      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 10 * 1024 * 1024, maxPixels: 100 }),
-    ).resolves.toBeInstanceOf(Buffer);
-    encoded = true;
+  // A storage that cannot keep an image beyond its pixel ceiling gets it REDUCED to fit, never refused (an A4 scanned at
+  // 600 dpi is 34.8 Mpx and used to be refused at every attempt). The fake header is 10 x 10 = 100 pixels.
+  it("a header beyond the destination's pixel ceiling is REDUCED to fit (proportions kept), never refused", async () => {
+    const limits = (fitInPixels: number) => ({ maxOutputBytes: 10 * 1024 * 1024, fitInPixels });
+    await expect(stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", limits(50))).resolves.toBeInstanceOf(Buffer);
+    // sqrt(50 / 100) * 10 = 7.07 -> 7, one less for the rounding of the short side: 6 (6 x 6 = 36 <= 50).
+    expect(state.lastLongEdge).toBe(6);
+    // A header exactly AT the ceiling, or under it, is left alone.
+    await strip(freshOwner());
+    expect(state.lastLongEdge).toBeNull();
+    await stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", limits(100));
+    expect(state.lastLongEdge).toBeNull();
+  });
+
+  it("the reduction never lets a rounded short side push the product over the ceiling", async () => {
+    // Every pair of the form w x h with w * h in (ceiling, 4 x ceiling]: the long edge asked, applied by sharp's rule
+    // (the short side is rounded), stays under the ceiling.
+    for (const [w, h] of [[7000, 5000], [6000, 6600], [20000, 2000], [4000, 9999], [12345, 3001], [5001, 5000]]) {
+      for (const ceiling of [25_000_000, 24_999_999, 1_000_000]) {
+        const edge = longEdgeToFit({ width: w, height: h }, ceiling);
+        if (w * h <= ceiling) {
+          expect(edge).toBeNull();
+          continue;
+        }
+        expect(edge).not.toBeNull();
+        const long = Math.max(w, h);
+        const short = Math.min(w, h);
+        const newLong = edge as number;
+        const newShort = Math.round((short * newLong) / long);
+        expect(newLong * newShort).toBeLessThanOrEqual(ceiling);
+        // and not absurdly small: within 1% of the ceiling in pixels
+        expect(newLong * newShort).toBeGreaterThan(ceiling * 0.99);
+      }
+    }
+  });
+
+  it("a model path (its own long edge, nothing to fit) asks for its long edge; a storage path with both asks for the smaller", async () => {
+    await encodeOriented("model", freshOwner(), img("a"), { format: "jpeg", quality: 85 }, { maxLongEdge: 1568, maxOutputBytes: 1_000_000, fitInPixels: null });
+    expect(state.lastLongEdge).toBe(1568);
+    await encodeOriented("strip", freshOwner(), img("a"), { format: "png" }, { maxLongEdge: 1568, maxOutputBytes: 1_000_000, fitInPixels: 50 });
+    expect(state.lastLongEdge).toBe(6);
   });
 
   it("the same output passes a destination that takes it (the ceilings are per path)", async () => {
     state.outputBytes = 10 * 1024 * 1024 + 1;
     await expect(
-      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 32 * 1024 * 1024, maxPixels: 25_000_000 }),
+      stripArchivedPhotoMetadata(freshOwner(), img("a"), "image/jpeg", { maxOutputBytes: 32 * 1024 * 1024, fitInPixels: 25_000_000 }),
     ).resolves.toHaveLength(10 * 1024 * 1024 + 1);
   });
 });

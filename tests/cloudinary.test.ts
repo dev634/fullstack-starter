@@ -572,8 +572,8 @@ describe("a refusal of the decode reaches the user as itself (company photo and 
     [{ type: "error", code: "imageInProgress" }, "imageInProgress", undefined, "Une de tes images est déjà en cours de traitement. Réessaie dans un instant."],
     [{ type: "error", code: "imageQuota", minutes: 23 }, "imageQuota", { minutes: 23 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 23 min."],
     [{ type: "error", code: "imageUnavailable" }, "imageUnavailable", undefined, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
-    [{ type: "error", code: "outputTooLarge", max: 10 }, "imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
-    [{ type: "error", code: "imageTooManyPixels", max: 25 }, "imageTooManyPixels", { max: 25 }, "Image trop grande pour le stockage (25 Mpx max)."],
+    [{ type: "error", code: "outputTooLarge", maxBytes: 10_485_760 }, "imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
+    [{ type: "error", code: "imageTooHeavy" }, "imageTooHeavy", undefined, "Cette image est trop lourde à traiter. Essaie une version plus légère."],
     [{ type: "error", code: "corruptedImage" }, "uploadNotImage", undefined, "Le fichier doit être une image."],
   ] as const;
   const clientPhoto = () => new File([REAL_JPEG_BYTES], "photo.jpg", { type: "image/jpeg" });

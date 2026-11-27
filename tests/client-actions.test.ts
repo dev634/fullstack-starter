@@ -595,7 +595,7 @@ describe("client photo: the account that owns the decode, and what a refusal say
     ["imageQuota", { minutes: 7 }, "Tu as demandé beaucoup de traitements d'images. Réessaie dans 7 min."],
     ["imageUnavailable", {}, "Le traitement des images est momentanément indisponible. Réessaie dans quelques minutes."],
     ["imageOutputTooLarge", { max: 10 }, "Image trop volumineuse après traitement (10 Mo max)."],
-    ["imageTooManyPixels", { max: 25 }, "Image trop grande pour le stockage (25 Mpx max)."],
+    ["imageTooHeavy", {}, "Cette image est trop lourde à traiter. Essaie une version plus légère."],
   ])("a refusal %s reaches the user as its own message, and nothing is written", async (i18n, i18nParams, message) => {
     uploadClientPhotoMock.mockRejectedValue({ type: "error", message: "English fallback", i18n, i18nParams });
     const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));

@@ -14,12 +14,14 @@ import {
 import {
   convertToStrippedJpeg,
   isImageRefusal,
+  mebibytes,
   isStrippableMediaType,
   stripArchivedPhotoMetadata,
-  type ImageRefusal,
   type StorageImageLimits,
 } from "@/lib/imageMetadata";
 import type { CloudinaryDeliveryType, CloudinaryResourceType } from "@/app/generated/prisma/client";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
+import { format } from "@/lib/i18n/format";
 
 // Re-export the pure URL helpers so existing server imports keep working.
 export { publicIdFromUrl, optimizedClientPhoto } from "./cloudinary-url";
@@ -35,17 +37,29 @@ cloudinary.config({ secure: true });
 // 2026-11-27: plan "Free", image_max_size_bytes = 10485760, raw_max_size_bytes =
 // 10485760, image_max_px = 25000000. ONE source for each ceiling: the output of a
 // decode that goes to storage (company photo, equipment photo, bulletin archive) is
-// refused BEFORE it is sent when it is beyond either, with a message that says so,
-// instead of a generic upload failure from the provider. They are NOT the input
+// handled BEFORE it is sent: an output beyond the file ceiling is refused with a message that says so
+// (instead of a generic upload failure from the provider), and an image beyond the pixel ceiling is
+// REDUCED to fit it, proportions kept, never refused — a consequence of the storage plan, which cannot
+// keep such an image as it is anyway (an A4 scanned at 600 dpi is 34.8 Mpx), and 25 Mpx stays very legible. They are NOT the input
 // ceilings the application announces (project files 20 MB, reserve plans 25 MB, photos
 // 10 MB): those are a product decision, still open (docs/SECURITE-CHECKLIST.md).
 export const STORAGE_MAX_FILE_BYTES = 10_485_760;
 export const STORAGE_MAX_IMAGE_PIXELS = 25_000_000;
 
+/**
+ * The warning of a delivery note whose archive the storage cannot take (its cleaned image is still beyond
+ * STORAGE_MAX_FILE_BYTES after the reduction to the pixel ceiling): the stock is applied, the archive is
+ * not. Built here, from the one constant, so the action returns dictionary text (and no number it took
+ * from somewhere else).
+ */
+export function archiveTooLargeMessage(t: Dictionary): string {
+  return format(t.materials.scan.messages.appliedArchiveTooLarge, { max: mebibytes(STORAGE_MAX_FILE_BYTES) });
+}
+
 /** What every decode that goes to storage passes to lib/imageMetadata.ts. */
 export const STORAGE_IMAGE_LIMITS: StorageImageLimits = {
   maxOutputBytes: STORAGE_MAX_FILE_BYTES,
-  maxPixels: STORAGE_MAX_IMAGE_PIXELS,
+  fitInPixels: STORAGE_MAX_IMAGE_PIXELS,
 };
 
 // --- Guarded delivery --------------------------------------------------
@@ -256,12 +270,14 @@ function isRealImage(buffer: Buffer): boolean {
  * application's own error shape with a stable `i18n` code (getErrorMessage translates
  * it). Nothing is ever sent to Cloudinary after one, the original included. A queue that
  * is full, an account already processing an image or out of decode time, a decoder that
- * is down, an output or a pixel count beyond the storage's ceiling each say so, instead
+ * is down, an output beyond the storage ceiling each say so, instead
  * of calling the photo "not an image"; only a decode that failed does.
  */
 function uploadErrorFromDecode(error: unknown) {
-  const refusal: ImageRefusal | null = isImageRefusal(error) ? error : null;
-  switch (refusal?.code) {
+  // A decode that failed in any other way (not one of the module's own refusals): never a fallback
+  // to the original, which would quietly undo the stripping.
+  if (!isImageRefusal(error)) return { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+  switch (error.code) {
     case "imageBusy":
       return {
         type: "error",
@@ -279,7 +295,7 @@ function uploadErrorFromDecode(error: unknown) {
         type: "error",
         message: "Too many images processed for now. Try again later.",
         i18n: "imageQuota",
-        i18nParams: { minutes: refusal.minutes ?? 60 },
+        i18nParams: { minutes: error.minutes },
       };
     case "imageUnavailable":
       return {
@@ -287,24 +303,23 @@ function uploadErrorFromDecode(error: unknown) {
         message: "Image processing is temporarily unavailable. Try again in a few minutes.",
         i18n: "imageUnavailable",
       };
+    case "imageTooHeavy":
+      return {
+        type: "error",
+        message: "This image is too heavy to process. Try a lighter version.",
+        i18n: "imageTooHeavy",
+      };
     case "outputTooLarge":
       return {
         type: "error",
         message: "Image too large after processing.",
         i18n: "imageOutputTooLarge",
-        i18nParams: { max: refusal.max ?? STORAGE_MAX_FILE_BYTES / (1024 * 1024) },
+        i18nParams: { max: mebibytes(error.maxBytes) },
       };
-    case "imageTooManyPixels":
-      return {
-        type: "error",
-        message: "Image too large for storage.",
-        i18n: "imageTooManyPixels",
-        i18nParams: { max: refusal.max ?? STORAGE_MAX_IMAGE_PIXELS / 1_000_000 },
-      };
-    default:
-      // A decode that failed: never a fallback to the original, which would quietly undo
-      // the stripping.
+    case "corruptedImage":
       return { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
+    default:
+      return error satisfies never;
   }
 }
 
@@ -840,8 +855,8 @@ export async function uploadEquipmentPhoto(file: File, owner: string): Promise<U
 
 /**
  * Best-effort deletion of an equipment photo. Never throws so it can't break
- * the surrounding mutation if the asset is already gone — but unlike
- * destroyClientPhoto/destroyLogo, it reads `destroy`'s own returned report
+ * the surrounding mutation if the asset is already gone. Like every destroy it goes
+ * through destroyAndReport, which reads `destroy`'s own returned report
  * (`{ result: "ok" | "not found" | ... }`) and logs when it's neither: an
  * operation that doesn't throw hasn't necessarily done anything (Cloudinary
  * `destroy` silently no-ops on a `type`/`resource_type` mismatch instead of

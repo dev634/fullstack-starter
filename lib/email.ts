@@ -28,7 +28,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailArgs): Pro
       // password-reset link/token, and anyone with log access could use it
       // to take over the account. Fail loudly instead of a silent "sent".
       console.error("sendEmail skipped: RESEND_API_KEY is not set in production.");
-      throw { type: "error", message: "Failed to send the email. Please try again." };
+      throw new Error("Failed to send the email (RESEND_API_KEY is not set in production).");
     }
     console.log(`[email:dev-fallback] To: ${to} | Subject: ${subject}\n${text ?? html}`);
     return;
@@ -46,7 +46,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailArgs): Pro
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error("sendEmail failed:", res.status, body);
-    throw { type: "error", message: "Failed to send the email. Please try again." };
+    throw new Error("Failed to send the email (the provider answered an error, see the line above).");
   }
 }
 

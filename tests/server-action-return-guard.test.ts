@@ -62,7 +62,7 @@ const SERVER_ACTION_FILES_EXPECTED = 24;
 const SERVER_ACTIONS_EXPECTED = 91;
 
 /** Exact size of the closed list: adding an entry is a deliberate edit here too. */
-const CLOSED_LIST_EXPECTED = 26;
+const CLOSED_LIST_EXPECTED = 27;
 
 /**
  * Returns the scan cannot prove and that are allowed anyway. Each one is pinned

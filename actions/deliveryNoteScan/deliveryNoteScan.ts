@@ -8,6 +8,7 @@ import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/clientIp";
 import {
   extractDeliveryNoteItems,
+  prepareDeliveryNoteImage,
   readAndValidateDeliveryNoteImage,
   stripArchivedPhotoMetadata,
   scanProviderInfo,
@@ -17,12 +18,13 @@ import {
 } from "@/lib/deliveryNoteScan";
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
-import { applyScanItems, findByProject as findMaterialsByProject, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
-import { create as createFile, isPublicIdReferenced as isFilePublicIdReferenced } from "@/repository/projectFiles";
+import { applyScanItems, findIdsInProject as findMaterialIdsInProject, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
+import { isPublicIdReferenced as isFilePublicIdReferenced } from "@/repository/projectFiles";
+import { isImageRefusal } from "@/lib/imageMetadata";
 import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
-import { STORAGE_IMAGE_LIMITS, uploadProjectFile } from "@/lib/cloudinary";
+import { archiveTooLargeMessage, STORAGE_IMAGE_LIMITS, uploadProjectFile } from "@/lib/cloudinary";
 import { revalidateFiles } from "@/lib/revalidateFiles";
 import { revalidateMaterials } from "@/lib/revalidateMaterials";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -147,16 +149,20 @@ export async function scanDeliveryNote(
       }),
     };
   }
-  await Promise.all([registerFailure(userKey), registerFailure(ipKey)]);
 
   const { provider, model } = scanProviderInfo();
   const startedAt = Date.now();
 
   try {
-    // The account the role guard resolved (never a form field) owns the decode of the image
-    // for the model: one task at a time per account, and a budget of decode time
-    // (lib/imageMetadata.ts).
-    const { supplier, items, bytesSent } = await extractDeliveryNoteItems(file, roleCheck.email);
+    // The decode of the image for the model comes BEFORE the unit of the quota is reserved: a refusal
+    // of the decoder (an image already in progress, the account's decode budget, a busy queue, a decoder
+    // that is down) is not a scan, and a double click must not cost one of the 20 units of the hour. The
+    // account the role guard resolved (never a form field) owns the decode: one task at a time per
+    // account, and a budget of decode time (lib/imageMetadata.ts).
+    const prepared = await prepareDeliveryNoteImage(file, roleCheck.email);
+    // The reservation still lands before the paid provider call.
+    await Promise.all([registerFailure(userKey), registerFailure(ipKey)]);
+    const { supplier, items, bytesSent } = await extractDeliveryNoteItems(prepared);
     logScanEvent({
       userEmail: roleCheck.email,
       projectId,
@@ -283,15 +289,15 @@ export async function applyDeliveryNoteScan(
     // BEFORE the archive, and a failed archive said "try again" — a retry then applied the
     // stock a second time. Now, strictly:
     //  1. everything cheap and read-only: the file's own validation (magic bytes + size, no
-    //     decode), then the materialIds against the project — the same verdict
-    //     applyScanItems would reach (a materialId that matches no row of THIS project),
-    //     asked BEFORE anything costly: a forged or stale list never spends decoder time;
-    //  2. the decode (the cleaned archive), its output ceilings, and the upload of the archive:
-    //     every costly or fallible step that does not touch a row;
-    //  3. only then the rows. If the materials fail, the asset just sent is compensated
-    //     (nothing was written: "try again" is true). If the ProjectFile row fails AFTER the
-    //     materials were applied, the stock is committed and a retry would double it: the
-    //     answer is a partial success saying so, never "try again".
+    //     decode), the materialIds against the project — the same verdict applyScanItems
+    //     would reach (a materialId that matches no row of THIS project), asked BEFORE anything
+    //     costly: a forged or stale list never spends decoder time — and the delivery-note
+    //     folder (a read that fails must fail BEFORE a file is sent);
+    //  2. the decode, its output ceiling, and the upload of the archive: every costly or
+    //     fallible step that does not touch a row;
+    //  3. the rows, in ONE transaction: the materials and the ProjectFile row (applyScanItems).
+    //     If it fails, the asset just sent is compensated and nothing was applied: "try again"
+    //     is true, and a retry cannot apply the stock twice.
     let validated: Awaited<ReturnType<typeof readAndValidateDeliveryNoteImage>> | null = null;
     if (file instanceof File && file.size > 0) {
       // Re-apply the scan's own allowlist (magic bytes + size) before handing the file to
@@ -303,89 +309,92 @@ export async function applyDeliveryNoteScan(
       validated = await readAndValidateDeliveryNoteImage(file);
     }
 
-    const wanted = materialItems.flatMap((item) => (item.materialId == null ? [] : [item.materialId]));
+    const wanted = [...new Set(materialItems.flatMap((item) => (item.materialId == null ? [] : [item.materialId])))];
     if (wanted.length > 0) {
-      const inProject = new Set((await findMaterialsByProject(projectId)).map((material) => material.id));
+      const inProject = new Set(await findMaterialIdsInProject(projectId, wanted));
       if (wanted.some((id) => !inProject.has(id))) {
         return { ...prevState, type: "error", message: t.materials.messages.invalidId };
       }
     }
 
-    // What the archive step uploaded, if it ran: compensated when the rows that follow fail.
+    let deliveryFolderId: number | null = null;
+    if (validated) {
+      const rootFolders = await findChildFolders(projectId, null);
+      deliveryFolderId = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons")?.id ?? null;
+    }
+
+    // What the archive step produced, if it ran: compensated when the transaction fails.
     let archive: Awaited<ReturnType<typeof uploadProjectFile>> | null = null;
     let archivedName = "";
+    // The cleaned image is beyond what the storage takes, even after being reduced to its pixel
+    // ceiling: the stock is applied WITHOUT the archive, and the answer says so (a warning).
+    let archiveTooLarge = false;
     if (file instanceof File && validated) {
-      // The photo attached to the project is a supporting document: it keeps its full
-      // resolution and original format; it never passes through reduceImageForModel, which
-      // only runs inside extractDeliveryNoteItems, on the scan step's own request. Only its
-      // metadata (EXIF — GPS, timestamp, device model; also ICC/XMP) is removed, per an
-      // explicit product decision (see stripArchivedPhotoMetadata). The decode is the
-      // account's: `roleCheck.email`, resolved by the role guard. A refusal of the decode
-      // (queue full, an image already in progress, out of decode time, decoder down, an
-      // output or a pixel count beyond the storage's ceiling) fails the request HERE,
-      // before a single row has changed, and never falls back to the un-cleaned original.
-      let cleaned: Buffer;
+      // The photo attached to the project is a supporting document: it keeps its original format
+      // and, up to the storage's pixel ceiling, its full resolution (an image beyond it is reduced
+      // to fit, proportions kept — the storage plan cannot keep it as it is, see
+      // lib/cloudinary.ts); it never passes through reduceImageForModel, which only runs in
+      // prepareDeliveryNoteImage, on the scan step's own request. Only its metadata (EXIF — GPS,
+      // timestamp, device model; also ICC/XMP) is removed, per an explicit product decision (see
+      // stripArchivedPhotoMetadata). The decode is the account's: `roleCheck.email`, resolved by
+      // the role guard. A refusal of the decode (queue full, an image already in progress, out of
+      // decode time, decoder down, a task killed at its deadline) fails the request HERE, before a
+      // single row has changed, and never falls back to the un-cleaned original.
+      let cleaned: Buffer | null = null;
       try {
         cleaned = await stripArchivedPhotoMetadata(roleCheck.email, validated.buffer, validated.mediaType, STORAGE_IMAGE_LIMITS);
       } catch (error) {
-        throw scanErrorFromDecode(error);
+        if (isImageRefusal(error) && error.code === "outputTooLarge") archiveTooLarge = true;
+        else throw scanErrorFromDecode(error);
       }
-      // Content-free, like logScanEvent above: how the cleaned archive's size compares to
-      // the original upload — useful to notice a stripping step that's silently no-op'ing
-      // on a class of images — never what's inside either file.
-      console.log("delivery_note_scan_archive", {
-        userEmail: roleCheck.email,
-        projectId,
-        bytes: file.size,
-        archivedBytes: cleaned.length,
-      });
-      // `new Uint8Array(cleaned)` rather than the Buffer itself: Node's Buffer type is
-      // generic over ArrayBufferLike (it can be backed by a SharedArrayBuffer), while DOM's
-      // BlobPart requires an ArrayBufferView<ArrayBuffer> specifically — this copies the
-      // bytes into a plain Uint8Array TypeScript accepts here, it isn't a runtime fix.
-      const archivedFile = new File([new Uint8Array(cleaned)], file.name, { type: validated.mediaType });
-      archivedName = archivedFile.name;
-      archive = await uploadProjectFile(archivedFile, projectId);
+      if (cleaned) {
+        // Content-free, like logScanEvent above: how the cleaned archive's size compares to the
+        // original upload — useful to notice a stripping step that's silently no-op'ing on a class
+        // of images — never what's inside either file.
+        console.log("delivery_note_scan_archive", {
+          userEmail: roleCheck.email,
+          projectId,
+          bytes: file.size,
+          archivedBytes: cleaned.length,
+        });
+        // `new Uint8Array(cleaned)` rather than the Buffer itself: Node's Buffer type is
+        // generic over ArrayBufferLike (it can be backed by a SharedArrayBuffer), while DOM's
+        // BlobPart requires an ArrayBufferView<ArrayBuffer> specifically — this copies the
+        // bytes into a plain Uint8Array TypeScript accepts here, it isn't a runtime fix.
+        const archivedFile = new File([new Uint8Array(cleaned)], file.name, { type: validated.mediaType });
+        archivedName = archivedFile.name;
+        archive = await uploadProjectFile(archivedFile, projectId);
+      }
     }
 
-    // The rows. When the materials fail, the archive just sent is compensated (nothing
-    // references it) and the error is the caller's: nothing was applied, retrying is safe.
+    // The rows, in ONE transaction: the materials and the archive's row. A failure compensates the
+    // archive just sent (nothing references it unless the transaction committed after all) and the
+    // error is the caller's: nothing was applied, retrying is safe.
+    const uploaded = archive;
     await writeWithCompensation(
-      () => applyScanItems(projectId, materialItems, supplier),
-      archive ? assetCompensation("delivery note archive", archive, isFilePublicIdReferenced, isUnmatchedScanMaterialError) : undefined
+      () =>
+        applyScanItems(
+          projectId,
+          materialItems,
+          supplier,
+          uploaded
+            ? {
+                projectId,
+                folderId: deliveryFolderId,
+                name: archivedName,
+                url: uploaded.url,
+                publicId: uploaded.publicId,
+                deliveryType: uploaded.deliveryType,
+                resourceType: uploaded.resourceType,
+                format: uploaded.format,
+                version: uploaded.version,
+                size: uploaded.size,
+                mimeType: uploaded.mimeType,
+              }
+            : undefined
+        ),
+      uploaded ? assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced, isUnmatchedScanMaterialError) : undefined
     );
-
-    // From here the stock is COMMITTED. A failure of the archive row is reported as what
-    // it is, never as "try again". Only the row write is wrapped: a failure there orphans
-    // the archive (compensated, unless a row references it after all).
-    let archiveSaved = true;
-    if (archive) {
-      const uploaded = archive;
-      try {
-        const rootFolders = await findChildFolders(projectId, null);
-        const deliveryFolder = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons");
-        await writeWithCompensation(
-          () =>
-            createFile({
-              projectId,
-              folderId: deliveryFolder?.id ?? null,
-              name: archivedName,
-              url: uploaded.url,
-              publicId: uploaded.publicId,
-              deliveryType: uploaded.deliveryType,
-              resourceType: uploaded.resourceType,
-              format: uploaded.format,
-              version: uploaded.version,
-              size: uploaded.size,
-              mimeType: uploaded.mimeType,
-            }),
-          assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced)
-        );
-      } catch (error) {
-        console.error("Delivery note scan: materials applied, archive row not written:", error);
-        archiveSaved = false;
-      }
-    }
 
     // Invalidates the hub (its Files link card shows a plain COUNT) and the
     // dedicated files page — the archive step above may have just created a
@@ -402,11 +411,16 @@ export async function applyDeliveryNoteScan(
     // card carries the materials count now, and the dedicated `.../tasks`
     // page is where Matériel actually renders.
     revalidateMaterials(project.clientId, projectId);
-    return {
-      ...prevState,
-      type: "success",
-      message: archiveSaved ? t.materials.scan.messages.applied : t.materials.scan.messages.appliedWithoutArchive,
-    };
+    // "warning": the stock IS applied, the archive is not. A state of its own (not "success" with another
+    // text): the modal closes on every "success", and nobody would read the message.
+    if (archiveTooLarge) {
+      return {
+        ...prevState,
+        type: "warning",
+        message: archiveTooLargeMessage(t),
+      };
+    }
+    return { ...prevState, type: "success", message: t.materials.scan.messages.applied };
   } catch (error) {
     // readAndValidateDeliveryNoteImage and the decode (above) throw lib/deliveryNoteScan.ts's
     // own code-shaped error — checked and translated first. Everything else reachable in this

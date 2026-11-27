@@ -13,11 +13,11 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { extractDeliveryNoteItems as extractDeliveryNoteItemsOf } from "@/lib/deliveryNoteScan";
+import { extractDeliveryNoteItems as extractPrepared, prepareDeliveryNoteImage } from "@/lib/deliveryNoteScan";
 import { freshOwner } from "@/tests/helpers/imageAccount";
 
 // The image for the model is decoded on behalf of an account: each call here is made by a fresh one.
-const extractDeliveryNoteItems = (file: File) => extractDeliveryNoteItemsOf(file, freshOwner());
+const extractDeliveryNoteItems = async (file: File) => extractPrepared(await prepareDeliveryNoteImage(file, freshOwner()));
 import { MAX_WAITING_TASKS, runExclusive } from "@/lib/imageMetadata";
 import { realJpegFile } from "@/tests/helpers/sharpFixtures";
 

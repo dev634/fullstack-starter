@@ -64,8 +64,12 @@ const EXPECTED_FILES = 29;
 // 244 -> 247 (fix/televersements, the account's share): lib/cloudinary.ts gains destroyAndReport (the ONE
 // reader of destroy's report), destroyUnderstoodNothing and uploadErrorFromDecode while losing busyUploadError
 // (-1 + 3 = +2), and repository/appSettings.ts gains updateLogo (+1). None is read-named (116 unchanged).
-const EXPECTED_FUNCTIONS = 247;
-const EXPECTED_READ_NAMED = 116;
+// 247 -> 250, 116 -> 117 (fix/televersements, one transaction): repository/projectMaterials.ts gains
+// findIdsInProject (read-named, one `findMany` with `select: { id }`, no write), repository/projectFiles.ts
+// gains createWithin (the write of `create`, on the client it is given; not read-named), and
+// lib/cloudinary.ts gains archiveTooLargeMessage (not read-named) while the walk counts the same others.
+const EXPECTED_FUNCTIONS = 250;
+const EXPECTED_READ_NAMED = 117;
 
 type Fn = { name: string; body: ts.Node };
 

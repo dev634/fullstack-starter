@@ -13,8 +13,8 @@ import { freshOwner } from "@/tests/helpers/imageAccount";
 // logged, and the assertion is the budget itself, so a machine that is too slow turns it red instead of
 // letting a limit through that its own workload would hit.
 
-const STORAGE_LIMITS = { maxOutputBytes: 10_485_760, maxPixels: 25_000_000 };
-const MODEL_RECIPE = { maxLongEdge: 1568, maxOutputBytes: MAX_ENCODED_OUTPUT_BYTES, maxPixels: null } as const;
+const STORAGE_LIMITS = { maxOutputBytes: 10_485_760, fitInPixels: 25_000_000 };
+const MODEL_RECIPE = { maxLongEdge: 1568, maxOutputBytes: MAX_ENCODED_OUTPUT_BYTES, fitInPixels: null } as const;
 
 async function phonePhoto(): Promise<Buffer> {
   const width = 4032;

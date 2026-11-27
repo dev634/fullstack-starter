@@ -26,7 +26,7 @@ export function freshOwner(): string {
 /** The limits of a destination that takes whatever the decoder's own ceilings admit. */
 export const LENIENT_LIMITS: StorageImageLimits = {
   maxOutputBytes: MAX_ENCODED_OUTPUT_BYTES,
-  maxPixels: SHARP_MAX_INPUT_PIXELS,
+  fitInPixels: SHARP_MAX_INPUT_PIXELS,
 };
 
 export function stripFor(buffer: Buffer, mediaType: DeliveryNoteMediaType, owner: string = freshOwner()): Promise<Buffer> {
