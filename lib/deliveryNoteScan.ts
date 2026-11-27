@@ -7,10 +7,9 @@ import {
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
 } from "@/lib/fileSignature";
 import {
-    decodeOriented,
+    encodeOriented,
     isImageBusyError,
     isStrippableMediaType,
-    runExclusive,
     stripArchivedPhotoMetadata,
     type DeliveryNoteMediaType,
 } from "@/lib/imageMetadata";
@@ -280,22 +279,12 @@ const MODEL_JPEG_QUALITY = 85;
  */
 async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
     try {
-        // Same opener (pixel ceiling, orientation, `failOn: "none"`) and same
-        // one-at-a-time queue as every other sharp path of the app
-        // (lib/imageMetadata.ts): a truncated photo the archive accepts is not
-        // refused one step earlier here, and this decode counts against the
-        // same memory bound.
-        return await runExclusive(async () =>
-            (await decodeOriented(buffer))
-                .resize({
-                    width: MODEL_MAX_LONG_EDGE,
-                    height: MODEL_MAX_LONG_EDGE,
-                    fit: "inside",
-                    withoutEnlargement: true,
-                })
-                .jpeg({ quality: MODEL_JPEG_QUALITY })
-                .toBuffer()
-        );
+        // Same decode as every other path of the app (lib/imageMetadata.ts::
+        // encodeOriented): same child process and deadline, same one-at-a-time
+        // queue, same pixel ceiling and budget, orientation, `failOn: "none"` — a
+        // truncated photo the archive accepts is not refused one step earlier
+        // here. Only the recipe differs: resize, then JPEG at MODEL_JPEG_QUALITY.
+        return await encodeOriented("model", buffer, { format: "jpeg", quality: MODEL_JPEG_QUALITY }, MODEL_MAX_LONG_EDGE);
     } catch (error) {
         // A full queue is "try again in a moment", not a corrupted photo —
         // and, like the corrupted case, never a fallback to the original.

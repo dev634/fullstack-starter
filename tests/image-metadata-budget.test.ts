@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import sharp from "sharp";
 import { convertToStrippedJpeg, stripArchivedPhotoMetadata, MAX_DECODED_BYTES } from "@/lib/imageMetadata";
 
-// REAL sharp on purpose: what is under test is what libvips is (or is not) asked to
+// REAL sharp (in the real decode child) on purpose: what is under test is what libvips is (or is not) asked to
 // allocate, which a fake cannot say. Fixtures are built with sharp, or byte by byte for
 // the one TIFF sharp cannot write.
 //
@@ -12,15 +12,8 @@ import { convertToStrippedJpeg, stripArchivedPhotoMetadata, MAX_DECODED_BYTES } 
 
 const SLOW = 60_000;
 
-describe("sharp's cache is off once lib/imageMetadata is imported", () => {
-  it("reports a maximum of 0 for entries, memory and files", () => {
-    // Imported at the top of this file: the module has run.
-    const cache = sharp.cache();
-    expect(cache.memory.max).toBe(0);
-    expect(cache.files.max).toBe(0);
-    expect(cache.items.max).toBe(0);
-  });
-});
+// The cache (off) and the concurrency (1) of libvips are set in the decode child, not here:
+// tests/image-decode-bridge.test.ts reads them from the child's source.
 
 /**
  * A TIFF of `width` x `height` with `channels` samples of `bits` bits (`format` 1 = unsigned

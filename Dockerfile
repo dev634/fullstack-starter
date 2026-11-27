@@ -51,6 +51,11 @@ COPY --from=builder /app/app/generated ./app/generated
 # others are host-side tooling (shell, or the docs generator) that has no
 # business in the image.
 COPY --from=builder /app/scripts/retype-existing-guarded-assets.mjs ./scripts/retype-existing-guarded-assets.mjs
+# The image decoder: the ONLY file that imports sharp. The server forks it (lib/
+# imageDecodeBridge.ts, resolved from process.cwd() = /app) and kills it at the
+# deadline; plain JS ESM, so it needs no build. Without this line every upload of an
+# image is refused.
+COPY --from=builder /app/scripts/image-decode-child.mjs ./scripts/image-decode-child.mjs
 
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh && chown -R nextjs:nodejs /app

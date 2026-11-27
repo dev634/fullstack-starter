@@ -91,9 +91,12 @@ function isExcluded(relPath: string): boolean {
  * Dockerfile: `COPY --from=builder /app/scripts/<file> …`. This is the table
  * that defines "shipped script", so the test cannot drift from it.
  */
-function shippedScripts(): string[] {
-  const dockerfile = readFileSync(join(ROOT, "Dockerfile"), "utf8");
+function shippedScriptsIn(dockerfile: string): string[] {
   return [...dockerfile.matchAll(/^COPY --from=builder \/app\/(scripts\/\S+)\s/gm)].map((m) => m[1]);
+}
+
+function shippedScripts(): string[] {
+  return shippedScriptsIn(readFileSync(join(ROOT, "Dockerfile"), "utf8"));
 }
 
 function walk(dir: string, out: string[]): void {
@@ -190,6 +193,8 @@ describe("runtime dependencies", () => {
     // If the Dockerfile stops copying any script this assertion is what goes
     // red — so the scripts exclusion above cannot silently become total.
     expect(shippedScripts()).toContain("scripts/retype-existing-guarded-assets.mjs");
+    // The image decoder is shipped too, and this is what makes its imports (sharp) scanned.
+    expect(shippedScripts()).toContain("scripts/image-decode-child.mjs");
   });
 
   it("every package imported by shipped code is in `dependencies`", () => {
@@ -260,17 +265,55 @@ describe("runtime dependencies", () => {
     });
   });
 
-  // Every decode of an uploaded image goes through lib/imageMetadata.ts: one
-  // process-wide queue (runExclusive), one opener with the pixel ceiling, the
-  // decoded-bytes budget and the timeout (decodeOriented), libvips' cache off.
-  // A second module importing sharp would decode outside all of that — the
-  // docs said so (docs/CONVENTIONS.md, photos section) but nothing held it
-  // (delta audit of fix/photo-entreprise, F3). Same discovery as above: every
-  // shipped file, all four import shapes.
-  it("sharp is imported by lib/imageMetadata.ts alone among shipped files", () => {
+  // sharp is imported by ONE shipped file: the decode child (scripts/image-decode-child.mjs),
+  // which the server forks and kills at a deadline. A second importer would decode inside the
+  // server process, outside the deadline, the queue, the pixel ceiling and the budget; the
+  // server itself importing sharp is the case that matters most (a native decode that no JS
+  // timeout can interrupt would run in the process that serves everyone). Same discovery as
+  // above: every shipped file, all four import shapes, the shipped scripts read from the Dockerfile.
+  it("sharp is imported by scripts/image-decode-child.mjs alone among shipped files", () => {
     const importers = shippedSourceFiles()
       .map(rel)
       .filter((relPath) => runtimePackagesIn(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).has("sharp"));
-    expect(importers).toEqual(["lib/imageMetadata.ts"]);
+    expect(importers).toEqual(["scripts/image-decode-child.mjs"]);
+  });
+
+  // The probes of that test: the form that bit, its neighbours, and the form that must stay green.
+  describe("the confinement of sharp (probes)", () => {
+    const importersOf = (files: Record<string, string>): string[] =>
+      Object.entries(files)
+        .filter(([path, text]) => runtimePackagesIn(parse(path, text)).has("sharp"))
+        .map(([path]) => path);
+
+    it("the original form: a lib module importing sharp is caught", () => {
+      expect(importersOf({ "lib/other.ts": `import sharp from "sharp";` })).toEqual(["lib/other.ts"]);
+    });
+
+    it("the neighbouring forms: require, dynamic import, re-export, side-effect import", () => {
+      for (const form of [
+        `const sharp = require("sharp");`,
+        `const load = () => import("sharp");`,
+        `export { default } from "sharp";`,
+        `import "sharp";`,
+      ]) {
+        expect(importersOf({ "lib/imageMetadata.ts": form }), form).toEqual(["lib/imageMetadata.ts"]);
+      }
+    });
+
+    it("stays green on what the compiler erases and on a mention in a comment", () => {
+      expect(
+        importersOf({
+          "lib/a.ts": `import type { Sharp } from "sharp";`,
+          "lib/b.ts": `// import sharp from "sharp";`,
+          "lib/c.ts": `import { fork } from "node:child_process";`,
+        }),
+      ).toEqual([]);
+    });
+
+    it("the discovery: a Dockerfile that stops copying the child leaves it unscanned (so the test above goes red)", () => {
+      const withCopy = "COPY --from=builder /app/scripts/image-decode-child.mjs ./scripts/image-decode-child.mjs\n";
+      expect(shippedScriptsIn(withCopy)).toEqual(["scripts/image-decode-child.mjs"]);
+      expect(shippedScriptsIn("FROM node\n")).toEqual([]);
+    });
   });
 });
