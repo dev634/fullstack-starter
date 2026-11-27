@@ -1,4 +1,5 @@
 // PNG files built byte by byte at test time (no binary committed).
+import { randomFillSync } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -56,4 +57,23 @@ export function zTxtBomb(chunks: number, inflatedMegabytes: number): Buffer {
   }
   parts.push(pngChunk("IDAT", deflateSync(Buffer.from([0, 128]))), pngChunk("IEND", Buffer.alloc(0)));
   return Buffer.concat(parts);
+}
+
+/**
+ * The audit's amplifier for the OUTPUT size: an RGB PNG of `width` x `height` whose rows are all
+ * the same random row, each coded with filter 2 (Up) as zeros after the first. ~160 KB for
+ * 12000x3333, yet sharp writes its PNG without filtering: ~120 MB come out (3.5 s).
+ */
+export function identicalRowsPng(width: number, height: number): Buffer {
+  const first = Buffer.alloc(1 + width * 3);
+  randomFillSync(first, 1);
+  const up = Buffer.alloc(1 + width * 3);
+  up[0] = 2;
+  const raw = Buffer.concat([first, ...Array.from({ length: height - 1 }, () => up)]);
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 2; // RGB
+  return Buffer.concat([PNG_SIGNATURE, pngChunk("IHDR", header), pngChunk("IDAT", deflateSync(raw, { level: 9 })), pngChunk("IEND", Buffer.alloc(0))]);
 }

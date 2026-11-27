@@ -37,10 +37,13 @@ const CHILD_STARTUP_SECONDS = 30;
 // The memory bound of the child on Linux: `ulimit -d` (RLIMIT_DATA: heap and private
 // anonymous mappings). The kill bounds time, not the peak: a 1-pixel PNG with 40 zTXt
 // chunks of 40 MB each took the child to 5.8 GB (Windows) and the container has no
-// memory limit, Postgres sharing the host. 1,536 MB is ~2 times the peak of the heaviest
-// legitimate file at the real ceilings, measured in the production image under a 1 GB
-// limit (12-bit AVIF at the budget: 710 MB; GIF 6000x6600: 608 MB; WebP 40 Mpx: 424
-// MB), all of which pass. A bomb that goes past it dies on an allocation failure.
+// memory limit, Postgres sharing the host. The heaviest legitimate file at the real
+// ceilings (12-bit AVIF at the budget: 710 MB of RSS) passes with room, as do the GIF
+// 6000x6600 (608 MB) and the 40 Mpx WebP (424 MB), measured in the production image. A
+// bomb that goes past the limit dies on an allocation failure.
+// The limit is on VIRTUAL memory (VmData: heap and private anonymous mappings), not on
+// the RSS: the same files measure VmData 884 / 721 / 700 MB for RSS 703 / 414 / 604 MB,
+// so the real margin is 1,536 / 884 = 1.74, not "twice the RSS".
 export const CHILD_DATA_LIMIT_MB = 1536;
 
 /** Which of the application's paths a task belongs to: only used to say what was killed. */
@@ -54,14 +57,17 @@ export type EncodeOutput = { format: "jpeg"; quality: number } | { format: "png"
 /** What a task may ask of the child: two operations, nothing else exists on the other side. */
 export type DecodeSession = {
   readHeader: (input: Buffer, limitInputPixels: number) => Promise<ImageHeader>;
-  /** Orientation applied, optional resize to a long edge, then `output`; metadata is never carried over. */
-  encode: (input: Buffer, limitInputPixels: number, maxLongEdge: number | null, output: EncodeOutput) => Promise<Buffer>;
+  /**
+   * Orientation applied, optional resize to a long edge, then `output`; metadata is never carried over.
+   * An output beyond `maxOutputBytes` is refused by the child BEFORE it is sent.
+   */
+  encode: (input: Buffer, limitInputPixels: number, maxLongEdge: number | null, maxOutputBytes: number, output: EncodeOutput) => Promise<Buffer>;
 };
 
 /** What goes over the channel (the id is added when it is sent). Kept in step with scripts/image-decode-child.mjs. */
 type ChildRequest =
   | { op: "metadata"; input: Buffer; limitInputPixels: number }
-  | { op: "encode"; input: Buffer; limitInputPixels: number; maxLongEdge: number | null; output: EncodeOutput };
+  | { op: "encode"; input: Buffer; limitInputPixels: number; maxLongEdge: number | null; maxOutputBytes: number; output: EncodeOutput };
 
 export type BridgeOptions = { deadlineMs?: number; startupMs?: number };
 
@@ -105,10 +111,17 @@ export function buildChildEnv(source: Readonly<Record<string, string | undefined
 // 1. oom_score_adj = 1000: when the host runs out of memory, the child is the victim
 //    designated for the whole system, before `next-server` or Postgres. Best effort
 //    (a failure is ignored): raising one's own score needs no privilege on Linux.
-// 2. `ulimit -d`: CLOSED BY DEFAULT. If it fails there is no exec, the child never says
-//    "ready", the task is refused and a line is logged; it never runs unbounded.
+// 2. `ulimit -c 0`: no core file. A bomb stopped by the limit below now dies of SIGABRT (a
+//    failed g_malloc, or a fatal V8 out-of-memory), where the OOM killer used to send a
+//    SIGKILL without a core; with a core pattern piped to apport (the host of the VPS) each
+//    such death could write ~1.5 GB on the disk Postgres shares. The container's own
+//    `ulimit -c` is unlimited (measured).
+// 3. `ulimit -d`: the memory bound. Like `-c`, CLOSED BY DEFAULT: if either fails there is
+//    no exec, the child never says "ready", the task is refused and a line is logged; it
+//    never runs unbounded.
 const LINUX_LAUNCHER =
   '{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; ' +
+  'ulimit -c 0 || { echo "[image-decode] ulimit -c failed: the child is not started" >&2; exit 97; }; ' +
   'ulimit -d "$1" || { echo "[image-decode] ulimit -d failed: the child is not started" >&2; exit 97; }; ' +
   'shift; exec "$@"';
 
@@ -131,7 +144,8 @@ export function buildChildLaunch(platform: NodeJS.Platform, nodePath: string, sc
 
 type Pending = { resolve: (message: ChildResult) => void; reject: (error: Error) => void };
 type Worker = { process: ChildProcess; pending: Map<number, Pending>; nextId: number; alive: boolean; busy: boolean };
-type BridgeState = { worker: Worker | null; starting: Promise<Worker> | null };
+type StartOutcome = "ready" | "failed";
+type BridgeState = { worker: Worker | null; starting: Promise<Worker> | null; lastStart: StartOutcome | null };
 
 // A singleton of the PROCESS on globalThis under a Symbol.for key, like the queue of
 // lib/imageMetadata.ts: the production build bundles this module into more than one
@@ -145,9 +159,34 @@ function isBridgeState(value: unknown): value is BridgeState {
 function bridgeState(): BridgeState {
   const existing: unknown = Reflect.get(globalThis, STATE_KEY);
   if (isBridgeState(existing)) return existing;
-  const created: BridgeState = { worker: null, starting: null };
+  const created: BridgeState = { worker: null, starting: null, lastStart: null };
   Reflect.set(globalThis, STATE_KEY, created);
   return created;
+}
+
+/**
+ * What the public health probe may say about the decoder, and nothing more (no pid, no
+ * message, no path): the outcome of the LAST start of the child. `failed` means every image
+ * upload is being refused (the child cannot start: `ulimit` refused, sharp or the script
+ * missing); `idle` means no start was attempted yet in this process.
+ */
+export type ImageDecoderState = "ready" | "failed" | "idle";
+
+export function imageDecoderState(): ImageDecoderState {
+  return bridgeState().lastStart ?? "idle";
+}
+
+/**
+ * Starts the child once, at server start (instrumentation.ts), so that a child that cannot
+ * start shows on /api/health at once instead of at the first upload. Never throws and never
+ * delays the server: a failure is the state `failed` and a log line, the next task retries.
+ */
+export async function warmImageDecoder(options: Pick<BridgeOptions, "startupMs"> = {}): Promise<void> {
+  try {
+    await ensureWorker(options.startupMs ?? CHILD_STARTUP_SECONDS * 1000);
+  } catch {
+    // Already logged where it failed, and recorded in lastStart.
+  }
 }
 
 /** The pid of the running decode child, or null when none is running (the next task starts one). For tests and diagnosis. */
@@ -272,10 +311,12 @@ function ensureWorker(startupMs: number): Promise<Worker> {
     (worker) => {
       state.starting = null;
       state.worker = worker;
+      state.lastStart = "ready";
       return worker;
     },
     (error: unknown) => {
       state.starting = null;
+      state.lastStart = "failed";
       throw error;
     },
   );
@@ -328,8 +369,8 @@ function sessionFor(worker: Worker): DecodeSession {
       if (!result.ok || !isHeader(result.header)) throw refusedBy("metadata", result);
       return result.header;
     },
-    encode: async (input, limitInputPixels, maxLongEdge, output) => {
-      const result = await send(worker, { op: "encode", input, limitInputPixels, maxLongEdge, output });
+    encode: async (input, limitInputPixels, maxLongEdge, maxOutputBytes, output) => {
+      const result = await send(worker, { op: "encode", input, limitInputPixels, maxLongEdge, maxOutputBytes, output });
       if (!result.ok || !(result.output instanceof Uint8Array)) throw refusedBy("encode", result);
       return Buffer.from(result.output.buffer, result.output.byteOffset, result.output.byteLength);
     },

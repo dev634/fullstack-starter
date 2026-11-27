@@ -171,6 +171,17 @@ export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
 // read with metadata(), which decodes nothing.
 export const MAX_DECODED_BYTES = 160_000_000;
 
+// The largest OUTPUT the application accepts from a decode, asked of the child with every
+// encode (the child refuses a larger one before sending it). A small PNG can come out of
+// sharp enormous — 160 KB of identical rows, 12000x3333, came out as 114.6 MB in 3.5 s —
+// and the company and equipment photos then go to Cloudinary. 32 MiB is more than twice
+// the largest legitimate output measured: a 40 Mpx JPEG of 10 MB re-encoded at q95 gives
+// 12.5 to 13.1 MB, an interlaced 40 Mpx PNG 4.0 MB, a noisy WebP 9.4 MB. One source: the
+// parent. `png({ adaptiveFiltering })` is NOT used: on the interlaced 40 Mpx PNG it takes
+// the output from 4.0 to 0.39 MB but the time from 0.55 to 1.17 s (2.1 times), above the
+// 2 times accepted for it (docs/CONVENTIONS.md).
+export const MAX_ENCODED_OUTPUT_BYTES = 32 * 1024 * 1024;
+
 // libvips band formats, in bytes per sample (sharp's `depth` metadata).
 const BYTES_PER_SAMPLE: Readonly<Record<string, number>> = {
     uchar: 1,
@@ -212,8 +223,8 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
  *     waiting), in the decode child and under ONE deadline for the whole task
  *     (lib/imageDecodeBridge.ts): reads the header (nothing is decoded), refuses a decoded
  *     size beyond MAX_DECODED_BYTES BEFORE allocating anything, re-encodes with the
- *     orientation applied and without any metadata, and refuses an output beyond the same
- *     budget.
+ *     orientation applied and without any metadata; the child refuses an output beyond
+ *     MAX_ENCODED_OUTPUT_BYTES before sending it.
  *
  * Every failure — a structure that does not walk, a header beyond the budget, a
  * native error, the deadline (the child is killed), a child that died or could not
@@ -236,9 +247,7 @@ export function encodeOriented(
         try {
             return await runInChild(operation, async (session) => {
                 assertDecodedSizeWithinBudget(await session.readHeader(input, SHARP_MAX_INPUT_PIXELS));
-                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, output);
-                if (encoded.length > MAX_DECODED_BYTES) throw refusal("corruptedImage");
-                return encoded;
+                return session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, MAX_ENCODED_OUTPUT_BYTES, output);
             });
         } catch {
             throw refusal("corruptedImage");

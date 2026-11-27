@@ -64,7 +64,7 @@ const nextConfig: NextConfig = {
   // components/ClientAvatar.tsx, already renders `unoptimized` (Cloudinary does the
   // transformation, lib/cloudinary-url.ts::optimizedClientPhoto), and the app serves
   // no other optimizable image. With the optimizer off, next-server never loads sharp
-  // through it; /_next/image answers 400.
+  // through it; /_next/image answers 404 (observed under `next start`).
   // The two lines below are kept anyway, as a second lock should the flag ever be
   // removed: no `images.remotePatterns` (a pattern for "res.cloudinary.com" with no
   // pathname admitted ANY Cloudinary account), and `localPatterns` restricted to the

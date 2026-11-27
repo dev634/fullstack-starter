@@ -10,14 +10,16 @@ import { pathToFileURL } from "node:url";
 import {
   buildChildEnv,
   DECODE_DEADLINE_SECONDS,
+  imageDecoderState,
   liveDecodeChildPid,
+  warmImageDecoder,
   runInChild,
   type DecodeSession,
 } from "@/lib/imageDecodeBridge";
-import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
+import { MAX_ENCODED_OUTPUT_BYTES, stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import { auditProgressiveJpeg } from "@/tests/helpers/progressiveJpegFixture";
 import { tiffWithTags } from "@/tests/helpers/tiffFixture";
-import { zTxtBomb } from "@/tests/helpers/pngFixture";
+import { identicalRowsPng, zTxtBomb } from "@/tests/helpers/pngFixture";
 
 // The REAL child, started from scripts/image-decode-child.mjs. Time assertions are generous.
 // `spawn` is wrapped (not replaced) so the options it receives can be read.
@@ -41,6 +43,7 @@ afterEach(() => {
 });
 
 const LIMIT = 40_000_000;
+const OUT = MAX_ENCODED_OUTPUT_BYTES;
 const SLOW = 60_000;
 
 const png = () => sharp({ create: { width: 16, height: 12, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer();
@@ -49,7 +52,7 @@ const jpeg = () => sharp({ create: { width: 16, height: 12, channels: 3, backgro
 /** The whole recipe of a strip, as a task: header, then encode. */
 const decode = (buffer: Buffer) => async (session: DecodeSession) => {
   await session.readHeader(buffer, LIMIT);
-  return session.encode(buffer, LIMIT, null, { format: "jpeg", quality: 90 });
+  return session.encode(buffer, LIMIT, null, OUT, { format: "jpeg", quality: 90 });
 };
 
 function bytes(value: unknown): Uint8Array {
@@ -190,6 +193,28 @@ describe("how the child is started", () => {
     // And the bridge serves again once the first one is over.
     await expect(runInChild("strip", decode(await jpeg()))).resolves.toBeInstanceOf(Buffer);
   }, SLOW);
+});
+
+describe("the state of the decoder, as the health probe reads it", () => {
+  it("is idle before any start, failed after a start that fails, ready after one that succeeds, and a warm-up never throws", async () => {
+    await startFromNoChild();
+    // Forget the process-wide state, as in a fresh server process (the key is the bridge's own).
+    Reflect.deleteProperty(globalThis, Symbol.for("fullstack-starter.imageDecodeBridge.state"));
+    expect(imageDecoderState()).toBe("idle");
+
+    await expect(warmImageDecoder({ startupMs: 1 })).resolves.toBeUndefined();
+    expect(imageDecoderState()).toBe("failed");
+    await waitUntil(() => liveDecodeChildPid() === null);
+
+    await warmImageDecoder();
+    expect(imageDecoderState()).toBe("ready");
+    expect(liveDecodeChildPid()).not.toBeNull();
+  }, SLOW);
+
+  it("a state only: nothing else about the child is readable from it", () => {
+    expect(["ready", "failed", "idle"]).toContain(imageDecoderState());
+    expect(typeof imageDecoderState()).toBe("string");
+  });
 });
 
 describe("the deadline kills the child", () => {
@@ -445,11 +470,15 @@ describe("the executor of the child is closed", () => {
         { id: 4, op: "metadata", input: "text", limitInputPixels: LIMIT }, // input is not bytes
         { id: 5, op: "metadata", input, limitInputPixels: 1e12 }, // above sharp's own ceiling
         { id: 6, op: "metadata", input, limitInputPixels: 1.5 },
-        { id: 7, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, output: { format: "tiff" } }, // format outside the list
-        { id: 8, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, output: { format: "jpeg", quality: 500 } },
-        { id: 9, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: 0, output: { format: "png" } },
-        { id: 10, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, output: { format: "png", quality: 5 } },
-        { id: 11, op: "encode", input, limitInputPixels: LIMIT, output: { format: "png" } }, // key missing
+        { id: 7, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: OUT, output: { format: "tiff" } }, // format outside the list
+        { id: 8, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: OUT, output: { format: "jpeg", quality: 500 } },
+        { id: 9, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: 0, maxOutputBytes: OUT, output: { format: "png" } },
+        { id: 10, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: OUT, output: { format: "png", quality: 5 } },
+        { id: 11, op: "encode", input, limitInputPixels: LIMIT, maxOutputBytes: OUT, output: { format: "png" } }, // maxLongEdge missing
+        { id: 13, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, output: { format: "png" } }, // maxOutputBytes missing
+        { id: 14, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: 0, output: { format: "png" } },
+        { id: 15, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: 1e12, output: { format: "png" } },
+        { id: 16, op: "encode", input, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: "32", output: { format: "png" } },
         { id: 12, op: "metadata", input: new Uint8Array(0), limitInputPixels: LIMIT },
       ];
       for (const request of refused) {
@@ -470,6 +499,39 @@ describe("the executor of the child is closed", () => {
     });
   }, SLOW);
 
+  it("an output beyond maxOutputBytes is refused BEFORE it is sent, with a bare code; one within it is sent", async () => {
+    const source = await sharp({ create: { width: 200, height: 200, channels: 3, background: { r: 3, g: 4, b: 5 } } }).png().toBuffer();
+    await withRawChild(async (ask) => {
+      const small = await ask({ id: 1, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: 10, output: { format: "png" } });
+      expect(small).toEqual({ type: "result", id: 1, ok: false, reason: "outputTooLarge" });
+      const fits = await ask({ id: 2, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: 1_000_000, output: { format: "png" } });
+      expect(fits.ok).toBe(true);
+    });
+  }, SLOW);
+
+  it("the audit's PNG of 160 KB (12000x3333, identical rows) would come out of sharp at ~120 MB: the child refuses it, nothing crosses the channel", async () => {
+    const probe = identicalRowsPng(12_000, 3_333);
+    expect(probe.length).toBeLessThan(400_000);
+    const started = performance.now();
+    await expect(runInChild("strip", async (session) => {
+      await session.readHeader(probe, LIMIT);
+      return session.encode(probe, LIMIT, null, OUT, { format: "png" });
+    })).rejects.toThrow(/outputTooLarge/);
+    expect(performance.now() - started).toBeLessThan(30_000);
+  }, SLOW);
+
+  it("a legitimate 40 Mpx JPEG re-encoded at q95 passes the same bound (12.5 to 13.1 MB measured)", async () => {
+    const photo = await sharp({ create: { width: 6000, height: 6600, channels: 3, background: { r: 40, g: 90, b: 140 } } })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    const out = await runInChild("strip", async (session) => {
+      await session.readHeader(photo, LIMIT);
+      return session.encode(photo, LIMIT, null, OUT, { format: "jpeg", quality: 95 });
+    });
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.length).toBeLessThan(OUT);
+  }, SLOW);
+
   it("the recipes work: every output format, with and without a resize, orientation applied, metadata dropped", async () => {
     const source = await sharp({ create: { width: 40, height: 20, channels: 3, background: { r: 9, g: 9, b: 9 } } })
       .withMetadata({ orientation: 6 })
@@ -477,7 +539,7 @@ describe("the executor of the child is closed", () => {
       .toBuffer();
     await withRawChild(async (ask) => {
       for (const output of [{ format: "jpeg", quality: 80 }, { format: "png" }, { format: "webp" }, { format: "gif" }]) {
-        const answer = await ask({ id: 1, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: null, output });
+        const answer = await ask({ id: 1, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: null, maxOutputBytes: OUT, output });
         expect(answer.ok, output.format).toBe(true);
         const meta = await sharp(bytes(answer.output)).metadata();
         expect(meta.format).toBe(output.format);
@@ -486,7 +548,7 @@ describe("the executor of the child is closed", () => {
         expect(meta.orientation).toBeUndefined();
         expect(meta.exif).toBeUndefined();
       }
-      const resized = await ask({ id: 2, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: 10, output: { format: "jpeg", quality: 85 } });
+      const resized = await ask({ id: 2, op: "encode", input: source, limitInputPixels: LIMIT, maxLongEdge: 10, maxOutputBytes: OUT, output: { format: "jpeg", quality: 85 } });
       const meta = await sharp(bytes(resized.output)).metadata();
       expect([meta.width, meta.height]).toEqual([5, 10]);
     });

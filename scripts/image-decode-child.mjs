@@ -28,12 +28,15 @@
 // Wire contract (kept in step with lib/imageDecodeBridge.ts, proved by
 // tests/image-decode-bridge.test.ts):
 //   in : { id, op: "metadata", input, limitInputPixels }
-//        { id, op: "encode", input, limitInputPixels, maxLongEdge | null,
+//        { id, op: "encode", input, limitInputPixels, maxLongEdge | null, maxOutputBytes,
 //          output: { format: "jpeg", quality } | { format: "png" | "webp" | "gif" } }
 //   out: { type: "ready" }                                  once, after sharp is loaded
 //        { type: "result", id, ok: true, header }            metadata
 //        { type: "result", id, ok: true, output }            encode
-//        { type: "result", id, ok: false, reason }
+//        { type: "result", id, ok: false, reason }   reason: invalidRequest | decodeFailed | outputTooLarge
+//   `maxOutputBytes`: an output beyond it is NOT sent (reason "outputTooLarge"): a 160 KB PNG
+//   of identical rows came out of sharp as 114.6 MB, which would then cross the channel and
+//   go to Cloudinary.
 
 import sharp from "sharp";
 
@@ -49,6 +52,8 @@ const OUTPUT_FORMATS = new Set(["jpeg", "png", "webp", "gif"]);
 // sharp's own default input-pixel limit (~268 Mpx): nothing above it is ever asked for.
 const MAX_LIMIT_INPUT_PIXELS = 268_402_689;
 const MAX_LONG_EDGE = 20_000;
+// A sanity bound on what the parent may ask for (its policy constant is far below).
+const MAX_OUTPUT_BYTES_LIMIT = 1_073_741_824;
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
@@ -69,7 +74,7 @@ function isIntegerBetween(value, min, max) {
 /**
  * @typedef {{ format: "jpeg"; quality: number } | { format: "png" | "webp" | "gif" }} Output
  * @typedef {{ id: number; op: "metadata"; input: Uint8Array; limitInputPixels: number }} MetadataRequest
- * @typedef {{ id: number; op: "encode"; input: Uint8Array; limitInputPixels: number; maxLongEdge: number | null; output: Output }} EncodeRequest
+ * @typedef {{ id: number; op: "encode"; input: Uint8Array; limitInputPixels: number; maxLongEdge: number | null; maxOutputBytes: number; output: Output }} EncodeRequest
  */
 
 /** @param {unknown} output @returns {output is Output} */
@@ -96,11 +101,12 @@ function parseRequest(message) {
     return { id, op, input, limitInputPixels };
   }
   if (op === "encode") {
-    if (!hasExactKeys(message, ["id", "op", "input", "limitInputPixels", "maxLongEdge", "output"])) return null;
-    const { maxLongEdge, output } = message;
+    if (!hasExactKeys(message, ["id", "op", "input", "limitInputPixels", "maxLongEdge", "maxOutputBytes", "output"])) return null;
+    const { maxLongEdge, maxOutputBytes, output } = message;
     if (maxLongEdge !== null && !isIntegerBetween(maxLongEdge, 1, MAX_LONG_EDGE)) return null;
+    if (!isIntegerBetween(maxOutputBytes, 1, MAX_OUTPUT_BYTES_LIMIT)) return null;
     if (!isOutput(output)) return null;
-    return { id, op, input, limitInputPixels, maxLongEdge, output };
+    return { id, op, input, limitInputPixels, maxLongEdge, maxOutputBytes, output };
   }
   return null;
 }
@@ -159,7 +165,13 @@ process.on("message", async (message) => {
     if (request.op === "metadata") {
       send({ type: "result", id: request.id, ok: true, header: await readHeader(request) });
     } else {
-      send({ type: "result", id: request.id, ok: true, output: await encode(request) });
+      const output = await encode(request);
+      // Refused BEFORE sending: the channel never carries more than the parent accepts.
+      if (output.length > request.maxOutputBytes) {
+        send({ type: "result", id: request.id, ok: false, reason: "outputTooLarge" });
+      } else {
+        send({ type: "result", id: request.id, ok: true, output });
+      }
     }
   } catch (error) {
     console.error(`[image-decode-child] ${request.op} failed:`, error instanceof Error ? error.message : "unknown error");

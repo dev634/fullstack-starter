@@ -166,13 +166,29 @@ function isCreateRequireCall(n: ts.Node): boolean {
   return (ts.isIdentifier(callee) && callee.text === "createRequire") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "createRequire");
 }
 
+/** Names whose mere use can reach the module loader or run code the scanner cannot read. */
+const LOADER_INTERNALS: ReadonlySet<string> = new Set(["_load", "dlopen", "mainModule"]);
+/** Receivers whose computed access (`process[x]`) could reach them. */
+const LOADER_RECEIVERS: ReadonlySet<string> = new Set(["process", "module", "globalThis"]);
+
 /**
- * Every module load of `source`, FAILING CLOSED: the packages it names, and the loads whose
- * target cannot be read from the source. A load is `import()`, `require()`, `module.require()`
- * and a call of whatever `createRequire(...)` returned (bound to a name or called at once).
- * Its argument must be a string literal; anything else (a variable, a template, a
- * concatenation, a missing argument) is `unresolvable` — a scanner that cannot say what is
- * loaded must be red, not green.
+ * Every module load of `source`, FAILING CLOSED: the packages it names, and everything the
+ * scanner cannot vouch for, in `unresolvable`. A load is `import()`, `require()`,
+ * `module.require()` and a call of whatever `createRequire(...)` returned (bound to a name
+ * or called at once), and its argument must be a string literal. That is the ONLY accepted
+ * shape; the scanner does not enumerate the dangerous ones, it lists the safe one and
+ * reddens the rest:
+ *  - a load whose argument is not a string literal (a variable, a template, a concatenation,
+ *    a missing argument);
+ *  - any reference to the identifier `require` (or to a name bound to `createRequire(...)`)
+ *    that is not the callee of such a call: `const r = require`, `require.call(...)`,
+ *    `(0, require)(...)`, `globalThis.require`;
+ *  - `createRequire` anywhere but `const r = createRequire(...)` or `createRequire(...)(...)`;
+ *  - any access to `_load`, `dlopen`, `mainModule` (`Module._load`, `process.dlopen`,
+ *    `process.mainModule.require`), and a computed access on `process` / `module` /
+ *    `globalThis`;
+ *  - `Function` and `eval` called or constructed;
+ *  - `import x = require(...)`.
  */
 export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>; unresolvable: string[] } {
   const packages = new Set<string>();
@@ -181,6 +197,7 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
     const name = packageNameOf(specifier);
     if (name) packages.add(name);
   };
+  const red = (n: ts.Node) => unresolvable.push(n.getText(source));
   // Names bound to a require function made by createRequire.
   const loaders = new Set<string>();
   const collect = (n: ts.Node) => {
@@ -197,15 +214,51 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
     if (ts.isPropertyAccessExpression(callee)) return callee.name.text === "require" && ts.isIdentifier(callee.expression) && callee.expression.text === "module";
     return isCreateRequireCall(callee);
   };
+  /** `n` is the thing being called (or constructed). */
+  const isCallee = (n: ts.Node): boolean =>
+    n.parent !== undefined && ((ts.isCallExpression(n.parent) && n.parent.expression === n) || (ts.isNewExpression(n.parent) && n.parent.expression === n));
+  const isPropertyName = (n: ts.Identifier): boolean => n.parent !== undefined && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n;
+  /** `createRequire(...)` used in the two recognised shapes. */
+  const createRequireShapeIsKnown = (call: ts.Node): boolean => {
+    const parent = call.parent;
+    if (parent === undefined) return false;
+    if (ts.isVariableDeclaration(parent)) return parent.initializer === call && ts.isIdentifier(parent.name);
+    return ts.isCallExpression(parent) && parent.expression === call;
+  };
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
       if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text);
     } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
       if (!n.isTypeOnly) add(n.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(n)) {
+      red(n);
     } else if (ts.isCallExpression(n) && isLoaderCall(n)) {
       const [arg] = n.arguments;
       if (arg && ts.isStringLiteral(arg)) add(arg.text);
-      else unresolvable.push(n.getText(source));
+      else red(n);
+    } else if (ts.isIdentifier(n) && !isPropertyName(n)) {
+      const callee = isCallee(n);
+      const inImport = n.parent !== undefined && (ts.isImportSpecifier(n.parent) || ts.isImportClause(n.parent) || ts.isExportSpecifier(n.parent));
+      if (n.text === "require" && !callee) red(n.parent ?? n);
+      else if ((n.text === "Function" || n.text === "eval") && callee) red(n.parent ?? n);
+      else if (n.text === "createRequire" && !inImport) {
+        // Recognised only as the callee of a call used in one of the two known shapes.
+        if (!(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n.parent ?? n);
+      } else if (loaders.has(n.text) && !callee && !(n.parent && ts.isVariableDeclaration(n.parent) && n.parent.name === n)) {
+        red(n.parent ?? n);
+      }
+    } else if (ts.isPropertyAccessExpression(n)) {
+      const name = n.name.text;
+      const callee = isCallee(n);
+      if (LOADER_INTERNALS.has(name)) red(n);
+      else if (name === "require" && !(callee && ts.isIdentifier(n.expression) && n.expression.text === "module")) red(n);
+      else if ((name === "Function" || name === "eval") && callee) red(n);
+      else if (name === "createRequire" && !(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n);
+    } else if (ts.isElementAccessExpression(n)) {
+      const key = n.argumentExpression;
+      const named = ts.isStringLiteralLike(key) ? key.text : null;
+      const onReceiver = ts.isIdentifier(n.expression) && LOADER_RECEIVERS.has(n.expression.text);
+      if (named !== null ? LOADER_INTERNALS.has(named) || named === "require" || named === "createRequire" || named === "Function" || named === "eval" : onReceiver) red(n);
     }
     ts.forEachChild(n, visit);
   };
@@ -347,12 +400,39 @@ describe("runtime dependencies", () => {
       }
     });
 
+    // The scanner lists the one safe shape and reddens the rest: these are the exotic ways to reach
+    // the loader that an enumeration of dangerous forms let through (audit of fix/decodage-borne).
+    it("the exotic ways to reach the loader or run code are red, each one", () => {
+      const forms = [
+        "const r = require; r('sharp');",
+        "require.call(null, 'sharp');",
+        "(0, require)('sharp');",
+        "globalThis.require('sharp');",
+        "process.mainModule.require('sharp');",
+        "module.constructor._load('sharp');",
+        "Module._load('sharp');",
+        "import { createRequire } from 'node:module'; ({ r: createRequire(import.meta.url) }).r('sharp');",
+        "new Function('return require')()('sharp');",
+        "process.dlopen(m, 'sharp.node');",
+        "import sharp = require('sharp');",
+        "const f = createRequire; f(import.meta.url)('sharp');",
+        "process['mainModule'];",
+        "const k = 'dlopen'; process[k]();",
+        "eval('require')('sharp');",
+      ];
+      for (const form of forms) {
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
+      }
+    });
+
     it("the neighbouring form that is legitimate stays green, and a literal through createRequire is still seen as an import", () => {
       for (const form of [
         "require('node:fs'); await import('node:path'); module.exports = {};",
         "// require(name)\nconst text = 'import(name)';",
         "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); r('sharp');",
         "const other = (x) => x; other(name);",
+        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); const x = r('pdfkit'); module.exports = x;",
+        "const type: Function = () => 1; const text = 'new Function'; process.env.X; process.platform;",
       ]) {
         expect(unresolvableIn(form), form).toEqual([]);
       }

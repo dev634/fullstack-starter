@@ -28,6 +28,7 @@ describe("buildChildLaunch (pure)", () => {
     expect(shellText).not.toContain("pwned");
     expect(shellText).not.toContain("/usr/local/bin/node");
     expect(shellText).toContain("ulimit -d");
+    expect(shellText).toContain("ulimit -c 0");
     expect(shellText).toContain("oom_score_adj");
     expect(shellText).toContain('exec "$@"');
   });
@@ -67,6 +68,15 @@ console.log(JSON.stringify({
     const bytes = String(1536 * 1024 * 1024);
     expect(line?.split(/\s+/).slice(3, 5)).toEqual([bytes, bytes]);
     expect(out.oom).toBe("1000");
+  });
+
+  // A bomb stopped by the limit dies of SIGABRT, which writes a core file (apport on the host
+  // of the VPS, ~1.5 GB each, on the disk Postgres shares) where the OOM killer wrote none.
+  it("sets 'Max core file size' to 0 (soft and hard): no core file", () => {
+    const result = run(report);
+    const out: { limits: string } = JSON.parse(result.stdout);
+    const line = out.limits.split("\n").find((l) => l.startsWith("Max core file size"));
+    expect(line?.split(/\s+/).slice(4, 6)).toEqual(["0", "0"]);
   });
 
   it("is CLOSED by default: when ulimit fails there is no exec, the stand-in never runs, the exit code is 97 and a line is written", () => {
