@@ -645,7 +645,12 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     rien de plus que la première (`metadata()` ~1 ms, nettoyage ~1,2 s, pic
     stable) : libvips ne décode que la première image, le produit images × pixels
     n'est pas une bombe ;
-  - **un délai de 10 s** par pipeline (`.timeout`). Il borne désormais le
+  - **un délai de 30 s** par pipeline (`.timeout`), **calibré dans l'image de
+    production** (musl, un cœur du VPS, 2026-11-27) : à froid (premier décodage
+    d'un processus neuf), un WebP bruité de 24 Mpx prenait 10,8 s — l'ancien
+    délai de 10 s le refusait —, l'AVIF 12 bits au budget 8,7 s, le GIF
+    6000×6600 8,2 s, le JPEG bruité de 24 Mpx 2,7 s ; à chaud 1 à 8,3 s. 30 s
+    fait environ trois fois le pire cas mesuré. Il borne désormais le
     pipeline d'un fichier dont le **nombre d'images est déjà borné** par le
     comptage ci-dessus ; il n'interrompt toujours pas **un appel natif unique**
     (décodage libheif) : il n'arrête qu'un pipeline traité ligne à ligne.
@@ -670,10 +675,11 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     n'admet que `/_next/static/media/**` (au lieu de `**` par défaut, qui
     laissait l'optimiseur aller chercher n'importe quel chemin, sans session).
   Le plafond de 40 Mpx borne ce qu'on alloue au pire mais pas ce qui passe
-  juste en dessous. **Pire cas mesuré par décodage, sous Windows seulement
-  (l'image Linux n'a pas été mesurée)** : pic de ~530 Mo pour un GIF
-  6000×6600 (27 Ko), ~655 Mo pour un AVIF 12 bits au budget, ~170 Mo pour un
-  JPEG de 24 Mpx — le budget borne le raster, pas le pic. Le « ~1,05 Go
+  juste en dessous. **Pire cas mesuré par décodage, dans l'image de
+  production** (un cœur du VPS, 2026-11-27) : pic de 609 Mo pour un GIF
+  6000×6600 (27 Ko), 714 Mo pour un AVIF 12 bits au budget, 424 Mo pour un
+  WebP bruité de 24 Mpx, 257 Mo pour un JPEG bruité de 24 Mpx — le budget
+  borne le raster, pas le pic (Windows donnait ~530 / ~655 / ~170 Mo). Le « ~1,05 Go
   après la file » publié avant était la **rétention du cache**, pas une borne.
   **Ouvert** : (1) **AVIF / HEIF en séquence (marque `avis`) non compté** : sur
   l'AVIF de test dont la marque est remplacée par `avis`, sharp 0.35.5 (libheif
@@ -684,10 +690,15 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   documentée, pas un angle mort admis : à rejouer avec
   `.claude/passe-adverse/sondes-decodage/avif-marque-avis.avif`). Le nombre
   d'items déclarés dans la boîte `iinf` d'un HEIF n'est pas compté non plus.
-  (2) **Calibrage Linux en attente** : le délai de 10 s, `MAX_IMAGE_FRAMES` et
-  les pics de mémoire n'ont été mesurés que sous Windows ; le script
-  `.claude/passe-adverse/mesure-decodage.mjs` (ignoré par git) les rejoue dans
-  l'image de production, avec `--cpus=1 --memory=1500m`. (3) Limite de débit
+  **Rejoué dans l'image de production le 2026-11-27** : la marque `avis` y est
+  refusée aussi (« unsupported image format », 4 ms). (2) **Calibré sous Linux,
+  dans l'image de production** (`docker run --cpus=1 --memory=1500m --network
+  none`, script `.claude/passe-adverse/mesure-decodage.mjs`, ignoré par git) :
+  1 000 et 10 000 images passent en 12 et 19 ms ; pics par décodage 257 Mo
+  (JPEG 24 Mpx), 424 Mo (WebP 24 Mpx), 609 Mo (GIF 6000×6600), 714 Mo (AVIF 12
+  bits au budget) ; **aucune rétention** (RSS revenue à ~75-150 Mo entre deux
+  décodages, pic cumulé sur 4 passes = le pire décodage seul, 746 Mo) ; délai
+  porté à 30 s (voir plus haut). (3) Limite de débit
   par utilisateur (la file borne la mémoire, pas qui l'occupe), erreurs de SDK
   relayées, compensations des autres téléversements. **`failOn: "none"`** : un JPEG
   tronqué (marqueur de fin absent, transfert interrompu) est décodé et

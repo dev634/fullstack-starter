@@ -3,7 +3,7 @@
 // own structure (block sizes, chunk sizes, IFD offsets), so its cost is linear in
 // the bytes and measured at a few ms on 10 MB (tests/image-frame-count.test.ts).
 //
-// Why it exists: the 10 s timeout of lib/imageMetadata.ts does not bound a task.
+// Why it exists: the timeout of lib/imageMetadata.ts (SHARP_TIMEOUT_SECONDS) does not bound a task.
 // `metadata()` has no timeout and libvips walks every frame of a GIF in one native
 // call, at a cost that grows FASTER than the frame count (measured on Windows, one
 // 2x1 frame = 15 bytes: 10,000 frames 5 ms, 50,000 frames 221 ms, 100,000 frames

@@ -116,7 +116,7 @@ describe("lib/imageMetadata — one sharp decode at a time", () => {
 
   it("the pipeline carries the decode timeout of 10 seconds", async () => {
     await stripArchivedPhotoMetadata(Buffer.from("t"), "image/jpeg");
-    expect(state.timeoutArgs).toEqual([{ seconds: 10 }]);
+    expect(state.timeoutArgs).toEqual([{ seconds: 30 }]);
   });
 
   it("sharp's cache is switched off at load", () => {

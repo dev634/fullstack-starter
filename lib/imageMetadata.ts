@@ -179,10 +179,19 @@ export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
 // strip, then SUCCEEDED (delta audit of fix/photo-entreprise, F1, measured on
 // Windows). So the timeout bounds the pipeline of a file whose frame count is
 // already bounded; it still does not interrupt one native call (libheif), and
-// frames x pixels is not counted (docs/CONVENTIONS.md). 10 s is above a real
-// 24 Mpx JPEG (~0.4 s here) but a noisy 24 Mpx WebP took 4.8 s on this machine:
-// not calibrated on the VPS.
-export const SHARP_TIMEOUT_SECONDS = 10;
+// frames x pixels is not counted (docs/CONVENTIONS.md).
+// Calibrated IN THE PRODUCTION IMAGE (node 22 alpine/musl, the published sharp),
+// on the VPS, one CPU (`docker run --cpus=1 --memory=1500m --network none`,
+// 2026-11-27), each file decoded and re-encoded with the options below:
+//   noisy 24 Mpx WebP (16 MB)  cold 10.8 s — REFUSED by the former 10 s — warm 7.1-8.3 s
+//   AVIF 12-bit at the budget  cold 8.7 s, warm 1.8-5.0 s
+//   GIF 6000x6600 (27 KB)      cold 8.2 s, warm 1.9-3.2 s
+//   noisy 24 Mpx JPEG (24 MB)  cold 2.7 s, warm ~1 s
+// "Cold" is the first decode of a fresh process (the first upload after a
+// deploy). 10 s refused the WebP cold; 30 s is ~3x the worst case measured, and
+// the queue (one at a time, 8 waiting) plus the per-account rate limit bound
+// what an account can hold it for.
+export const SHARP_TIMEOUT_SECONDS = 30;
 
 // The pixel ceiling above bounds the pixel COUNT, not the decoded BYTES: bytes =
 // pixels x channels x bytes per sample, and a 5-channel float32 TIFF of a few KB
