@@ -653,19 +653,28 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     pour 414 Mo, le GIF 6000×6600 700 Mo pour 604 Mo. La marge réelle est donc
     1 536 / 884 ≈ 1,74, pas « 2 fois le RSS ». `RLIMIT_DATA` s'applique en
     production (noyau 6.8.0 sans `ignore_rlimit_data` ; sous `ulimit -d 102400`,
-    `Buffer.alloc(3e8)` est refusé dans le conteneur). L'enfant a aussi
-    `ulimit -c 0` : une bombe arrêtée par la limite meurt en SIGABRT (échec de
+    `Buffer.alloc(3e8)` est refusé dans le conteneur). **Les fichiers core** : une bombe arrêtée par la limite meurt en SIGABRT (échec de
     `g_malloc`, ou OOM fatal de V8) là où l'OOM killer envoyait un SIGKILL sans
-    fichier core ; avec un `core_pattern` vers apport (hôte du VPS) et un
-    `ulimit -c` illimité dans le conteneur, chaque mort aurait écrit jusqu'à
-    ~1,5 Go sur le disque que Postgres partage. Comme `-d`, un échec de `-c`
-    ferme le lancement. Enfin `oom_score_adj = 1000` : à court de mémoire, l'hôte tue l'enfant avant
+    core. **Le lanceur ne touche JAMAIS à `RLIMIT_CORE`** : quand `core_pattern` est
+    un pipe (c'est le cas sur le VPS : `|/usr/share/apport/apport …`), le noyau
+    (`fs/coredump.c`) ignore `RLIMIT_CORE` sauf la valeur **1 octet**, qui veut dire
+    « pas de dump » ; sous `ulimit -c 0`, un `abort()` a écrit un core de 261 Mo
+    (prouvé), avec `--ulimit core=1:1` aucun, et un `-c 0` posé sous cette limite à 1
+    en réécrit un (busybox ne sait d'ailleurs pas poser 1 octet : il compte par blocs
+    de 512). La garde vit au **niveau du conteneur** (`ulimits: core: 1:1` du service
+    `web`, `docker-compose.prod.yml`, à reporter sur le VPS au déploiement) et
+    l'enfant en **hérite** sans changement (test Linux : `/proc/self/limits` du parent
+    et de l'enfant). Observé sur le VPS : un `abort()` dans un conteneur jetable de
+    l'image de production affiche « core dumped », `/var/crash` et
+    `/var/lib/apport/coredump` restent vides (apport abandonne aujourd'hui les crashs
+    de conteneur), mais le noyau lui transmet quand même tout le core : jusqu'à 1,5 Go
+    d'E/S par bombe, sur le disque que Postgres partage. Enfin `oom_score_adj = 1000` : à court de mémoire, l'hôte tue l'enfant avant
     `next-server` ou Postgres (au mieux : un échec est ignoré). **Fermé par
-    défaut** : si un `ulimit` (`-c` ou `-d`) échoue, pas d'`exec` (code 97), l'enfant n'est jamais
+    défaut** : si `ulimit -d` échoue, pas d'`exec` (code 97), l'enfant n'est jamais
     prêt, la tâche est refusée et une ligne est journalisée. Sous Windows et macOS
     (développement) l'enfant est lancé directement, **sans borne mémoire** : seul
     le délai s'applique. Observé sur alpine/busybox et sur debian/dash (uid 1001) :
-    « Max data size » à 1 610 612 736 octets, « Max core file size » à 0, `oom_score_adj` à 1000, code 97 si
+    « Max data size » à 1 610 612 736 octets, « Max core file size » **inchangé** (1 sous `--ulimit core=1:1`), `oom_score_adj` à 1000, code 97 si
     la limite est invalide, une allocation répétée s'arrête sous la limite ; la
     bombe à 120 chunks s'arrête d'elle-même (`GLib-ERROR`, SIGABRT, 6,9 s) sous
     1 Go. Les tests Linux de `tests/image-decode-launcher.test.ts` et celui
@@ -688,12 +697,18 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   - **l'état du décodeur est lisible sans accès privilégié** : `/api/health`
     expose `imageDecoder: "ready" | "failed" | "idle"` (le résultat du dernier
     démarrage de l'enfant, un état et rien d'autre : ni pid, ni message, ni chemin ;
-    les champs existants sont inchangés). `failed` veut dire que **toutes** les
-    photos sont refusées. L'enfant est démarré une fois au lancement du serveur
-    (`instrumentation.ts`, runtime `nodejs`, sans attendre ni jamais lever) :
-    observé sous `next start`, la sonde rend `ready` dès le démarrage, et `failed`
-    (serveur toujours debout) quand le script enfant est absent ; `next build` ne
-    lance rien ;
+    les champs existants sont inchangés). `failed` veut dire que **le dernier démarrage
+    de l'enfant a échoué et qu'un nouvel essai est programmé** ; les envois de photos
+    sont refusés en attendant. Après un échec, le pont réessaie **seul, en arrière-plan,
+    avec une attente croissante** (30 s, 60 s, 120 s, … 15 minutes au plus ;
+    `retryDelayMs`, timers `unref`) ; la sonde ne déclenche jamais rien, elle lit ; un
+    succès repasse l'état à `ready`. L'enfant est démarré une fois au lancement du
+    serveur (`instrumentation.ts`, runtime `nodejs`, hors de la phase
+    `phase-production-build`, sans attendre ni jamais lever) : observé sous `next
+    start`, la sonde rend `ready` dès le démarrage, et `failed` (serveur toujours
+    debout) quand le script enfant est absent. `register()` n'est **pas** appelé pendant
+    `next build` (un `console.error` temporaire, retiré : rien dans la sortie du build,
+    une ligne sous `next start`) ; la garde est de la défense en profondeur ;
   - **les chunks de texte d'un PNG sont retirés avant l'enfant**
     (`lib/pngTextChunks.ts`, fonction pure : `tEXt`, `zTXt`, `iTXt`, que
     l'application jette de toute façon ; `iCCP` et `eXIf` — l'orientation — sont
@@ -804,7 +819,18 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     `createRequire(...)`, avec un littéral de chaîne — et rougit toute autre
     référence à `require` ou à `createRequire`, tout accès à `_load`, `dlopen`,
     `mainModule`, tout accès calculé sur `process`/`module`/`globalThis`, `Function`
-    et `eval` appelés ou construits, et `ImportEqualsDeclaration`.
+    appelé ou construit, et `ImportEqualsDeclaration`. **Et il interdit des modules,
+    pas des noms** (un nom s'esquive par un alias — `createRequire as cr` —, une
+    déstructuration — `const { _load } = require("node:module")`,
+    `const { dlopen } = process` — ou une clé calculée) : tout import (statique,
+    dynamique ou `require`) de `module`, `vm`, `worker_threads` et `child_process`
+    (avec ou sans `node:`) est rouge dans le code livré, ainsi que l'identifiant
+    `eval` partout et `Reflect`/la déstructuration appliqués à `process`, `module` ou
+    `globalThis` (sauf une clé qui est un symbole, `Symbol.for(...)`, comme les
+    singletons du processus). **Une seule exception, écrite avec sa raison et la
+    condition de sa disparition** : `lib/imageDecodeBridge.ts` pour `child_process`
+    (il lance l'enfant) ; elle disparaît le jour où le décodeur tourne ailleurs
+    (service ou conteneur séparé) et que le serveur ne lance plus de processus.
   **Calibrage du délai de 20 s, mesuré dans l'image de production** (2026-11-27,
   image de production d'avant ce lot, node 22.23.5, sharp
   0.35.5 / libvips 8.18.7, sur le VPS ; méthode : `docker run --cpus=1
@@ -890,6 +916,12 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   partagé, invisible pour `ls`) : il est **hors de `RLIMIT_DATA`**, borné par le
   budget décodé, et libéré à la mort de l'enfant (rien ne reste après un kill). Il
   ne faut donc pas écrire que libvips n'écrit aucun fichier temporaire. (4)
+  **Plafonds de sortie par chemin et écriture partielle du bulletin — lot D1
+  (`fix/televersements`), pas ici** : le plafond global de 32 Mio reste ici ; l'archive
+  du bulletin (plafond de 20 Mo, `MAX_PROJECT_FILE_BYTES`) et la limite d'image du plan
+  Cloudinary (inconnue) demandent un plafond par chemin ; et l'écriture partielle du
+  bulletin (le stock est appliqué avant l'archive : un nouvel essai double le stock) est
+  à traiter avec ce lot. (5)
   **Isolation de l'enfant** : même uid que le serveur, `/app` inscriptible, lecture
   possible de `/proc/<ppid>/environ` (voir plus haut) — durcissement (`/app` en
   lecture seule, un autre uid) en **lot séparé, non fait**. Ce lot devra traiter

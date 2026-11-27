@@ -5,8 +5,11 @@ export async function register() {
     await import("./sentry.server.config");
     // Start the image decode child now (not awaited: it never delays the server and never
     // throws), so /api/health reports `imageDecoder` from the first minute.
-    const { warmImageDecoder } = await import("./lib/imageDecodeBridge");
-    void warmImageDecoder();
+    // Never during `next build`.
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      const { warmImageDecoder } = await import("./lib/imageDecodeBridge");
+      void warmImageDecoder();
+    }
   }
   if (process.env.NEXT_RUNTIME === "edge") {
     await import("./sentry.edge.config");

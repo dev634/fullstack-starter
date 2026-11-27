@@ -33,6 +33,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # No core dump from this container. The host pipes cores to apport
+    # (core_pattern = |/usr/share/apport/apport ...), and with a PIPE core pattern the kernel
+    # ignores RLIMIT_CORE except for the value 1 byte, which means "no dump": `ulimit -c 0`
+    # inside the container does NOT stop it (an abort() still wrote a 261 MB core). The image
+    # decoder (scripts/image-decode-child.mjs) now ends a bomb with SIGABRT at its memory limit,
+    # and each such death would hand apport up to 1.5 GB through the disk Postgres shares.
+    # Hence 1:1 here, and the decode launcher never touches RLIMIT_CORE (lib/imageDecodeBridge.ts).
+    ulimits:
+      core:
+        soft: 1
+        hard: 1
 
 volumes:
   postgres_data:

@@ -166,6 +166,25 @@ function isCreateRequireCall(n: ts.Node): boolean {
   return (ts.isIdentifier(callee) && callee.text === "createRequire") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "createRequire");
 }
 
+/**
+ * Modules shipped code may not import at all, by ANY form (static, dynamic, require): each one
+ * is a way to reach the loader, evaluate code, or start another process, which the scanner
+ * cannot read the target of. A rule on MODULES, not on NAMES: a list of dangerous names is
+ * defeated by an alias (`createRequire as cr`), a destructuring (`const { _load } = ...`) or a
+ * computed key; a banned import cannot be aliased away.
+ */
+const BANNED_MODULES: ReadonlySet<string> = new Set(["module", "vm", "worker_threads", "child_process"]);
+
+/**
+ * The ONE exemption. Its reason and the condition of its disappearance sit here, next to it:
+ * lib/imageDecodeBridge.ts starts the image decode child (scripts/image-decode-child.mjs) with
+ * `spawn`, the whole point of that module. It disappears the day the decoder runs somewhere
+ * else (a separate service or container) and the server no longer starts a process.
+ */
+const BANNED_MODULE_EXEMPTIONS: ReadonlyArray<{ file: string; module: string; reason: string }> = [
+  { file: "lib/imageDecodeBridge.ts", module: "child_process", reason: "starts the image decode child process (spawn)" },
+];
+
 /** Names whose mere use can reach the module loader or run code the scanner cannot read. */
 const LOADER_INTERNALS: ReadonlySet<string> = new Set(["_load", "dlopen", "mainModule"]);
 /** Receivers whose computed access (`process[x]`) could reach them. */
@@ -193,11 +212,13 @@ const LOADER_RECEIVERS: ReadonlySet<string> = new Set(["process", "module", "glo
 export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>; unresolvable: string[] } {
   const packages = new Set<string>();
   const unresolvable: string[] = [];
-  const add = (specifier: string) => {
+  const red = (n: ts.Node) => unresolvable.push(n.getText(source));
+  const add = (specifier: string, at: ts.Node) => {
+    const builtin = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
+    if (BANNED_MODULES.has(builtin) && !BANNED_MODULE_EXEMPTIONS.some((e) => e.file === source.fileName && e.module === builtin)) red(at);
     const name = packageNameOf(specifier);
     if (name) packages.add(name);
   };
-  const red = (n: ts.Node) => unresolvable.push(n.getText(source));
   // Names bound to a require function made by createRequire.
   const loaders = new Set<string>();
   const collect = (n: ts.Node) => {
@@ -207,6 +228,26 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
     ts.forEachChild(n, collect);
   };
   collect(source);
+  // Names bound to a Symbol (`const KEY = Symbol.for("...")`): a symbol cannot name a loader
+  // internal, so Reflect.get(globalThis, KEY) (the process-wide singletons of the app) is safe.
+  const symbolKeys = new Set<string>();
+  const collectSymbols = (n: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      ((ts.isIdentifier(n.initializer.expression) && n.initializer.expression.text === "Symbol") ||
+        (ts.isPropertyAccessExpression(n.initializer.expression) &&
+          ts.isIdentifier(n.initializer.expression.expression) &&
+          n.initializer.expression.expression.text === "Symbol"))
+    ) {
+      symbolKeys.add(n.name.text);
+    }
+    ts.forEachChild(n, collectSymbols);
+  };
+  collectSymbols(source);
+  const isGlobalReceiver = (e: ts.Node | undefined): boolean => e !== undefined && ts.isIdentifier(e) && LOADER_RECEIVERS.has(e.text);
   const isLoaderCall = (call: ts.CallExpression): boolean => {
     const callee = call.expression;
     if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
@@ -227,20 +268,21 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
   };
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-      if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text);
+      if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text, n);
     } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
-      if (!n.isTypeOnly) add(n.moduleSpecifier.text);
+      if (!n.isTypeOnly) add(n.moduleSpecifier.text, n);
     } else if (ts.isImportEqualsDeclaration(n)) {
       red(n);
     } else if (ts.isCallExpression(n) && isLoaderCall(n)) {
       const [arg] = n.arguments;
-      if (arg && ts.isStringLiteral(arg)) add(arg.text);
+      if (arg && ts.isStringLiteral(arg)) add(arg.text, n);
       else red(n);
     } else if (ts.isIdentifier(n) && !isPropertyName(n)) {
       const callee = isCallee(n);
       const inImport = n.parent !== undefined && (ts.isImportSpecifier(n.parent) || ts.isImportClause(n.parent) || ts.isExportSpecifier(n.parent));
-      if (n.text === "require" && !callee) red(n.parent ?? n);
-      else if ((n.text === "Function" || n.text === "eval") && callee) red(n.parent ?? n);
+      if (n.text === "eval" && !(n.parent && ts.isPropertyAssignment(n.parent) && n.parent.name === n)) red(n.parent ?? n);
+      else if (n.text === "require" && !callee) red(n.parent ?? n);
+      else if (n.text === "Function" && callee) red(n.parent ?? n);
       else if (n.text === "createRequire" && !inImport) {
         // Recognised only as the callee of a call used in one of the two known shapes.
         if (!(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n.parent ?? n);
@@ -252,8 +294,13 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
       const callee = isCallee(n);
       if (LOADER_INTERNALS.has(name)) red(n);
       else if (name === "require" && !(callee && ts.isIdentifier(n.expression) && n.expression.text === "module")) red(n);
-      else if ((name === "Function" || name === "eval") && callee) red(n);
+      else if (name === "Function" && callee) red(n);
       else if (name === "createRequire" && !(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n);
+    } else if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "Reflect") {
+      // Reflect.get / set / getOwnPropertyDescriptor ... on process, module or globalThis: only with a
+      // symbol key (see symbolKeys). Anything else could read dlopen, require, mainModule.
+      const [target, key] = n.arguments;
+      if (isGlobalReceiver(target) && !(key && ts.isIdentifier(key) && symbolKeys.has(key.text))) red(n);
     } else if (ts.isElementAccessExpression(n)) {
       const key = n.argumentExpression;
       const named = ts.isStringLiteralLike(key) ? key.text : null;
@@ -263,6 +310,14 @@ export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>;
     ts.forEachChild(n, visit);
   };
   visit(source);
+  // Destructuring of process / module / globalThis (`const { dlopen } = process`): the names it
+  // pulls out are not the scanner's to follow.
+  const destructured = (n: ts.Node) => {
+    if (ts.isVariableDeclaration(n) && ts.isObjectBindingPattern(n.name) && isGlobalReceiver(n.initializer)) red(n);
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isObjectLiteralExpression(n.left) && isGlobalReceiver(n.right)) red(n);
+    ts.forEachChild(n, destructured);
+  };
+  destructured(source);
   return { packages, unresolvable };
 }
 
@@ -396,7 +451,7 @@ describe("runtime dependencies", () => {
         "module.require(name);",
         "import()",
       ]) {
-        expect(unresolvableIn(form), form).toHaveLength(1);
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
       }
     });
 
@@ -425,13 +480,57 @@ describe("runtime dependencies", () => {
       }
     });
 
+    // Banned MODULES, not names: the forms an enumeration of names let through (audit of
+    // fix/decodage-borne, third pass), each one red.
+    it("the aliased, destructured and computed forms are red, and so is any import of module, vm, worker_threads, child_process", () => {
+      const forms = [
+        "import { createRequire as cr } from 'node:module'; cr(import.meta.url)('sharp');",
+        "const { _load } = require('node:module'); _load('sharp');",
+        "const { dlopen } = process; dlopen(m, 'x');",
+        "Reflect.get(process, 'dlopen');",
+        "import vm from 'node:vm'; vm.runInThisContext('1');",
+        "import { Worker } from 'node:worker_threads'; new Worker('x', { eval: true });",
+        "import { execFileSync } from 'node:child_process'; execFileSync(process.execPath, ['-e', 'x']);",
+        "globalThis['req' + 'uire']('sharp');",
+        "(0, eval)('1');",
+        "const e = eval; e('1');",
+        "const { require: r } = globalThis; r('sharp');",
+        "import m from 'module'; m._load('sharp');",
+        "await import('node:vm');",
+        "require('child_process');",
+        "export { Worker } from 'worker_threads';",
+      ];
+      for (const form of forms) {
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
+      }
+    });
+
+    it("the one exemption is the image bridge, for child_process only: the real file is green, the same text elsewhere is red", () => {
+      const bridge = readFileSync(join(ROOT, "lib", "imageDecodeBridge.ts"), "utf8");
+      expect(scanModuleLoads(parse("lib/imageDecodeBridge.ts", bridge)).unresolvable).toEqual([]);
+      expect(scanModuleLoads(parse("lib/elsewhere.ts", bridge)).unresolvable.length).toBeGreaterThan(0);
+      // The exemption is for child_process alone, and carries its reason.
+      expect(unresolvableIn("import vm from 'node:vm';")).toHaveLength(1);
+      expect(scanModuleLoads(parse("lib/imageDecodeBridge.ts", "import vm from 'node:vm';")).unresolvable).toHaveLength(1);
+      for (const entry of BANNED_MODULE_EXEMPTIONS) expect(entry.reason.length).toBeGreaterThan(10);
+    });
+
+    it("what is legitimate stays green: fs, a symbol-keyed Reflect on globalThis, a plain object destructuring", () => {
+      for (const form of [
+        "import { readFileSync } from 'node:fs'; readFileSync('x');",
+        "const KEY = Symbol.for('app.queue'); Reflect.get(globalThis, KEY); Reflect.set(globalThis, KEY, {});",
+        "const { a, b } = { a: 1, b: 2 }; const { env } = { env: 1 };",
+        "const evaluate = 1; const text = 'eval'; const o = { eval: 1 }.eval;",
+      ]) {
+        expect(unresolvableIn(form), form).toEqual([]);
+      }
+    });
+
     it("the neighbouring form that is legitimate stays green, and a literal through createRequire is still seen as an import", () => {
       for (const form of [
         "require('node:fs'); await import('node:path'); module.exports = {};",
         "// require(name)\nconst text = 'import(name)';",
-        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); r('sharp');",
         "const other = (x) => x; other(name);",
-        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); const x = r('pdfkit'); module.exports = x;",
         "const type: Function = () => 1; const text = 'new Function'; process.env.X; process.platform;",
       ]) {
         expect(unresolvableIn(form), form).toEqual([]);

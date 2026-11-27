@@ -111,17 +111,24 @@ export function buildChildEnv(source: Readonly<Record<string, string | undefined
 // 1. oom_score_adj = 1000: when the host runs out of memory, the child is the victim
 //    designated for the whole system, before `next-server` or Postgres. Best effort
 //    (a failure is ignored): raising one's own score needs no privilege on Linux.
-// 2. `ulimit -c 0`: no core file. A bomb stopped by the limit below now dies of SIGABRT (a
-//    failed g_malloc, or a fatal V8 out-of-memory), where the OOM killer used to send a
-//    SIGKILL without a core; with a core pattern piped to apport (the host of the VPS) each
-//    such death could write ~1.5 GB on the disk Postgres shares. The container's own
-//    `ulimit -c` is unlimited (measured).
-// 3. `ulimit -d`: the memory bound. Like `-c`, CLOSED BY DEFAULT: if either fails there is
-//    no exec, the child never says "ready", the task is refused and a line is logged; it
-//    never runs unbounded.
+// 2. `ulimit -d`: the memory bound. CLOSED BY DEFAULT: if it fails there is no exec, the child
+//    never says "ready", the task is refused and a line is logged; it never runs unbounded.
+//
+// THIS LAUNCHER MUST NEVER TOUCH RLIMIT_CORE (`ulimit -c`). A bomb stopped by the limit dies
+// of SIGABRT (a failed g_malloc, or a fatal V8 out-of-memory), where the OOM killer used to send
+// a SIGKILL without a core, and the host of the VPS pipes cores to apport
+// (`core_pattern = |/usr/share/apport/apport ...`). With a PIPE core pattern the kernel
+// (fs/coredump.c) IGNORES RLIMIT_CORE, except for the value 1 byte, which means "no dump":
+// under `ulimit -c 0` an abort() still wrote a 261 MB core (proved by the audit), and a `-c 0`
+// set UNDER a limit of 1 rewrites one. busybox cannot even set 1 byte (it counts in blocks of
+// 512). The protection therefore lives at the container, `ulimits: core: 1` in
+// docker-compose.prod.yml, and the child simply INHERITS it (tests/image-decode-launcher.test.ts
+// compares the two). Observed on the VPS: an abort() in a throwaway container of the production
+// image prints "core dumped", /var/crash and /var/lib/apport/coredump stay empty (apport drops
+// the crashes of containers), but the kernel still hands apport the whole core: up to 1.5 GB of
+// I/O per bomb.
 const LINUX_LAUNCHER =
   '{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; ' +
-  'ulimit -c 0 || { echo "[image-decode] ulimit -c failed: the child is not started" >&2; exit 97; }; ' +
   'ulimit -d "$1" || { echo "[image-decode] ulimit -d failed: the child is not started" >&2; exit 97; }; ' +
   'shift; exec "$@"';
 
@@ -145,7 +152,14 @@ export function buildChildLaunch(platform: NodeJS.Platform, nodePath: string, sc
 type Pending = { resolve: (message: ChildResult) => void; reject: (error: Error) => void };
 type Worker = { process: ChildProcess; pending: Map<number, Pending>; nextId: number; alive: boolean; busy: boolean };
 type StartOutcome = "ready" | "failed";
-type BridgeState = { worker: Worker | null; starting: Promise<Worker> | null; lastStart: StartOutcome | null };
+type BridgeState = {
+  worker: Worker | null;
+  starting: Promise<Worker> | null;
+  lastStart: StartOutcome | null;
+  // Background retries after a failed start: the failures in a row, and the pending timer.
+  failures: number;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+};
 
 // A singleton of the PROCESS on globalThis under a Symbol.for key, like the queue of
 // lib/imageMetadata.ts: the production build bundles this module into more than one
@@ -159,16 +173,48 @@ function isBridgeState(value: unknown): value is BridgeState {
 function bridgeState(): BridgeState {
   const existing: unknown = Reflect.get(globalThis, STATE_KEY);
   if (isBridgeState(existing)) return existing;
-  const created: BridgeState = { worker: null, starting: null, lastStart: null };
+  const created: BridgeState = { worker: null, starting: null, lastStart: null, failures: 0, retryTimer: null };
   Reflect.set(globalThis, STATE_KEY, created);
   return created;
 }
 
+// After a start that fails the bridge tries again on its own, with a growing wait: 30 s, 60 s,
+// 120 s ... up to 15 minutes. So that `failed` on the health probe describes the PRESENT: the
+// last start failed AND a new attempt is scheduled, not a verdict frozen at boot. Never
+// triggered by the probe, which only reads. The timers do not keep the process alive.
+const RETRY_FIRST_SECONDS = 30;
+const RETRY_MAX_SECONDS = 15 * 60;
+
+/** The wait before retry number `failures` (1 = after the first failure): 30, 60, 120, ... capped at 900 s. */
+export function retryDelayMs(failures: number): number {
+  return Math.min(RETRY_FIRST_SECONDS * 2 ** Math.max(failures - 1, 0), RETRY_MAX_SECONDS) * 1000;
+}
+
+function scheduleRetry(state: BridgeState): void {
+  if (state.retryTimer !== null) return;
+  const delay = retryDelayMs(state.failures);
+  const timer = setTimeout(() => {
+    state.retryTimer = null;
+    // A failure schedules the next one (through ensureWorker); nothing is thrown here.
+    ensureWorker(CHILD_STARTUP_SECONDS * 1000).catch(() => undefined);
+  }, delay);
+  timer.unref();
+  state.retryTimer = timer;
+}
+
+/** Cancels the background retries (server shutdown, tests). */
+export function stopDecoderRetries(): void {
+  const state = bridgeState();
+  if (state.retryTimer !== null) clearTimeout(state.retryTimer);
+  state.retryTimer = null;
+  state.failures = 0;
+}
+
 /**
  * What the public health probe may say about the decoder, and nothing more (no pid, no
- * message, no path): the outcome of the LAST start of the child. `failed` means every image
- * upload is being refused (the child cannot start: `ulimit` refused, sharp or the script
- * missing); `idle` means no start was attempted yet in this process.
+ * message, no path): the outcome of the LAST start of the child. `failed` means that start
+ * failed (`ulimit` refused, sharp or the script missing) and a new attempt is scheduled; image
+ * uploads are refused in the meantime. `idle` means no start was attempted yet.
  */
 export type ImageDecoderState = "ready" | "failed" | "idle";
 
@@ -312,11 +358,16 @@ function ensureWorker(startupMs: number): Promise<Worker> {
       state.starting = null;
       state.worker = worker;
       state.lastStart = "ready";
+      state.failures = 0;
+      if (state.retryTimer !== null) clearTimeout(state.retryTimer);
+      state.retryTimer = null;
       return worker;
     },
     (error: unknown) => {
       state.starting = null;
       state.lastStart = "failed";
+      state.failures += 1;
+      scheduleRetry(state);
       throw error;
     },
   );

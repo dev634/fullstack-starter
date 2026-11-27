@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildChildLaunch, buildChildEnv, CHILD_DATA_LIMIT_MB } from "@/lib/imageDecodeBridge";
@@ -28,7 +28,9 @@ describe("buildChildLaunch (pure)", () => {
     expect(shellText).not.toContain("pwned");
     expect(shellText).not.toContain("/usr/local/bin/node");
     expect(shellText).toContain("ulimit -d");
-    expect(shellText).toContain("ulimit -c 0");
+    // RLIMIT_CORE is never touched: with a piped core_pattern the kernel ignores it except for 1 byte,
+    // and a `-c 0` under a limit of 1 rewrites a core. The container sets it (core: 1).
+    expect(shellText).not.toMatch(/ulimit\s+-\w*c/);
     expect(shellText).toContain("oom_score_adj");
     expect(shellText).toContain('exec "$@"');
   });
@@ -70,13 +72,15 @@ console.log(JSON.stringify({
     expect(out.oom).toBe("1000");
   });
 
-  // A bomb stopped by the limit dies of SIGABRT, which writes a core file (apport on the host
-  // of the VPS, ~1.5 GB each, on the disk Postgres shares) where the OOM killer wrote none.
-  it("sets 'Max core file size' to 0 (soft and hard): no core file", () => {
+  // The launcher must NEVER touch RLIMIT_CORE: the child inherits the parent's, unchanged (the
+  // production container sets `core: 1`, the only value a piped core_pattern honours).
+  it("leaves 'Max core file size' exactly as the parent has it", () => {
+    const coreLine = (limits: string) => limits.split("\n").find((l) => l.startsWith("Max core file size"));
+    const parent = coreLine(readFileSync("/proc/self/limits", "utf8"));
     const result = run(report);
     const out: { limits: string } = JSON.parse(result.stdout);
-    const line = out.limits.split("\n").find((l) => l.startsWith("Max core file size"));
-    expect(line?.split(/\s+/).slice(4, 6)).toEqual(["0", "0"]);
+    expect(parent).toBeDefined();
+    expect(coreLine(out.limits)).toBe(parent);
   });
 
   it("is CLOSED by default: when ulimit fails there is no exec, the stand-in never runs, the exit code is 97 and a line is written", () => {

@@ -247,7 +247,10 @@ export function encodeOriented(
         try {
             return await runInChild(operation, async (session) => {
                 assertDecodedSizeWithinBudget(await session.readHeader(input, SHARP_MAX_INPUT_PIXELS));
-                return session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, MAX_ENCODED_OUTPUT_BYTES, output);
+                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, MAX_ENCODED_OUTPUT_BYTES, output);
+                // The child already refuses a larger output before sending it: this is depth, against a child that drifts.
+                if (encoded.length > MAX_ENCODED_OUTPUT_BYTES) throw refusal("corruptedImage");
+                return encoded;
             });
         } catch {
             throw refusal("corruptedImage");

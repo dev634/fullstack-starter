@@ -12,6 +12,8 @@ import {
   DECODE_DEADLINE_SECONDS,
   imageDecoderState,
   liveDecodeChildPid,
+  retryDelayMs,
+  stopDecoderRetries,
   warmImageDecoder,
   runInChild,
   type DecodeSession,
@@ -211,6 +213,58 @@ describe("the state of the decoder, as the health probe reads it", () => {
     expect(liveDecodeChildPid()).not.toBeNull();
   }, SLOW);
 
+  it("after a failed start the bridge retries by itself: 30 s, 60 s, 120 s, up to 15 minutes, and a success rings ready", async () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map(retryDelayMs)).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 900_000, 900_000, 900_000]);
+    await startFromNoChild();
+    stopDecoderRetries();
+    Reflect.deleteProperty(globalThis, Symbol.for("fullstack-starter.imageDecodeBridge.state"));
+    // Only the timers are simulated: the child itself, and its channel, are real.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const warming = warmImageDecoder({ startupMs: 1 });
+      await vi.advanceTimersByTimeAsync(1); // the 1 ms start deadline passes: the start fails
+      await warming;
+      expect(imageDecoderState()).toBe("failed");
+      expect(vi.getTimerCount()).toBe(1); // the retry, scheduled — nothing was asked by a reader of the state
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(imageDecoderState()).toBe("failed"); // not yet
+      await vi.advanceTimersByTimeAsync(1); // 30 s: the retry starts a real child
+      const until = Date.now() + 15_000;
+      while (imageDecoderState() !== "ready" && Date.now() < until) await new Promise((resolve) => setImmediate(resolve));
+      expect(imageDecoderState()).toBe("ready");
+      expect(liveDecodeChildPid()).not.toBeNull();
+      expect(vi.getTimerCount()).toBe(0); // success: nothing left scheduled
+    } finally {
+      vi.useRealTimers();
+      stopDecoderRetries();
+    }
+  }, SLOW);
+
+  it("a second failure in a row waits twice as long", async () => {
+    await startFromNoChild();
+    stopDecoderRetries();
+    Reflect.deleteProperty(globalThis, Symbol.for("fullstack-starter.imageDecodeBridge.state"));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const first = warmImageDecoder({ startupMs: 1 });
+      await vi.advanceTimersByTimeAsync(1);
+      await first;
+      expect(imageDecoderState()).toBe("failed");
+      // The 30 s retry fires with the real 30 s start delay (simulated: it never elapses), so make a second failure by hand.
+      stopDecoderRetries();
+      const second = warmImageDecoder({ startupMs: 1 });
+      await vi.advanceTimersByTimeAsync(1);
+      await second;
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(vi.getTimerCount()).toBe(1); // not 30 s any more
+    } finally {
+      vi.useRealTimers();
+      stopDecoderRetries();
+    }
+  }, SLOW);
+
   it("a state only: nothing else about the child is readable from it", () => {
     expect(["ready", "failed", "idle"]).toContain(imageDecoderState());
     expect(typeof imageDecoderState()).toBe("string");
@@ -224,6 +278,7 @@ describe("the deadline kills the child", () => {
 
   it("the real attack — a progressive JPEG of 3,529 scans, absorbed by ONE native call — is killed at a short deadline, then a legitimate file succeeds on a fresh child", async () => {
     const { buffer } = auditProgressiveJpeg();
+    await runInChild("strip", decode(await jpeg())); // a ready child, whatever the test before left
     const before = liveDecodeChildPid();
     const started = performance.now();
     const outcome = await runInChild("strip", decode(buffer), { deadlineMs: 1_500 }).then(
