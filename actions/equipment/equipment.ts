@@ -5,7 +5,9 @@ import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { makeObjectFromZodError } from "@/lib/zod";
 import { createEquipmentSchema, updateEquipmentSchema } from "@/schemas/equipment";
 import { getCurrentUserId, getLoansActor } from "@/lib/currentUser";
-import { create, update, findById, removeIfNotLent } from "@/repository/equipment";
+import { create, update, findById, removeIfNotLent, isPhotoPublicIdReferenced } from "@/repository/equipment";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
+import { reservePhotoUpload } from "@/lib/photoUploadRateLimit";
 import { uploadEquipmentPhoto, destroyEquipmentPhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -19,27 +21,22 @@ import type { EquipmentActionState } from "@/types/equipment";
  * actions/clients/clients.ts::extractPhotoUrl.
  */
 async function extractEquipmentPhoto(
-  formData: FormData
-): Promise<{ url: string; publicId: string } | undefined> {
+  formData: FormData,
+  email: string
+): Promise<Awaited<ReturnType<typeof uploadEquipmentPhoto>> | undefined> {
   const file = formData.get("photo");
   if (file instanceof File && file.size > 0) {
+    // Per-account photo budget, shared with the company photo
+    // (lib/photoUploadRateLimit.ts): spent only when a file is attached.
+    await reservePhotoUpload(email);
     return uploadEquipmentPhoto(file);
   }
   return undefined;
 }
 
-/**
- * Best-effort removal of a photo whose database row never got written. A
- * cleanup that itself fails must never mask the ORIGINAL error the caller is
- * about to report, so it is swallowed here (logged with the publicId, so the
- * orphan can still be found on Cloudinary).
- */
-async function cleanUpOrphanPhoto(publicId: string): Promise<void> {
-  try {
-    await destroyEquipmentPhoto(publicId);
-  } catch (error) {
-    console.error(`Equipment photo orphan cleanup failed for "${publicId}":`, error);
-  }
+/** The compensation of a photo this call uploaded, or none when it uploaded nothing. */
+function photoCompensation(photo: Awaited<ReturnType<typeof uploadEquipmentPhoto>> | undefined) {
+  return photo ? assetCompensation("equipment photo", photo, isPhotoPublicIdReferenced) : undefined;
 }
 
 export async function addEquipment(
@@ -62,32 +59,29 @@ export async function addEquipment(
     };
   }
 
-  // Declared outside the try so the catch below can still reach it: if the
-  // upload below succeeds but `create` fails afterwards, the Cloudinary
-  // asset would otherwise be orphaned — uploaded, but referenced by no row.
-  let photo: { url: string; publicId: string } | undefined;
   try {
     const ownerId = await getCurrentUserId();
     if (!ownerId) return { ...prevState, type: "error", message: t.errors.unauthorized };
 
-    photo = await extractEquipmentPhoto(formData);
-    await create({
-      ownerId,
-      name: parsed.data.name,
-      reference: parsed.data.reference,
-      photoUrl: photo?.url,
-      photoPublicId: photo?.publicId,
-    });
+    const photo = await extractEquipmentPhoto(formData, roleCheck.email);
+    // Only the write is wrapped (lib/uploadCompensation.ts): a failure of
+    // `create` must not leave the uploaded photo orphaned, and a failure of
+    // anything AFTER it must never destroy a photo a row now points at.
+    await writeWithCompensation(
+      () =>
+        create({
+          ownerId,
+          name: parsed.data.name,
+          reference: parsed.data.reference,
+          photoUrl: photo?.url,
+          photoPublicId: photo?.publicId,
+        }),
+      photoCompensation(photo)
+    );
 
     revalidatePath("/loans");
     return { ...prevState, type: "success", message: t.equipment.messages.added };
   } catch (error) {
-    // Best-effort: never let a DB failure leave an uploaded photo dangling
-    // with nothing pointing to it. Guarded so that a cleanup that itself
-    // fails can never mask the ORIGINAL error the user must hear about —
-    // lib/cloudinary.ts's destroy swallows its own errors today, but that
-    // is that module's contract, not this one's (proven by test).
-    if (photo) await cleanUpOrphanPhoto(photo.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }
@@ -112,10 +106,6 @@ export async function editEquipment(
     };
   }
 
-  // Declared outside the try so the catch below can still reach it: if the
-  // upload below succeeds but `update` fails afterwards, the newly uploaded
-  // Cloudinary asset would otherwise be orphaned.
-  let uploadedPhoto: { url: string; publicId: string } | undefined;
   try {
     const actor = await getLoansActor();
     if (!actor) return { ...prevState, type: "error", message: t.errors.unauthorized };
@@ -129,7 +119,7 @@ export async function editEquipment(
       return { ...prevState, type: "error", message: t.equipment.messages.invalidId };
     }
 
-    uploadedPhoto = await extractEquipmentPhoto(formData);
+    const uploadedPhoto = await extractEquipmentPhoto(formData, roleCheck.email);
     const removePhoto = formData.get("removePhoto") === "true";
     let photoUrl: string | null | undefined;
     let photoPublicId: string | null | undefined;
@@ -141,12 +131,16 @@ export async function editEquipment(
       photoPublicId = null;
     }
 
-    await update(parsed.data.id, {
-      name: parsed.data.name,
-      reference: parsed.data.reference,
-      photoUrl,
-      photoPublicId,
-    });
+    await writeWithCompensation(
+      () =>
+        update(parsed.data.id, {
+          name: parsed.data.name,
+          reference: parsed.data.reference,
+          photoUrl,
+          photoPublicId,
+        }),
+      photoCompensation(uploadedPhoto)
+    );
 
     // Drop the previous asset only once the write succeeded, and only when
     // it was actually replaced or removed — same ordering as
@@ -158,9 +152,6 @@ export async function editEquipment(
     revalidatePath("/loans");
     return { ...prevState, type: "success", message: t.equipment.messages.updated };
   } catch (error) {
-    // Best-effort: never let a DB failure leave a freshly uploaded photo
-    // dangling with nothing pointing to it (same guard as addEquipment).
-    if (uploadedPhoto) await cleanUpOrphanPhoto(uploadedPhoto.publicId);
     return { ...prevState, type: "error", message: getErrorMessage(error, t.errors.serverError, t) };
   }
 }

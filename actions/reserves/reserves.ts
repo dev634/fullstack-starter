@@ -13,7 +13,14 @@ import {
   findProjectId as findReserveProjectId,
 } from "@/repository/reserves";
 import { updateReserveStatusStyle as updateReserveStatusStyleRow } from "@/repository/projects";
-import { create as createPlan, findById as findPlanById, remove as removePlan, setFolder as setPlanFolder } from "@/repository/reservePlans";
+import {
+  create as createPlan,
+  findById as findPlanById,
+  remove as removePlan,
+  setFolder as setPlanFolder,
+  isPublicIdReferenced as isPlanPublicIdReferenced,
+} from "@/repository/reservePlans";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import {
   create as createFolder,
   remove as removeFolder,
@@ -24,6 +31,7 @@ import {
   findById as findPhotoById,
   remove as removePhoto,
   findProjectId as findPhotoProjectId,
+  isPublicIdReferenced as isPhotoPublicIdReferenced,
 } from "@/repository/reservePhotos";
 import { uploadReservePlan, destroyReservePlan, uploadReservePhoto, destroyReservePhoto } from "@/lib/cloudinary";
 import { revalidatePath } from "next/cache";
@@ -94,19 +102,23 @@ export async function addReservePlan(
   }
 
   try {
-    const { url, publicId, deliveryType, resourceType, format, version } = await uploadReservePlan(file, projectId);
+    const uploaded = await uploadReservePlan(file, projectId);
     const name = rawName || file.name.replace(/\.pdf$/i, "") || "Plan";
-    await createPlan({
-      projectId,
-      name,
-      url,
-      publicId,
-      deliveryType,
-      resourceType,
-      format,
-      version,
-      folderId,
-    });
+    await writeWithCompensation(
+      () =>
+        createPlan({
+          projectId,
+          name,
+          url: uploaded.url,
+          publicId: uploaded.publicId,
+          deliveryType: uploaded.deliveryType,
+          resourceType: uploaded.resourceType,
+          format: uploaded.format,
+          version: uploaded.version,
+          folderId,
+        }),
+      assetCompensation("reserve plan", uploaded, isPlanPublicIdReferenced)
+    );
     revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.planAdded };
   } catch (error) {
@@ -334,11 +346,20 @@ export async function addReservePhoto(
   }
 
   try {
-    const { url, publicId, deliveryType, resourceType, format, version } = await uploadReservePhoto(
-      file,
-      realProjectId
+    const uploaded = await uploadReservePhoto(file, realProjectId);
+    await writeWithCompensation(
+      () =>
+        createPhoto({
+          reserveId,
+          url: uploaded.url,
+          publicId: uploaded.publicId,
+          deliveryType: uploaded.deliveryType,
+          resourceType: uploaded.resourceType,
+          format: uploaded.format,
+          version: uploaded.version,
+        }),
+      assetCompensation("reserve photo", uploaded, isPhotoPublicIdReferenced)
     );
-    await createPhoto({ reserveId, url, publicId, deliveryType, resourceType, format, version });
     revalidateReserves(clientId, projectId);
     return { ...prevState, type: "success", message: t.reserves.messages.photoAdded };
   } catch (error) {

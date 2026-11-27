@@ -16,7 +16,8 @@ import {
 import { composeMaterialName, sanitizeScannedNullableString } from "@/lib/materialName";
 import { applyDeliveryScanSchema } from "@/schemas/deliveryNoteScan";
 import { applyScanItems, isUnmatchedScanMaterialError } from "@/repository/projectMaterials";
-import { create as createFile } from "@/repository/projectFiles";
+import { create as createFile, isPublicIdReferenced as isFilePublicIdReferenced } from "@/repository/projectFiles";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
 import { uploadProjectFile } from "@/lib/cloudinary";
@@ -42,9 +43,9 @@ const SCAN_LIMIT = { limit: 20, windowMs: 60 * 60 * 1000 };
 const SCAN_IP_LIMIT = { limit: 60, windowMs: 60 * 60 * 1000 };
 
 /**
- * getErrorMessage (lib/helpers.ts) relays the `.message` of ANY object that
- * carries one — including an Anthropic/OpenAI APIError, whose message can
- * contain the provider's HTTP status and raw response body (e.g. "invalid
+ * Historical: getErrorMessage (lib/helpers.ts) used to relay the `.message` of
+ * ANY object that carried one — including an Anthropic/OpenAI APIError, whose
+ * message can contain the provider's HTTP status and raw response body (e.g. "invalid
  * x-api-key", quota details, sometimes an env var name). Only this app's own
  * thrown error shape (`{ type: "error", message }`, used throughout
  * lib/repository — see e.g. lib/cloudinary.ts) is safe to relay verbatim;
@@ -52,7 +53,8 @@ const SCAN_IP_LIMIT = { limit: 60, windowMs: 60 * 60 * 1000 };
  * message before it reaches the client. Distinct from isScanError
  * (lib/deliveryNoteScan.ts), which carries a `code` to translate via
  * t.materials.scan.errors (lib/i18n/dictionaries/{fr,en}.ts) rather than a
- * message to relay.
+ * message to relay. Since fix/televersements getErrorMessage applies the same
+ * rule itself; this gate stays as a second layer, not as the only one.
  */
 function isAppError(error: unknown): error is { type: "error"; message: string } {
   return (
@@ -349,19 +351,26 @@ export async function applyDeliveryNoteScan(
       const rootFolders = await findChildFolders(projectId, null);
       const deliveryFolder = rootFolders.find((f) => f.name.toLowerCase() === "bulletins de livraisons");
       const uploaded = await uploadProjectFile(archivedFile, projectId);
-      await createFile({
-        projectId,
-        folderId: deliveryFolder?.id ?? null,
-        name: archivedFile.name,
-        url: uploaded.url,
-        publicId: uploaded.publicId,
-        deliveryType: uploaded.deliveryType,
-        resourceType: uploaded.resourceType,
-        format: uploaded.format,
-        version: uploaded.version,
-        size: uploaded.size,
-        mimeType: uploaded.mimeType,
-      });
+      const archiveName = archivedFile.name;
+      // Only the row write is wrapped: a failure there orphans the archive
+      // (applyScanItems above is already committed and is not undone).
+      await writeWithCompensation(
+        () =>
+          createFile({
+            projectId,
+            folderId: deliveryFolder?.id ?? null,
+            name: archiveName,
+            url: uploaded.url,
+            publicId: uploaded.publicId,
+            deliveryType: uploaded.deliveryType,
+            resourceType: uploaded.resourceType,
+            format: uploaded.format,
+            version: uploaded.version,
+            size: uploaded.size,
+            mimeType: uploaded.mimeType,
+          }),
+        assetCompensation("delivery note archive", uploaded, isFilePublicIdReferenced)
+      );
     }
 
     // Invalidates the hub (its Files link card shows a plain COUNT) and the

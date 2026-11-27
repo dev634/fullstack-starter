@@ -22,6 +22,11 @@ vi.mock("@/lib/cloudinary", () => ({
   destroyProjectFile: vi.fn(),
 }));
 vi.mock("@/repository/projectFiles", () => ({ findPublicIdsByClient: vi.fn() }));
+// The per-account photo budget (lib/photoUploadRateLimit.ts) reads Postgres through this module.
+vi.mock("@/lib/rate-limit", () => ({
+  isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
+  registerFailure: vi.fn(),
+}));
 vi.mock("@/repository/users", () => ({ findAccessScopeByEmail: vi.fn() }));
 vi.mock("@/repository/projects", () => ({ hasProjectAmong: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
 vi.mock("@/repository/activity", () => ({ logActivity: vi.fn() }));
@@ -42,6 +47,7 @@ import { destroyProjectFile, uploadClientPhoto, destroyClientPhoto } from "@/lib
 import { logActivity } from "@/repository/activity";
 import { accountWithoutFunction } from "./helpers/accessFixtures";
 import fr from "@/lib/i18n/dictionaries/fr";
+import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 
 const authMock = vi.mocked(auth);
 const findAccessScopeByEmailMock = vi.mocked(findAccessScopeByEmail);
@@ -60,6 +66,8 @@ const uploadClientPhotoMock = vi.mocked(uploadClientPhoto);
 const destroyClientPhotoMock = vi.mocked(destroyClientPhoto);
 const logActivityMock = vi.mocked(logActivity);
 const isPhotoUrlReferencedMock = vi.mocked(isPhotoUrlReferenced);
+const isRateLimitedMock = vi.mocked(isRateLimited);
+const registerFailureMock = vi.mocked(registerFailure);
 const revalidatePathMock = vi.mocked(revalidatePath);
 const initial = { type: null, message: "" } as const;
 
@@ -563,6 +571,63 @@ describe("client action auth guard + delegation", () => {
 
 // An orphan photo: the upload to Cloudinary succeeded, then the database write
 // was refused. The photo of THIS call is destroyed; a previous one never is.
+// Point 4 (fix/televersements): the company photo decodes with sharp, behind ONE
+// shared queue; a per-account budget (30 / 15 min, shared with the equipment
+// photo) keeps one account from filling it. Only a request WITH a photo counts.
+describe("client photo rate limit", () => {
+  const LIMITED = { limited: true, retryAfterMs: 7 * 60 * 1000 - 1 };
+  const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
+  function withPhoto(fields: Record<string, string>): FormData {
+    const fd = formOf(fields);
+    fd.set("photo", new File([new Uint8Array([1, 2, 3])], "photo.jpg", { type: "image/jpeg" }));
+    return fd;
+  }
+  beforeEach(() => {
+    vi.clearAllMocks();
+    for (const m of [createClientMock, updateMock, isRateLimitedMock, registerFailureMock]) m.mockReset();
+    isRateLimitedMock.mockResolvedValue({ limited: false, retryAfterMs: 0 });
+    findAccessScopeByEmailMock.mockResolvedValue(accountWithoutFunction());
+    authMock.mockResolvedValue({ user: { role: "ADMIN", email: "admin@example.com" } } as never);
+    uploadClientPhotoMock.mockResolvedValue(NEW_URL);
+    findByIdMock.mockResolvedValue({ id: 1, photoUrl: null } as never);
+  });
+
+  it("addClient: over the budget, refuses with the delay and uploads and writes nothing", async () => {
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res).toMatchObject({ type: "error", message: "Trop de photos envoyées en peu de temps. Réessaie dans 7 min." });
+    expect(uploadClientPhotoMock).not.toHaveBeenCalled();
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(registerFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClient: over the budget, refuses and uploads and writes nothing", async () => {
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    const res = await updateClient(initial, withPhoto(VALID_UPDATE_FIELDS));
+    expect(res).toMatchObject({ type: "error", message: expect.stringContaining("7 min") });
+    expect(uploadClientPhotoMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("the same action WITHOUT a photo is never limited, and never even asks the limiter", async () => {
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    const res = await addClient(initial, formOf(VALID_CREATE_FIELDS));
+    expect(res.type).toBe("success");
+    expect(isRateLimitedMock).not.toHaveBeenCalled();
+    expect(registerFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("under the budget: spends one photo on this account's shared key, then uploads", async () => {
+    createClientMock.mockResolvedValue({ type: "success", message: "ok", id: 7 } as never);
+    const res = await addClient(initial, withPhoto(VALID_CREATE_FIELDS));
+    expect(res.type).toBe("success");
+    expect(isRateLimitedMock).toHaveBeenCalledWith("photo-upload:admin@example.com", { limit: 30, windowMs: 15 * 60 * 1000 });
+    expect(registerFailureMock).toHaveBeenCalledWith("photo-upload:admin@example.com");
+    expect(uploadClientPhotoMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("client photo compensation when the write fails after the upload", () => {
   const NEW_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/new.jpg";
   const OLD_URL = "https://res.cloudinary.com/demo/image/upload/v1/clients/old.jpg";

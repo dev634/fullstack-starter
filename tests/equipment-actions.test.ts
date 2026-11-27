@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mirrors tests/user-actions.test.ts's mock shape (session {email, role}) and
 // tests/intervention-actions.test.ts's approach to guarding module-level
@@ -23,20 +23,29 @@ vi.mock("@/repository/equipment", () => ({
   update: vi.fn(),
   findById: vi.fn(),
   removeIfNotLent: vi.fn(),
+  isPhotoPublicIdReferenced: vi.fn(),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadEquipmentPhoto: vi.fn(),
   destroyEquipmentPhoto: vi.fn(),
+  destroyUploadedAsset: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// The per-account photo budget (lib/photoUploadRateLimit.ts) reads Postgres through this module.
+vi.mock("@/lib/rate-limit", () => ({
+  isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
+  registerFailure: vi.fn(),
+}));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addEquipment, editEquipment, deleteEquipment } from "@/actions/equipment/equipment";
 import { auth } from "@/lib/auth";
 import { getAccessContext } from "@/lib/accessContext";
 import { findIdByEmail } from "@/repository/users";
-import { create, update, findById, removeIfNotLent } from "@/repository/equipment";
-import { uploadEquipmentPhoto, destroyEquipmentPhoto } from "@/lib/cloudinary";
+import { create, update, findById, removeIfNotLent, isPhotoPublicIdReferenced } from "@/repository/equipment";
+import { uploadEquipmentPhoto, destroyEquipmentPhoto, destroyUploadedAsset } from "@/lib/cloudinary";
+import { revalidatePath } from "next/cache";
+import { isRateLimited, registerFailure } from "@/lib/rate-limit";
 import fr from "@/lib/i18n/dictionaries/fr";
 
 const authMock = vi.mocked(auth);
@@ -48,6 +57,16 @@ const findByIdMock = vi.mocked(findById);
 const removeIfNotLentMock = vi.mocked(removeIfNotLent);
 const uploadEquipmentPhotoMock = vi.mocked(uploadEquipmentPhoto);
 const destroyEquipmentPhotoMock = vi.mocked(destroyEquipmentPhoto);
+const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
+const isPhotoPublicIdReferencedMock = vi.mocked(isPhotoPublicIdReferenced);
+const revalidatePathMock = vi.mocked(revalidatePath);
+const isRateLimitedMock = vi.mocked(isRateLimited);
+const registerFailureMock = vi.mocked(registerFailure);
+
+// What uploadEquipmentPhoto returns: the URL plus the asset's own type and
+// resource_type as Cloudinary reported them (a public `upload` image).
+const uploaded = (url: string, publicId: string) =>
+  ({ url, publicId, deliveryType: "UPLOAD", resourceType: "IMAGE" }) as const;
 
 const initial = { type: null, message: "" } as const;
 
@@ -79,7 +98,13 @@ const equipmentRow = (overrides: Partial<{ id: number; ownerId: number; photoUrl
 });
 
 describe("addEquipment", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isPhotoPublicIdReferencedMock.mockResolvedValue(false);
+    destroyUploadedAssetMock.mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
 
   it("refuses a VIEWER (read-only capability)", async () => {
     actor("VIEWER");
@@ -129,7 +154,7 @@ describe("addEquipment", () => {
   it("uploads a photo and writes the url/publicId pair together", async () => {
     actor("EDITOR");
     findIdByEmailMock.mockResolvedValue(3);
-    uploadEquipmentPhotoMock.mockResolvedValue({ url: "https://x/photo.png", publicId: "equipment/abc" });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/abc"));
     createMock.mockResolvedValue({ id: 1 } as never);
     const fd = form({ name: "Perceuse" });
     fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
@@ -145,7 +170,7 @@ describe("addEquipment", () => {
   it("destroys the just-uploaded photo when create rejects afterwards", async () => {
     actor("EDITOR");
     findIdByEmailMock.mockResolvedValue(3);
-    uploadEquipmentPhotoMock.mockResolvedValue({ url: "https://x/photo.png", publicId: "equipment/orphan" });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/orphan"));
     createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
 
     const fd = form({ name: "Perceuse" });
@@ -153,7 +178,11 @@ describe("addEquipment", () => {
     const res = await addEquipment(initial, fd);
 
     expect(res.type).toBe("error");
-    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("equipment/orphan");
+    expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+    expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ publicId: "equipment/orphan", deliveryType: "UPLOAD", resourceType: "IMAGE" })
+    );
+    expect(isPhotoPublicIdReferencedMock).toHaveBeenCalledWith("equipment/orphan");
   });
 
   // The orphan cleanup is best-effort: lib/cloudinary.ts's destroy never
@@ -163,9 +192,9 @@ describe("addEquipment", () => {
   it("still reports the original error when the orphan cleanup itself rejects", async () => {
     actor("EDITOR");
     findIdByEmailMock.mockResolvedValue(3);
-    uploadEquipmentPhotoMock.mockResolvedValue({ url: "https://x/photo.png", publicId: "equipment/orphan" });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/orphan"));
     createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
-    destroyEquipmentPhotoMock.mockRejectedValueOnce(new Error("cloudinary down"));
+    destroyUploadedAssetMock.mockRejectedValueOnce(new Error("cloudinary down"));
 
     const fd = form({ name: "Perceuse" });
     fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
@@ -173,7 +202,51 @@ describe("addEquipment", () => {
 
     expect(res.type).toBe("error");
     expect(res.message).toBe(fr.errors.serverError);
-    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("equipment/orphan");
+    expect(destroyUploadedAssetMock).toHaveBeenCalledWith(expect.objectContaining({ publicId: "equipment/orphan" }));
+  });
+
+  // Point 3 (fix/televersements): ONLY the write is wrapped. The old compensation
+  // sat in the outer catch and would have destroyed a photo a row now points at
+  // if revalidatePath threw after a successful create (the review flagged it).
+  it("destroys NOTHING when create succeeded and a later step (revalidatePath) throws", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/kept"));
+    createMock.mockResolvedValue({ id: 1 } as never);
+    revalidatePathMock.mockImplementationOnce(() => {
+      throw new Error("revalidate failed");
+    });
+    const fd = form({ name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await addEquipment(initial, fd);
+
+    expect(res.type).toBe("error");
+    expect(isPhotoPublicIdReferencedMock).not.toHaveBeenCalled();
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("destroys nothing when create fails but a row already references the photo (the write may have committed)", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/maybe"));
+    createMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating equipment." });
+    isPhotoPublicIdReferencedMock.mockResolvedValue(true);
+    const fd = form({ name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    await addEquipment(initial, fd);
+
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("destroys nothing on a successful create (the photo is the row's)", async () => {
+    actor("EDITOR");
+    findIdByEmailMock.mockResolvedValue(3);
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/ok"));
+    createMock.mockResolvedValue({ id: 1 } as never);
+    const fd = form({ name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    expect((await addEquipment(initial, fd)).type).toBe("success");
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
   });
 
   it("does NOT call destroy when there was no photo to begin with", async () => {
@@ -189,7 +262,13 @@ describe("addEquipment", () => {
 });
 
 describe("editEquipment", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isPhotoPublicIdReferencedMock.mockResolvedValue(false);
+    destroyUploadedAssetMock.mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
 
   it("says the exact same thing for someone else's equipment as for one that doesn't exist (anti-enumeration)", async () => {
     actor("EDITOR", "owner@x.com");
@@ -220,7 +299,7 @@ describe("editEquipment", () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
-    uploadEquipmentPhotoMock.mockResolvedValue({ url: "new-url", publicId: "new-id" });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("new-url", "new-id"));
     updateMock.mockResolvedValue({ id: 5 } as never);
 
     const fd = form({ id: "5", name: "Perceuse" });
@@ -264,7 +343,7 @@ describe("editEquipment", () => {
     actor("EDITOR", "owner@x.com");
     findIdByEmailMock.mockResolvedValue(3);
     findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
-    uploadEquipmentPhotoMock.mockResolvedValue({ url: "new-url", publicId: "new-id" });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("new-url", "new-id"));
     updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error updating equipment." });
 
     const fd = form({ id: "5", name: "Perceuse" });
@@ -272,8 +351,42 @@ describe("editEquipment", () => {
     const res = await editEquipment(initial, fd);
 
     expect(res.type).toBe("error");
-    expect(destroyEquipmentPhotoMock).toHaveBeenCalledWith("new-id");
-    expect(destroyEquipmentPhotoMock).not.toHaveBeenCalledWith("old-id");
+    expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+    expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ publicId: "new-id", deliveryType: "UPLOAD", resourceType: "IMAGE" })
+    );
+    expect(destroyEquipmentPhotoMock).not.toHaveBeenCalled();
+  });
+
+  it("destroys NOTHING of the new photo when update succeeded and a later step (revalidatePath) throws", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("new-url", "new-id"));
+    updateMock.mockResolvedValue({ id: 5 } as never);
+    revalidatePathMock.mockImplementationOnce(() => {
+      throw new Error("revalidate failed");
+    });
+    const fd = form({ id: "5", name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await editEquipment(initial, fd);
+
+    expect(res.type).toBe("error");
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the ORIGINAL refusal when the destruction of the new photo itself fails", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ photoUrl: "old-url", photoPublicId: "old-id" }) as never);
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("new-url", "new-id"));
+    updateMock.mockRejectedValue({ type: "repositoryError", message: "Database Error updating equipment." });
+    destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
+    const fd = form({ id: "5", name: "Perceuse" });
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    const res = await editEquipment(initial, fd);
+
+    expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
   });
 
   it("does NOT call destroy when update rejects and there was no new upload", async () => {
@@ -286,6 +399,69 @@ describe("editEquipment", () => {
 
     expect(res.type).toBe("error");
     expect(destroyEquipmentPhotoMock).not.toHaveBeenCalled();
+  });
+});
+
+// Point 4 (fix/televersements) — see lib/photoUploadRateLimit.ts.
+describe("equipment photo rate limit", () => {
+  const LIMITED = { limited: true, retryAfterMs: 3 * 60 * 1000 - 1 };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isRateLimitedMock.mockReset();
+    isRateLimitedMock.mockResolvedValue({ limited: false, retryAfterMs: 0 });
+    uploadEquipmentPhotoMock.mockResolvedValue(uploaded("https://x/photo.png", "equipment/abc"));
+    isPhotoPublicIdReferencedMock.mockResolvedValue(false);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function withPhoto(fields: Record<string, string>): FormData {
+    const fd = form(fields);
+    fd.set("photo", new File(["x"], "photo.png", { type: "image/png" }));
+    return fd;
+  }
+
+  it("addEquipment: over the budget, refuses with the delay and uploads and writes nothing", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    const res = await addEquipment(initial, withPhoto({ name: "Perceuse" }));
+    expect(res).toMatchObject({ type: "error", message: "Trop de photos envoyées en peu de temps. Réessaie dans 3 min." });
+    expect(uploadEquipmentPhotoMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+    expect(registerFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("editEquipment: over the budget, refuses and uploads and writes nothing", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ ownerId: 3 }) as never);
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    const res = await editEquipment(initial, withPhoto({ id: "5", name: "Perceuse" }));
+    expect(res).toMatchObject({ type: "error", message: expect.stringContaining("3 min") });
+    expect(uploadEquipmentPhotoMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("the same actions WITHOUT a photo are never limited, and never ask the limiter", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    findByIdMock.mockResolvedValue(equipmentRow({ ownerId: 3 }) as never);
+    createMock.mockResolvedValue({ id: 1 } as never);
+    updateMock.mockResolvedValue({ id: 5 } as never);
+    isRateLimitedMock.mockResolvedValue(LIMITED);
+    expect((await addEquipment(initial, form({ name: "Perceuse" }))).type).toBe("success");
+    expect((await editEquipment(initial, form({ id: "5", name: "Perceuse" }))).type).toBe("success");
+    expect(isRateLimitedMock).not.toHaveBeenCalled();
+    expect(registerFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("shares ONE key per account with the company photo", async () => {
+    actor("EDITOR", "owner@x.com");
+    findIdByEmailMock.mockResolvedValue(3);
+    createMock.mockResolvedValue({ id: 1 } as never);
+    await addEquipment(initial, withPhoto({ name: "Perceuse" }));
+    expect(registerFailureMock).toHaveBeenCalledWith("photo-upload:owner@x.com");
   });
 });
 

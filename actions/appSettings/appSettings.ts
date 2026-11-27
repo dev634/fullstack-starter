@@ -6,7 +6,8 @@ import { requireCapability } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { resolveAccessConfig } from "@/lib/capabilities";
 import { updateAppSettingsSchema } from "@/schemas/appSettings";
-import { getSettings, upsert, updateSectionOrder, updateAccessConfig } from "@/repository/appSettings";
+import { getSettings, upsert, updateSectionOrder, updateAccessConfig, isLogoPublicIdReferenced } from "@/repository/appSettings";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { uploadLogo as uploadLogoToCloudinary, destroyLogo } from "@/lib/cloudinary";
 import { revalidateTag } from "next/cache";
 import { APP_SETTINGS_TAG } from "@/lib/appSettings";
@@ -124,15 +125,20 @@ export async function uploadLogo(
 
   try {
     const current = await getSettings();
-    const { url, publicId } = await uploadLogoToCloudinary(file);
-    await upsert({
-      appName: current.appName,
-      logoUrl: url,
-      logoPublicId: publicId,
-      primaryColor: current.primaryColor,
-      accentColor: current.accentColor,
-      updatedBy: roleCheck.email,
-    });
+    const uploaded = await uploadLogoToCloudinary(file);
+    // Only the write is wrapped: a failure there orphans the PUBLIC logo.
+    await writeWithCompensation(
+      () =>
+        upsert({
+          appName: current.appName,
+          logoUrl: uploaded.url,
+          logoPublicId: uploaded.publicId,
+          primaryColor: current.primaryColor,
+          accentColor: current.accentColor,
+          updatedBy: roleCheck.email,
+        }),
+      assetCompensation("logo", uploaded, isLogoPublicIdReferenced)
+    );
     // Best-effort cleanup of the previous logo, after the new one is saved.
     await destroyLogo(current.logoPublicId);
     revalidateTag(APP_SETTINGS_TAG, "max");

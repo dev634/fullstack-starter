@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({
@@ -53,10 +53,10 @@ vi.mock("@/repository/projectMaterials", () => ({
       typeof error === "object" && error !== null && "type" in error && error.type === "unmatchedScanMaterial"
   ),
 }));
-vi.mock("@/repository/projectFiles", () => ({ create: vi.fn() }));
+vi.mock("@/repository/projectFiles", () => ({ create: vi.fn(), isPublicIdReferenced: vi.fn() }));
 vi.mock("@/repository/projectFolders", () => ({ findChildren: vi.fn() }));
 vi.mock("@/repository/projects", () => ({ findById: vi.fn(), findTrashState: vi.fn().mockResolvedValue({ selfTrashed: false, inTrash: false }), }));
-vi.mock("@/lib/cloudinary", () => ({ uploadProjectFile: vi.fn() }));
+vi.mock("@/lib/cloudinary", () => ({ uploadProjectFile: vi.fn(), destroyUploadedAsset: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
   isRateLimited: vi.fn().mockResolvedValue({ limited: false, retryAfterMs: 0 }),
   registerFailure: vi.fn(),
@@ -70,10 +70,11 @@ import { scanDeliveryNote, applyDeliveryNoteScan } from "@/actions/deliveryNoteS
 import { requireRole } from "@/lib/authz";
 import { extractDeliveryNoteItems, stripArchivedPhotoMetadata } from "@/lib/deliveryNoteScan";
 import { applyScanItems } from "@/repository/projectMaterials";
-import { create as createFile } from "@/repository/projectFiles";
+import { create as createFile, isPublicIdReferenced } from "@/repository/projectFiles";
+import { revalidatePath } from "next/cache";
 import { findChildren as findChildFolders } from "@/repository/projectFolders";
 import { findById as findProjectById } from "@/repository/projects";
-import { uploadProjectFile } from "@/lib/cloudinary";
+import { uploadProjectFile, destroyUploadedAsset } from "@/lib/cloudinary";
 import { isRateLimited } from "@/lib/rate-limit";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -85,6 +86,9 @@ const createFileMock = vi.mocked(createFile);
 const findChildFoldersMock = vi.mocked(findChildFolders);
 const findProjectByIdMock = vi.mocked(findProjectById);
 const uploadProjectFileMock = vi.mocked(uploadProjectFile);
+const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
+const isPublicIdReferencedMock = vi.mocked(isPublicIdReferenced);
+const revalidatePathMock = vi.mocked(revalidatePath);
 const isRateLimitedMock = vi.mocked(isRateLimited);
 const initialScan = { type: null, message: "" } as const;
 const initialApply = { type: null, message: "" } as const;
@@ -324,6 +328,79 @@ describe("applyDeliveryNoteScan", () => {
     expect(createFileMock).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 2, folderId: 5, name: "note.jpg" })
     );
+  });
+
+  // Point 3 (fix/televersements): the archive is uploaded `authenticated`; only the
+  // ROW write is compensated (applyScanItems before it stays committed).
+  describe("archive compensation when the file row cannot be written", () => {
+    const ARCHIVE = {
+      url: "https://example.com/note.jpg",
+      publicId: "projects/2/note",
+      size: 1024,
+      mimeType: "image/jpeg",
+      deliveryType: "AUTHENTICATED",
+      resourceType: "IMAGE",
+      format: "jpg",
+      version: "1700000000",
+    } as const;
+    const run = () =>
+      applyDeliveryNoteScan(
+        initialApply,
+        formOf({ clientId: "1", projectId: "2", items: JSON.stringify([{ quantity: 1, materialId: 7 }]) }, fileOf("note.jpg"))
+      );
+    beforeEach(() => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      applyScanItemsMock.mockResolvedValue([] as never);
+      findChildFoldersMock.mockResolvedValue([] as never);
+      uploadProjectFileMock.mockResolvedValue(ARCHIVE);
+      isPublicIdReferencedMock.mockResolvedValue(false);
+      destroyUploadedAssetMock.mockResolvedValue(undefined);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it("destroys the archive with the type and resource_type the upload reported", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating file." });
+      const res = await run();
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+      expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ publicId: "projects/2/note", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" })
+      );
+    });
+
+    it("destroys nothing on success", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      expect((await run()).type).toBe("success");
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("destroys nothing when a row references the archive", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      isPublicIdReferencedMock.mockResolvedValue(true);
+      await run();
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("destroys nothing when a failure comes AFTER a successful write", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      revalidatePathMock.mockImplementationOnce(() => {
+        throw new Error("revalidate failed");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      expect((await run()).type).toBe("error");
+      expect(isPublicIdReferencedMock).not.toHaveBeenCalled();
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the ORIGINAL refusal when the destruction itself fails", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await run();
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+    });
   });
 
   it("attaches the photo at the project root when no delivery-note folder exists", async () => {

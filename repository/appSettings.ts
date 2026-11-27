@@ -50,6 +50,26 @@ export async function upsert(data: SettingsUpdate) {
 }
 
 /**
+ * Whether a branding row still points at this Cloudinary asset: the question an
+ * upload compensation (lib/uploadCompensation.ts) asks before destroying a file
+ * after a failed write that may have committed anyway. Only existence is read.
+ * A failure is thrown, not answered "no": the caller keeps the asset when it
+ * cannot tell.
+ */
+export async function isLogoPublicIdReferenced(publicId: string): Promise<boolean> {
+    try {
+        const row = await prisma.appSettings.findFirst({
+            where: { logoPublicId: publicId },
+            select: { id: true },
+        });
+        return row !== null;
+    } catch (error) {
+        console.log("Repository isLogoPublicIdReferenced error:", error);
+        throw { type: "repositoryError", message: "Database Error fetching app settings." };
+    }
+}
+
+/**
  * Persists the RBAC matrix (capability -> min role) as JSON — kept separate
  * from the branding upsert so the two concerns don't clobber each other. The
  * value is already resolved/validated (lib/capabilities) before it gets here.

@@ -41,6 +41,7 @@ const en: Dictionary = {
         uploadNotPdf: "The plan must be a PDF file.",
         uploadFailed: "Failed to upload the file. Please try again.",
         uploadBusy: "The server is already processing images. Try again in a moment.",
+        photoRateLimited: "Too many photos sent in a short time. Try again in {minutes} min.",
         patternMissingPlaceholder: "The pattern must contain {n}.",
         seriesRangeInvalid: "“To” must be greater than or equal to “From”.",
         seriesTooLarge: "A series can't exceed {max} tasks.",

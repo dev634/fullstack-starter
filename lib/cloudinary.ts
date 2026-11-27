@@ -1,4 +1,4 @@
-import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
+import { v2 as cloudinary, type UploadApiOptions, type UploadApiResponse } from "cloudinary";
 import { publicIdFromUrl } from "./cloudinary-url";
 import {
   toCloudinaryType,
@@ -30,7 +30,7 @@ cloudinary.config({ secure: true });
 // the asset's real type — so these must always be read from the database,
 // never re-derived from a mime type. See prisma/schema.prisma's comment on
 // ProjectFile.resourceType for the same rule applied to persistence.
-type GuardedAssetRef = {
+export type GuardedAssetRef = {
   publicId: string;
   deliveryType: CloudinaryDeliveryType;
   resourceType: CloudinaryResourceType;
@@ -64,41 +64,96 @@ function guardedFieldsFromUploadResult(result: UploadApiResponse): GuardedUpload
 }
 
 /**
- * guardedFieldsFromUploadResult THROWS on an unexpected resource/delivery
- * type (see fromCloudinaryResourceType/fromCloudinaryType's docs in
- * lib/cloudinaryDelivery.ts). Every call site below is inside an
- * upload_stream callback — invoked later by the Cloudinary SDK, outside the
- * surrounding `new Promise((resolve, reject) => ...)` executor's own call
- * stack — so a raw throw there does NOT reject that promise: it becomes an
- * uncaughtException that kills the Node process, leaving the Server Action
- * that's awaiting the upload hung forever. Routing the throw through
- * `reject` here turns it back into a normal promise rejection.
+ * The three columns `destroy` needs, read off the upload response — what a
+ * compensation (lib/uploadCompensation.ts) destroys an asset by. Throws on an
+ * unexpected resource/delivery type, like guardedFieldsFromUploadResult.
  */
-function safeGuardedFields(
-  result: UploadApiResponse,
-  reject: (reason: unknown) => void
-): GuardedUploadFields | null {
-  try {
-    return guardedFieldsFromUploadResult(result);
-  } catch (error) {
-    reject(error);
-    return null;
-  }
+function assetRefFromUploadResult(result: UploadApiResponse): GuardedAssetRef {
+  const { publicId, deliveryType, resourceType } = guardedFieldsFromUploadResult(result);
+  return { publicId, deliveryType, resourceType };
 }
 
+/**
+ * The ONE place a buffer is sent to Cloudinary (it used to be written out six
+ * times). Every failure leaves here as the application's own refusal shape,
+ * `{ type: "error", message, i18n: "uploadFailed" }`, never as a raw Error:
+ *
+ *  - upload_stream signs the request SYNCHRONOUSLY, so a missing credential
+ *    ("Must supply api_key", "Must supply cloud_name…") throws inside the
+ *    Promise executor and would reject with the SDK's native Error — whose
+ *    `.message` then reached the user. It is caught here, logged with its
+ *    cause, and refused as uploadFailed.
+ *  - A network error or a non-2xx response arrives in the callback.
+ *  - `toResult` may THROW on an unexpected resource/delivery type (see
+ *    fromCloudinaryResourceType/fromCloudinaryType). It runs inside a callback
+ *    the SDK invokes later, outside the executor's call stack, so a raw throw
+ *    would NOT reject this promise: it would become an uncaughtException that
+ *    kills the Node process and leaves the awaiting Server Action hung forever.
+ *    It is caught here for the same reason.
+ *
+ * `failureMessage` is the English fallback of the `uploadFailed` refusal, the
+ * only thing that differs between the callers.
+ */
+function uploadBuffer<T>(
+  buffer: Buffer,
+  options: UploadApiOptions,
+  failureMessage: string,
+  toResult: (result: UploadApiResponse) => T
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const refuse = () => reject({ type: "error", message: failureMessage, i18n: "uploadFailed" });
+    try {
+      cloudinary.uploader
+        .upload_stream(options, (error, result) => {
+          if (error || !result) {
+            refuse();
+            return;
+          }
+          try {
+            resolve(toResult(result));
+          } catch (cause) {
+            console.error("Cloudinary upload response not understood:", cause);
+            refuse();
+          }
+        })
+        .end(buffer);
+    } catch (cause) {
+      console.error("Cloudinary upload refused before sending:", cause);
+      refuse();
+    }
+  });
+}
+
+/**
+ * Never throws, but reads `destroy`'s own report and logs anything other than
+ * "ok" / "not found": an operation that doesn't throw hasn't necessarily acted
+ * (a mismatched `type` makes it no-op in silence — see GuardedAssetRef's doc).
+ */
 async function destroyGuardedAsset(
   publicId: string,
   deliveryType: CloudinaryDeliveryType,
   resourceType: CloudinaryResourceType
 ): Promise<void> {
   try {
-    await cloudinary.uploader.destroy(publicId, {
+    const response: { result?: string } = await cloudinary.uploader.destroy(publicId, {
       type: toCloudinaryType(deliveryType),
       resource_type: toCloudinaryResourceType(resourceType),
     });
+    if (response.result !== "ok" && response.result !== "not found") {
+      console.error(`Cloudinary destroy for "${publicId}" did not confirm deletion: "${response.result}"`);
+    }
   } catch (error) {
     console.error("Cloudinary destroy failed:", error);
   }
+}
+
+/**
+ * Best-effort destruction of an asset this process has just uploaded, by the
+ * `type` + `resource_type` the upload response reported (lib/uploadCompensation.ts).
+ * Never throws.
+ */
+export async function destroyUploadedAsset(asset: GuardedAssetRef): Promise<void> {
+  await destroyGuardedAsset(asset.publicId, asset.deliveryType, asset.resourceType);
 }
 
 /**
@@ -199,24 +254,12 @@ export async function uploadClientPhoto(file: File): Promise<string> {
     }
   }
 
-  return new Promise<string>((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        { folder: "clients", resource_type: "image" },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the photo. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          resolve(result.secure_url);
-        }
-      )
-      .end(outgoing);
-  });
+  return uploadBuffer(
+    outgoing,
+    { folder: "clients", resource_type: "image" },
+    "Failed to upload the photo. Please try again.",
+    (result) => result.secure_url
+  );
 }
 
 /**
@@ -257,7 +300,7 @@ export const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
  * reachable — content, not just label, must be a real image (isRealImage
  * above).
  */
-export async function uploadLogo(file: File): Promise<{ url: string; publicId: string }> {
+export async function uploadLogo(file: File): Promise<{ url: string } & GuardedAssetRef> {
   if (file.size > MAX_LOGO_BYTES) {
     throw {
       type: "error",
@@ -277,24 +320,12 @@ export async function uploadLogo(file: File): Promise<{ url: string; publicId: s
     };
   }
 
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        { folder: "app-settings", resource_type: "image" },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the logo. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          resolve({ url: result.secure_url, publicId: result.public_id });
-        }
-      )
-      .end(buffer);
-  });
+  return uploadBuffer(
+    buffer,
+    { folder: "app-settings", resource_type: "image" },
+    "Failed to upload the logo. Please try again.",
+    (result) => ({ url: result.secure_url, ...assetRefFromUploadResult(result) })
+  );
 }
 
 /**
@@ -414,39 +445,25 @@ export async function uploadProjectFile(
 
   const resourceType = resourceTypeFromMime(file.type);
 
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        {
-          folder: `projects/${projectId}`,
-          resource_type: resourceType,
-          type: "authenticated",
-          use_filename: true,
-          unique_filename: true,
-        },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the file. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          const guardedFields = safeGuardedFields(result, reject);
-          if (!guardedFields) return;
-          resolve({
-            // DEPRECATED — the legacy public secure_url. Still written (the
-            // column stays NOT NULL for one release), never read back.
-            url: result.secure_url,
-            size: result.bytes,
-            mimeType: file.type || "application/octet-stream",
-            ...guardedFields,
-          });
-        }
-      )
-      .end(buffer);
-  });
+  return uploadBuffer(
+    buffer,
+    {
+      folder: `projects/${projectId}`,
+      resource_type: resourceType,
+      type: "authenticated",
+      use_filename: true,
+      unique_filename: true,
+    },
+    "Failed to upload the file. Please try again.",
+    (result) => ({
+      // DEPRECATED — the legacy public secure_url. Still written (the
+      // column stays NOT NULL for one release), never read back.
+      url: result.secure_url,
+      size: result.bytes,
+      mimeType: file.type || "application/octet-stream",
+      ...guardedFieldsFromUploadResult(result),
+    })
+  );
 }
 
 /**
@@ -516,37 +533,23 @@ export async function uploadReservePlan(
     throw { type: "error", message: "The plan must be a PDF file.", i18n: "uploadNotPdf" };
   }
 
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        {
-          folder: `projects/${projectId}/reserve-plans`,
-          resource_type: "image",
-          type: "authenticated",
-          use_filename: true,
-          unique_filename: true,
-        },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the plan. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          const guardedFields = safeGuardedFields(result, reject);
-          if (!guardedFields) return;
-          resolve({
-            // DEPRECATED — still written (see ReservePlan.url's doc in
-            // prisma/schema.prisma), never read back.
-            url: result.secure_url,
-            ...guardedFields,
-          });
-        }
-      )
-      .end(buffer);
-  });
+  return uploadBuffer(
+    buffer,
+    {
+      folder: `projects/${projectId}/reserve-plans`,
+      resource_type: "image",
+      type: "authenticated",
+      use_filename: true,
+      unique_filename: true,
+    },
+    "Failed to upload the plan. Please try again.",
+    (result) => ({
+      // DEPRECATED — still written (see ReservePlan.url's doc in
+      // prisma/schema.prisma), never read back.
+      url: result.secure_url,
+      ...guardedFieldsFromUploadResult(result),
+    })
+  );
 }
 
 /**
@@ -589,37 +592,23 @@ export async function uploadReservePhoto(
     throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
   }
 
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        {
-          folder: `projects/${projectId}/reserve-photos`,
-          resource_type: "image",
-          type: "authenticated",
-          use_filename: true,
-          unique_filename: true,
-        },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the photo. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          const guardedFields = safeGuardedFields(result, reject);
-          if (!guardedFields) return;
-          resolve({
-            // DEPRECATED — still written (see ReservePhoto.url's doc in
-            // prisma/schema.prisma), never read back.
-            url: result.secure_url,
-            ...guardedFields,
-          });
-        }
-      )
-      .end(buffer);
-  });
+  return uploadBuffer(
+    buffer,
+    {
+      folder: `projects/${projectId}/reserve-photos`,
+      resource_type: "image",
+      type: "authenticated",
+      use_filename: true,
+      unique_filename: true,
+    },
+    "Failed to upload the photo. Please try again.",
+    (result) => ({
+      // DEPRECATED — still written (see ReservePhoto.url's doc in
+      // prisma/schema.prisma), never read back.
+      url: result.secure_url,
+      ...guardedFieldsFromUploadResult(result),
+    })
+  );
 }
 
 /**
@@ -693,7 +682,7 @@ export const MAX_EQUIPMENT_PHOTO_BYTES = MAX_RESERVE_PHOTO_BYTES;
  * `EXIF orientation → sideways photo` bug this whole app already paid for
  * once (docs/CONVENTIONS.md) is worse than a narrower accepted-format list.
  */
-export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; publicId: string }> {
+export async function uploadEquipmentPhoto(file: File): Promise<{ url: string } & GuardedAssetRef> {
   if (file.size > MAX_EQUIPMENT_PHOTO_BYTES) {
     throw {
       type: "error",
@@ -726,24 +715,12 @@ export async function uploadEquipmentPhoto(file: File): Promise<{ url: string; p
     throw { type: "error", message: "The photo must be an image file.", i18n: "uploadNotImage" };
   }
 
-  return new Promise((resolve, reject) => {
-    cloudinary.uploader
-      .upload_stream(
-        { folder: "equipment", resource_type: "image" },
-        (error, result) => {
-          if (error || !result) {
-            reject({
-              type: "error",
-              message: "Failed to upload the photo. Please try again.",
-              i18n: "uploadFailed",
-            });
-            return;
-          }
-          resolve({ url: result.secure_url, publicId: result.public_id });
-        }
-      )
-      .end(stripped);
-  });
+  return uploadBuffer(
+    stripped,
+    { folder: "equipment", resource_type: "image" },
+    "Failed to upload the photo. Please try again.",
+    (result) => ({ url: result.secure_url, ...assetRefFromUploadResult(result) })
+  );
 }
 
 /**

@@ -39,6 +39,7 @@ const fr = {
         uploadNotPdf: "Le plan doit être un fichier PDF.",
         uploadFailed: "Échec de l'envoi du fichier. Réessaie.",
         uploadBusy: "Le serveur traite déjà des images. Réessaie dans un instant.",
+        photoRateLimited: "Trop de photos envoyées en peu de temps. Réessaie dans {minutes} min.",
         patternMissingPlaceholder: "Le motif doit contenir {n}.",
         seriesRangeInvalid: "La valeur « à » doit être supérieure ou égale à « de ».",
         seriesTooLarge: "La série ne peut pas dépasser {max} tâches.",

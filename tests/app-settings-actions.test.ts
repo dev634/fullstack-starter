@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/authz", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/accessContext", () => ({
@@ -9,18 +9,21 @@ vi.mock("@/lib/accessContext", () => ({
 vi.mock("@/repository/appSettings", () => ({
   getSettings: vi.fn(),
   upsert: vi.fn(),
+  isLogoPublicIdReferenced: vi.fn(),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadLogo: vi.fn(),
   destroyLogo: vi.fn(),
+  destroyUploadedAsset: vi.fn(),
 }));
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn(), unstable_cache: (fn: unknown) => fn }));
 vi.mock("@/lib/i18n/getLocale", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { updateSettings, uploadLogo, removeLogo } from "@/actions/appSettings/appSettings";
 import { requireRole } from "@/lib/authz";
-import { getSettings, upsert } from "@/repository/appSettings";
-import { uploadLogo as uploadLogoToCloudinary, destroyLogo } from "@/lib/cloudinary";
+import { getSettings, upsert, isLogoPublicIdReferenced } from "@/repository/appSettings";
+import { uploadLogo as uploadLogoToCloudinary, destroyLogo, destroyUploadedAsset } from "@/lib/cloudinary";
+import fr from "@/lib/i18n/dictionaries/fr";
 import { revalidateTag } from "next/cache";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -28,8 +31,17 @@ const getSettingsMock = vi.mocked(getSettings);
 const upsertMock = vi.mocked(upsert);
 const uploadLogoMock = vi.mocked(uploadLogoToCloudinary);
 const destroyLogoMock = vi.mocked(destroyLogo);
+const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
+const isLogoPublicIdReferencedMock = vi.mocked(isLogoPublicIdReferenced);
 const revalidateTagMock = vi.mocked(revalidateTag);
 const initial = { type: null, message: "" } as const;
+
+const NEW_LOGO = {
+  url: "https://res.cloudinary.com/new.png",
+  publicId: "app-settings/new",
+  deliveryType: "UPLOAD",
+  resourceType: "IMAGE",
+} as const;
 
 const currentSettings = {
   id: 1,
@@ -116,7 +128,7 @@ describe("uploadLogo", () => {
   it("uploads the logo, destroys the previous one, and invalidates the cache", async () => {
     requireRoleMock.mockResolvedValue({ error: null, email: "super@example.com" });
     getSettingsMock.mockResolvedValue({ ...currentSettings, logoPublicId: "app-settings/old" } as never);
-    uploadLogoMock.mockResolvedValue({ url: "https://res.cloudinary.com/new.png", publicId: "app-settings/new" });
+    uploadLogoMock.mockResolvedValue(NEW_LOGO);
     upsertMock.mockResolvedValue(currentSettings as never);
 
     const fd = new FormData();
@@ -129,6 +141,69 @@ describe("uploadLogo", () => {
     expect(destroyLogoMock).toHaveBeenCalledWith("app-settings/old");
     expect(revalidateTagMock).toHaveBeenCalled();
     expect(res.type).toBe("success");
+    // A success destroys nothing it just uploaded.
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+  });
+
+  // Point 3 (fix/televersements): the logo is PUBLIC, so an orphan is readable by anyone.
+  describe("compensation when the write fails after the upload", () => {
+    afterEach(() => vi.restoreAllMocks());
+    function logoForm(): FormData {
+      const fd = new FormData();
+      fd.set("logo", new File(["x"], "logo.png", { type: "image/png" }));
+      return fd;
+    }
+    beforeEach(() => {
+      vi.clearAllMocks();
+      requireRoleMock.mockResolvedValue({ error: null, email: "super@example.com" });
+      getSettingsMock.mockResolvedValue({ ...currentSettings, logoPublicId: "app-settings/old" } as never);
+      uploadLogoMock.mockResolvedValue(NEW_LOGO);
+      isLogoPublicIdReferencedMock.mockResolvedValue(false);
+      destroyUploadedAssetMock.mockResolvedValue(undefined);
+    });
+
+    it("destroys the NEW logo by the type and resource_type the upload reported, never the previous one", async () => {
+      upsertMock.mockRejectedValue({ type: "repositoryError", message: "Database Error updating app settings." });
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const res = await uploadLogo(initial, logoForm());
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+      expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ publicId: "app-settings/new", deliveryType: "UPLOAD", resourceType: "IMAGE" })
+      );
+      expect(destroyLogoMock).not.toHaveBeenCalled();
+    });
+
+    it("destroys nothing when a row references the new logo (the write may have committed)", async () => {
+      upsertMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      isLogoPublicIdReferencedMock.mockResolvedValue(true);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      await uploadLogo(initial, logoForm());
+      expect(isLogoPublicIdReferencedMock).toHaveBeenCalledWith("app-settings/new");
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("destroys nothing when a failure comes AFTER a successful write (the cache invalidation)", async () => {
+      upsertMock.mockResolvedValue(currentSettings as never);
+      revalidateTagMock.mockImplementationOnce(() => {
+        throw new Error("revalidate failed");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await uploadLogo(initial, logoForm());
+      expect(res.type).toBe("error");
+      expect(isLogoPublicIdReferencedMock).not.toHaveBeenCalled();
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the ORIGINAL refusal when the destruction itself fails", async () => {
+      upsertMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const res = await uploadLogo(initial, logoForm());
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+    });
   });
 });
 

@@ -349,7 +349,7 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
     try {
       const client = clientEmail ? await findByEmail(clientEmail) : null;
       if (!client) {
-        throw new Error(t.projects.messages.unknownClientEmail);
+        throw { type: "error", message: t.projects.messages.unknownClientEmail };
       }
       // A company the caller cannot reach reads exactly like an unknown
       // email: a distinct refusal would let a CSV probe which addresses are
@@ -359,11 +359,11 @@ export async function importProjects(formData: FormData): Promise<ImportResult> 
       // deletedAt), so nothing is read again here.
       const scopeCheck = await requireClientAccessWithin(ctx, client);
       if (scopeCheck.error) {
-        throw new Error(scopeRefusalMessage(scopeCheck, t.projects.messages.unknownClientEmail));
+        throw { type: "error", message: scopeRefusalMessage(scopeCheck, t.projects.messages.unknownClientEmail) };
       }
       const parsed = createProjectSchema.safeParse({ ...data, clientId: client.id });
       if (!parsed.success) {
-        throw new Error(t.projects.messages.invalidRow);
+        throw { type: "error", message: t.projects.messages.invalidRow };
       }
       await create(parsed.data);
       created++;

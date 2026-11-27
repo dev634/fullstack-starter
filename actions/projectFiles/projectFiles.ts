@@ -12,7 +12,13 @@ import {
   findById as findFolderById,
   collectDescendantFilePublicIds,
 } from "@/repository/projectFolders";
-import { create as createFile, remove as removeFile, findById as findFileById } from "@/repository/projectFiles";
+import {
+  create as createFile,
+  remove as removeFile,
+  findById as findFileById,
+  isPublicIdReferenced as isFilePublicIdReferenced,
+} from "@/repository/projectFiles";
+import { assetCompensation, writeWithCompensation } from "@/lib/uploadCompensation";
 import { uploadProjectFile, destroyProjectFile } from "@/lib/cloudinary";
 import { revalidateFiles } from "@/lib/revalidateFiles";
 import { getLocale } from "@/lib/i18n/getLocale";
@@ -120,19 +126,23 @@ export async function uploadFile(
 
   try {
     const uploaded = await uploadProjectFile(file, projectId);
-    await createFile({
-      projectId,
-      folderId,
-      name: file.name,
-      url: uploaded.url,
-      publicId: uploaded.publicId,
-      deliveryType: uploaded.deliveryType,
-      resourceType: uploaded.resourceType,
-      format: uploaded.format,
-      version: uploaded.version,
-      size: uploaded.size,
-      mimeType: uploaded.mimeType,
-    });
+    await writeWithCompensation(
+      () =>
+        createFile({
+          projectId,
+          folderId,
+          name: file.name,
+          url: uploaded.url,
+          publicId: uploaded.publicId,
+          deliveryType: uploaded.deliveryType,
+          resourceType: uploaded.resourceType,
+          format: uploaded.format,
+          version: uploaded.version,
+          size: uploaded.size,
+          mimeType: uploaded.mimeType,
+        }),
+      assetCompensation("project file", uploaded, isFilePublicIdReferenced)
+    );
     revalidateFiles(clientId, projectId);
     return {
       ...prevState,

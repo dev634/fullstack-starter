@@ -59,6 +59,7 @@ import {
   uploadReservePlan,
   uploadEquipmentPhoto,
   destroyEquipmentPhoto,
+  destroyUploadedAsset,
   MAX_EQUIPMENT_PHOTO_BYTES,
 } from "@/lib/cloudinary";
 
@@ -87,6 +88,15 @@ const REAL_HEIC_BYTES = new Uint8Array([
 const FAKE_SVG_AS_PNG_BYTES = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 const HTML_AS_PDF_BYTES = new TextEncoder().encode("<html><body><script>alert(1)</script></body></html>");
 const REAL_PDF_BYTES = new TextEncoder().encode("%PDF-1.4\n1 0 obj\n<< >>\nendobj\n");
+
+// What Cloudinary answers for a plain public image (logo, equipment photo): the
+// shared mock above answers an unexpected resource_type on purpose, which the
+// public-image paths now refuse too (they read the destroy ref off the response).
+function answerWithPublicImage() {
+  uploadStreamMock.mockImplementationOnce(((_options: unknown, callback: (error: unknown, result: unknown) => void) => ({
+    end: () => callback(null, { public_id: "app-settings/logo", resource_type: "image", type: "upload", secure_url: "https://res.cloudinary.com/demo/image/upload/app-settings/logo.jpg", format: "jpg", version: 1 }),
+  })) as never);
+}
 
 const URL_WITH_VERSION =
   "https://res.cloudinary.com/demo/image/upload/v1699999999/clients/abcd1234.png";
@@ -128,7 +138,7 @@ describe("uploadProjectFile — guarded upload response validation", () => {
     // process. Asserting the promise REJECTS (rather than wrapping the call
     // in try/catch and asserting it throws) is the whole point: it proves
     // the async boundary was crossed correctly.
-    await expect(uploadProjectFile(file, 1)).rejects.toBeTruthy();
+    await expect(uploadProjectFile(file, 1)).rejects.toMatchObject({ type: "error", i18n: "uploadFailed" });
   });
 });
 
@@ -293,8 +303,11 @@ describe("destroyClientPhoto — reads Cloudinary's report", () => {
 describe("uploadLogo — content-based image validation", () => {
   it("accepts a real JPEG and resolves with the uploaded url/publicId", async () => {
     const file = new File([REAL_JPEG_BYTES], "logo.jpg", { type: "image/jpeg" });
+    answerWithPublicImage();
     const result = await uploadLogo(file);
-    expect(result.publicId).toBe("projects/1/devis");
+    expect(result.publicId).toBe("app-settings/logo");
+    // The asset's own type + resource_type, as Cloudinary reported them: what a compensation destroys it by.
+    expect(result).toMatchObject({ deliveryType: "UPLOAD", resourceType: "IMAGE" });
     expect(uploadStreamMock).toHaveBeenCalledTimes(1);
   });
 
@@ -387,8 +400,10 @@ describe("uploadProjectFile — content-based checks alongside the label-only de
 describe("uploadEquipmentPhoto — content-based validation, routed through stripArchivedPhotoMetadata", () => {
   it("accepts a real PNG, strips its metadata, and uploads the stripped buffer", async () => {
     const file = new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+    answerWithPublicImage();
     const result = await uploadEquipmentPhoto(file);
-    expect(result.publicId).toBe("projects/1/devis");
+    expect(result.publicId).toBe("app-settings/logo");
+    expect(result).toMatchObject({ deliveryType: "UPLOAD", resourceType: "IMAGE" });
     expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledTimes(1);
     expect(stripArchivedPhotoMetadataMock).toHaveBeenCalledWith(expect.any(Buffer), "image/png");
     expect(uploadStreamMock).toHaveBeenCalledTimes(1);
@@ -476,6 +491,77 @@ describe("destroyEquipmentPhoto — reads Cloudinary's own destroy report", () =
     destroyMock.mockResolvedValueOnce({ result: "not found" } as never);
     await destroyEquipmentPhoto("equipment/def");
     expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
+
+// Point 1 (fix/televersements): the SDK signs the request SYNCHRONOUSLY, so a
+// missing credential throws inside the Promise executor. It used to reject with
+// the SDK's native Error, whose message ("Must supply api_key") reached the user
+// through getErrorMessage. Every one of the six uploads now refuses with the
+// application's own `uploadFailed` shape instead, and logs the cause.
+describe("a synchronous SDK refusal (missing credentials) — all six uploads", () => {
+  const NATIVE = "Must supply api_key";
+  const png = () => new File([REAL_PNG_BYTES], "photo.png", { type: "image/png" });
+  const pdf = () => new File([REAL_PDF_BYTES], "plan.pdf", { type: "application/pdf" });
+  const cases: Array<[string, () => Promise<unknown>, string]> = [
+    ["uploadClientPhoto", () => uploadClientPhoto(png()), "Failed to upload the photo. Please try again."],
+    ["uploadLogo", () => uploadLogo(png()), "Failed to upload the logo. Please try again."],
+    ["uploadProjectFile", () => uploadProjectFile(pdf(), 1), "Failed to upload the file. Please try again."],
+    ["uploadReservePlan", () => uploadReservePlan(pdf(), 1), "Failed to upload the plan. Please try again."],
+    ["uploadReservePhoto", () => uploadReservePhoto(png(), 1), "Failed to upload the photo. Please try again."],
+    ["uploadEquipmentPhoto", () => uploadEquipmentPhoto(png()), "Failed to upload the photo. Please try again."],
+  ];
+
+  it.each(cases)("%s rejects with uploadFailed, never with the SDK's message, and logs the cause", async (_name, run, fallback) => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error(NATIVE);
+    uploadStreamMock.mockImplementationOnce((() => {
+      throw cause;
+    }) as never);
+    const rejection = await run().then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(rejection).toEqual({ type: "error", message: fallback, i18n: "uploadFailed" });
+    expect(JSON.stringify(rejection)).not.toContain(NATIVE);
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary upload refused before sending:", cause);
+    errorSpy.mockRestore();
+  });
+
+  it("a network error or non-2xx answer (callback error) is still uploadFailed", async () => {
+    uploadStreamMock.mockImplementationOnce(((_o: unknown, callback: (error: unknown, result: unknown) => void) => ({
+      end: () => callback({ message: "ECONNRESET", http_code: 500 }, undefined),
+    })) as never);
+    await expect(uploadClientPhoto(png())).rejects.toEqual({
+      type: "error",
+      message: "Failed to upload the photo. Please try again.",
+      i18n: "uploadFailed",
+    });
+  });
+
+  it("an upload response the app cannot read (unexpected resource_type) is uploadFailed and logged, not a raw Error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(uploadReservePlan(pdf(), 1)).rejects.toMatchObject({ type: "error", i18n: "uploadFailed" });
+    expect(errorSpy).toHaveBeenCalledWith("Cloudinary upload response not understood:", expect.objectContaining({ message: expect.stringContaining("Unexpected Cloudinary") }));
+    errorSpy.mockRestore();
+  });
+});
+
+describe("destroyUploadedAsset — destroys by the type + resource_type the upload reported", () => {
+  it("passes both to destroy: an authenticated asset is not destroyed without its type", async () => {
+    destroyMock.mockResolvedValueOnce({ result: "ok" } as never);
+    await destroyUploadedAsset({ publicId: "projects/1/reserve-photos/a", deliveryType: "AUTHENTICATED", resourceType: "IMAGE" });
+    expect(destroyMock).toHaveBeenCalledWith("projects/1/reserve-photos/a", { type: "authenticated", resource_type: "image" });
+  });
+
+  it("reads the report: logs anything but ok / not found, and never throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    destroyMock.mockResolvedValueOnce({ result: "processing" } as never);
+    await destroyUploadedAsset({ publicId: "x", deliveryType: "UPLOAD", resourceType: "RAW" });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("processing"));
+    destroyMock.mockRejectedValueOnce(new Error("network"));
+    await expect(destroyUploadedAsset({ publicId: "y", deliveryType: "UPLOAD", resourceType: "RAW" })).resolves.toBeUndefined();
     errorSpy.mockRestore();
   });
 });

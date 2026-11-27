@@ -3,6 +3,8 @@ import { createClient } from "@/service/clients";
 import { formDataToObject, getErrorMessage } from "@/lib/helpers";
 import { uploadClientPhoto, destroyClientPhoto, destroyProjectFile } from "@/lib/cloudinary";
 import { findPublicIdsByClient } from "@/repository/projectFiles";
+import { discardAfterFailedWrite, type UploadCompensation } from "@/lib/uploadCompensation";
+import { reservePhotoUpload } from "@/lib/photoUploadRateLimit";
 import { requireCapability, requireClientAccess, requireFullClientAccess, fullyAccessibleClientIds } from "@/lib/access";
 import { requireAreaAccess } from "@/lib/areaAccess";
 import { requireEverySectionAccess } from "@/lib/sectionAccess";
@@ -69,14 +71,14 @@ export async function addClient(
   }
 
   try {
-    const photoUrl = await extractPhotoUrl(formData);
+    const photoUrl = await extractPhotoUrl(formData, roleCheck.email);
     // Only THE WRITE is compensated: once the row exists the photo is its
     // photo, and a later failure (the journal) must not destroy it.
     let client;
     try {
       client = await createClient({ ...parsed.data, photoUrl });
     } catch (error) {
-      await discardUploadedPhoto(photoUrl, error);
+      await discardAfterFailedWrite(photoCompensation(photoUrl), error);
       throw error;
     }
     await logActivity({
@@ -134,7 +136,7 @@ export async function updateClient(
     const existing = await findById(id);
     // Resolve the new photo state: a freshly uploaded file wins; otherwise an
     // explicit removal sets it to null; otherwise leave the existing one.
-    const uploadedUrl = await extractPhotoUrl(formData);
+    const uploadedUrl = await extractPhotoUrl(formData, roleCheck.email);
     const removePhoto = formData.get("removePhoto") === "true";
     let photoUrl: string | null | undefined = undefined;
     if (uploadedUrl) photoUrl = uploadedUrl;
@@ -146,7 +148,7 @@ export async function updateClient(
     try {
       client = await update({ ...clientDatas, id, photoUrl });
     } catch (error) {
-      await discardUploadedPhoto(uploadedUrl, error);
+      await discardAfterFailedWrite(photoCompensation(uploadedUrl), error);
       throw error;
     }
 
@@ -195,47 +197,34 @@ function isDuplicateEmailRefusal(error: unknown): boolean {
 }
 
 /**
- * Compensation for a write that failed AFTER its photo was uploaded; the caller
- * then re-throws the ORIGINAL refusal — whatever this did.
- *
- * Destroys the photo without condition only for the duplicate-email refusal
- * (the write did not happen). On ANY other error the write may have been
- * committed anyway (connection cut after the commit, a post-write step that
- * raised): destroying then would turn the public avatar of a row that exists
- * into a 404. So the photo is destroyed only when no company references its
- * URL — and when that read fails too, it is KEPT and the case is logged: one
- * file too many rather than a broken image.
- *
- * destroyClientPhoto reads Cloudinary's report and logs a non-confirmation
- * itself; the try/catch here is for a destruction (or a read) that throws
- * anyway, which must neither mask the refusal nor turn it into a success.
- * `undefined` (no photo was uploaded by this call) destroys nothing.
+ * Compensation (lib/uploadCompensation.ts) for a write that fails AFTER its
+ * photo was uploaded; the helper then re-throws the ORIGINAL refusal. The photo
+ * is destroyed without condition only for the duplicate-email refusal (the
+ * write did not happen); on any other error only when no company references
+ * its URL, and kept (logged) when that read fails too. `undefined` (no photo
+ * was uploaded by this call) destroys nothing.
  */
-async function discardUploadedPhoto(uploadedUrl: string | undefined, writeError: unknown): Promise<void> {
-  if (!uploadedUrl) return;
-  if (!isDuplicateEmailRefusal(writeError)) {
-    try {
-      if (await isPhotoUrlReferenced(uploadedUrl)) return;
-    } catch (readError) {
-      console.error("Compensation skipped: could not tell whether the uploaded client photo is still referenced, kept:", readError);
-      return;
-    }
-  }
-  try {
-    await destroyClientPhoto(uploadedUrl);
-  } catch (destroyError) {
-    console.error("Compensation failed: could not destroy the orphaned client photo:", destroyError);
-  }
+function photoCompensation(uploadedUrl: string | undefined): UploadCompensation | undefined {
+  if (!uploadedUrl) return undefined;
+  return {
+    label: "client photo",
+    writeRefused: isDuplicateEmailRefusal,
+    isReferenced: () => isPhotoUrlReferenced(uploadedUrl),
+    destroy: () => destroyClientPhoto(uploadedUrl),
+  };
 }
 
 /**
  * Pull the uploaded "photo" file out of the form and push it to Cloudinary.
  * Returns the resulting URL, or `undefined` when no new file was provided
- * (so callers can leave an existing photo untouched).
+ * (so callers can leave an existing photo untouched). The per-account photo
+ * budget (lib/photoUploadRateLimit.ts) is spent ONLY when a file is attached,
+ * and refuses before anything is decoded or uploaded.
  */
-async function extractPhotoUrl(formData: FormData): Promise<string | undefined> {
+async function extractPhotoUrl(formData: FormData, email: string): Promise<string | undefined> {
   const file = formData.get("photo");
   if (file instanceof File && file.size > 0) {
+    await reservePhotoUpload(email);
     return uploadClientPhoto(file);
   }
   return undefined;

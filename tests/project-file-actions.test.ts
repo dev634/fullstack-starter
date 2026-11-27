@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/sectionAccess", () => ({ requireSectionAccess: vi.fn().mockResolvedValue({ error: null }) }));
 vi.mock("@/lib/authz", () => ({
@@ -22,10 +22,12 @@ vi.mock("@/repository/projectFiles", () => ({
   create: vi.fn(),
   remove: vi.fn(),
   findById: vi.fn().mockResolvedValue({ id: 1, projectId: 2 }),
+  isPublicIdReferenced: vi.fn(),
 }));
 vi.mock("@/lib/cloudinary", () => ({
   uploadProjectFile: vi.fn(),
   destroyProjectFile: vi.fn(),
+  destroyUploadedAsset: vi.fn(),
 }));
 // requireProjectAccess now also reads the project's trash state (lib/access.ts):
 // a live project, everything else real.
@@ -45,8 +47,9 @@ import {
   collectDescendantFilePublicIds,
   findById as findFolderById,
 } from "@/repository/projectFolders";
-import { create as createFile, remove as removeFile, findById as findFileById } from "@/repository/projectFiles";
-import { uploadProjectFile, destroyProjectFile } from "@/lib/cloudinary";
+import { create as createFile, remove as removeFile, findById as findFileById, isPublicIdReferenced } from "@/repository/projectFiles";
+import { uploadProjectFile, destroyProjectFile, destroyUploadedAsset } from "@/lib/cloudinary";
+import { revalidatePath } from "next/cache";
 import { canReachProject } from "@/lib/accessContext";
 import fr from "@/lib/i18n/dictionaries/fr";
 
@@ -61,6 +64,9 @@ const removeFileMock = vi.mocked(removeFile);
 const findFileByIdMock = vi.mocked(findFileById);
 const uploadProjectFileMock = vi.mocked(uploadProjectFile);
 const destroyProjectFileMock = vi.mocked(destroyProjectFile);
+const destroyUploadedAssetMock = vi.mocked(destroyUploadedAsset);
+const isPublicIdReferencedMock = vi.mocked(isPublicIdReferenced);
+const revalidatePathMock = vi.mocked(revalidatePath);
 const initial = { type: null, message: "" } as const;
 
 function formOf(data: Record<string, string>): FormData {
@@ -207,6 +213,73 @@ describe("project file/folder actions", () => {
       })
     );
     expect(res.type).toBe("success");
+    expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+  });
+
+  // Point 3 (fix/televersements): a file uploaded as `authenticated` is retained
+  // data, and `destroy` no-ops in silence without its `type`.
+  describe("uploadFile — compensation when the write fails after the upload", () => {
+    afterEach(() => vi.restoreAllMocks());
+    const UPLOADED = {
+      url: "https://cloudinary/plan.pdf",
+      publicId: "projects/2/plan",
+      size: 1234,
+      mimeType: "application/pdf",
+      resourceType: "RAW",
+      format: null,
+      version: "1700000000",
+      deliveryType: "AUTHENTICATED",
+    } as const;
+    function fileForm(): FormData {
+      const fd = formOf({ clientId: "1", projectId: "2" });
+      fd.set("file", new File(["data"], "plan.pdf", { type: "application/pdf" }));
+      return fd;
+    }
+    beforeEach(() => {
+      requireRoleMock.mockResolvedValue({ error: null, email: "admin@example.com" });
+      uploadProjectFileMock.mockResolvedValue(UPLOADED);
+      isPublicIdReferencedMock.mockResolvedValue(false);
+      destroyUploadedAssetMock.mockResolvedValue(undefined);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    it("destroys the new asset with the type and resource_type the upload reported", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "Database Error creating file." });
+      const res = await uploadFile(initial, fileForm());
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(destroyUploadedAssetMock).toHaveBeenCalledTimes(1);
+      expect(destroyUploadedAssetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ publicId: "projects/2/plan", deliveryType: "AUTHENTICATED", resourceType: "RAW" })
+      );
+    });
+
+    it("destroys nothing when a row references the asset", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      isPublicIdReferencedMock.mockResolvedValue(true);
+      await uploadFile(initial, fileForm());
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("destroys nothing when a failure comes AFTER a successful write", async () => {
+      createFileMock.mockResolvedValue({ id: 1 } as never);
+      revalidatePathMock.mockImplementationOnce(() => {
+        throw new Error("revalidate failed");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await uploadFile(initial, fileForm());
+      expect(res.type).toBe("error");
+      expect(isPublicIdReferencedMock).not.toHaveBeenCalled();
+      expect(destroyUploadedAssetMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the ORIGINAL refusal when the destruction itself fails", async () => {
+      createFileMock.mockRejectedValue({ type: "repositoryError", message: "x" });
+      destroyUploadedAssetMock.mockRejectedValue(new Error("cloudinary down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await uploadFile(initial, fileForm());
+      expect(res).toMatchObject({ type: "error", message: fr.errors.serverError });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Compensation failed"), expect.any(Error));
+    });
   });
 
   it("deleteFile refuses a non-ADMIN session", async () => {

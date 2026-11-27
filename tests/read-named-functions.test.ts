@@ -55,8 +55,14 @@ const EXPECTED_FILES = 29;
 // a file this test does not walk): +1 and -1, the totals do not move.
 // 236 -> 237 (fix/photo-entreprise, decode queue): lib/cloudinary.ts gains busyUploadError, the refusal
 // thrown when lib/imageMetadata.ts's queue is full (not read-named, 111 unchanged; it writes nothing).
-const EXPECTED_FUNCTIONS = 237;
-const EXPECTED_READ_NAMED = 111;
+// 237 -> 244, 111 -> 116 (2026-11-27, fix/televersements, point 3): +5 read-named repository
+// functions that only run a findFirst (isLogoPublicIdReferenced, isPublicIdReferenced x3,
+// isPhotoPublicIdReferenced: "is this asset still referenced", asked before a compensation destroys
+// it), and lib/cloudinary.ts gains uploadBuffer, assetRefFromUploadResult and destroyUploadedAsset
+// (not read-named) while losing safeGuardedFields (folded into uploadBuffer): 5 + 3 - 1 = +7. The
+// file count does not move; lib/uploadCompensation.ts is not in the walk.
+const EXPECTED_FUNCTIONS = 244;
+const EXPECTED_READ_NAMED = 116;
 
 type Fn = { name: string; body: ts.Node };
 
