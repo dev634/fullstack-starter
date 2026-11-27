@@ -91,9 +91,12 @@ function isExcluded(relPath: string): boolean {
  * Dockerfile: `COPY --from=builder /app/scripts/<file> …`. This is the table
  * that defines "shipped script", so the test cannot drift from it.
  */
-function shippedScripts(): string[] {
-  const dockerfile = readFileSync(join(ROOT, "Dockerfile"), "utf8");
+function shippedScriptsIn(dockerfile: string): string[] {
   return [...dockerfile.matchAll(/^COPY --from=builder \/app\/(scripts\/\S+)\s/gm)].map((m) => m[1]);
+}
+
+function shippedScripts(): string[] {
+  return shippedScriptsIn(readFileSync(join(ROOT, "Dockerfile"), "utf8"));
 }
 
 function walk(dir: string, out: string[]): void {
@@ -153,26 +156,169 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
  * `require()`. Type-only forms are skipped (see the module doc).
  */
 export function runtimePackagesIn(source: ts.SourceFile): Set<string> {
+  return scanModuleLoads(source).packages;
+}
+
+/** `createRequire(...)`, also as `module.createRequire(...)`. */
+function isCreateRequireCall(n: ts.Node): boolean {
+  if (!ts.isCallExpression(n)) return false;
+  const callee = n.expression;
+  return (ts.isIdentifier(callee) && callee.text === "createRequire") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "createRequire");
+}
+
+/**
+ * Modules shipped code may not import at all, by ANY form (static, dynamic, require): each one
+ * is a way to reach the loader, evaluate code, or start another process, which the scanner
+ * cannot read the target of. A rule on MODULES, not on NAMES: a list of dangerous names is
+ * defeated by an alias (`createRequire as cr`), a destructuring (`const { _load } = ...`) or a
+ * computed key; a banned import cannot be aliased away.
+ */
+const BANNED_MODULES: ReadonlySet<string> = new Set(["module", "vm", "worker_threads", "child_process"]);
+
+/**
+ * The ONE exemption. Its reason and the condition of its disappearance sit here, next to it:
+ * lib/imageDecodeBridge.ts starts the image decode child (scripts/image-decode-child.mjs) with
+ * `spawn`, the whole point of that module. It disappears the day the decoder runs somewhere
+ * else (a separate service or container) and the server no longer starts a process.
+ */
+const BANNED_MODULE_EXEMPTIONS: ReadonlyArray<{ file: string; module: string; reason: string }> = [
+  { file: "lib/imageDecodeBridge.ts", module: "child_process", reason: "starts the image decode child process (spawn)" },
+];
+
+/** Names whose mere use can reach the module loader or run code the scanner cannot read. */
+const LOADER_INTERNALS: ReadonlySet<string> = new Set(["_load", "dlopen", "mainModule"]);
+/** Receivers whose computed access (`process[x]`) could reach them. */
+const LOADER_RECEIVERS: ReadonlySet<string> = new Set(["process", "module", "globalThis"]);
+
+/**
+ * Every module load of `source`, FAILING CLOSED: the packages it names, and everything the
+ * scanner cannot vouch for, in `unresolvable`. A load is `import()`, `require()`,
+ * `module.require()` and a call of whatever `createRequire(...)` returned (bound to a name
+ * or called at once), and its argument must be a string literal. That is the ONLY accepted
+ * shape; the scanner does not enumerate the dangerous ones, it lists the safe one and
+ * reddens the rest:
+ *  - a load whose argument is not a string literal (a variable, a template, a concatenation,
+ *    a missing argument);
+ *  - any reference to the identifier `require` (or to a name bound to `createRequire(...)`)
+ *    that is not the callee of such a call: `const r = require`, `require.call(...)`,
+ *    `(0, require)(...)`, `globalThis.require`;
+ *  - `createRequire` anywhere but `const r = createRequire(...)` or `createRequire(...)(...)`;
+ *  - any access to `_load`, `dlopen`, `mainModule` (`Module._load`, `process.dlopen`,
+ *    `process.mainModule.require`), and a computed access on `process` / `module` /
+ *    `globalThis`;
+ *  - `Function` and `eval` called or constructed;
+ *  - `import x = require(...)`.
+ */
+export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>; unresolvable: string[] } {
   const packages = new Set<string>();
-  const add = (specifier: string) => {
+  const unresolvable: string[] = [];
+  const red = (n: ts.Node) => unresolvable.push(n.getText(source));
+  const add = (specifier: string, at: ts.Node) => {
+    const builtin = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
+    if (BANNED_MODULES.has(builtin) && !BANNED_MODULE_EXEMPTIONS.some((e) => e.file === source.fileName && e.module === builtin)) red(at);
     const name = packageNameOf(specifier);
     if (name) packages.add(name);
   };
+  // Names bound to a require function made by createRequire.
+  const loaders = new Set<string>();
+  const collect = (n: ts.Node) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && isCreateRequireCall(n.initializer)) {
+      loaders.add(n.name.text);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(source);
+  // Names bound to a Symbol (`const KEY = Symbol.for("...")`): a symbol cannot name a loader
+  // internal, so Reflect.get(globalThis, KEY) (the process-wide singletons of the app) is safe.
+  const symbolKeys = new Set<string>();
+  const collectSymbols = (n: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      ((ts.isIdentifier(n.initializer.expression) && n.initializer.expression.text === "Symbol") ||
+        (ts.isPropertyAccessExpression(n.initializer.expression) &&
+          ts.isIdentifier(n.initializer.expression.expression) &&
+          n.initializer.expression.expression.text === "Symbol"))
+    ) {
+      symbolKeys.add(n.name.text);
+    }
+    ts.forEachChild(n, collectSymbols);
+  };
+  collectSymbols(source);
+  const isGlobalReceiver = (e: ts.Node | undefined): boolean => e !== undefined && ts.isIdentifier(e) && LOADER_RECEIVERS.has(e.text);
+  const isLoaderCall = (call: ts.CallExpression): boolean => {
+    const callee = call.expression;
+    if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
+    if (ts.isIdentifier(callee)) return callee.text === "require" || loaders.has(callee.text);
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text === "require" && ts.isIdentifier(callee.expression) && callee.expression.text === "module";
+    return isCreateRequireCall(callee);
+  };
+  /** `n` is the thing being called (or constructed). */
+  const isCallee = (n: ts.Node): boolean =>
+    n.parent !== undefined && ((ts.isCallExpression(n.parent) && n.parent.expression === n) || (ts.isNewExpression(n.parent) && n.parent.expression === n));
+  const isPropertyName = (n: ts.Identifier): boolean => n.parent !== undefined && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n;
+  /** `createRequire(...)` used in the two recognised shapes. */
+  const createRequireShapeIsKnown = (call: ts.Node): boolean => {
+    const parent = call.parent;
+    if (parent === undefined) return false;
+    if (ts.isVariableDeclaration(parent)) return parent.initializer === call && ts.isIdentifier(parent.name);
+    return ts.isCallExpression(parent) && parent.expression === call;
+  };
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-      if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text);
+      if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text, n);
     } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
-      if (!n.isTypeOnly) add(n.moduleSpecifier.text);
-    } else if (ts.isCallExpression(n)) {
+      if (!n.isTypeOnly) add(n.moduleSpecifier.text, n);
+    } else if (ts.isImportEqualsDeclaration(n)) {
+      red(n);
+    } else if (ts.isCallExpression(n) && isLoaderCall(n)) {
       const [arg] = n.arguments;
-      const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
-      if ((isDynamicImport || isRequire) && arg && ts.isStringLiteral(arg)) add(arg.text);
+      if (arg && ts.isStringLiteral(arg)) add(arg.text, n);
+      else red(n);
+    } else if (ts.isIdentifier(n) && !isPropertyName(n)) {
+      const callee = isCallee(n);
+      const inImport = n.parent !== undefined && (ts.isImportSpecifier(n.parent) || ts.isImportClause(n.parent) || ts.isExportSpecifier(n.parent));
+      if (n.text === "eval" && !(n.parent && ts.isPropertyAssignment(n.parent) && n.parent.name === n)) red(n.parent ?? n);
+      else if (n.text === "require" && !callee) red(n.parent ?? n);
+      else if (n.text === "Function" && callee) red(n.parent ?? n);
+      else if (n.text === "createRequire" && !inImport) {
+        // Recognised only as the callee of a call used in one of the two known shapes.
+        if (!(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n.parent ?? n);
+      } else if (loaders.has(n.text) && !callee && !(n.parent && ts.isVariableDeclaration(n.parent) && n.parent.name === n)) {
+        red(n.parent ?? n);
+      }
+    } else if (ts.isPropertyAccessExpression(n)) {
+      const name = n.name.text;
+      const callee = isCallee(n);
+      if (LOADER_INTERNALS.has(name)) red(n);
+      else if (name === "require" && !(callee && ts.isIdentifier(n.expression) && n.expression.text === "module")) red(n);
+      else if (name === "Function" && callee) red(n);
+      else if (name === "createRequire" && !(callee && n.parent && createRequireShapeIsKnown(n.parent))) red(n);
+    } else if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "Reflect") {
+      // Reflect.get / set / getOwnPropertyDescriptor ... on process, module or globalThis: only with a
+      // symbol key (see symbolKeys). Anything else could read dlopen, require, mainModule.
+      const [target, key] = n.arguments;
+      if (isGlobalReceiver(target) && !(key && ts.isIdentifier(key) && symbolKeys.has(key.text))) red(n);
+    } else if (ts.isElementAccessExpression(n)) {
+      const key = n.argumentExpression;
+      const named = ts.isStringLiteralLike(key) ? key.text : null;
+      const onReceiver = ts.isIdentifier(n.expression) && LOADER_RECEIVERS.has(n.expression.text);
+      if (named !== null ? LOADER_INTERNALS.has(named) || named === "require" || named === "createRequire" || named === "Function" || named === "eval" : onReceiver) red(n);
     }
     ts.forEachChild(n, visit);
   };
   visit(source);
-  return packages;
+  // Destructuring of process / module / globalThis (`const { dlopen } = process`): the names it
+  // pulls out are not the scanner's to follow.
+  const destructured = (n: ts.Node) => {
+    if (ts.isVariableDeclaration(n) && ts.isObjectBindingPattern(n.name) && isGlobalReceiver(n.initializer)) red(n);
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isObjectLiteralExpression(n.left) && isGlobalReceiver(n.right)) red(n);
+    ts.forEachChild(n, destructured);
+  };
+  destructured(source);
+  return { packages, unresolvable };
 }
 
 function parse(fileName: string, text: string): ts.SourceFile {
@@ -190,6 +336,8 @@ describe("runtime dependencies", () => {
     // If the Dockerfile stops copying any script this assertion is what goes
     // red — so the scripts exclusion above cannot silently become total.
     expect(shippedScripts()).toContain("scripts/retype-existing-guarded-assets.mjs");
+    // The image decoder is shipped too, and this is what makes its imports (sharp) scanned.
+    expect(shippedScripts()).toContain("scripts/image-decode-child.mjs");
   });
 
   it("every package imported by shipped code is in `dependencies`", () => {
@@ -260,17 +408,174 @@ describe("runtime dependencies", () => {
     });
   });
 
-  // Every decode of an uploaded image goes through lib/imageMetadata.ts: one
-  // process-wide queue (runExclusive), one opener with the pixel ceiling, the
-  // decoded-bytes budget and the timeout (decodeOriented), libvips' cache off.
-  // A second module importing sharp would decode outside all of that — the
-  // docs said so (docs/CONVENTIONS.md, photos section) but nothing held it
-  // (delta audit of fix/photo-entreprise, F3). Same discovery as above: every
-  // shipped file, all four import shapes.
-  it("sharp is imported by lib/imageMetadata.ts alone among shipped files", () => {
+  // sharp is imported by ONE shipped file: the decode child (scripts/image-decode-child.mjs),
+  // which the server forks and kills at a deadline. A second importer would decode inside the
+  // server process, outside the deadline, the queue, the pixel ceiling and the budget; the
+  // server itself importing sharp is the case that matters most (a native decode that no JS
+  // timeout can interrupt would run in the process that serves everyone). Same discovery as
+  // above: every shipped file, all four import shapes, the shipped scripts read from the Dockerfile.
+  it("sharp is imported by scripts/image-decode-child.mjs alone among shipped files", () => {
     const importers = shippedSourceFiles()
       .map(rel)
       .filter((relPath) => runtimePackagesIn(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).has("sharp"));
-    expect(importers).toEqual(["lib/imageMetadata.ts"]);
+    expect(importers).toEqual(["scripts/image-decode-child.mjs"]);
+  });
+
+  // Fail closed: a load whose target cannot be read from the source (a variable, a template,
+  // createRequire, module.require) could load sharp without this file ever saying so. Any
+  // shipped file doing that is red, not skipped.
+  it("no shipped file loads a module through an argument that is not a string literal", () => {
+    const offenders = shippedSourceFiles()
+      .map(rel)
+      .flatMap((relPath) =>
+        scanModuleLoads(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).unresolvable.map((call) => `${relPath}: ${call}`),
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  describe("the scanner fails closed (probes)", () => {
+    const unresolvableIn = (text: string): string[] => scanModuleLoads(parse("probe.mts", text)).unresolvable;
+
+    it("the original form: require / import() of a variable is red", () => {
+      expect(unresolvableIn("const name = 'sharp'; require(name);")).toHaveLength(1);
+      expect(unresolvableIn("const name = 'sharp'; await import(name);")).toHaveLength(1);
+    });
+
+    it("the neighbouring forms are red too: template, concatenation, createRequire, module.require", () => {
+      for (const form of [
+        "require(`sharp`);",
+        "await import(`sha${'rp'}`);",
+        "require('sha' + 'rp');",
+        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); r(name);",
+        "import { createRequire } from 'node:module'; createRequire(import.meta.url)(name);",
+        "module.require(name);",
+        "import()",
+      ]) {
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
+      }
+    });
+
+    // The scanner lists the one safe shape and reddens the rest: these are the exotic ways to reach
+    // the loader that an enumeration of dangerous forms let through (audit of fix/decodage-borne).
+    it("the exotic ways to reach the loader or run code are red, each one", () => {
+      const forms = [
+        "const r = require; r('sharp');",
+        "require.call(null, 'sharp');",
+        "(0, require)('sharp');",
+        "globalThis.require('sharp');",
+        "process.mainModule.require('sharp');",
+        "module.constructor._load('sharp');",
+        "Module._load('sharp');",
+        "import { createRequire } from 'node:module'; ({ r: createRequire(import.meta.url) }).r('sharp');",
+        "new Function('return require')()('sharp');",
+        "process.dlopen(m, 'sharp.node');",
+        "import sharp = require('sharp');",
+        "const f = createRequire; f(import.meta.url)('sharp');",
+        "process['mainModule'];",
+        "const k = 'dlopen'; process[k]();",
+        "eval('require')('sharp');",
+      ];
+      for (const form of forms) {
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
+      }
+    });
+
+    // Banned MODULES, not names: the forms an enumeration of names let through (audit of
+    // fix/decodage-borne, third pass), each one red.
+    it("the aliased, destructured and computed forms are red, and so is any import of module, vm, worker_threads, child_process", () => {
+      const forms = [
+        "import { createRequire as cr } from 'node:module'; cr(import.meta.url)('sharp');",
+        "const { _load } = require('node:module'); _load('sharp');",
+        "const { dlopen } = process; dlopen(m, 'x');",
+        "Reflect.get(process, 'dlopen');",
+        "import vm from 'node:vm'; vm.runInThisContext('1');",
+        "import { Worker } from 'node:worker_threads'; new Worker('x', { eval: true });",
+        "import { execFileSync } from 'node:child_process'; execFileSync(process.execPath, ['-e', 'x']);",
+        "globalThis['req' + 'uire']('sharp');",
+        "(0, eval)('1');",
+        "const e = eval; e('1');",
+        "const { require: r } = globalThis; r('sharp');",
+        "import m from 'module'; m._load('sharp');",
+        "await import('node:vm');",
+        "require('child_process');",
+        "export { Worker } from 'worker_threads';",
+      ];
+      for (const form of forms) {
+        expect(unresolvableIn(form).length, form).toBeGreaterThan(0);
+      }
+    });
+
+    it("the one exemption is the image bridge, for child_process only: the real file is green, the same text elsewhere is red", () => {
+      const bridge = readFileSync(join(ROOT, "lib", "imageDecodeBridge.ts"), "utf8");
+      expect(scanModuleLoads(parse("lib/imageDecodeBridge.ts", bridge)).unresolvable).toEqual([]);
+      expect(scanModuleLoads(parse("lib/elsewhere.ts", bridge)).unresolvable.length).toBeGreaterThan(0);
+      // The exemption is for child_process alone, and carries its reason.
+      expect(unresolvableIn("import vm from 'node:vm';")).toHaveLength(1);
+      expect(scanModuleLoads(parse("lib/imageDecodeBridge.ts", "import vm from 'node:vm';")).unresolvable).toHaveLength(1);
+      for (const entry of BANNED_MODULE_EXEMPTIONS) expect(entry.reason.length).toBeGreaterThan(10);
+    });
+
+    it("what is legitimate stays green: fs, a symbol-keyed Reflect on globalThis, a plain object destructuring", () => {
+      for (const form of [
+        "import { readFileSync } from 'node:fs'; readFileSync('x');",
+        "const KEY = Symbol.for('app.queue'); Reflect.get(globalThis, KEY); Reflect.set(globalThis, KEY, {});",
+        "const { a, b } = { a: 1, b: 2 }; const { env } = { env: 1 };",
+        "const evaluate = 1; const text = 'eval'; const o = { eval: 1 }.eval;",
+      ]) {
+        expect(unresolvableIn(form), form).toEqual([]);
+      }
+    });
+
+    it("the neighbouring form that is legitimate stays green, and a literal through createRequire is still seen as an import", () => {
+      for (const form of [
+        "require('node:fs'); await import('node:path'); module.exports = {};",
+        "// require(name)\nconst text = 'import(name)';",
+        "const other = (x) => x; other(name);",
+        "const type: Function = () => 1; const text = 'new Function'; process.env.X; process.platform;",
+      ]) {
+        expect(unresolvableIn(form), form).toEqual([]);
+      }
+      const viaCreateRequire = "import { createRequire } from 'node:module'; createRequire(import.meta.url)('sharp'); module.require('pdfkit');";
+      expect(scanModuleLoads(parse("probe.mts", viaCreateRequire)).packages).toEqual(new Set(["sharp", "pdfkit"]));
+    });
+  });
+
+  // The probes of that test: the form that bit, its neighbours, and the form that must stay green.
+  describe("the confinement of sharp (probes)", () => {
+    const importersOf = (files: Record<string, string>): string[] =>
+      Object.entries(files)
+        .filter(([path, text]) => runtimePackagesIn(parse(path, text)).has("sharp"))
+        .map(([path]) => path);
+
+    it("the original form: a lib module importing sharp is caught", () => {
+      expect(importersOf({ "lib/other.ts": `import sharp from "sharp";` })).toEqual(["lib/other.ts"]);
+    });
+
+    it("the neighbouring forms: require, dynamic import, re-export, side-effect import", () => {
+      for (const form of [
+        `const sharp = require("sharp");`,
+        `const load = () => import("sharp");`,
+        `export { default } from "sharp";`,
+        `import "sharp";`,
+      ]) {
+        expect(importersOf({ "lib/imageMetadata.ts": form }), form).toEqual(["lib/imageMetadata.ts"]);
+      }
+    });
+
+    it("stays green on what the compiler erases and on a mention in a comment", () => {
+      expect(
+        importersOf({
+          "lib/a.ts": `import type { Sharp } from "sharp";`,
+          "lib/b.ts": `// import sharp from "sharp";`,
+          "lib/c.ts": `import { fork } from "node:child_process";`,
+        }),
+      ).toEqual([]);
+    });
+
+    it("the discovery: a Dockerfile that stops copying the child leaves it unscanned (so the test above goes red)", () => {
+      const withCopy = "COPY --from=builder /app/scripts/image-decode-child.mjs ./scripts/image-decode-child.mjs\n";
+      expect(shippedScriptsIn(withCopy)).toEqual(["scripts/image-decode-child.mjs"]);
+      expect(shippedScriptsIn("FROM node\n")).toEqual([]);
+    });
   });
 });

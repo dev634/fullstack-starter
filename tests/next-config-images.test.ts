@@ -6,7 +6,13 @@ import nextConfig from "@/next.config";
 // lib/imageMetadata.ts; a "res.cloudinary.com" pattern without pathname admitted ANY
 // Cloudinary account. The optimizer stays closed to remote URLs: components/ClientAvatar.tsx,
 // its only user, renders Cloudinary's own transformation `unoptimized`.
-describe("next.config images — the optimizer is closed to remote URLs", () => {
+describe("next.config images — the optimizer is off, and closed to remote URLs anyway", () => {
+  // next-server must never load sharp through /_next/image: that decode would run outside
+  // the decode child (deadline, memory bound, queue).
+  it("is switched off", () => {
+    expect(nextConfig.images?.unoptimized).toBe(true);
+  });
+
   it("opens no remotePattern", () => {
     expect(nextConfig.images?.remotePatterns ?? []).toEqual([]);
   });

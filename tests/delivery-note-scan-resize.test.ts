@@ -116,7 +116,7 @@ describe("reduceImageForModel (exercised through extractDeliveryNoteItems) — i
     expect(anthropicCreateMock).not.toHaveBeenCalled();
   });
 
-  // Same opener as every sharp path (lib/imageMetadata.ts::decodeOriented,
+  // Same opener as every sharp path (lib/imageMetadata.ts::encodeOriented, the child,
   // `failOn: "none"`): a photo that merely lacks its two end-of-image bytes —
   // an interrupted transfer — is reduced and sent, not refused one step before
   // the archive that already accepts it.

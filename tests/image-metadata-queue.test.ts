@@ -1,49 +1,52 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// sharp is replaced by a fake that counts how many decodes are in flight at once: a real
-// sharp cannot be observed from the outside. What is under test is the queue in
-// lib/imageMetadata.ts, not sharp. (The real sharp is in tests/image-metadata-budget.test.ts.)
+// The bridge to the decode child is replaced by a fake that counts how many decodes are in
+// flight at once: a real child cannot be observed from the outside. What is under test is the
+// queue in lib/imageMetadata.ts, not the decoder. (The real child is in
+// tests/image-decode-bridge.test.ts and tests/image-metadata-budget.test.ts.)
+// A PNG signature: the JS check of lib/imageFrameCount.ts must pass for the task to reach the (fake) child.
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const img = (id: string) => Buffer.concat([PNG_MAGIC, Buffer.from(id)]);
+
 const state = vi.hoisted(() => ({
   inFlight: 0,
   maxInFlight: 0,
   started: [] as string[],
   finished: [] as string[],
   failFor: new Set<string>(),
-  timeoutArgs: [] as unknown[],
-  cacheArgs: [] as unknown[],
+  operations: [] as string[],
+  limits: [] as number[],
 }));
 
-vi.mock("sharp", () => {
-  function fakeSharp(buffer: Buffer) {
-    const id = buffer.toString();
-    const pipeline = {
-      metadata: async () => ({ format: "jpeg", width: 10, height: 10, channels: 3, depth: "uchar" }),
-      rotate: () => pipeline,
-      timeout: (options: unknown) => {
-        state.timeoutArgs.push(options);
-        return pipeline;
-      },
-      jpeg: () => pipeline,
-      png: () => pipeline,
-      webp: () => pipeline,
-      gif: () => pipeline,
-      toBuffer: async () => {
-        state.inFlight += 1;
-        state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
-        state.started.push(id);
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        state.inFlight -= 1;
-        state.finished.push(id);
-        if (state.failFor.has(id)) throw new Error("decode failed");
-        return Buffer.from(`out-${id}`);
-      },
-    };
-    return pipeline;
-  }
-  fakeSharp.cache = (value: unknown) => {
-    state.cacheArgs.push(value);
+vi.mock("@/lib/imageDecodeBridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/imageDecodeBridge")>();
+  return {
+    ...actual,
+    runInChild: async (
+      operation: string,
+      task: (session: import("@/lib/imageDecodeBridge").DecodeSession) => Promise<unknown>,
+    ) => {
+      state.operations.push(operation);
+      return task({
+        readHeader: async (_input, limitInputPixels) => {
+          state.limits.push(limitInputPixels);
+          return { format: "jpeg", width: 10, height: 10, channels: 3, depth: "uchar" };
+        },
+        encode: async (input) => {
+          const id = input.subarray(PNG_MAGIC.length).toString();
+          state.inFlight += 1;
+          state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+          state.started.push(id);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          state.inFlight -= 1;
+          state.finished.push(id);
+          // A deadline or a dead child rejects like any decode failure.
+          if (state.failFor.has(id)) throw new Error("decode failed");
+          return Buffer.from(`out-${id}`);
+        },
+      });
+    },
   };
-  return { default: fakeSharp };
 });
 
 import {
@@ -52,6 +55,7 @@ import {
   runExclusive,
   isImageBusyError,
   MAX_WAITING_TASKS,
+  SHARP_MAX_INPUT_PIXELS,
 } from "@/lib/imageMetadata";
 
 beforeEach(() => {
@@ -60,7 +64,8 @@ beforeEach(() => {
   state.started = [];
   state.finished = [];
   state.failFor = new Set();
-  state.timeoutArgs = [];
+  state.operations = [];
+  state.limits = [];
 });
 
 /** A task that stays running until `release()` is called. */
@@ -80,7 +85,7 @@ function heldTask(log: string[], id: string) {
 describe("lib/imageMetadata — one sharp decode at a time", () => {
   it("N simultaneous calls never have more than one decode in flight, all complete, in call order", async () => {
     const ids = ["a", "b", "c", "d", "e", "f"];
-    const results = await Promise.all(ids.map((id) => stripArchivedPhotoMetadata(Buffer.from(id), "image/jpeg")));
+    const results = await Promise.all(ids.map((id) => stripArchivedPhotoMetadata(img(id), "image/jpeg")));
     expect(results.map((r) => r.toString())).toEqual(ids.map((id) => `out-${id}`));
     expect(state.maxInFlight).toBe(1);
     expect(state.started).toEqual(ids);
@@ -89,10 +94,10 @@ describe("lib/imageMetadata — one sharp decode at a time", () => {
 
   it("the queue is shared by the in-place stripper and the AVIF/TIFF converter", async () => {
     await Promise.all([
-      stripArchivedPhotoMetadata(Buffer.from("x"), "image/png"),
-      convertToStrippedJpeg(Buffer.from("y")),
-      stripArchivedPhotoMetadata(Buffer.from("z"), "image/webp"),
-      convertToStrippedJpeg(Buffer.from("w")),
+      stripArchivedPhotoMetadata(img("x"), "image/png"),
+      convertToStrippedJpeg(img("y")),
+      stripArchivedPhotoMetadata(img("z"), "image/webp"),
+      convertToStrippedJpeg(img("w")),
     ]);
     expect(state.maxInFlight).toBe(1);
     expect(state.started).toEqual(["x", "y", "z", "w"]);
@@ -101,10 +106,10 @@ describe("lib/imageMetadata — one sharp decode at a time", () => {
   it("an error in one call is reported to ITS caller only and does not block the queue", async () => {
     state.failFor.add("bad");
     const settled = await Promise.allSettled([
-      stripArchivedPhotoMetadata(Buffer.from("one"), "image/jpeg"),
-      stripArchivedPhotoMetadata(Buffer.from("bad"), "image/jpeg"),
-      convertToStrippedJpeg(Buffer.from("bad")),
-      stripArchivedPhotoMetadata(Buffer.from("two"), "image/jpeg"),
+      stripArchivedPhotoMetadata(img("one"), "image/jpeg"),
+      stripArchivedPhotoMetadata(img("bad"), "image/jpeg"),
+      convertToStrippedJpeg(img("bad")),
+      stripArchivedPhotoMetadata(img("two"), "image/jpeg"),
     ]);
     expect(settled[0]).toMatchObject({ status: "fulfilled" });
     expect(settled[1]).toMatchObject({ status: "rejected", reason: { type: "error", code: "corruptedImage" } });
@@ -114,13 +119,11 @@ describe("lib/imageMetadata — one sharp decode at a time", () => {
     expect(state.finished).toEqual(["one", "bad", "bad", "two"]);
   });
 
-  it("the pipeline carries the decode timeout of 10 seconds", async () => {
-    await stripArchivedPhotoMetadata(Buffer.from("t"), "image/jpeg");
-    expect(state.timeoutArgs).toEqual([{ seconds: 10 }]);
-  });
-
-  it("sharp's cache is switched off at load", () => {
-    expect(state.cacheArgs).toEqual([false]);
+  it("each path says which operation it is, and sends the pixel ceiling with every header read", async () => {
+    await stripArchivedPhotoMetadata(img("t"), "image/jpeg");
+    await convertToStrippedJpeg(img("u"));
+    expect(state.operations).toEqual(["strip", "convert"]);
+    expect(state.limits).toEqual([SHARP_MAX_INPUT_PIXELS, SHARP_MAX_INPUT_PIXELS]);
   });
 });
 
@@ -159,7 +162,7 @@ describe("lib/imageMetadata — the queue is bounded", () => {
     const held = Array.from({ length: 1 + MAX_WAITING_TASKS }, (_, i) => heldTask(log, String(i)));
     const accepted = held.map((h) => runExclusive(h.task));
 
-    const error = await stripArchivedPhotoMetadata(Buffer.from("late"), "image/jpeg").then(
+    const error = await stripArchivedPhotoMetadata(img("late"), "image/jpeg").then(
       () => null,
       (reason: unknown) => reason,
     );
@@ -170,12 +173,12 @@ describe("lib/imageMetadata — the queue is bounded", () => {
     await Promise.all(accepted);
   });
 
-  it("a task that outlasts the decode timeout fails like any decode failure and frees the queue", async () => {
-    // sharp's own `.timeout()` makes toBuffer() reject; the fake reproduces that rejection.
+  it("a task that outlasts the deadline (the child is killed) fails like any decode failure and frees the queue", async () => {
+    // The bridge rejects the task when its child is killed; the fake reproduces that rejection.
     state.failFor.add("slow");
     const settled = await Promise.allSettled([
-      stripArchivedPhotoMetadata(Buffer.from("slow"), "image/jpeg"),
-      stripArchivedPhotoMetadata(Buffer.from("next"), "image/jpeg"),
+      stripArchivedPhotoMetadata(img("slow"), "image/jpeg"),
+      stripArchivedPhotoMetadata(img("next"), "image/jpeg"),
     ]);
     expect(settled[0]).toMatchObject({ status: "rejected", reason: { type: "error", code: "corruptedImage" } });
     expect(settled[1]).toMatchObject({ status: "fulfilled" });

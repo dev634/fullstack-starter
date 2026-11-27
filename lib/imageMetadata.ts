@@ -1,5 +1,7 @@
-import sharp from "sharp";
 import type { RasterImageMediaType } from "@/lib/fileSignature";
+import { countImageFrames } from "@/lib/imageFrameCount";
+import { stripPngTextChunks } from "@/lib/pngTextChunks";
+import { runInChild, type DecodeOperation, type EncodeOutput, type ImageHeader } from "@/lib/imageDecodeBridge";
 
 // Extracted from lib/deliveryNoteScan.ts (point 13, review of the "Prêts"
 // feature): stripArchivedPhotoMetadata started as a delivery-note-only
@@ -49,7 +51,8 @@ export function isStrippableMediaType(value: RasterImageMediaType): value is Del
 // the whole container on a small VPS, without a single byte ever reaching
 // the vision provider or Cloudinary. 40 million pixels is generous headroom
 // over any real phone photo (a 12 MP camera is 4032x3024 ~= 12.2 Mpx) while
-// keeping the worst case bounded.
+// keeping the worst case bounded. Sent to the decode child with each request: this is
+// its only source.
 export const SHARP_MAX_INPUT_PIXELS = 40_000_000;
 
 // The archive keeps its original resolution, so quality 95 is visually
@@ -58,15 +61,6 @@ export const SHARP_MAX_INPUT_PIXELS = 40_000_000;
 // segment, leave the rest of the file untouched" primitive here — so this is
 // the quality that re-encoding step uses.
 const ARCHIVE_JPEG_QUALITY = 95;
-
-// libvips keeps every decoded image in its operation cache, and sharp's default
-// cache is generous. Measured on Windows, 20 successive decodes of a 27 KB GIF
-// of 6000x6600 held ~3 GB resident with the default cache (+151 MB per decode)
-// and ~47 MB with the cache off; a 943-byte 12-bit AVIF retains +227 MB per
-// decode. Nothing here decodes the same buffer twice, so the cache buys
-// nothing and costs the very memory the queue below exists to bound. Set once,
-// at load: every sharp path of the app imports this module.
-sharp.cache(false);
 
 // A refusal of this module, in the shape lib/deliveryNoteScan.ts's ScanError
 // already has (built as a literal: that module imports THIS one). "corruptedImage"
@@ -166,18 +160,6 @@ export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
     });
 }
 
-// libvips abandons a STREAMED pipeline after this long and the task fails like
-// any other decode failure, which frees the queue. It is NOT a deadline on the
-// task: `metadata()` (read before the decoded-bytes budget) has no timeout, and
-// a stage done in one native call (a libheif decode, a GIF's frame walk) is only
-// checked once it returns — a 10 MB GIF of 690,000 2x2 frames spent 60 s in
-// `metadata()` alone and 119 s in the whole strip, then SUCCEEDED (delta audit
-// of fix/photo-entreprise, F1, measured on Windows). Bounding that needs a frame
-// / page count read in JS before sharp, or a decode in a child process that can
-// be killed — next lot. 10 s is above a real 24 Mpx JPEG (~0.4 s here) but a
-// noisy 24 Mpx WebP took 4.8 s on this machine: not calibrated on the VPS.
-export const SHARP_TIMEOUT_SECONDS = 10;
-
 // The pixel ceiling above bounds the pixel COUNT, not the decoded BYTES: bytes =
 // pixels x channels x bytes per sample, and a 5-channel float32 TIFF of a few KB
 // (~1.1 GB measured) or a 12-bit AVIF of 943 bytes (~1 GB measured) stay under
@@ -188,6 +170,17 @@ export const SHARP_TIMEOUT_SECONDS = 10;
 // phone AVIFs: not proven, only checked against synthetic files. The header is
 // read with metadata(), which decodes nothing.
 export const MAX_DECODED_BYTES = 160_000_000;
+
+// The largest OUTPUT the application accepts from a decode, asked of the child with every
+// encode (the child refuses a larger one before sending it). A small PNG can come out of
+// sharp enormous — 160 KB of identical rows, 12000x3333, came out as 114.6 MB in 3.5 s —
+// and the company and equipment photos then go to Cloudinary. 32 MiB is more than twice
+// the largest legitimate output measured: a 40 Mpx JPEG of 10 MB re-encoded at q95 gives
+// 12.5 to 13.1 MB, an interlaced 40 Mpx PNG 4.0 MB, a noisy WebP 9.4 MB. One source: the
+// parent. `png({ adaptiveFiltering })` is NOT used: on the interlaced 40 Mpx PNG it takes
+// the output from 4.0 to 0.39 MB but the time from 0.55 to 1.17 s (2.1 times), above the
+// 2 times accepted for it (docs/CONVENTIONS.md).
+export const MAX_ENCODED_OUTPUT_BYTES = 32 * 1024 * 1024;
 
 // libvips band formats, in bytes per sample (sharp's `depth` metadata).
 const BYTES_PER_SAMPLE: Readonly<Record<string, number>> = {
@@ -208,8 +201,6 @@ const BYTES_PER_SAMPLE: Readonly<Record<string, number>> = {
 const TIFF_MAX_CHANNELS = 4;
 const TIFF_DEPTHS: ReadonlySet<string> = new Set(["uchar", "ushort"]);
 
-type ImageHeader = { format?: string; width?: number; height?: number; channels?: number; depth?: string };
-
 /** Refuses (throws `corruptedImage`) a header whose decoded size is beyond the budget. */
 function assertDecodedSizeWithinBudget(header: ImageHeader): void {
     const { format, width, height, channels, depth } = header;
@@ -222,22 +213,49 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
     if (width * height * channels * bytesPerSample > MAX_DECODED_BYTES) throw refusal("corruptedImage");
 }
 
-// `failOn: "none"`: sharp's default ("warning") refuses a JPEG that merely
-// lacks its two end-of-image bytes or is cut short by an interrupted transfer
-// — files Cloudinary used to accept — so a legitimate upload would start
-// failing. "none" decodes what is decodable; a header that is really
-// corrupted is still refused (sharp throws on it whatever `failOn` says).
-// Shared by every caller on purpose: one function, one behavior (the
-// bulletin's image for the model, lib/deliveryNoteScan.ts, included).
-//
-// Reads the header first (metadata(): nothing is decoded) and refuses a decoded
-// size beyond MAX_DECODED_BYTES BEFORE allocating anything, then opens the
-// pipeline with the pixel ceiling, the orientation and the decode timeout.
-// Call it inside runExclusive, and await it.
-export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof sharp>> {
-    const options = { limitInputPixels: SHARP_MAX_INPUT_PIXELS, sequentialRead: true, failOn: "none" } as const;
-    assertDecodedSizeWithinBudget(await sharp(buffer, options).metadata());
-    return sharp(buffer, options).rotate().timeout({ seconds: SHARP_TIMEOUT_SECONDS });
+/**
+ * The one decode of the application. In this order:
+ *  1. JS refusals, BEFORE the queue (a refused file never takes a place in it and never
+ *     answers `imageBusy`): the structure walk of lib/imageFrameCount.ts (images, pages,
+ *     scans, entries; closed on formats nobody decodes), then the removal of the PNG text
+ *     chunks (lib/pngTextChunks.ts: a 1-pixel PNG of 40 zTXt chunks inflates to 1.6 GB).
+ *  2. Queued like every decode (runExclusive: one at a time, at most MAX_WAITING_TASKS
+ *     waiting), in the decode child and under ONE deadline for the whole task
+ *     (lib/imageDecodeBridge.ts): reads the header (nothing is decoded), refuses a decoded
+ *     size beyond MAX_DECODED_BYTES BEFORE allocating anything, re-encodes with the
+ *     orientation applied and without any metadata; the child refuses an output beyond
+ *     MAX_ENCODED_OUTPUT_BYTES before sending it.
+ *
+ * Every failure — a structure that does not walk, a header beyond the budget, a
+ * native error, the deadline (the child is killed), a child that died or could not
+ * start — is `{ type: "error", code: "corruptedImage" }`, never a native message and
+ * never a fallback that decodes in this process or returns the original. The queue's
+ * own refusal, `imageBusy`, is thrown by runExclusive and keeps its code.
+ *
+ * `failOn: "none"` is set in the child (its `open()` says why): one behavior for every
+ * caller on purpose, the bulletin's image for the model included.
+ */
+export function encodeOriented(
+    operation: DecodeOperation,
+    buffer: Buffer,
+    output: EncodeOutput,
+    maxLongEdge: number | null = null
+): Promise<Buffer> {
+    if (countImageFrames(buffer).kind !== "ok") return Promise.reject(refusal("corruptedImage"));
+    const input = stripPngTextChunks(buffer);
+    return runExclusive(async () => {
+        try {
+            return await runInChild(operation, async (session) => {
+                assertDecodedSizeWithinBudget(await session.readHeader(input, SHARP_MAX_INPUT_PIXELS));
+                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, MAX_ENCODED_OUTPUT_BYTES, output);
+                // The child already refuses a larger output before sending it: this is depth, against a child that drifts.
+                if (encoded.length > MAX_ENCODED_OUTPUT_BYTES) throw refusal("corruptedImage");
+                return encoded;
+            });
+        } catch {
+            throw refusal("corruptedImage");
+        }
+    });
 }
 
 /**
@@ -254,7 +272,7 @@ export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof 
  * changes format: a JPEG stays a JPEG, a PNG stays a PNG, a WEBP stays a
  * WEBP, a GIF stays a GIF.
  *
- * Two things happen, in order:
+ * Two things happen, in order (in the decode child, scripts/image-decode-child.mjs):
  *  1. `.rotate()` with no argument auto-orients using the EXIF orientation
  *     tag, baking it into the pixels themselves, BEFORE metadata is dropped
  *     in step 2 — stripping the tag without applying it first would archive
@@ -268,7 +286,7 @@ export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof 
  *     `.withMetadata()` on the pipeline in any branch — do not add it.
  *
  * Only one call runs at a time (runExclusive above), and a truncated JPEG is
- * decoded rather than refused (decodeOriented above).
+ * decoded rather than refused (encodeOriented above).
  *
  * An animated GIF or WebP is reduced to its FIRST frame (sharp's default:
  * `animated: true` is deliberately not set). Acceptable for a thumbnail or an
@@ -282,8 +300,9 @@ export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof 
  * Throws `{ type: "error", code: "imageBusy" }` at once when MAX_WAITING_TASKS
  * tasks already wait (the caller says "the server is already processing
  * images, try again"), and `{ type: "error", code: "corruptedImage" }` (never
- * a native error) if sharp can't process the buffer — or the decoded size is
- * beyond MAX_DECODED_BYTES, or the decode outlasts SHARP_TIMEOUT_SECONDS — structurally the same shape as
+ * a native error) if the image can't be processed — or the decoded size is
+ * beyond MAX_DECODED_BYTES, or the task outlasts DECODE_DEADLINE_SECONDS and its
+ * child is killed — structurally the same shape as
  * lib/deliveryNoteScan.ts's own ScanError (so its isScanError still
  * recognizes it, caught by actions/deliveryNoteScan/deliveryNoteScan.ts),
  * built as a plain literal here rather than imported: that module imports
@@ -293,27 +312,15 @@ export async function decodeOriented(buffer: Buffer): Promise<ReturnType<typeof 
  * un-cleaned original, which would quietly undo the product decision this
  * exists to apply.
  */
-export async function stripArchivedPhotoMetadata(
-    buffer: Buffer,
-    mediaType: DeliveryNoteMediaType
-): Promise<Buffer> {
-    return runExclusive(async () => {
-        try {
-            const pipeline = await decodeOriented(buffer);
-            if (mediaType === "image/jpeg") {
-                return await pipeline.jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
-            }
-            if (mediaType === "image/png") {
-                return await pipeline.png().toBuffer();
-            }
-            if (mediaType === "image/webp") {
-                return await pipeline.webp().toBuffer();
-            }
-            return await pipeline.gif().toBuffer();
-        } catch {
-            throw refusal("corruptedImage");
-        }
-    });
+export function stripArchivedPhotoMetadata(buffer: Buffer, mediaType: DeliveryNoteMediaType): Promise<Buffer> {
+    return encodeOriented("strip", buffer, outputFor(mediaType));
+}
+
+function outputFor(mediaType: DeliveryNoteMediaType): EncodeOutput {
+    if (mediaType === "image/jpeg") return { format: "jpeg", quality: ARCHIVE_JPEG_QUALITY };
+    if (mediaType === "image/png") return { format: "png" };
+    if (mediaType === "image/webp") return { format: "webp" };
+    return { format: "gif" };
 }
 
 /**
@@ -323,12 +330,6 @@ export async function stripArchivedPhotoMetadata(
  * stripArchivedPhotoMetadata. Used by lib/cloudinary.ts::uploadClientPhoto
  * only; the equipment photo keeps refusing both formats.
  */
-export async function convertToStrippedJpeg(buffer: Buffer): Promise<Buffer> {
-    return runExclusive(async () => {
-        try {
-            return await (await decodeOriented(buffer)).jpeg({ quality: ARCHIVE_JPEG_QUALITY }).toBuffer();
-        } catch {
-            throw refusal("corruptedImage");
-        }
-    });
+export function convertToStrippedJpeg(buffer: Buffer): Promise<Buffer> {
+    return encodeOriented("convert", buffer, { format: "jpeg", quality: ARCHIVE_JPEG_QUALITY });
 }

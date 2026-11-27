@@ -7,10 +7,9 @@ import {
     RASTER_IMAGE_EXTENSION_MEDIA_TYPES,
 } from "@/lib/fileSignature";
 import {
-    decodeOriented,
+    encodeOriented,
     isImageBusyError,
     isStrippableMediaType,
-    runExclusive,
     stripArchivedPhotoMetadata,
     type DeliveryNoteMediaType,
 } from "@/lib/imageMetadata";
@@ -222,8 +221,9 @@ const MODEL_MAX_LONG_EDGE = 1568;
 // original photo. Do not lower it — OCR accuracy degrades below 85.
 const MODEL_JPEG_QUALITY = 85;
 
-// SHARP_MAX_INPUT_PIXELS (imported above, from lib/imageMetadata.ts) is
-// shared by reduceImageForModel below and stripArchivedPhotoMetadata: sharp's
+// SHARP_MAX_INPUT_PIXELS (lib/imageMetadata.ts, sent to the decode child with
+// every request; not imported here) is shared by reduceImageForModel below and
+// stripArchivedPhotoMetadata: sharp's
 // own default input-pixel limit is ~268 megapixels, high enough that a
 // small, well-formed file can still decode into hundreds of megabytes of raw
 // pixel data (measured: a 748 KB PNG decoded to ~349 MB RSS) — MAX_BYTES only
@@ -245,7 +245,9 @@ const MODEL_JPEG_QUALITY = 85;
  * their own copy of the bytes (scan here, apply's own re-upload there), so
  * there is no buffer shared between them to accidentally cross-contaminate.
  *
- * Three things happen, in order:
+ * Three things happen, in order, in the decode child (scripts/image-decode-child.mjs;
+ * this module sends the recipe — MODEL_MAX_LONG_EDGE, MODEL_JPEG_QUALITY — and never
+ * imports sharp):
  *  1. `.rotate()` with no argument auto-orients using the EXIF orientation
  *     tag, baking it into the pixels themselves. This has to happen BEFORE
  *     metadata is dropped in step 3: a phone photo taken in portrait often
@@ -274,28 +276,18 @@ const MODEL_JPEG_QUALITY = 85;
  * original: a silent fallback here would quietly undo the whole mitigation
  * on exactly the inputs most likely to need it.
  *
- * `limitInputPixels` and `sequentialRead` are passed explicitly to `sharp()`
- * rather than left at its default — see SHARP_MAX_INPUT_PIXELS above for why
- * (shared with stripArchivedPhotoMetadata below, same reasoning).
+ * `limitInputPixels` is sent with the request rather than left at sharp's
+ * default — see SHARP_MAX_INPUT_PIXELS above for why (shared with
+ * stripArchivedPhotoMetadata, same reasoning).
  */
 async function reduceImageForModel(buffer: Buffer): Promise<Buffer> {
     try {
-        // Same opener (pixel ceiling, orientation, `failOn: "none"`) and same
-        // one-at-a-time queue as every other sharp path of the app
-        // (lib/imageMetadata.ts): a truncated photo the archive accepts is not
-        // refused one step earlier here, and this decode counts against the
-        // same memory bound.
-        return await runExclusive(async () =>
-            (await decodeOriented(buffer))
-                .resize({
-                    width: MODEL_MAX_LONG_EDGE,
-                    height: MODEL_MAX_LONG_EDGE,
-                    fit: "inside",
-                    withoutEnlargement: true,
-                })
-                .jpeg({ quality: MODEL_JPEG_QUALITY })
-                .toBuffer()
-        );
+        // Same decode as every other path of the app (lib/imageMetadata.ts::
+        // encodeOriented): same child process and deadline, same one-at-a-time
+        // queue, same pixel ceiling and budget, orientation, `failOn: "none"` — a
+        // truncated photo the archive accepts is not refused one step earlier
+        // here. Only the recipe differs: resize, then JPEG at MODEL_JPEG_QUALITY.
+        return await encodeOriented("model", buffer, { format: "jpeg", quality: MODEL_JPEG_QUALITY }, MODEL_MAX_LONG_EDGE);
     } catch (error) {
         // A full queue is "try again in a moment", not a corrupted photo —
         // and, like the corrupted case, never a fallback to the original.

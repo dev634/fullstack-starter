@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { imageDecoderState } from "@/lib/imageDecodeBridge";
 
 /**
  * Public health-check endpoint for uptime monitors (e.g. UptimeRobot) and
@@ -30,6 +31,9 @@ export async function GET() {
       version,
       timestamp: new Date().toISOString(),
       pendingGuardedAssets: pendingFiles + pendingPlans + pendingPhotos,
+      // "ready" | "failed" | "idle": whether the image decode child could start. "failed"
+      // means every photo upload is being refused. A state only — never a pid, a message or a path.
+      imageDecoder: imageDecoderState(),
     });
   } catch (error) {
     console.error("Health check failed:", error);
