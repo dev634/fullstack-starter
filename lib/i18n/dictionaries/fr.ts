@@ -5,6 +5,7 @@ const fr = {
         delete: "Supprimer",
         actions: "Actions",
         cancel: "Annuler",
+        close: "Fermer",
         back: "Retour",
         add: "Ajouter",
         create: "Créer",

@@ -12,6 +12,7 @@ import { getLocale } from "@/lib/i18n/getLocale";
 import { getDictionary } from "@/lib/i18n/dictionaries";
 import { getAppSettings } from "@/lib/appSettings";
 import { safeHex } from "@/lib/color";
+import { TOAST_HOST_ID } from "@/components/toastHost";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -124,6 +125,15 @@ export default async function RootLayout({
           />
           {children}
         </LocaleProvider>
+        {/* The one host every Toast portals into. It owns the position and the
+            app's highest z-index (above the z-50 modals), and stacks the banners
+            of every form on the page, newest on top. Bottom of the screen on
+            mobile (under the thumb, clear of the header menu), under the header
+            from sm:. Its banners opt back into clicks (pointer-events-auto). */}
+        <div
+          id={TOAST_HOST_ID}
+          className="pointer-events-none fixed inset-x-5 bottom-5 z-60 mx-auto flex max-w-xl flex-col-reverse gap-2 sm:bottom-auto sm:top-32"
+        />
       </body>
     </html>
   );

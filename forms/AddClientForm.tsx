@@ -49,7 +49,7 @@ export default function AddClientForm() {
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <PhotoUpload />
       <ClientFields
         values={values}

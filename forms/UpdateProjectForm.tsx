@@ -76,7 +76,7 @@ export default function UpdateProjectForm({ project }: { project: UpdateProjectF
 
   return (
     <form action={formAction} className="w-full bg-transparent rounded shadow">
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <input type="hidden" name="id" value={project.id} />
       <input type="hidden" name="clientId" value={project.clientId} />
       <ProjectFields

@@ -1,5 +1,7 @@
 "use client";
 
+import BodyPortal from "@/components/BodyPortal";
+
 export type ModalProps = {
   className?: string;
   title?: string;
@@ -14,16 +16,17 @@ export type ModalProps = {
 
 export default function Modal({ className, title, text, error, textForCancel, textForConfirm, onClose, onConfirm }: ModalProps) {
 
-    return (
-    <div className={className || 'fixed inset-0 flex items-center justify-center bg-black/50 z-50 pointer-events-none'}>
+  return (
+    <BodyPortal>
+    <div className={className || 'fixed inset-0 flex items-center justify-center bg-black/50 z-50'}>
       <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-6 rounded shadow-lg mx-8 text-gray-900 dark:text-gray-100">
         {title && <h2 className="text-xl font-bold mb-4">{title}</h2>}
         {text && <p className="text-gray-600 dark:text-gray-300 mb-4">{text}</p>}
-        {error && <p className="text-red-400 mb-4" aria-live="polite">{error}</p>}
+        {error && <p className="text-red-700 dark:text-red-400 mb-4" role="alert">{error}</p>}
         <div className="flex justify-end space-x-6">
           {textForCancel && (
             <button
-              className="bg-gray-100 dark:bg-gray-700 hover:bg-[#d1d5dc] dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
+              className="bg-gray-100 dark:bg-gray-700 hover:bg-[#d1d5dc] dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-bold py-2 px-4 rounded cursor-pointer"
               onClick={onClose}
             >
               {textForCancel}
@@ -31,7 +34,7 @@ export default function Modal({ className, title, text, error, textForCancel, te
           )}
           {textForConfirm && (
             <button
-              className="bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded cursor-pointer pointer-events-auto"
+              className="bg-primary hover:bg-primary/90 text-white font-bold py-2 px-4 rounded cursor-pointer"
               onClick={onConfirm}
             >
               {textForConfirm}
@@ -40,5 +43,6 @@ export default function Modal({ className, title, text, error, textForCancel, te
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

@@ -51,7 +51,7 @@ export default function LogoUploadForm({ logoUrl }: LogoUploadFormProps) {
   return (
     <div className="mb-7">
       <p className="mb-1 block text-sm text-gray-700 dark:text-gray-300">{t.appSettings.logoTitle}</p>
-      <Toast type={state.type} message={state.message} />
+      <Toast type={state.type} message={state.message} result={state} />
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded border border-gray-300 bg-white dark:border-gray-700 dark:bg-gray-800">
           {preview ? (
