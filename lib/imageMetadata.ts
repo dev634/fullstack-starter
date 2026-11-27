@@ -1,5 +1,6 @@
 import type { RasterImageMediaType } from "@/lib/fileSignature";
 import { countImageFrames } from "@/lib/imageFrameCount";
+import { stripPngTextChunks } from "@/lib/pngTextChunks";
 import { runInChild, type DecodeOperation, type EncodeOutput, type ImageHeader } from "@/lib/imageDecodeBridge";
 
 // Extracted from lib/deliveryNoteScan.ts (point 13, review of the "Prêts"
@@ -202,13 +203,17 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
 }
 
 /**
- * The one decode of the application: counts what the file would make the decoder
- * walk (JS, nothing started if it is over), then, in the decode child and under ONE
- * deadline for the whole task (lib/imageDecodeBridge.ts), reads the header (nothing is
- * decoded), refuses a decoded size beyond MAX_DECODED_BYTES BEFORE allocating
- * anything, and re-encodes with the orientation applied and without any metadata.
- * Queued like every decode (runExclusive: one at a time, at most MAX_WAITING_TASKS
- * waiting).
+ * The one decode of the application. In this order:
+ *  1. JS refusals, BEFORE the queue (a refused file never takes a place in it and never
+ *     answers `imageBusy`): the structure walk of lib/imageFrameCount.ts (images, pages,
+ *     scans, entries; closed on formats nobody decodes), then the removal of the PNG text
+ *     chunks (lib/pngTextChunks.ts: a 1-pixel PNG of 40 zTXt chunks inflates to 1.6 GB).
+ *  2. Queued like every decode (runExclusive: one at a time, at most MAX_WAITING_TASKS
+ *     waiting), in the decode child and under ONE deadline for the whole task
+ *     (lib/imageDecodeBridge.ts): reads the header (nothing is decoded), refuses a decoded
+ *     size beyond MAX_DECODED_BYTES BEFORE allocating anything, re-encodes with the
+ *     orientation applied and without any metadata, and refuses an output beyond the same
+ *     budget.
  *
  * Every failure — a structure that does not walk, a header beyond the budget, a
  * native error, the deadline (the child is killed), a child that died or could not
@@ -216,11 +221,8 @@ function assertDecodedSizeWithinBudget(header: ImageHeader): void {
  * never a fallback that decodes in this process or returns the original. The queue's
  * own refusal, `imageBusy`, is thrown by runExclusive and keeps its code.
  *
- * `failOn: "none"` (in the child): sharp's default ("warning") refuses a JPEG that
- * merely lacks its two end-of-image bytes or is cut short by an interrupted transfer
- * — files Cloudinary used to accept — so a legitimate upload would start failing.
- * A header that is really corrupted is still refused. One behavior for every caller
- * on purpose (the bulletin's image for the model included).
+ * `failOn: "none"` is set in the child (its `open()` says why): one behavior for every
+ * caller on purpose, the bulletin's image for the model included.
  */
 export function encodeOriented(
     operation: DecodeOperation,
@@ -228,12 +230,15 @@ export function encodeOriented(
     output: EncodeOutput,
     maxLongEdge: number | null = null
 ): Promise<Buffer> {
+    if (countImageFrames(buffer).kind !== "ok") return Promise.reject(refusal("corruptedImage"));
+    const input = stripPngTextChunks(buffer);
     return runExclusive(async () => {
         try {
-            if (countImageFrames(buffer).kind !== "ok") throw refusal("corruptedImage");
             return await runInChild(operation, async (session) => {
-                assertDecodedSizeWithinBudget(await session.readHeader(buffer, SHARP_MAX_INPUT_PIXELS));
-                return session.encode(buffer, SHARP_MAX_INPUT_PIXELS, maxLongEdge, output);
+                assertDecodedSizeWithinBudget(await session.readHeader(input, SHARP_MAX_INPUT_PIXELS));
+                const encoded = await session.encode(input, SHARP_MAX_INPUT_PIXELS, maxLongEdge, output);
+                if (encoded.length > MAX_DECODED_BYTES) throw refusal("corruptedImage");
+                return encoded;
             });
         } catch {
             throw refusal("corruptedImage");

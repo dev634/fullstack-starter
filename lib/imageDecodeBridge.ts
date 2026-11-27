@@ -1,15 +1,27 @@
-import { fork, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 
-// The parent side of the image decoder. sharp is NEVER imported by the server
-// process: every call (`metadata()` included) runs in a child process forked from
+// The parent side of the image decoder. No code of the application imports sharp
+// (tests/runtime-dependencies.test.ts), and `next-server` does not load it through
+// its image optimizer either (next.config.ts: `images.unoptimized`): every call
+// (`metadata()` included) runs in a child process started from
 // scripts/image-decode-child.mjs, and what bounds a task is that this process is
 // KILLED when the deadline passes. A native decode cannot be interrupted from JS —
 // a progressive JPEG of 3,529 scans (525 KB) is absorbed by one call,
 // `jpeg_start_decompress`, a 100-page TIFF of 4,000 tags each spends 28 s in
-// `metadata()` — so nothing inside the process that runs it can bound it; the
-// operating system can. The JS checks of lib/imageFrameCount.ts remain, as cheap
-// early refusals of the amplifiers already known; they bound nothing by themselves.
+// `metadata()` (Windows, in process) — so nothing inside the process that runs it can
+// bound it; the operating system can. The JS checks of lib/imageFrameCount.ts and
+// lib/pngTextChunks.ts remain, as cheap early refusals of the amplifiers already
+// known; they bound nothing by themselves.
+//
+// WHAT THIS IS, AND IS NOT. A bound on DURATION (the kill) and, on Linux, on MEMORY
+// (the data-segment limit below). It is NOT a confinement: the child runs as the same
+// user as the server, can read /proc/<ppid>/environ (so the server's secrets), write
+// in /app (its own script, the chunks of .next), signal its parent and send it invalid
+// frames. A code-execution flaw in libvips is, as before, a compromise of the server.
+// The environment allowlist below only removes ACCIDENTAL inheritance (NODE_OPTIONS,
+// `--inspect`, a secret that would end up in the child's logs). Hardening (read-only
+// /app, another uid) is a separate batch (docs/CONVENTIONS.md, open points).
 //
 // Policy (queue, pixel ceiling, decoded-bytes budget, qualities) stays in
 // lib/imageMetadata.ts: this module only knows how to run a task against a child
@@ -18,9 +30,18 @@ import { join } from "node:path";
 /** One bound for a whole task, in real time (see docs/CONVENTIONS.md for its calibration). */
 export const DECODE_DEADLINE_SECONDS = 20;
 
-// Starting the child (fork + importing sharp) has its own delay: it is not decode
+// Starting the child (process + importing sharp) has its own delay: it is not decode
 // time, and a deadline that included it would refuse the first upload after a deploy.
-export const CHILD_STARTUP_SECONDS = 30;
+const CHILD_STARTUP_SECONDS = 30;
+
+// The memory bound of the child on Linux: `ulimit -d` (RLIMIT_DATA: heap and private
+// anonymous mappings). The kill bounds time, not the peak: a 1-pixel PNG with 40 zTXt
+// chunks of 40 MB each took the child to 5.8 GB (Windows) and the container has no
+// memory limit, Postgres sharing the host. 1,536 MB is ~2 times the peak of the heaviest
+// legitimate file at the real ceilings, measured in the production image under a 1 GB
+// limit (12-bit AVIF at the budget: 710 MB; GIF 6000x6600: 608 MB; WebP 40 Mpx: 424
+// MB), all of which pass. A bomb that goes past it dies on an allocation failure.
+export const CHILD_DATA_LIMIT_MB = 1536;
 
 /** Which of the application's paths a task belongs to: only used to say what was killed. */
 export type DecodeOperation = "strip" | "convert" | "model";
@@ -37,14 +58,18 @@ export type DecodeSession = {
   encode: (input: Buffer, limitInputPixels: number, maxLongEdge: number | null, output: EncodeOutput) => Promise<Buffer>;
 };
 
+/** What goes over the channel (the id is added when it is sent). Kept in step with scripts/image-decode-child.mjs. */
+type ChildRequest =
+  | { op: "metadata"; input: Buffer; limitInputPixels: number }
+  | { op: "encode"; input: Buffer; limitInputPixels: number; maxLongEdge: number | null; output: EncodeOutput };
+
 export type BridgeOptions = { deadlineMs?: number; startupMs?: number };
 
 // --- Environment of the child --------------------------------------------------
 
-// The child needs Node and sharp, nothing else. Built from an allowlist, so a
-// secret added to the server's environment tomorrow does not reach the process
-// that decodes what a user uploaded (DATABASE_URL, AUTH_*, CLOUDINARY_*, RESEND_*,
-// ANTHROPIC_*, OPENAI_* are never named, and never copied).
+// The child needs Node and sharp, nothing else. Built from an allowlist (see the
+// header for what that does and does not give): DATABASE_URL, AUTH_*, CLOUDINARY_*,
+// RESEND_*, ANTHROPIC_*, OPENAI_* are never named, and never copied.
 const CHILD_ENV_KEYS: readonly string[] = ["PATH", "NODE_ENV"];
 // Windows (development) cannot start a process, or give it a temp directory, without these.
 const CHILD_ENV_KEYS_WIN32: readonly string[] = ["SystemRoot", "TEMP", "TMP"];
@@ -73,10 +98,39 @@ export function buildChildEnv(source: Readonly<Record<string, string | undefined
   return env;
 }
 
+// --- How the child is started ---------------------------------------------------
+
+// Run by /bin/sh, arguments POSITIONAL (never interpolated into this text):
+//   $1 = the data limit in KB, then the command to exec (node, the script).
+// 1. oom_score_adj = 1000: when the host runs out of memory, the child is the victim
+//    designated for the whole system, before `next-server` or Postgres. Best effort
+//    (a failure is ignored): raising one's own score needs no privilege on Linux.
+// 2. `ulimit -d`: CLOSED BY DEFAULT. If it fails there is no exec, the child never says
+//    "ready", the task is refused and a line is logged; it never runs unbounded.
+const LINUX_LAUNCHER =
+  '{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; ' +
+  'ulimit -d "$1" || { echo "[image-decode] ulimit -d failed: the child is not started" >&2; exit 97; }; ' +
+  'shift; exec "$@"';
+
+export type ChildLaunch = { command: string; args: string[] };
+
+/**
+ * What to start. Linux: /bin/sh with the memory bound and the OOM priority above, then
+ * node on the script. Anywhere else (Windows, macOS: development) node directly, WITHOUT
+ * a memory bound — only the deadline applies there.
+ */
+export function buildChildLaunch(platform: NodeJS.Platform, nodePath: string, scriptPath: string, dataLimitMb: number = CHILD_DATA_LIMIT_MB): ChildLaunch {
+  if (platform !== "linux") return { command: nodePath, args: [scriptPath] };
+  return {
+    command: "/bin/sh",
+    args: ["-c", LINUX_LAUNCHER, "image-decode-child", String(Math.round(dataLimitMb * 1024)), nodePath, scriptPath],
+  };
+}
+
 // --- The child, one per process ------------------------------------------------
 
 type Pending = { resolve: (message: ChildResult) => void; reject: (error: Error) => void };
-type Worker = { process: ChildProcess; pending: Map<number, Pending>; nextId: number; alive: boolean };
+type Worker = { process: ChildProcess; pending: Map<number, Pending>; nextId: number; alive: boolean; busy: boolean };
 type BridgeState = { worker: Worker | null; starting: Promise<Worker> | null };
 
 // A singleton of the PROCESS on globalThis under a Symbol.for key, like the queue of
@@ -96,7 +150,7 @@ function bridgeState(): BridgeState {
   return created;
 }
 
-/** The pid of the running decode child, or null when none is running (the next task starts one). */
+/** The pid of the running decode child, or null when none is running (the next task starts one). For tests and diagnosis. */
 export function liveDecodeChildPid(): number | null {
   const worker = bridgeState().worker;
   return worker !== null && worker.alive ? (worker.process.pid ?? null) : null;
@@ -123,36 +177,44 @@ function parseChildMessage(message: unknown): { type: "ready" } | { type: "resul
 
 // Resolved from the working directory: /app in the image (the WORKDIR, where the
 // Dockerfile copies the script), the repository root in development and in tests.
-// Built with a path join on process.cwd(), which the bundler cannot follow.
 function childScriptPath(): string {
-  return join(/*turbopackIgnore: true*/ process.cwd(), "scripts", "image-decode-child.mjs");
+  return join(process.cwd(), "scripts", "image-decode-child.mjs");
 }
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
   return signal !== null ? `signal ${signal}` : `code ${code}`;
 }
 
-function failPending(worker: Worker, error: Error): void {
+/** The worker is gone (or about to be): never served again, whatever waits on it is rejected. */
+function forget(worker: Worker, error: Error): void {
+  const state = bridgeState();
+  worker.alive = false;
+  if (state.worker === worker) state.worker = null;
   for (const pending of worker.pending.values()) pending.reject(error);
   worker.pending.clear();
 }
 
 /** SIGKILL, and forget it at once: the next task starts a fresh child, it never waits for this one to be reaped. */
 function killWorker(worker: Worker): void {
-  const state = bridgeState();
-  worker.alive = false;
-  if (state.worker === worker) state.worker = null;
+  forget(worker, new Error("decode child killed"));
   worker.process.kill("SIGKILL");
-  failPending(worker, new Error("decode child killed"));
 }
 
 function startWorker(startupMs: number): Promise<Worker> {
   return new Promise<Worker>((resolve, reject) => {
-    const child = fork(childScriptPath(), [], {
+    const launch = buildChildLaunch(process.platform, process.execPath, childScriptPath());
+    // `turbopackIgnore` on the first argument is what silences Turbopack's "Dynamic filesystem
+    // access causes tracing of the whole project" warning, which would otherwise pull the
+    // whole project into the traced output. Observed on this call with `next build`, all
+    // four combinations: comment on the `spawn` argument (with or without one on the
+    // `process.cwd()` of the path): no warning; comment on `process.cwd()` alone, or none:
+    // the warning. (With the former `fork(path)` the same build FAILED without a comment,
+    // "Module not found: Can't resolve '/ROOT/scripts/image-decode-child.mjs'": the form
+    // of the call decides, so this is re-observed whenever it changes.)
+    const child = spawn(/*turbopackIgnore: true*/ launch.command, launch.args, {
       env: buildChildEnv(process.env, process.platform),
-      // Never inherit `--inspect` or a loader of the server.
-      execArgv: [],
-      // Buffers cross the channel as such.
+      // Buffers cross the channel as such; stdin ignored; output visible in the container logs.
+      // No exec flag of the server is passed (never `--inspect`).
       serialization: "advanced",
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
@@ -160,7 +222,7 @@ function startWorker(startupMs: number): Promise<Worker> {
     child.unref();
     child.channel?.unref();
 
-    const worker: Worker = { process: child, pending: new Map(), nextId: 0, alive: true };
+    const worker: Worker = { process: child, pending: new Map(), nextId: 0, alive: true, busy: false };
     let ready = false;
     const startupTimer = setTimeout(() => {
       console.error(`[image-decode] child not ready after ${startupMs} ms, killed`);
@@ -170,10 +232,7 @@ function startWorker(startupMs: number): Promise<Worker> {
 
     const lost = (error: Error): void => {
       clearTimeout(startupTimer);
-      const state = bridgeState();
-      worker.alive = false;
-      if (state.worker === worker) state.worker = null;
-      failPending(worker, error);
+      forget(worker, error);
       if (!ready) reject(error);
     };
 
@@ -226,7 +285,7 @@ function ensureWorker(startupMs: number): Promise<Worker> {
 
 // --- A task --------------------------------------------------------------------
 
-function send(worker: Worker, body: Record<string, unknown>): Promise<ChildResult> {
+function send(worker: Worker, body: ChildRequest): Promise<ChildResult> {
   return new Promise<ChildResult>((resolve, reject) => {
     if (!worker.alive) {
       reject(new Error("decode child is not running"));
@@ -243,23 +302,35 @@ function send(worker: Worker, body: Record<string, unknown>): Promise<ChildResul
   });
 }
 
+/** What the child refused, as an error. `invalidRequest` is a bug of THIS side (the child validates what we send), so it is logged. */
+function refusedBy(operation: string, result: { ok: false; reason: string } | { ok: true }): Error {
+  const reason = result.ok ? "unexpected answer" : result.reason;
+  if (reason === "invalidRequest") console.error(`[image-decode] the child refused a ${operation} request as invalid: a bug of the bridge`);
+  return new Error(`${operation} refused by the decode child (${reason})`);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 function isHeader(value: unknown): value is ImageHeader {
   if (typeof value !== "object" || value === null) return false;
-  const text = (key: string) => !(key in value) || Reflect.get(value, key) === undefined || typeof Reflect.get(value, key) === "string";
-  const num = (key: string) => !(key in value) || Reflect.get(value, key) === undefined || typeof Reflect.get(value, key) === "number";
-  return text("format") && text("depth") && num("width") && num("height") && num("channels");
+  const field = (key: string): unknown => Reflect.get(value, key);
+  const optionalText = (key: string) => field(key) === undefined || typeof field(key) === "string";
+  const optionalCount = (key: string) => field(key) === undefined || isPositiveInteger(field(key));
+  return optionalText("format") && optionalText("depth") && optionalCount("width") && optionalCount("height") && optionalCount("channels");
 }
 
 function sessionFor(worker: Worker): DecodeSession {
   return {
     readHeader: async (input, limitInputPixels) => {
       const result = await send(worker, { op: "metadata", input, limitInputPixels });
-      if (!result.ok || !isHeader(result.header)) throw new Error("metadata refused by the decode child");
+      if (!result.ok || !isHeader(result.header)) throw refusedBy("metadata", result);
       return result.header;
     },
     encode: async (input, limitInputPixels, maxLongEdge, output) => {
       const result = await send(worker, { op: "encode", input, limitInputPixels, maxLongEdge, output });
-      if (!result.ok || !(result.output instanceof Uint8Array)) throw new Error("encode refused by the decode child");
+      if (!result.ok || !(result.output instanceof Uint8Array)) throw refusedBy("encode", result);
       return Buffer.from(result.output.buffer, result.output.byteOffset, result.output.byteLength);
     },
   };
@@ -273,6 +344,9 @@ function sessionFor(worker: Worker): DecodeSession {
  * start rejects the task: the decode is never done in this process instead.
  * The rejection is always a plain Error: the caller turns it into its own refusal,
  * nothing of it reaches a user. Only the operation and the duration are logged.
+ *
+ * One task at a time: the queue of lib/imageMetadata.ts guarantees it, and a second
+ * task while one is in flight is a programming error, so it throws.
  */
 export async function runInChild<T>(
   operation: DecodeOperation,
@@ -281,6 +355,8 @@ export async function runInChild<T>(
 ): Promise<T> {
   const deadlineMs = options.deadlineMs ?? DECODE_DEADLINE_SECONDS * 1000;
   const worker = await ensureWorker(options.startupMs ?? CHILD_STARTUP_SECONDS * 1000);
+  if (worker.busy) throw new Error("a decode task is already running: tasks must go through runExclusive");
+  worker.busy = true;
   const startedAt = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -294,5 +370,6 @@ export async function runInChild<T>(
     return await Promise.race([task(sessionFor(worker)), deadline]);
   } finally {
     clearTimeout(timer);
+    worker.busy = false;
   }
 }

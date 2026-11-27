@@ -1,6 +1,6 @@
 // Files built byte by byte for the frame / page counter (lib/imageFrameCount.ts).
 // No sharp here: the counter must be testable without it, and
-// tests/image-frame-count-no-sharp.test.ts replaces sharp entirely.
+// tests/image-refused-before-child.test.ts replaces the decode child with a spy.
 
 /**
  * A GIF of `frames` images of 2x1 pixels (15 bytes each, LZW data included), global colour

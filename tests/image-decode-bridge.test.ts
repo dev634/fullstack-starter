@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterAll } from "vitest";
+import { describe, it, expect, vi, afterAll, afterEach, beforeEach } from "vitest";
 import ts from "typescript";
 import { readFileSync } from "node:fs";
 import sharp from "sharp";
-import { fork as realFork, spawn } from "node:child_process";
+import { fork as realFork, spawn as realSpawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,14 +17,27 @@ import {
 import { stripArchivedPhotoMetadata } from "@/lib/imageMetadata";
 import { auditProgressiveJpeg } from "@/tests/helpers/progressiveJpegFixture";
 import { tiffWithTags } from "@/tests/helpers/tiffFixture";
+import { zTxtBomb } from "@/tests/helpers/pngFixture";
 
-// The REAL child, forked from scripts/image-decode-child.mjs. Time assertions are generous.
-// `fork` is wrapped (not replaced) so the options it receives can be read.
-const { forkSpy } = vi.hoisted(() => ({ forkSpy: vi.fn() }));
+// The REAL child, started from scripts/image-decode-child.mjs. Time assertions are generous.
+// `spawn` is wrapped (not replaced) so the options it receives can be read.
+const { spawnSpy } = vi.hoisted(() => ({ spawnSpy: vi.fn<typeof import("node:child_process").spawn>() }));
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
-  forkSpy.mockImplementation(actual.fork);
-  return { ...actual, fork: forkSpy };
+  spawnSpy.mockImplementation(actual.spawn);
+  return { ...actual, spawn: spawnSpy };
+});
+
+/** The starts of the decode child (not the other processes this file launches itself). */
+const childStarts = () =>
+  spawnSpy.mock.calls.filter(([command, args]) => [command, ...(Array.isArray(args) ? args : [])].some((part) => String(part).includes("image-decode-child.mjs")));
+
+beforeEach(() => {
+  spawnSpy.mockClear();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const LIMIT = 40_000_000;
@@ -68,6 +81,11 @@ async function killFromOutside(): Promise<number> {
   process.kill(pid, "SIGKILL");
   await waitUntil(() => liveDecodeChildPid() === null);
   return pid;
+}
+
+/** Starts from nothing: whatever child is running is killed and forgotten. Makes a test independent of the one before. */
+async function startFromNoChild(): Promise<void> {
+  if (liveDecodeChildPid() !== null) await killFromOutside();
 }
 
 afterAll(() => {
@@ -120,32 +138,31 @@ describe("buildChildEnv: an allowlist, never a copy", () => {
 });
 
 describe("how the child is started", () => {
-  it("is forked with the allowlisted environment, no inherited exec flags, advanced serialization, no stdin", async () => {
-    Object.assign(process.env, {
-      DATABASE_URL: "postgres://secret",
-      AUTH_SECRET: "secret",
-      CLOUDINARY_API_SECRET: "secret",
-      NODE_OPTIONS: "",
-    });
-    try {
-      await runInChild("strip", decode(await jpeg()));
-      expect(forkSpy).toHaveBeenCalledTimes(1);
-      const [script, , options] = forkSpy.mock.calls[0];
-      expect(String(script).replace(/\\/g, "/")).toMatch(/\/scripts\/image-decode-child\.mjs$/);
-      expect(options.execArgv).toEqual([]);
-      expect(options.serialization).toBe("advanced");
-      expect(options.stdio).toEqual(["ignore", "inherit", "inherit", "ipc"]);
-      expect(Object.keys(options.env).filter((key) => /DATABASE|AUTH|CLOUDINARY|RESEND|ANTHROPIC|OPENAI/.test(key))).toEqual([]);
-    } finally {
-      delete process.env.DATABASE_URL;
-      delete process.env.AUTH_SECRET;
-      delete process.env.CLOUDINARY_API_SECRET;
-    }
+  it("is started with the allowlisted environment, no exec flag, advanced serialization, no stdin", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://secret");
+    vi.stubEnv("AUTH_SECRET", "secret");
+    vi.stubEnv("CLOUDINARY_API_SECRET", "secret");
+    vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=64");
+    await startFromNoChild();
+    await runInChild("strip", decode(await jpeg()));
+    const starts = childStarts();
+    expect(starts).toHaveLength(1);
+    const [command, args, options] = starts[0];
+    // Nothing of the server's own flags travels (no --inspect, no loader): node gets the script and nothing else.
+    const launched = [command, ...(args ?? [])].map(String);
+    expect(launched.some((part) => part.startsWith("--"))).toBe(false);
+    expect(options?.serialization).toBe("advanced");
+    expect(options?.stdio).toEqual(["ignore", "inherit", "inherit", "ipc"]);
+    const names = Object.keys(options?.env ?? {});
+    expect(names.filter((key) => /DATABASE|AUTH|CLOUDINARY|RESEND|ANTHROPIC|OPENAI|NODE_OPTIONS/.test(key))).toEqual([]);
   }, SLOW);
 
   it("one child per process: a second task reuses it, and so does a second instance of the module", async () => {
+    await startFromNoChild();
+    await runInChild("strip", decode(await jpeg()));
     const pid = liveDecodeChildPid();
     expect(pid).not.toBeNull();
+    const startsBefore = childStarts().length;
     await runInChild("strip", decode(await jpeg()));
     expect(liveDecodeChildPid()).toBe(pid);
     vi.resetModules();
@@ -153,7 +170,25 @@ describe("how the child is started", () => {
     expect(second.liveDecodeChildPid()).toBe(pid);
     await second.runInChild("strip", decode(await jpeg()));
     expect(second.liveDecodeChildPid()).toBe(pid);
-    expect(forkSpy).toHaveBeenCalledTimes(1);
+    expect(childStarts()).toHaveLength(startsBefore);
+  }, SLOW);
+
+  it("a task started while another is in flight is a programming error and throws; the first one is not disturbed", async () => {
+    await startFromNoChild();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = runInChild("strip", async (session) => {
+      await gate;
+      return decode(await jpeg())(session);
+    });
+    await waitUntil(() => liveDecodeChildPid() !== null);
+    await expect(runInChild("strip", decode(await jpeg()))).rejects.toThrow(/already running/);
+    release();
+    await expect(first).resolves.toBeInstanceOf(Buffer);
+    // And the bridge serves again once the first one is over.
+    await expect(runInChild("strip", decode(await jpeg()))).resolves.toBeInstanceOf(Buffer);
   }, SLOW);
 });
 
@@ -187,11 +222,17 @@ describe("the deadline kills the child", () => {
 
   it("the deadline covers the header read too: a 100-page x 4,000-tag TIFF is killed in metadata()", async () => {
     const tiff = tiffWithTags(100, 4_000);
+    await runInChild("strip", decode(await jpeg())); // a ready child, whose pid we can follow
+    const pid = liveDecodeChildPid();
+    expect(pid).not.toBeNull();
     const started = performance.now();
     await expect(runInChild("convert", async (session) => session.readHeader(tiff, LIMIT), { deadlineMs: 1_000 })).rejects.toBeInstanceOf(Error);
     expect(performance.now() - started).toBeLessThan(10_000);
+    await waitUntil(() => !isAlive(pid ?? 0));
+    expect(liveDecodeChildPid()).toBeNull();
     // And the application's own path would have refused it before any child (tests/image-refused-before-child.test.ts).
     await expect(runInChild("strip", decode(await jpeg()))).resolves.toBeInstanceOf(Buffer);
+    expect(liveDecodeChildPid()).not.toBe(pid);
   }, SLOW);
 
   it("measures the kill itself: from the deadline to a dead process", async () => {
@@ -229,13 +270,31 @@ describe("a child that dies", () => {
     await expect(stripArchivedPhotoMetadata(await jpeg(), "image/jpeg")).resolves.toBeInstanceOf(Buffer);
   }, SLOW);
 
-  it("a child that cannot start in time rejects the task, never decodes in this process, and the next task starts one", async () => {
-    await killFromOutside().catch(() => undefined);
-    await expect(runInChild("strip", decode(await jpeg()), { startupMs: 1 })).rejects.toBeInstanceOf(Error);
+  it("a child that cannot start in time rejects the task WITHOUT running it, and the next task starts one", async () => {
+    await startFromNoChild();
+    const task = vi.fn(async (session: DecodeSession) => decode(await jpeg())(session));
+    await expect(runInChild("strip", task, { startupMs: 1 })).rejects.toBeInstanceOf(Error);
+    // The task function (the only thing that talks to a decoder) never ran: nothing was decoded anywhere, in particular not here.
+    expect(task).not.toHaveBeenCalled();
     await waitUntil(() => liveDecodeChildPid() === null);
     const out = await runInChild("strip", decode(await jpeg()));
     expect(out.length).toBeGreaterThan(0);
   }, SLOW);
+
+  it.runIf(process.platform === "linux")(
+    "[Linux] a bomb that goes past the data limit kills the child on its own, well before the deadline, and the next task succeeds",
+    async () => {
+      // 120 zTXt chunks of 40 MB inflated, handed to the child WITHOUT the cleaning of lib/pngTextChunks.ts.
+      const bomb = zTxtBomb(120, 40);
+      await startFromNoChild();
+      const started = performance.now();
+      await expect(runInChild("strip", decode(bomb), { deadlineMs: 45_000 })).rejects.toBeInstanceOf(Error);
+      expect(performance.now() - started).toBeLessThan(40_000);
+      await waitUntil(() => liveDecodeChildPid() === null);
+      await expect(runInChild("strip", decode(await jpeg()))).resolves.toBeInstanceOf(Buffer);
+    },
+    120_000,
+  );
 });
 
 describe("an idle child holds nothing alive", () => {
@@ -255,7 +314,7 @@ console.log("HEADER " + JSON.stringify(header));
     try {
       const result = await new Promise<{ code: number | null; out: string; hung: boolean }>((resolve) => {
         const tsx = join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
-        const proc = spawn(process.execPath, [tsx, script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "inherit"] });
+        const proc = realSpawn(process.execPath, [tsx, script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "inherit"] });
         let out = "";
         proc.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
         const timer = setTimeout(() => {
@@ -276,26 +335,72 @@ console.log("HEADER " + JSON.stringify(header));
   }, 60_000);
 });
 
+/** What the child does at load: every call to sharp's cache / concurrency (any depth), and every module it loads. */
+function inspectChildSource(text: string) {
+  const source = ts.createSourceFile("child.mjs", text, ts.ScriptTarget.Latest, true);
+  const calls: Record<"cache" | "concurrency", string[]> = { cache: [], concurrency: [] };
+  const topLevel: string[] = [];
+  const modules: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const method = ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression)
+          ? callee.argumentExpression.text
+          : null;
+      if (method === "cache" || method === "concurrency") calls[method].push(node.getText(source));
+      if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === "require")) modules.push(node.getText(source));
+    }
+    if (ts.isImportDeclaration(node)) modules.push(node.moduleSpecifier.getText(source));
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  for (const statement of source.statements) {
+    if (ts.isExpressionStatement(statement)) topLevel.push(statement.expression.getText(source));
+  }
+  return { calls, topLevel, modules };
+}
+
 describe("how libvips is set up in the child", () => {
-  // The child is plain JS, so this reads its source: the calls must be made at load, before any request.
-  const source = ts.createSourceFile("child.mjs", readFileSync(join(process.cwd(), "scripts", "image-decode-child.mjs"), "utf8"), ts.ScriptTarget.Latest, true);
-  const topLevelCalls = source.statements
-    .filter(ts.isExpressionStatement)
-    .map((statement) => statement.expression)
-    .filter(ts.isCallExpression)
-    .map((call) => call.getText(source));
+  // The child is plain JS, so this reads its source: exactly one call of each, made at load.
+  const child = inspectChildSource(readFileSync(join(process.cwd(), "scripts", "image-decode-child.mjs"), "utf8"));
 
-  it("switches the operation cache off at load (it retained every decode: ~3 GB after 20 GIFs)", () => {
-    expect(topLevelCalls).toContain("sharp.cache(false)");
+  it("switches the operation cache off at load, once (it retained every decode: ~3 GB after 20 GIFs)", () => {
+    expect(child.calls.cache).toEqual(["sharp.cache(false)"]);
+    expect(child.topLevel).toContain("sharp.cache(false)");
   });
 
-  it("limits libvips to ONE thread (two cores shared with the web server and the database)", () => {
-    expect(topLevelCalls).toContain("sharp.concurrency(1)");
+  it("limits libvips to ONE thread at load, once (two cores shared with the web server and the database)", () => {
+    expect(child.calls.concurrency).toEqual(["sharp.concurrency(1)"]);
+    expect(child.topLevel).toContain("sharp.concurrency(1)");
   });
 
-  it("imports sharp, and nothing of the application", () => {
-    const imports = source.statements.filter(ts.isImportDeclaration).map((node) => node.moduleSpecifier.getText(source));
-    expect(imports).toEqual(['"sharp"']);
+  it("loads sharp and nothing else: no other import, no import(), no require()", () => {
+    expect(child.modules).toEqual(['"sharp"']);
+  });
+
+  // The three probes of that reading: the form that would break it, its neighbours, and a neighbour that must stay green.
+  describe("the reading itself (probes)", () => {
+    it("a second, contrary call is seen, whatever its depth", () => {
+      const text = 'import sharp from "sharp";\nsharp.cache(false);\nsharp.concurrency(1);\nfunction later() { sharp.cache(true); }';
+      expect(inspectChildSource(text).calls.cache).toEqual(["sharp.cache(false)", "sharp.cache(true)"]);
+    });
+
+    it("the neighbouring forms are seen: element access, a changed argument, import() and require()", () => {
+      const text = 'import sharp from "sharp";\nsharp["cache"](true);\nsharp.concurrency(8);\nawait import("pg");\nrequire("fs");';
+      const seen = inspectChildSource(text);
+      expect(seen.calls.cache).toEqual(['sharp["cache"](true)']);
+      expect(seen.calls.concurrency).toEqual(["sharp.concurrency(8)"]);
+      expect(seen.modules).toEqual(['"sharp"', 'import("pg")', 'require("fs")']);
+    });
+
+    it("a mention in a comment or a string is not a call", () => {
+      const text = 'import sharp from "sharp";\n// sharp.cache(true)\nconst note = "sharp.concurrency(8)";\nsharp.cache(false);';
+      const seen = inspectChildSource(text);
+      expect(seen.calls.cache).toEqual(["sharp.cache(false)"]);
+      expect(seen.calls.concurrency).toEqual([]);
+    });
   });
 });
 

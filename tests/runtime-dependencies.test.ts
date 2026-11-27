@@ -156,26 +156,61 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
  * `require()`. Type-only forms are skipped (see the module doc).
  */
 export function runtimePackagesIn(source: ts.SourceFile): Set<string> {
+  return scanModuleLoads(source).packages;
+}
+
+/** `createRequire(...)`, also as `module.createRequire(...)`. */
+function isCreateRequireCall(n: ts.Node): boolean {
+  if (!ts.isCallExpression(n)) return false;
+  const callee = n.expression;
+  return (ts.isIdentifier(callee) && callee.text === "createRequire") || (ts.isPropertyAccessExpression(callee) && callee.name.text === "createRequire");
+}
+
+/**
+ * Every module load of `source`, FAILING CLOSED: the packages it names, and the loads whose
+ * target cannot be read from the source. A load is `import()`, `require()`, `module.require()`
+ * and a call of whatever `createRequire(...)` returned (bound to a name or called at once).
+ * Its argument must be a string literal; anything else (a variable, a template, a
+ * concatenation, a missing argument) is `unresolvable` — a scanner that cannot say what is
+ * loaded must be red, not green.
+ */
+export function scanModuleLoads(source: ts.SourceFile): { packages: Set<string>; unresolvable: string[] } {
   const packages = new Set<string>();
+  const unresolvable: string[] = [];
   const add = (specifier: string) => {
     const name = packageNameOf(specifier);
     if (name) packages.add(name);
+  };
+  // Names bound to a require function made by createRequire.
+  const loaders = new Set<string>();
+  const collect = (n: ts.Node) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && isCreateRequireCall(n.initializer)) {
+      loaders.add(n.name.text);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(source);
+  const isLoaderCall = (call: ts.CallExpression): boolean => {
+    const callee = call.expression;
+    if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
+    if (ts.isIdentifier(callee)) return callee.text === "require" || loaders.has(callee.text);
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text === "require" && ts.isIdentifier(callee.expression) && callee.expression.text === "module";
+    return isCreateRequireCall(callee);
   };
   const visit = (n: ts.Node) => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
       if (!isTypeOnlyImport(n)) add(n.moduleSpecifier.text);
     } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
       if (!n.isTypeOnly) add(n.moduleSpecifier.text);
-    } else if (ts.isCallExpression(n)) {
+    } else if (ts.isCallExpression(n) && isLoaderCall(n)) {
       const [arg] = n.arguments;
-      const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
-      if ((isDynamicImport || isRequire) && arg && ts.isStringLiteral(arg)) add(arg.text);
+      if (arg && ts.isStringLiteral(arg)) add(arg.text);
+      else unresolvable.push(n.getText(source));
     }
     ts.forEachChild(n, visit);
   };
   visit(source);
-  return packages;
+  return { packages, unresolvable };
 }
 
 function parse(fileName: string, text: string): ts.SourceFile {
@@ -276,6 +311,54 @@ describe("runtime dependencies", () => {
       .map(rel)
       .filter((relPath) => runtimePackagesIn(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).has("sharp"));
     expect(importers).toEqual(["scripts/image-decode-child.mjs"]);
+  });
+
+  // Fail closed: a load whose target cannot be read from the source (a variable, a template,
+  // createRequire, module.require) could load sharp without this file ever saying so. Any
+  // shipped file doing that is red, not skipped.
+  it("no shipped file loads a module through an argument that is not a string literal", () => {
+    const offenders = shippedSourceFiles()
+      .map(rel)
+      .flatMap((relPath) =>
+        scanModuleLoads(parse(relPath, readFileSync(join(ROOT, ...relPath.split("/")), "utf8"))).unresolvable.map((call) => `${relPath}: ${call}`),
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  describe("the scanner fails closed (probes)", () => {
+    const unresolvableIn = (text: string): string[] => scanModuleLoads(parse("probe.mts", text)).unresolvable;
+
+    it("the original form: require / import() of a variable is red", () => {
+      expect(unresolvableIn("const name = 'sharp'; require(name);")).toHaveLength(1);
+      expect(unresolvableIn("const name = 'sharp'; await import(name);")).toHaveLength(1);
+    });
+
+    it("the neighbouring forms are red too: template, concatenation, createRequire, module.require", () => {
+      for (const form of [
+        "require(`sharp`);",
+        "await import(`sha${'rp'}`);",
+        "require('sha' + 'rp');",
+        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); r(name);",
+        "import { createRequire } from 'node:module'; createRequire(import.meta.url)(name);",
+        "module.require(name);",
+        "import()",
+      ]) {
+        expect(unresolvableIn(form), form).toHaveLength(1);
+      }
+    });
+
+    it("the neighbouring form that is legitimate stays green, and a literal through createRequire is still seen as an import", () => {
+      for (const form of [
+        "require('node:fs'); await import('node:path'); module.exports = {};",
+        "// require(name)\nconst text = 'import(name)';",
+        "import { createRequire } from 'node:module'; const r = createRequire(import.meta.url); r('sharp');",
+        "const other = (x) => x; other(name);",
+      ]) {
+        expect(unresolvableIn(form), form).toEqual([]);
+      }
+      const viaCreateRequire = "import { createRequire } from 'node:module'; createRequire(import.meta.url)('sharp'); module.require('pdfkit');";
+      expect(scanModuleLoads(parse("probe.mts", viaCreateRequire)).packages).toEqual(new Set(["sharp", "pdfkit"]));
+    });
   });
 
   // The probes of that test: the form that bit, its neighbours, and the form that must stay green.

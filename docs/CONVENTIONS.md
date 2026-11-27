@@ -616,9 +616,12 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   `lib/imageDecodeBridge.ts`, `scripts/image-decode-child.mjs` ; quatre chemins
   applicatifs : photo d'entreprise, photo d'équipement, archive du bulletin,
   image du bulletin pour le modèle) :
-  - **ce qui borne une tâche, c'est la mort d'un processus** : le processus
-    serveur n'importe plus sharp. Tout appel (`metadata()` compris) s'exécute
-    dans un **processus enfant** forké depuis `scripts/image-decode-child.mjs`
+  - **ce qui borne une tâche, c'est la mort d'un processus** : aucun code de
+    l'application n'importe sharp, et `next-server` ne le charge pas non plus
+    par son optimiseur d'images (`images.unoptimized: true`, `next.config.ts` ;
+    `/_next/image` répond 404, vérifié sous `next start`). Tout appel
+    (`metadata()` compris) s'exécute dans un **processus enfant** lancé depuis
+    `scripts/image-decode-child.mjs`
     (JS ESM simple, copié dans l'image par le Dockerfile, chemin résolu depuis
     `process.cwd()`), et ce processus reçoit **`SIGKILL` à l'échéance de
     `DECODE_DEADLINE_SECONDS = 20`**, en temps réel. Le délai couvre tous les
@@ -627,7 +630,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     ne s'interrompt pas depuis JS. Un JPEG progressif de 3 529 balayages
     (525 Ko) est absorbé tout entier par `jpeg_start_decompress`, avant toute
     vérification du délai ; un TIFF de 100 pages × 4 000 étiquettes (4,8 Mo)
-    passe des dizaines de secondes dans `metadata()` ; chaque amplificateur
+    passe 28 s dans `metadata()` (Windows, en processus) ; chaque amplificateur
     fermé en JS a été suivi d'un autre. À l'échéance, la tâche est refusée
     `corruptedImage` (aucun code nouveau côté utilisateur), une ligne de journal
     dit l'opération et la durée (jamais le contenu), et la tâche suivante
@@ -638,24 +641,60 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     tâche est refusée et le décodage ne se replie **jamais** dans le processus
     serveur. `SHARP_TIMEOUT_SECONDS` et `.timeout()` n'existent plus : une
     borne, une constante ;
-  - **l'enfant est un exécutant fermé, sans secret** : deux opérations
+  - **une borne mémoire sur Linux** : le kill borne la durée, pas le pic, et
+    le conteneur n'a pas de limite mémoire (Postgres sur le même hôte). Un PNG
+    d'un pixel de 1,5 Mo portant 40 chunks `zTXt` qui se décompressent chacun en
+    40 Mo montait l'enfant à 5,8 Go (Windows) et réussissait. L'enfant est donc
+    lancé par `/bin/sh` (`buildChildLaunch`, arguments **positionnels**, jamais
+    interpolés dans le texte du shell) avec `ulimit -d` à
+    `CHILD_DATA_LIMIT_MB = 1536` — environ 2 fois le pic légitime le plus haut,
+    710 Mo (AVIF 12 bits au budget), mesuré dans l'image sous une limite de 1 Go
+    — et `oom_score_adj = 1000` : à court de mémoire, l'hôte tue l'enfant avant
+    `next-server` ou Postgres (au mieux : un échec est ignoré). **Fermé par
+    défaut** : si `ulimit` échoue, pas d'`exec` (code 97), l'enfant n'est jamais
+    prêt, la tâche est refusée et une ligne est journalisée. Sous Windows et macOS
+    (développement) l'enfant est lancé directement, **sans borne mémoire** : seul
+    le délai s'applique. Observé sur alpine/busybox et sur debian/dash (uid 1001) :
+    « Max data size » à 1 610 612 736 octets, `oom_score_adj` à 1000, code 97 si
+    la limite est invalide, une allocation répétée s'arrête sous la limite ; la
+    bombe à 120 chunks s'arrête d'elle-même (`GLib-ERROR`, SIGABRT, 6,9 s) sous
+    1 Go. Les trois tests Linux de `tests/image-decode-launcher.test.ts` et celui
+    de la bombe de `tests/image-decode-bridge.test.ts` ne tournent que sous Linux ;
+  - **les chunks de texte d'un PNG sont retirés avant l'enfant**
+    (`lib/pngTextChunks.ts`, fonction pure : `tEXt`, `zTXt`, `iTXt`, que
+    l'application jette de toute façon ; `iCCP` et `eXIf` — l'orientation — sont
+    gardés ; le CRC est propre à chaque chunk ; une structure coupée est recopiée
+    telle quelle). C'est un refus précoce de l'amplificateur connu, pas une borne :
+    la borne mémoire ci-dessus est ce qui tient pour les amplificateurs inconnus ;
+  - **l'enfant est un exécutant fermé, à l'environnement filtré** : deux opérations
     (`metadata`, `encode`), chaque requête validée clé par clé, tout le reste
     refusé par un code (`invalidRequest`, `decodeFailed`) — il ne renvoie jamais
-    de message natif (il le journalise sur sa propre sortie d'erreur). Son
-    environnement est construit **par liste blanche** (`buildChildEnv`, fonction
+    de message natif (il le journalise sur sa propre sortie d'erreur ; un
+    `invalidRequest` est un bug du pont, journalisé des deux côtés, clés seulement).
+    Son environnement est construit **par liste blanche** (`buildChildEnv`, fonction
     pure testée : `PATH`, `NODE_ENV`, plus `SystemRoot`/`TEMP`/`TMP` sous
     Windows) : ni `DATABASE_URL`, ni `AUTH_*`, `CLOUDINARY_*`, `RESEND_*`,
-    `ANTHROPIC_*`, `OPENAI_*`. `execArgv: []` (jamais d'`--inspect` hérité),
+    `ANTHROPIC_*`, `OPENAI_*`. Aucun drapeau du serveur n'est transmis (jamais
+    d'`--inspect` hérité),
     sérialisation `advanced`, stdin ignoré, stdout/stderr visibles dans les
     journaux du conteneur. Un seul enfant par processus, gardé sur `globalThis`
     sous un `Symbol.for` comme la file ; il est `unref` (lui et son canal) : un
     enfant inactif ne retient ni le serveur ni vitest, et il sort quand l'IPC
     se déconnecte. Il règle `sharp.cache(false)` et `sharp.concurrency(1)` (le
-    VPS a deux cœurs partagés avec le serveur web et la base ; le calibrage a
-    été mesuré sur un seul processeur). **La politique reste dans le parent** :
+    VPS a deux cœurs partagés avec le serveur web et la base ; le décodeur n'en
+    prend qu'un). **La politique reste dans le parent** :
     le plafond de pixels, le budget d'octets décodés (l'enfant renvoie l'en-tête,
     le parent décide), les qualités et le grand côté sont envoyés avec chaque
-    requête, une seule source par constante ;
+    requête, une seule source par constante. **Ce n'est PAS un confinement** : c'est
+    une borne de durée et de mémoire. L'enfant tourne sous le même uid que le
+    serveur : il peut lire `/proc/<ppid>/environ` (donc les secrets du serveur),
+    écrire dans `/app` (`chown -R nextjs` : son propre script, les chunks de
+    `.next`), envoyer un signal à son parent et lui envoyer des trames IPC
+    invalides. Une faille d'exécution de code dans libvips reste une compromission
+    du serveur, comme avant. La liste blanche d'environnement ne retire que
+    l'héritage **accidentel** (`NODE_OPTIONS`, `--inspect`, un secret qui
+    finirait dans les journaux de l'enfant). Le durcissement (`/app` en lecture
+    seule, un autre uid pour l'enfant) est un **lot séparé, ouvert** ;
   - **une file unique du processus**, de concurrence 1, **bornée à 8 tâches en
     attente** (la suivante est refusée tout de suite, code `imageBusy`, traduit
     par chaque appelant : `uploadBusy` pour les photos, `scan.errors.imageBusy`
@@ -666,8 +705,9 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     enfant), pas par un `sharp(...)` direct. **La part par compte n'est PAS
     bornée** : un compte peut encore occuper les 9 places ; la limite par
     compte est le lot suivant (`fix/televersements`) ;
-  - **des refus précoces, en JS, AVANT l'enfant** (`lib/imageFrameCount.ts`,
-    sans importer sharp) : ils ne bornent **rien** par eux-mêmes — ce sont des
+  - **des refus précoces, en JS, AVANT la file et l'enfant** (`lib/imageFrameCount.ts`,
+    sans importer sharp ; un fichier refusé ne prend jamais de place dans la file et
+    ne reçoit jamais `imageBusy`) : ils ne bornent **rien** par eux-mêmes — ce sont des
     refus à quelques millisecondes des amplificateurs déjà connus, pour ne pas
     attendre 20 s ni démarrer un décodage. Le format vient du détecteur unique
     (`detectRasterImageMediaType`, `lib/fileSignature.ts`), jamais du type
@@ -684,8 +724,11 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     inconnu, une fin prématurée ou des octets parasites à la place du `0x3B`
     marquent la fin (+1 si l'image coupée avait commencé), sans image complète
     c'est `invalid`. **WebP** : chunks `ANMF`, comparés par mot de 32 bits, au
-    plus `MAX_WEBP_FRAMES = 1 000`. **TIFF** : au plus 100 pages (seule la page
-    0 sert), 256 entrées par IFD, 4 096 sur la chaîne ; un pointeur d'IFD suivant
+    plus `MAX_WEBP_FRAMES = 10 000` (comme le GIF : une animation d'une minute
+    passe en GIF, le WebP ne doit pas être plus strict pour le même fichier).
+    **TIFF** : au plus 100 pages — **refus délibéré** : seule la page 0 sert, un
+    scan de document de 150 pages n'est pas une photo d'entreprise ni un bulletin,
+    et les bornes d'étiquettes plafonnent le reste —, 256 entrées par IFD, 4 096 sur la chaîne ; un pointeur d'IFD suivant
     hors du fichier **après le premier IFD** termine la chaîne, un premier IFD
     hors du fichier est `invalid` ; garde de boucle ; BigTIFF refusé ;
   - **le cache de libvips est désactivé** dans l'enfant : il retenait chaque
@@ -698,17 +741,20 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     profondeur et les canaux nombreux. TIFF : seulement `uchar`/`ushort`, 4
     canaux au plus. **Non calibré sur de vrais AVIF 10 bits de téléphone (non
     prouvé)** : éprouvé sur des fichiers synthétiques seulement ;
-  - **l'optimiseur `/_next/image` est fermé aux URL distantes** (aucun
-    `remotePattern` dans `next.config.ts`, gardé par
-    `tests/next-config-images.test.ts`) : il est sans authentification et
-    décodait hors de la file ; `ClientAvatar` rend en `unoptimized` l'URL que
-    Cloudinary a déjà transformée. Côté même origine, `images.localPatterns`
-    n'admet que `/_next/static/media/**` (au lieu de `**` par défaut, qui
-    laissait l'optimiseur aller chercher n'importe quel chemin, sans session) ;
+  - **l'optimiseur `/_next/image` est coupé** (`images.unoptimized: true` dans
+    `next.config.ts`, gardé par `tests/next-config-images.test.ts`) : il est sans
+    authentification et décodait avec le sharp de `next-server`, hors de l'enfant (donc
+    hors délai, hors borne mémoire, hors file) ; sous `next start`, `/_next/image`
+    répond 404. Son seul usage, `ClientAvatar`, rend déjà en `unoptimized` l'URL que
+    Cloudinary a transformée. Deux verrous restent en second : aucun `remotePattern`,
+    et `images.localPatterns` limité à `/_next/static/media/**` ;
   - **sharp n'est importé que par le script enfant**, parmi les fichiers
     livrés : `tests/runtime-dependencies.test.ts` lit les scripts livrés depuis
     le Dockerfile et rougit si le serveur (ou tout autre fichier livré) importe
-    sharp, ou si le `COPY` du script disparaît.
+    sharp, ou si le `COPY` du script disparaît. Ce scanner **échoue fermé** : tout
+    `require`, `import()`, `module.require` ou appel d'une fonction issue de
+    `createRequire` dont l'argument n'est pas un littéral de chaîne fait rougir le
+    test (un scanner qui ne sait pas dire ce qui est chargé n'est pas vert).
   **Calibrage du délai de 20 s, mesuré dans l'image de production** (2026-11-27,
   image de production d'avant ce lot, node 22.23.5, sharp
   0.35.5 / libvips 8.18.7, sur le VPS ; méthode : `docker run --cpus=1
@@ -728,7 +774,22 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   | PNG entrelacé 40 Mpx | 0,8 s | — |
   | TIFF deflate ou LZW 40 Mpx ≤ 5 Mo | 0,5 à 0,7 s | — |
 
-  Pic de RSS cumulé : 754 Mo. 20 s fait environ trois fois le pire cas légitime.
+  Pic de RSS cumulé : 754 Mo. **Dans la configuration livrée** (`concurrency(1)`,
+  `ulimit -d` à 1 Go, même méthode, image construite depuis la branche de ce lot) tous
+  les fichiers légitimes aux plafonds réels passent :
+
+  | Fichier | Durée | Pic RSS |
+  |---|---|---|
+  | AVIF 12 bits au budget | 1,3 s | 710 Mo |
+  | GIF 6000×6600 | 1,6 s | 608 Mo |
+  | TIFF LZW 40 Mpx | 0,8 s | 330 Mo |
+  | WebP 40 Mpx 10 Mo | 6,0 s | 424 Mo |
+  | PNG entrelacé 40 Mpx | 0,96 s | 218 Mo |
+
+  Le pire cas légitime est donc de **6,0 s** : 20 s fait environ 3,3 fois ce pire
+  cas, et la limite de 1 536 Mo environ 2 fois le pic de 710 Mo. À 1,5 Go, la bombe
+  à 40 chunks `zTXt` s'arrête au bout de 9,8 s (pic 1 412 Mo) ; sans limite c'est
+  l'OOM du conteneur.
   Une mesure plus tôt le même jour avait vu des premiers décodages plus lents
   d'environ 6 s, non reproduits ; attribution : le premier chargement d'une
   image fraîchement tirée, c'est-à-dire le premier décodage après un déploiement
@@ -746,7 +807,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   après le passage au mot de 32 bits (l'audit avait mesuré 112 à 137 ms avec
   la chaîne décodée par chunk ; la valeur « ~40 ms » publiée avant ne se
   reproduisait pas) ; `metadata()` sur des WebP animés de 2×2 : 1,8 ms à 1 000
-  images, 130 ms à 10 000, d'où le plafond WebP de 1 000 ; ces mêmes deux
+  images, 130 ms à 10 000 (pas de quoi abaisser le plafond sous celui du GIF) ; ces mêmes deux
   attaques, passées directement à l'enfant, y prennent 27,7 s (JPEG) et 84 s
   (TIFF) ; un enfant tué à une échéance de 500 ms rend sa tâche refusée en
   514 ms et le processus a disparu au même instant (mesuré, Windows : l'arrêt
@@ -770,7 +831,11 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
   **Limite de débit par compte** sur les photos d'entreprise et d'équipement
   (la file borne la mémoire, pas qui l'occupe), erreurs de SDK relayées,
   compensations des autres téléversements. (3) **Conteneur sans limite
-  mémoire** : le kill borne la durée, pas le pic. **`failOn: "none"`** : un JPEG
+  mémoire** : la borne mémoire de l'enfant n'existe que sous Linux (`ulimit -d`) et
+  ne couvre pas le reste du conteneur. (4) **Isolation de l'enfant** : même uid que
+  le serveur, `/app` inscriptible, lecture possible de `/proc/<ppid>/environ` (voir
+  plus haut) — durcissement (`/app` en lecture seule, un autre uid) en lot séparé,
+  non fait. **`failOn: "none"`** : un JPEG
   tronqué (marqueur de fin absent, transfert interrompu) est décodé et
   nettoyé au lieu d'être refusé — Cloudinary l'acceptait avant ; un en-tête
   réellement corrompu reste refusé. Même comportement pour les quatre

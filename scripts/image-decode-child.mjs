@@ -1,14 +1,15 @@
 // @ts-check
-// The ONLY place the application imports sharp. Forked by lib/imageDecodeBridge.ts
-// and KILLED (SIGKILL) when a task outlasts its deadline: what bounds a decode is
+// The ONLY place the application imports sharp. Started by lib/imageDecodeBridge.ts
+// (through /bin/sh with a memory limit on Linux) and KILLED (SIGKILL) when a task outlasts its deadline: what bounds a decode is
 // the death of this process, not a timeout inside libvips (a JPEG of 3,529 progressive
 // scans is absorbed by one native call, `jpeg_start_decompress`, that no JS check
 // and no `.timeout()` ever sees).
 //
 // Plain JavaScript ESM, executable directly by `node` — no `tsx`, no build step —
 // shipped by the Dockerfile like scripts/retype-existing-guarded-assets.mjs. It
-// imports nothing but sharp and Node built-ins (tests/runtime-dependencies.test.ts
-// reads the shipped scripts from the Dockerfile and checks that).
+// imports nothing but sharp (tests/image-decode-bridge.test.ts reads its source;
+// tests/runtime-dependencies.test.ts reads the shipped scripts from the Dockerfile and
+// checks that sharp is imported by this file alone).
 //
 // A CLOSED executor: two operations, `metadata` and `encode`, whose request is
 // validated key by key; anything else is refused with a code, never executed.
@@ -21,8 +22,11 @@
 // What is fixed here is how the decoder is OPENED (`failOn: "none"`, sequential
 // read), because it has no other source.
 //
+// This is a bound on time and memory, NOT a confinement: same user as the server (see
+// the header of lib/imageDecodeBridge.ts).
+//
 // Wire contract (kept in step with lib/imageDecodeBridge.ts, proved by
-// tests/image-decode-child.test.ts):
+// tests/image-decode-bridge.test.ts):
 //   in : { id, op: "metadata", input, limitInputPixels }
 //        { id, op: "encode", input, limitInputPixels, maxLongEdge | null,
 //          output: { format: "jpeg", quality } | { format: "png" | "webp" | "gif" } }
@@ -146,6 +150,8 @@ process.on("message", async (message) => {
   const request = parseRequest(message);
   if (request === null) {
     const id = isRecord(message) && isIntegerBetween(message.id, 0, Number.MAX_SAFE_INTEGER) ? message.id : -1;
+    // The bridge only sends well-formed requests: this is a bug on its side. Keys only, never values.
+    console.error("[image-decode-child] invalid request, keys:", isRecord(message) ? Object.keys(message).join(",") : typeof message);
     send({ type: "result", id, ok: false, reason: "invalidRequest" });
     return;
   }

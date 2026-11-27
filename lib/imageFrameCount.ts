@@ -32,15 +32,21 @@ import { detectRasterImageMediaType } from "@/lib/fileSignature";
 export const MAX_GIF_FRAMES = 10_000;
 
 // Only the first image is ever used (an animated WebP is reduced to its first frame),
-// so the cap only has to keep `metadata()` cheap.
-export const MAX_WEBP_FRAMES = 1_000;
+// so the cap only has to keep `metadata()` cheap: on real animated WebPs of 2x2 frames,
+// `metadata()` takes 1.8 ms at 1,000 frames and 130 ms at 10,000 (Windows, in process).
+// 10,000, like the GIF: a minute of animation at 30 fps passes as a GIF, so the WebP
+// must not be stricter for the same file.
+export const MAX_WEBP_FRAMES = 10_000;
 
-// Only page 0 of a TIFF is used, and a scan of a document is one to a few pages. The
-// pages x tags product is what costs: 100 pages of 4,000 tags (4.8 MB) spent 28 s in
-// `metadata()`, hence the two entry bounds next to it.
+// A DELIBERATE refusal: only page 0 of a TIFF is used, a 150-page document scan is not a
+// company photo or a delivery note, and a 100-page cap refuses nothing these paths are
+// for. The pages x tags product is what costs: 100 pages of 4,000 tags (4.8 MB) spent
+// 28 s in `metadata()` on Windows, in process (49 s for the whole decode in the production
+// image), hence the two
+// entry bounds next to it, which cap the rest.
 export const MAX_TIFF_PAGES = 100;
 export const MAX_TIFF_ENTRIES_PER_IFD = 256;
-export const MAX_TIFF_ENTRIES_TOTAL = 4_096;
+const MAX_TIFF_ENTRIES_TOTAL = 4_096;
 
 // A progressive JPEG is absorbed whole by `jpeg_start_decompress`, scan after scan:
 // libjpeg's default script emits 10 for three components, mozjpeg a dozen; the file
