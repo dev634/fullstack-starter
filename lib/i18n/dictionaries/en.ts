@@ -548,6 +548,8 @@ const en: Dictionary = {
             confirmNewHeading: "New materials created ({count})",
             back: "Back",
             confirm: "Confirm and update",
+            close: "Close",
+            partialTitle: "Materials applied",
             messages: {
                 scanned: "Delivery note scanned.",
                 applied: "Stock updated.",

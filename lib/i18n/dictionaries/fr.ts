@@ -552,6 +552,8 @@ const fr = {
             confirmNewHeading: "Nouveaux matériels créés ({count})",
             back: "Retour",
             confirm: "Confirmer et mettre à jour",
+            close: "Fermer",
+            partialTitle: "Matériaux appliqués",
             messages: {
                 scanned: "Bulletin analysé.",
                 applied: "Stock mis à jour.",
