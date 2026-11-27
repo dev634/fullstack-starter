@@ -748,7 +748,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     (prouvé), avec `--ulimit core=1:1` aucun, et un `-c 0` posé sous cette limite à 1
     en réécrit un (busybox ne sait d'ailleurs pas poser 1 octet : il compte par blocs
     de 512). La garde vit au **niveau du conteneur** (`ulimits: core: 1:1` du service
-    `web`, `docker-compose.prod.yml`, à reporter sur le VPS au déploiement) et
+    `web`, `docker-compose.prod.yml`, à reporter sur le VPS au déploiement : le déploiement ne recopie pas ce fichier, reporté sur le VPS le 2026-11-27 avant le merge de #256 ; vérifié par SSH le 2026-11-28 à `0b2e320` : `docker inspect` rend `core` 1:1, et `Max core file size 1 1` dans `next-server` comme dans l'enfant — `deploy/README.md`) et
     l'enfant en **hérite** sans changement (test Linux : `/proc/self/limits` du parent
     et de l'enfant). Observé sur le VPS : un `abort()` dans un conteneur jetable de
     l'image de production affiche « core dumped », `/var/crash` et
@@ -979,7 +979,7 @@ c'est leur duplication partielle qui a produit les défauts de PR #187.
     voient) : `next-server` ne doit **jamais** avoir chargé sharp ni libvips —
     **0 correspondance `sharp`/`vips` dans `/proc/<pid>/maps` du processus
     `next-server`**, y compris après un envoi de photo (c'est l'enfant qui les
-    charge). Vérifié sur des images construites depuis `23009bc`, `51b9d10` et `27e004e` (pas encore sur l'image de production, après le merge) ; à rejouer après tout
+    charge). Vérifié sur des images construites depuis `23009bc`, `51b9d10` et `27e004e`. **En production à `0b2e320`** (sondé sans SSH le 2026-11-27 : `/api/health` rend `version` `0b2e320` et `imageDecoder` `ready`, `/_next/image` répond 404) ; et, par SSH le 2026-11-28 dans le conteneur de production à `0b2e320` : **0** correspondance `sharp`/`vips` dans les `maps` de `next-server`, l'enfant de décodage seul les charge ; à rejouer après tout
     changement de `next.config.ts` (`images`) ou de ce qui importe sharp ;
   - **sharp n'est importé que par le script enfant**, parmi les fichiers
     livrés : `tests/runtime-dependencies.test.ts` lit les scripts livrés depuis
@@ -1397,6 +1397,33 @@ paquet importé par le code embarqué.
   (`linkIsListed`) affiche en lecture seule un lien vers une tâche de série,
   absente de la liste, et n'envoie pas `link` (absent = inchangé). Le second
   déliait le matériel à chaque enregistrement jusqu'à #249.
+- **Messages et surcouches (#257)** : un seul hôte de messages, `TOAST_HOST_ID`
+  (`components/toastHost`), rendu dans `app/layout.tsx` en `z-60` — le seul
+  endroit où ce `z-index` s'écrit, au-dessus des modales en `z-50`.
+  `components/Toast.tsx` s'y rend par portail, et chaque formulaire lui passe
+  `result={state}` : un nouvel objet d'état est un nouveau résultat, même à
+  texte identique (deuxième mauvais mot de passe). `components/Modal.tsx` et
+  `components/ModalShell.tsx` passent par `components/BodyPortal.tsx`. Verrou :
+  `tests/overlay-stacking.test.ts` (découvre les éléments `fixed` de `app/`,
+  `components/`, `forms/` ; taille exacte : 6 surcouches plus l'hôte, comptées
+  « à `e6efb9d` + ce changement » selon son en-tête, c'est-à-dire avec #257). ⚠️ **Le portail n'y est exigé que de `Modal` et `ModalShell`, nommés
+  à la main** : `components/ScanDeliveryNoteModal.tsx`,
+  `forms/EditInterventionForm.tsx`, `forms/EditMaterialForm.tsx` et
+  `forms/EditTaskForm.tsx` ont leur propre `fixed inset-0 z-50` sans portail
+  (vérifié à `0b2e320`), donc restent piégeables par un ancêtre empilé — à
+  passer par `ModalShell`, puis exiger le portail de **toute** surcouche
+  découverte au lieu d'une liste.
+- **Un résultat que l'écran doit traiter autrement a son propre `type`** :
+  `ApplyDeliveryScanActionState` porte `"warning"` (matériaux appliqués, archive
+  non enregistrée), que `ScanDeliveryNoteModal` teste ; il était rendu
+  `"success"` avec un autre texte, et la modale se fermait sans rien dire. Les
+  redirections après une action se conditionnent à `state.type === "success"`
+  (les six formulaires de `forms/` qui redirigent — ajout et modification
+  d'entreprise, trois de projet, réinitialisation du mot de passe —, recensés
+  par grep de `router.push` à `0b2e320`) ;
+  `app/clients/[id]/_components/DeleteClientButton.tsx` redirige encore sur
+  « tout sauf `error` » — sans défaut aujourd'hui, à resserrer si l'action gagne
+  un autre type.
 
 ## Modèles de personnes
 
